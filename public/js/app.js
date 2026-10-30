@@ -68,7 +68,7 @@ async function loadLines(attempt = 0) {
 }
 
 function applyLayerPrefs() {
-  map.setModes(P.MODE_ITEMS.filter((m) => prefs.modes[m] !== false));
+  map.setModes(P.MODE_ITEMS.filter((m) => P.modeOn(prefs, m)));
   for (const [g] of P.GROUP_ITEMS) if (g !== 'obras') map.setGroupVisible(g, prefs.groups[g] !== false);
   map.setObras(prefs.obras);
 }
@@ -109,7 +109,8 @@ function flush() {
   if (parts.has('health') && state.tab === 'sources') P.renderSources(document.getElementById('panel-sources'), state.health);
 }
 
-function renderVehiclesPanel(vehicles = allVehicles()) {
+function renderVehiclesPanel(all = allVehicles()) {
+  const vehicles = all.filter((v) => P.modeOn(prefs, v.mode));
   P.renderVehicles(document.getElementById('vehicles-list'), P.filterVehicles(vehicles, state.search), vehicles.length);
 }
 
@@ -237,6 +238,7 @@ layersBody.addEventListener('change', (ev) => {
   }
   savePrefs();
   applyLayerPrefs();
+  if (input.dataset.mode && state.tab === 'vehicles') renderVehiclesPanel();
 });
 
 const layersToggle = document.getElementById('layers-toggle');

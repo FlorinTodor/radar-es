@@ -132,7 +132,10 @@ export function renderSources(el, health) {
   }).join('');
 }
 
-export const MODE_ITEMS = ['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'otros'];
+export const MODE_ITEMS = ['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'bus', 'otros'];
+// Modos ocultos hasta que el usuario los active (los autobuses taparían los trenes).
+export const MODES_OFF_BY_DEFAULT = ['bus'];
+export const modeOn = (prefs, m) => prefs.modes[m] ?? !MODES_OFF_BY_DEFAULT.includes(m);
 export const GROUP_ITEMS = [
   ['rail', 'Red ferroviaria'],
   ['lines', 'Líneas de metro, tranvía y Cercanías'],
@@ -147,7 +150,7 @@ export const GROUP_ITEMS = [
 
 export function renderLayers(el, prefs, countsByMode) {
   const modes = MODE_ITEMS.map((m) => `
-    <label><input type="checkbox" data-mode="${m}" ${prefs.modes[m] !== false ? 'checked' : ''}>
+    <label><input type="checkbox" data-mode="${m}" ${modeOn(prefs, m) ? 'checked' : ''}>
       ${esc(MODE_LABEL[m])}<span class="count" data-count="${m}">${fmtNum(countsByMode[m] ?? 0)}</span></label>`).join('');
   const groups = GROUP_ITEMS.map(([g, label]) => `
     <label><input type="checkbox" data-group="${g}" ${(g === 'obras' ? prefs.obras : prefs.groups[g] !== false) ? 'checked' : ''}> ${esc(label)}</label>`).join('');

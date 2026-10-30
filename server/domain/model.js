@@ -83,8 +83,12 @@
 
 export const SEVERITY_RANK = { 'muy alta': 4, alta: 3, media: 2, baja: 1 };
 
-/** Sólo los vehículos con posición real (GPS) cuentan para alertas y KPIs. */
-export const realVehicles = (vehicles) => vehicles.filter((v) => !v.estimated);
+/**
+ * Vehículos que vigila el motor de alertas y que cuentan en los KPIs: trenes, metros y
+ * tranvías con posición real. Las posiciones estimadas por horario y los autobuses (que
+ * paran en cualquier sitio y dispararían "detenido en plena vía") se muestran pero no cuentan.
+ */
+export const monitoredVehicles = (vehicles) => vehicles.filter((v) => !v.estimated && v.mode !== 'bus');
 
 export const MODES = ['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'bus', 'otros'];
 

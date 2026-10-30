@@ -11,8 +11,8 @@ const SEV_COLORS = { 'muy alta': STATUS.critical, alta: STATUS.serious, media: S
 const IS_EST = ['==', ['get', 'est'], 1];
 const NOT_EST = ['!=', ['get', 'est'], 1];
 const VEHICLE_RADIUS = ['interpolate', ['linear'], ['zoom'],
-  5, ['match', ['get', 'mode'], ['av', 'ld'], 3.5, 'md', 3, 2.6],
-  10, ['match', ['get', 'mode'], ['av', 'ld'], 6.5, 'md', 6, 5],
+  5, ['match', ['get', 'mode'], ['av', 'ld'], 3.5, 'md', 3, 'bus', 1.6, 2.6],
+  10, ['match', ['get', 'mode'], ['av', 'ld'], 6.5, 'md', 6, 'bus', 3.5, 5],
   14, 9];
 
 // Capas del mapa agrupadas por interruptor del panel "Capas".

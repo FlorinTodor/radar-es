@@ -4,7 +4,7 @@ import { evaluateRules } from '../../domain/alerts/rules.js';
 import { reconcileAlerts, sortAlerts } from '../../domain/alerts/lifecycle.js';
 import { DEFAULT_THRESHOLDS } from '../../domain/alerts/thresholds.js';
 import { computeKpis } from '../../domain/kpis.js';
-import { realVehicles } from '../../domain/model.js';
+import { monitoredVehicles } from '../../domain/model.js';
 
 const KPI_SAMPLE_MS = 60_000;
 const KPI_HISTORY_MAX = 24 * 60;
@@ -19,7 +19,7 @@ export function makeDetectAlerts({ situation, stations, history, publisher, cloc
 
   return function detectAlerts() {
     const now = clock.now();
-    const vehicles = realVehicles(situation.vehicles());
+    const vehicles = monitoredVehicles(situation.vehicles());
     const kpis = computeKpis(vehicles, now);
 
     const candidates = evaluateRules({

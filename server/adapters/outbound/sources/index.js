@@ -8,6 +8,7 @@ import { createRenfeSources } from './renfe.js';
 import { createFgcSource } from './fgc.js';
 import { createGtfsRtVehicleSource } from './gtfs-rt.js';
 import { createTranviaTenerifeSource } from './tranvia-tenerife.js';
+import { createMoveuskadiBusSource } from './moveuskadi-bus.js';
 import { createOuigoHorarioSource } from './ouigo-horario.js';
 import { createDgtSource } from './dgt.js';
 import { createSctSource, createTraficoEuskadiSource } from './trafico-autonomico.js';
@@ -43,6 +44,16 @@ export function createSources(deps) {
       describe: (e) => ({ destination: e.id?.split('_')[2] ?? null, current: e.id?.split('_')[0] ?? null }),
     }),
     createTranviaTenerifeSource(deps),
+    // Autobús (se muestran, pero no cuentan para las alertas ferroviarias)
+    createMoveuskadiBusSource(deps),
+    createGtfsRtVehicleSource(deps, {
+      id: 'emt-malaga', name: 'EMT Málaga (GTFS-RT)', mode: 'bus', operator: 'EMT Málaga', interval: 60_000,
+      url: 'https://gtfs.emtmalaga.es/GTFSRTapi/api/vehicleposition',
+    }),
+    createGtfsRtVehicleSource(deps, {
+      id: 'emt-fuenlabrada', name: 'EMT Fuenlabrada (GTFS-RT)', mode: 'bus', operator: 'EMT Fuenlabrada', interval: 60_000,
+      url: 'https://api.control.optibus.co/opendata/v1/gtfs-rt/vehicle-positions?uid=c-5cfcd2d1',
+    }),
     // Carreteras
     createDgtSource(deps),
     createSctSource(deps),

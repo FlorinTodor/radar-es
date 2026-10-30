@@ -8,6 +8,45 @@ const { transit_realtime: rt } = require('gtfs-realtime-bindings');
 
 const STALE_MS = 10 * 60_000;
 
+/** Decodifica un FeedMessage GTFS-RT (protobuf) a objeto plano. */
+export function decodeFeed(bytes) {
+  return rt.FeedMessage.toObject(rt.FeedMessage.decode(bytes), { longs: Number, enums: String });
+}
+
+/**
+ * Vehículos de un FeedMessage ya decodificado, descartando posiciones de hace más de 10 min.
+ * @param {object} feed
+ * @param {{ id: string, mode: import('../../../domain/model.js').Mode, operator: string,
+ *           line?: (entity: any) => string|null, describe?: (entity: any) => object }} options
+ */
+export function vehiclesFromFeed(feed, { id, mode, operator, line, describe }) {
+  const now = Date.now();
+  const vehicles = [];
+  for (const e of feed.entity ?? []) {
+    const vp = e.vehicle;
+    const pos = vp?.position;
+    if (!pos || !Number.isFinite(pos.latitude) || !Number.isFinite(pos.longitude)) continue;
+    const fixTime = vp.timestamp ? vp.timestamp * 1000 : null;
+    if (fixTime && now - fixTime > STALE_MS) continue;
+    const vehicleId = vp.vehicle?.id || vp.vehicle?.label || e.id;
+    vehicles.push({
+      id: `${id}:${vehicleId}`,
+      mode,
+      operator,
+      service: operator,
+      line: line ? line(e) : vp.trip?.routeId ?? null,
+      label: vp.vehicle?.label || vehicleId,
+      lat: pos.latitude,
+      lon: pos.longitude,
+      delay: null,
+      next: vp.stopId ?? null,
+      fixTime,
+      ...describe?.(e),
+    });
+  }
+  return vehicles;
+}
+
 /**
  * @param {{ http: import('../http/http-client.js').HttpClient }} deps
  * @param {{ id: string, name: string, url: string, mode: import('../../../domain/model.js').Mode, operator: string,
@@ -24,32 +63,11 @@ export function createGtfsRtVehicleSource({ http }, { id, name, url, mode, opera
     url,
     license: license ?? `${operator} (GTFS-Realtime)`,
     async fetch() {
-      const feed = rt.FeedMessage.toObject(rt.FeedMessage.decode(await http.bytes(url)), { longs: Number, enums: String });
-      const now = Date.now();
-      const vehicles = [];
-      for (const e of feed.entity ?? []) {
-        const vp = e.vehicle;
-        const pos = vp?.position;
-        if (!pos || !Number.isFinite(pos.latitude) || !Number.isFinite(pos.longitude)) continue;
-        const fixTime = vp.timestamp ? vp.timestamp * 1000 : null;
-        if (fixTime && now - fixTime > STALE_MS) continue;
-        const vehicleId = vp.vehicle?.id || vp.vehicle?.label || e.id;
-        vehicles.push({
-          id: `${id}:${vehicleId}`,
-          mode,
-          operator,
-          service: operator,
-          line: line?.(e) ?? vp.trip?.routeId ?? null,
-          label: vp.vehicle?.label || vehicleId,
-          lat: pos.latitude,
-          lon: pos.longitude,
-          delay: null,
-          next: vp.stopId ?? null,
-          fixTime,
-          ...describe?.(e),
-        });
-      }
-      return { vehicles, sourceTime: feed.header?.timestamp ? feed.header.timestamp * 1000 : null };
+      const feed = decodeFeed(await http.bytes(url));
+      return {
+        vehicles: vehiclesFromFeed(feed, { id, mode, operator, line, describe }),
+        sourceTime: feed.header?.timestamp ? feed.header.timestamp * 1000 : null,
+      };
     },
   };
 }
