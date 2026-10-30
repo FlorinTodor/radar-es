@@ -20,9 +20,9 @@ export function createFirmsSource({ http }) {
     id: 'firms',
     name: 'NASA FIRMS: focos de calor por satélite (VIIRS)',
     kind: 'events',
-    interval: 1_800_000,
+    interval: 3_600_000, // el CSV se regenera cada hora
     url: FILES[0],
-    license: 'NASA FIRMS (uso libre citando la fuente)',
+    license: 'NASA FIRMS (LANCE/ESDIS). No apto para decisiones tácticas',
     async fetch() {
       const events = [];
       for (const url of FILES) {

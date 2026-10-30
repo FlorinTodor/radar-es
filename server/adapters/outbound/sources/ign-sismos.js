@@ -12,7 +12,7 @@ export function createIgnSismosSource({ http }) {
     kind: 'events',
     interval: 180_000,
     url: 'https://www.ign.es/ign/RssTools/sismologia.xml',
-    license: 'Instituto Geográfico Nacional',
+    license: 'Obra derivada de Catálogo de terremotos IGN · CC-BY 4.0 ign.es',
     async fetch() {
       const rss = xmlParser.parse(await http.text(this.url));
       const events = [];

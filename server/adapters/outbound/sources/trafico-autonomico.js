@@ -15,7 +15,7 @@ export function createSctSource({ http }) {
     kind: 'events',
     interval: 300_000,
     url: SCT_URL,
-    license: 'Generalitat de Catalunya · Dades obertes',
+    license: "Generalitat de Catalunya. Departament d'Interior i Seguretat Pública. Servei Català de Trànsit",
     async fetch() {
       const doc = xmlParser.parse(await http.text(SCT_URL));
       const events = [];
@@ -63,7 +63,7 @@ export function createTraficoEuskadiSource({ http }) {
     kind: 'events',
     interval: 300_000,
     url: EUSKADI_URL,
-    license: 'Open Data Euskadi',
+    license: 'Open Data Euskadi (CC BY 4.0)',
     async fetch() {
       const [y, m, d] = madridToday().split('-');
       const now = Date.now();

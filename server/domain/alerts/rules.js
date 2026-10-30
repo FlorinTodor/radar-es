@@ -99,7 +99,7 @@ export function largeDelays(ctx) {
       id: `retraso:${v.id}`, type: 'retraso', vehicleId: v.id, lat: v.lat, lon: v.lon,
       severity: v.delay >= th.delayHigh ? 'alta' : 'media',
       title: `${vehicleLabel(v)} con ${v.delay} min de retraso`,
-      description: `${v.origin ?? '?'} → ${v.destination ?? '?'}. Próxima parada: ${v.next ?? '?'}.`,
+      description: `${v.origin ?? '?'} → ${v.destination ?? '?'}.${v.next ? ` Próxima parada: ${v.next}.` : v.current ? ` En ${v.current}.` : ''}`,
     }));
 }
 
