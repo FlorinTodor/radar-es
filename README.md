@@ -26,6 +26,9 @@ npm test               # tests del dominio (sin red)
 
 Requiere Node.js 22.9 o superior.
 
+En producción corre con Docker en un VPS detrás de un túnel de Cloudflare, y se actualiza solo
+desde la rama `produccion`: ver [`docs/despliegue.md`](docs/despliegue.md).
+
 ## Arquitectura hexagonal
 
 ```
