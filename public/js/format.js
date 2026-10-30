@@ -29,7 +29,7 @@ export const sevClass = (s) => `sev-${(s ?? 'baja').replace(' ', '-')}`;
 
 export const MODE_LABEL = {
   av: 'Alta velocidad', ld: 'Larga distancia', md: 'Media distancia', cercanias: 'Cercanías / Rodalies',
-  metro: 'Metro / urbano', tranvia: 'Tranvía', bus: 'Autobús', avion: 'Aviones (ADS-B)', otros: 'Otros',
+  metro: 'Metro / urbano', tranvia: 'Tranvía', bus: 'Autobús', otros: 'Otros',
 };
 
 const nf = new Intl.NumberFormat('es-ES');

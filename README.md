@@ -126,7 +126,6 @@ Todas son públicas. Solo las marcadas con 🔑 necesitan `NAP_API_KEY`, una cla
 | IGN sismología (GeoRSS) | terremotos de los últimos 10 días | 3 min |
 | GDACS (ONU / Comisión Europea) | alertas de catástrofes en la zona (verde, naranja, roja) | 15 min |
 | IODA (Georgia Tech) | caídas de conectividad a Internet en España y sus regiones | 10 min |
-| adsb.lol (ADS-B) | ~400 aviones sobre España; alerta si declaran emergencia (squawk 7500/7600/7700) | 60 s |
 | Copernicus EFFIS (WMS, en el navegador) | capa de áreas quemadas en los últimos 30 días | — |
 | Red Eléctrica REData | demanda real frente a prevista | 5 min |
 

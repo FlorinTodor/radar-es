@@ -26,7 +26,6 @@ export function makeDetectAlerts({ situation, stations, history, publisher, cloc
     const candidates = evaluateRules({
       now,
       vehicles,
-      aircraft: all.filter((v) => v.mode === 'avion'),
       tracks: situation.tracks(),
       events: situation.events(),
       metrics: situation.metrics(),

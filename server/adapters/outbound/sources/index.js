@@ -16,7 +16,7 @@ import { createIgnSismosSource } from './ign-sismos.js';
 import { createAemetAvisosSource } from './aemet-avisos.js';
 import { createFirmsSource } from './firms.js';
 import { createReeSource } from './ree.js';
-import { createAvionesSource, createGdacsSource, createIodaSource } from './emergencias-extra.js';
+import { createGdacsSource, createIodaSource } from './emergencias-extra.js';
 
 const MOVEUSKADI = 'https://opendata.euskadi.eus/transport/moveuskadi';
 
@@ -96,7 +96,5 @@ export function createSources(deps) {
     createGdacsSource(deps),
     createReeSource(deps),
     createIodaSource(deps),
-    // Aire
-    createAvionesSource(deps),
   ];
 }
