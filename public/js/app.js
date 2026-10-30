@@ -237,6 +237,14 @@ function applyFocus({ fit = false } = {}) {
   for (const [key, { kind, id }] of state.selected) if (!exists[kind](id)) state.selected.delete(key); // ya no existe
   const items = [...state.selected.values()];
 
+  // El aviso va antes del encuadre: en el móvil está abajo y el encuadre le deja hueco.
+  const counts = {};
+  for (const { kind } of items) counts[kind] = (counts[kind] ?? 0) + 1;
+  const summary = Object.entries(counts).map(([k, n]) => `${n} ${KIND_LABEL[k][n === 1 ? 0 : 1]}`).join(', ');
+  const banner = document.getElementById('focus-banner');
+  banner.hidden = !items.length;
+  banner.querySelector('.txt').textContent = `Mostrando sólo: ${summary}`;
+
   if (!items.length) {
     map.setFocus(null);
     applyLayerPrefs();
@@ -255,13 +263,6 @@ function applyFocus({ fit = false } = {}) {
     map.setFocus({ vehicleIds: [...vehicleIds], eventIds: [...eventIds] });
     if (fit) fitSelection(items, alertsById, vehicleIds, eventIds);
   }
-
-  const counts = {};
-  for (const { kind } of items) counts[kind] = (counts[kind] ?? 0) + 1;
-  const summary = Object.entries(counts).map(([k, n]) => `${n} ${KIND_LABEL[k][n === 1 ? 0 : 1]}`).join(', ');
-  const banner = document.getElementById('focus-banner');
-  banner.hidden = !items.length;
-  banner.querySelector('.txt').textContent = `Mostrando sólo: ${summary}`;
   render('alerts', 'events', 'vehicles');
 }
 
@@ -284,7 +285,10 @@ function fitSelection(items, alertsById, vehicleIds, eventIds) {
 document.querySelector('.sidebar').addEventListener('click', (ev) => {
   if (ev.target.closest('[data-action=clear-focus]')) return clearFocus();
   const item = ev.target.closest('[data-kind]');
-  if (item) selectItem(item.dataset.kind, item.dataset.id);
+  if (!item) return;
+  selectItem(item.dataset.kind, item.dataset.id);
+  // En el móvil la hoja tapa el mapa: se baja para ver lo elegido (salvo eligiendo varias).
+  if (mobile.matches && !state.multi && state.selected.size) setSheet('peek');
 });
 document.querySelector('.sidebar').addEventListener('change', (ev) => {
   if (ev.target.dataset.action !== 'multi') return;
@@ -302,6 +306,62 @@ document.querySelector('.tabs').addEventListener('click', (ev) => {
   for (const b of document.querySelectorAll('.tabs [data-tab]')) b.setAttribute('aria-selected', String(b === btn));
   for (const p of document.querySelectorAll('.panel')) p.hidden = p.id !== `panel-${state.tab}`;
   render(state.tab === 'sources' ? 'health' : state.tab);
+  if (mobile.matches && sidebar.dataset.sheet === 'peek') setSheet('half');
+});
+
+// ---------- Móvil: el panel es una hoja que sube desde abajo ----------
+// Tres alturas: sólo las pestañas, media pantalla y pantalla completa. Se cambia tocando el asa
+// o una pestaña, o arrastrando el asa; en el escritorio no hace nada (el CSS la ignora).
+const mobile = window.matchMedia('(max-width: 860px)');
+const sidebar = document.querySelector('.sidebar');
+const sheetHandle = document.getElementById('sheet-handle');
+const SHEET_HALF = 0.55; // fracción de la zona bajo la barra superior; igual que en el CSS
+
+function setSheet(stop) {
+  sidebar.dataset.sheet = stop;
+  sheetHandle.setAttribute('aria-expanded', String(stop !== 'peek'));
+  sheetHandle.setAttribute('aria-label', stop === 'peek' ? 'Abrir el panel' : 'Bajar el panel');
+}
+setSheet('peek');
+
+let sheetDrag = null;
+let sheetDragEnd = 0;
+sheetHandle.addEventListener('pointerdown', (ev) => {
+  if (!mobile.matches) return;
+  sheetDrag = { y: ev.clientY, h: sidebar.offsetHeight, moved: false };
+  sheetHandle.setPointerCapture(ev.pointerId);
+});
+sheetHandle.addEventListener('pointermove', (ev) => {
+  if (!sheetDrag) return;
+  const dy = sheetDrag.y - ev.clientY;
+  if (!sheetDrag.moved && Math.abs(dy) < 6) return;
+  sheetDrag.moved = true;
+  sidebar.classList.add('dragging');
+  sidebar.style.height = `${Math.min(sidebar.parentElement.clientHeight, Math.max(0, sheetDrag.h + dy))}px`;
+});
+const endSheetDrag = () => {
+  if (!sheetDrag) return;
+  const { moved } = sheetDrag;
+  sheetDrag = null;
+  if (!moved) return; // ha sido un toque: lo resuelve el evento click
+  const h = sidebar.offsetHeight;
+  const max = sidebar.parentElement.clientHeight;
+  const stops = { peek: parseFloat(getComputedStyle(sidebar).minHeight) || 0, half: max * SHEET_HALF, full: max };
+  const nearest = Object.keys(stops).reduce((a, b) => (Math.abs(stops[b] - h) < Math.abs(stops[a] - h) ? b : a));
+  sidebar.classList.remove('dragging');
+  sidebar.style.height = '';
+  setSheet(nearest);
+  sheetDragEnd = Date.now();
+};
+sheetHandle.addEventListener('pointerup', endSheetDrag);
+sheetHandle.addEventListener('pointercancel', endSheetDrag);
+sheetHandle.addEventListener('click', () => {
+  if (Date.now() - sheetDragEnd < 400) return; // el click que sigue a soltar un arrastre
+  setSheet(sidebar.dataset.sheet === 'peek' ? 'half' : 'peek');
+});
+// Al escribir en el buscador el teclado tapa media pantalla: se sube la hoja entera.
+document.getElementById('vehicle-search').addEventListener('focus', () => {
+  if (mobile.matches) setSheet('full');
 });
 
 let searchTimer = null;
@@ -360,6 +420,7 @@ layersToggle.addEventListener('click', () => {
   const open = layersToggle.getAttribute('aria-expanded') !== 'true';
   layersToggle.setAttribute('aria-expanded', String(open));
   layersBody.hidden = !open;
+  document.getElementById('layers').classList.toggle('collapsed', !open);
 });
 if (window.matchMedia('(max-width: 860px)').matches) layersToggle.click();
 

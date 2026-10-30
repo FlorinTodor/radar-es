@@ -117,6 +117,12 @@
   <script type="module">
     const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
     const when = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', dateStyle: 'short', timeStyle: 'medium' });
+    // En el móvil cada fila se ve como una ficha: cada celda lleva el nombre de su columna.
+    const labelCells = (table) => {
+      const names = [...table.querySelectorAll('thead th')].map((th) => th.textContent);
+      for (const tr of table.querySelectorAll('tbody tr')) [...tr.cells].forEach((td, i) => { if (names[i]) td.dataset.label = names[i]; });
+    };
+    document.querySelectorAll('.doc-body table').forEach(labelCells);
 
     fetch('/api/about').then((r) => r.json()).then((about) => {
       for (const el of document.querySelectorAll('[data-about]')) {
@@ -134,6 +140,7 @@
         const status = !s.enabled ? 'Desactivada' : s.ok === null ? 'Pendiente' : s.ok ? 'Operativa' : 'Con errores';
         return `<tr><td>${esc(s.name)}</td><td>${esc(s.license)}</td><td>${last ? when.format(last) : '—'}</td><td>${status}</td></tr>`;
       }).join('');
+      labelCells(document.getElementById('estado-filas').closest('table'));
     }).catch(() => {
       document.getElementById('estado-filas').innerHTML = '<tr><td colspan="4">No se pudo cargar el estado.</td></tr>';
     });
