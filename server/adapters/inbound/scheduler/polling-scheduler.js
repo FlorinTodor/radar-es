@@ -1,8 +1,19 @@
 // Adaptador de entrada temporizado: igual que la API HTTP dispara casos de uso cuando
 // llega una petición, éste los dispara según el intervalo de cada fuente.
-const MAX_BACKOFF = 8;
+const FIRST_RETRY_MS = 30_000;
+const MIN_RETRY_CAP_MS = 10 * 60_000;
 const DETECT_DEBOUNCE_MS = 1500;
 const DETECT_HEARTBEAT_MS = 30_000; // las alertas dependen del tiempo transcurrido, no sólo de datos nuevos
+
+/**
+ * Espera hasta la siguiente lectura. Si la fuente ha fallado, se reintenta pronto (30 s, 1, 2,
+ * 4 min…) para que un fallo puntual no deje una capa vacía durante horas, pero sin pasar del
+ * intervalo normal de la fuente (o de 10 min si es menor), para no machacar un servidor caído.
+ */
+export function nextDelay(interval, failures) {
+  if (!failures) return interval;
+  return Math.min(FIRST_RETRY_MS * 2 ** (failures - 1), Math.max(interval, MIN_RETRY_CAP_MS));
+}
 
 /**
  * @param {{ sources: import('../../../application/ports.js').DataSourcePort[],
@@ -31,9 +42,7 @@ export function startPolling({ sources, ingestSource, detectAlerts, log }) {
     const ok = await ingestSource(source);
     scheduleDetect();
     const nextFailures = ok ? 0 : failures + 1;
-    // Backoff exponencial si la fuente falla, para no machacar un servidor caído.
-    const delay = source.interval * Math.min(2 ** nextFailures, MAX_BACKOFF);
-    if (!stopped) timers.set(source.id, setTimeout(() => loop(source, nextFailures), delay));
+    if (!stopped) timers.set(source.id, setTimeout(() => loop(source, nextFailures), nextDelay(source.interval, nextFailures)));
   };
 
   // Arranque escalonado para no lanzar todas las peticiones a la vez.
