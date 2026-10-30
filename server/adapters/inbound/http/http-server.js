@@ -52,9 +52,9 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
       if (url.pathname.startsWith('/api/')) return send(res, 404, { error: 'Ruta no encontrada' });
 
       for (const [prefix, dir] of Object.entries(vendorDirs)) {
-        if (url.pathname.startsWith(prefix)) return serveFile(res, dir, url.pathname.slice(prefix.length));
+        if (url.pathname.startsWith(prefix)) return serveFile(req, res, dir, url.pathname.slice(prefix.length), VENDOR_CACHE);
       }
-      return serveFile(res, publicDir, url.pathname === '/' ? 'index.html' : url.pathname);
+      return serveFile(req, res, publicDir, url.pathname === '/' ? 'index.html' : url.pathname, OWN_CACHE);
     } catch (err) {
       log.error(`[http] ${err.stack ?? err.message}`);
       if (!res.headersSent) send(res, 500, { error: 'Error interno' });
@@ -107,7 +107,18 @@ function sendJson(req, res, status, body) {
   res.end(json);
 }
 
-async function serveFile(res, root, pathname) {
+// Nuestros ficheros cambian con cada despliegue: el navegador debe preguntar siempre, y el ETag
+// hace que la respuesta sea un 304 vacío si no han cambiado. Las librerías (MapLibre, ~1 MB)
+// sólo cambian al actualizarlas, así que pueden guardarse un día.
+const OWN_CACHE = 'no-cache';
+const VENDOR_CACHE = 'public, max-age=86400';
+
+/** ETag débil a partir de tamaño y fecha: cambia en cuanto el fichero cambia. */
+export function fileEtag(info) {
+  return `W/"${info.size.toString(16)}-${Math.floor(info.mtimeMs).toString(16)}"`;
+}
+
+async function serveFile(req, res, root, pathname, cacheControl) {
   let rel;
   try {
     rel = decodeURIComponent(pathname).replace(/^\/+/, '');
@@ -119,11 +130,13 @@ async function serveFile(res, root, pathname) {
   try {
     const info = await stat(file);
     if (!info.isFile()) throw new Error('no es un fichero');
-    res.writeHead(200, {
-      'Content-Type': MIME[extname(file)] ?? 'application/octet-stream',
-      'Content-Length': info.size,
-      'Cache-Control': 'no-cache',
-    });
+    const etag = fileEtag(info);
+    const headers = { 'Cache-Control': cacheControl, ETag: etag, 'Last-Modified': info.mtime.toUTCString() };
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, headers);
+      return res.end();
+    }
+    res.writeHead(200, { ...headers, 'Content-Type': MIME[extname(file)] ?? 'application/octet-stream', 'Content-Length': info.size });
     createReadStream(file).pipe(res);
   } catch {
     send(res, 404, { error: 'No encontrado' });
