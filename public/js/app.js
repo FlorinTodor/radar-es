@@ -14,7 +14,7 @@ const state = {
   health: [],
   tab: 'alerts',
   search: '',
-  selected: new Set(), // alertas seleccionadas: el mapa muestra sólo lo suyo
+  selected: new Map(), // 'tipo|id' → { kind, id }: alertas, incidencias y trenes marcados; el mapa muestra sólo eso
   multi: false,         // interruptor "Varias a la vez"
 };
 
@@ -121,11 +121,11 @@ function flush() {
     const events = allEvents();
     map.setEvents(events);
     document.getElementById('b-events').textContent = P.filterEvents(events, prefs).length;
-    if (state.tab === 'events') P.renderEvents(document.getElementById('events-list'), P.filterEvents(events, prefs));
+    if (state.tab === 'events') P.renderEvents(document.getElementById('events-list'), P.filterEvents(events, prefs), selection('event'));
   }
   if (parts.has('alerts')) {
     document.getElementById('b-alerts').textContent = state.alerts.length;
-    if (state.tab === 'alerts') P.renderAlerts(document.getElementById('panel-alerts'), state.alerts, state.resolved, state.selected, state.multi);
+    if (state.tab === 'alerts') P.renderAlerts(document.getElementById('panel-alerts'), state.alerts, state.resolved, selection('alert'));
   }
   if (parts.has('kpis') || parts.has('alerts')) P.renderKpis(state.kpis, state.metrics, state.alerts.length);
   if (parts.has('health') && state.tab === 'sources') P.renderSources(document.getElementById('panel-sources'), state.health);
@@ -133,7 +133,7 @@ function flush() {
 
 function renderVehiclesPanel(all = allVehicles()) {
   const vehicles = all.filter((v) => P.modeOn(prefs, v.mode));
-  P.renderVehicles(document.getElementById('vehicles-list'), P.filterVehicles(vehicles, state.search), vehicles.length);
+  P.renderVehicles(document.getElementById('vehicles-list'), P.filterVehicles(vehicles, state.search), vehicles.length, selection('vehicle'));
 }
 
 // ---------- Datos en tiempo real ----------
@@ -162,9 +162,11 @@ connect({
   source(p) {
     if (p.kind === 'vehicles') {
       state.vehicles.set(p.id, withClass(p.items));
+      if (state.selected.size) applyFocus(); // quita lo marcado que ya no existe
       render('vehicles');
     } else if (p.kind === 'events') {
       state.events.set(p.id, p.items);
+      if (state.selected.size) applyFocus();
       render('events');
     } else if (p.kind === 'metrics') {
       state.metrics[p.id] = p.metrics;
@@ -197,19 +199,27 @@ function selectEvent(id) {
   map.flyTo(e.lon, e.lat, e.category === 'sismo' || e.category === 'meteo' ? 7 : 10);
 }
 
-// ---------- Selección de alertas ----------
-// Clic: el mapa muestra sólo lo de esa alerta (otro clic en la misma vuelve a tus capas).
-// Con el interruptor "Varias a la vez", cada clic suma o quita la alerta de la selección.
-// Todo con clics: funciona igual con ratón y en el móvil.
-function selectAlert(id) {
+// ---------- Selección (Alertas, Incidencias y Trenes) ----------
+// Clic en un elemento de cualquier lista: el mapa muestra sólo eso, aunque su capa estuviera
+// apagada; clic en otro lo sustituye y en el mismo vuelve a tus capas. Con "Varias a la vez"
+// cada clic suma o quita, y se pueden mezclar alertas, incidencias y trenes. Todo con clics.
+const KIND_LABEL = { alert: ['alerta', 'alertas'], event: ['incidencia', 'incidencias'], vehicle: ['tren', 'trenes'] };
+
+function selection(kind) {
+  const ids = new Set([...state.selected.values()].filter((x) => x.kind === kind).map((x) => x.id));
+  return { ids, total: state.selected.size, multi: state.multi };
+}
+
+function selectItem(kind, id) {
+  const key = `${kind}|${id}`;
   const sel = state.selected;
   if (state.multi) {
-    if (sel.has(id)) sel.delete(id);
-    else sel.add(id);
-  } else if (sel.size === 1 && sel.has(id)) {
+    if (sel.has(key)) sel.delete(key);
+    else sel.set(key, { kind, id });
+  } else if (sel.size === 1 && sel.has(key)) {
     sel.clear();
   } else {
-    state.selected = new Set([id]);
+    state.selected = new Map([[key, { kind, id }]]);
   }
   applyFocus({ fit: true });
 }
@@ -220,47 +230,64 @@ function clearFocus() {
 }
 
 function applyFocus({ fit = false } = {}) {
-  const active = new Map(state.alerts.map((a) => [a.id, a]));
-  for (const id of state.selected) if (!active.has(id)) state.selected.delete(id); // ya resueltas
-  const alerts = [...state.selected].map((id) => active.get(id));
+  const alertsById = new Map(state.alerts.map((a) => [a.id, a]));
+  const exists = { alert: (id) => alertsById.has(id), event: (id) => !!findEvent(id), vehicle: (id) => !!findVehicle(id) };
+  for (const [key, { kind, id }] of state.selected) if (!exists[kind](id)) state.selected.delete(key); // ya no existe
+  const items = [...state.selected.values()];
 
-  if (!alerts.length) {
+  if (!items.length) {
     map.setFocus(null);
     applyLayerPrefs();
   } else {
-    const vehicleIds = [...new Set(alerts.flatMap((a) => [a.vehicleId, ...(a.vehicleIds ?? [])]).filter(Boolean))];
-    const eventIds = [...new Set(alerts.flatMap((a) => a.eventIds ?? []))];
-    map.setFocus({ vehicleIds, eventIds });
-    if (fit) {
-      const only = alerts.length === 1 ? alerts[0] : null;
-      if (only?.vehicleId && findVehicle(only.vehicleId)) {
-        selectVehicle(only.vehicleId);
-      } else {
-        const points = [
-          ...alerts.filter((a) => a.lon !== undefined && a.lat !== undefined).map((a) => [a.lon, a.lat]),
-          ...vehicleIds.map(findVehicle).filter(Boolean).map((v) => [v.lon, v.lat]),
-          ...eventIds.map(findEvent).filter((e) => e?.lat !== null && e?.lat !== undefined).map((e) => [e.lon, e.lat]),
-        ];
-        map.fitTo(points);
+    const vehicleIds = new Set();
+    const eventIds = new Set();
+    for (const { kind, id } of items) {
+      if (kind === 'vehicle') vehicleIds.add(id);
+      else if (kind === 'event') eventIds.add(id);
+      else {
+        const a = alertsById.get(id);
+        [a.vehicleId, ...(a.vehicleIds ?? [])].filter(Boolean).forEach((v) => vehicleIds.add(v));
+        (a.eventIds ?? []).forEach((e) => eventIds.add(e));
       }
     }
+    map.setFocus({ vehicleIds: [...vehicleIds], eventIds: [...eventIds] });
+    if (fit) fitSelection(items, alertsById, vehicleIds, eventIds);
   }
+
+  const counts = {};
+  for (const { kind } of items) counts[kind] = (counts[kind] ?? 0) + 1;
+  const summary = Object.entries(counts).map(([k, n]) => `${n} ${KIND_LABEL[k][n === 1 ? 0 : 1]}`).join(', ');
   const banner = document.getElementById('focus-banner');
-  banner.hidden = !alerts.length;
-  banner.querySelector('.txt').textContent = alerts.length === 1 ? 'Mostrando sólo 1 alerta' : `Mostrando sólo ${alerts.length} alertas`;
-  render('alerts');
+  banner.hidden = !items.length;
+  banner.querySelector('.txt').textContent = `Mostrando sólo: ${summary}`;
+  render('alerts', 'events', 'vehicles');
+}
+
+function fitSelection(items, alertsById, vehicleIds, eventIds) {
+  if (items.length === 1) {
+    const { kind, id } = items[0];
+    if (kind === 'vehicle') return selectVehicle(id);
+    if (kind === 'event') return selectEvent(id);
+    const a = alertsById.get(id);
+    if (a.vehicleId && findVehicle(a.vehicleId)) return selectVehicle(a.vehicleId);
+  }
+  const points = [
+    ...items.filter((x) => x.kind === 'alert').map((x) => alertsById.get(x.id)).filter((a) => a.lon !== undefined && a.lat !== undefined).map((a) => [a.lon, a.lat]),
+    ...[...vehicleIds].map(findVehicle).filter(Boolean).map((v) => [v.lon, v.lat]),
+    ...[...eventIds].map(findEvent).filter((e) => e?.lat !== null && e?.lat !== undefined).map((e) => [e.lon, e.lat]),
+  ];
+  map.fitTo(points);
 }
 
 document.querySelector('.sidebar').addEventListener('click', (ev) => {
   if (ev.target.closest('[data-action=clear-focus]')) return clearFocus();
   const item = ev.target.closest('[data-kind]');
-  if (!item) return;
-  ({ alert: selectAlert, event: selectEvent, vehicle: selectVehicle })[item.dataset.kind]?.(item.dataset.id);
+  if (item) selectItem(item.dataset.kind, item.dataset.id);
 });
-document.getElementById('panel-alerts').addEventListener('change', (ev) => {
+document.querySelector('.sidebar').addEventListener('change', (ev) => {
   if (ev.target.dataset.action !== 'multi') return;
   state.multi = ev.target.checked;
-  render('alerts');
+  render('alerts', 'events', 'vehicles');
 });
 document.getElementById('focus-banner').addEventListener('click', (ev) => {
   if (ev.target.closest('[data-action=clear-focus]')) clearFocus();
@@ -311,7 +338,7 @@ layersBody.addEventListener('change', (ev) => {
     state.selected.clear();
     map.setFocus(null);
     document.getElementById('focus-banner').hidden = true;
-    render('alerts');
+    render('alerts', 'events', 'vehicles');
   }
   if (input.dataset.mode) prefs.modes[input.dataset.mode] = input.checked;
   if (input.dataset.group === 'obras') {

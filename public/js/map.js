@@ -347,6 +347,12 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
   const sidePadding = () => (isNarrow()
     ? { top: 60, bottom: card.open ? 260 : 60, left: 30, right: 30 }
     : { top: 70, bottom: 50, left: 260, right: card.open ? 360 : 70 });
+  // Para centrar un punto se usa un desplazamiento y no `padding`: en MapLibre el padding de
+  // flyTo se queda guardado en el mapa y se sumaría al de encuadres posteriores (fitBounds).
+  const centerOffset = () => {
+    const p = sidePadding();
+    return [(p.left - p.right) / 2, (p.top - p.bottom) / 2];
+  };
 
   return {
     ready,
@@ -423,7 +429,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     /** Encuadra una lista de puntos [lon, lat]. */
     fitTo(points) {
       if (!points.length) return;
-      if (points.length === 1) return map.flyTo({ center: points[0], zoom: Math.max(map.getZoom(), 10), speed: 1.6, padding: sidePadding() });
+      if (points.length === 1) return map.flyTo({ center: points[0], zoom: Math.max(map.getZoom(), 10), speed: 1.6, offset: centerOffset() });
       const lons = points.map((p) => p[0]);
       const lats = points.map((p) => p[1]);
       map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: sidePadding(), maxZoom: 11, duration: 900 });
@@ -441,7 +447,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
 
     /** Centra un punto dejando libre el hueco de la ficha y del panel de capas. */
     flyTo(lon, lat, zoom = 11) {
-      map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), zoom), speed: 1.6, padding: sidePadding() });
+      map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), zoom), speed: 1.6, offset: centerOffset() });
     },
 
     /** Selecciona un tren: anillo, recorrido reciente y ficha. La × de la ficha sólo la cierra. */
