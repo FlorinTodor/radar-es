@@ -1,5 +1,6 @@
 import * as maplibregl from '/vendor/maplibre/maplibre-gl.mjs';
 import { DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, STATUS, esc, fmtDateTime, fmtDelay, fmtLocalHour, timeAgo, vehicleTitle } from './format.js';
+import { PICTOS, pictoFor, vehicleImage } from './icons.js';
 
 const STYLE = 'https://tiles.openfreemap.org/styles/dark';
 const FONT = ['Noto Sans Regular'];
@@ -10,10 +11,15 @@ const EMPTY = { type: 'FeatureCollection', features: [] };
 const SEV_COLORS = { 'muy alta': STATUS.critical, alta: STATUS.serious, media: STATUS.warning, baja: STATUS.none };
 const IS_EST = ['==', ['get', 'est'], 1];
 const NOT_EST = ['!=', ['get', 'est'], 1];
-const VEHICLE_RADIUS = ['interpolate', ['linear'], ['zoom'],
-  5, ['match', ['get', 'mode'], ['av', 'ld'], 4.2, 'md', 3.6, 'bus', 1.8, 3.1],
-  10, ['match', ['get', 'mode'], ['av', 'ld'], 6.5, 'md', 6, 'bus', 3.5, 5],
-  14, 9];
+// Las placas miden 32 px a tamaño 1: ~13 px a escala de país y ~27 px de cerca (autobuses, algo menos).
+const ICON_SIZE = ['interpolate', ['linear'], ['zoom'],
+  5, ['match', ['get', 'mode'], 'bus', 0.32, 0.42],
+  8, ['match', ['get', 'mode'], 'bus', 0.48, 0.6],
+  12, 0.85,
+  15, 1];
+// Anillos (alerta, selección) un poco más grandes que la placa.
+const RING_RADIUS = ['interpolate', ['linear'], ['zoom'], 5, 10, 8, 14, 12, 18, 15, 21];
+const UNKNOWN_DELAY_RING = '#c3c2b7';
 
 // Capas del mapa agrupadas por interruptor del panel "Capas".
 export const LAYER_GROUPS = {
@@ -227,39 +233,39 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     map.addLayer({
       id: 'veh-halo', type: 'circle', source: 'vehicles',
       paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 8, 10, 13, 14, 16],
+        'circle-radius': RING_RADIUS,
         'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': STATUS.critical, 'circle-stroke-width': 2, 'circle-stroke-opacity': 0.9,
       },
     });
-    // Posición estimada por horario: anillo hueco, para que nunca se confunda con un GPS real.
-    map.addLayer({
-      id: 'veh-est', type: 'circle', source: 'vehicles',
-      paint: {
-        'circle-radius': VEHICLE_RADIUS,
-        'circle-color': 'rgba(0,0,0,0)',
-        // Si el operador publica el retraso real (Euskotren), el anillo lleva su color; si no, gris.
-        'circle-stroke-color': ['match', ['get', 'cls'], ...DELAY_CLASSES.flatMap(([color], i) => (i ? [i, color] : [])), '#c3c2b7'],
-        'circle-stroke-width': 1.8,
-      },
+    // Placa con el pictograma del vehículo (tren, AV, metro, tranvía, autobús), del color de su
+    // retraso. Las posiciones estimadas por horario usan la placa hueca, para que nunca se
+    // confundan con un GPS real. Las de más retraso se dibujan encima.
+    DELAY_CLASSES.forEach(([color], cls) => {
+      for (const picto of PICTOS) {
+        map.addImage(`v-${picto}-${cls}`, vehicleImage(picto, color), { pixelRatio: 2 });
+        // Si el operador publica el retraso real (Euskotren), la placa hueca lleva su color; si no, gris.
+        map.addImage(`ve-${picto}-${cls}`, vehicleImage(picto, cls ? color : UNKNOWN_DELAY_RING, true), { pixelRatio: 2 });
+      }
     });
-    map.addLayer({
-      id: 'vehicles', type: 'circle', source: 'vehicles',
-      paint: {
-        'circle-radius': VEHICLE_RADIUS,
-        'circle-color': ['match', ['get', 'cls'], ...DELAY_CLASSES.flatMap(([color], i) => (i ? [i, color] : [])), DELAY_CLASSES[0][0]],
-        'circle-stroke-color': '#0d0d0d', 'circle-stroke-width': 1.5,
-      },
+    const vehicleLayout = (prefix) => ({
+      'icon-image': ['concat', prefix, ['get', 'picto'], '-', ['to-string', ['get', 'cls']]],
+      'icon-size': ICON_SIZE,
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+      'symbol-sort-key': ['get', 'cls'],
     });
+    map.addLayer({ id: 'veh-est', type: 'symbol', source: 'vehicles', layout: vehicleLayout('ve-') });
+    map.addLayer({ id: 'vehicles', type: 'symbol', source: 'vehicles', layout: vehicleLayout('v-') });
     map.addLayer({
       id: 'veh-selected', type: 'circle', source: 'vehicles', filter: ['==', ['get', 'id'], ''],
       paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 9, 10, 14, 14, 18],
+        'circle-radius': RING_RADIUS,
         'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#6ea8fe', 'circle-stroke-width': 3,
       },
     });
     map.addLayer({
       id: 'veh-labels', type: 'symbol', source: 'vehicles', minzoom: 9,
-      layout: { 'text-field': ['get', 'line'], 'text-font': FONT, 'text-size': 11, 'text-offset': [0, -1.3], 'text-optional': true },
+      layout: { 'text-field': ['get', 'line'], 'text-font': FONT, 'text-size': 11, 'text-offset': [0, -1.9], 'text-optional': true },
       paint: { 'text-color': '#f0efec', 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.5 },
     });
 
@@ -365,7 +371,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       for (const v of list) {
         const to = [v.lon, v.lat];
         const prev = anims.get(v.id);
-        const props = { id: v.id, mode: v.mode, cls: v.cls, line: v.line ?? '', alert: alertIds.has(v.id) ? 1 : 0, est: v.estimated ? 1 : 0 };
+        const props = { id: v.id, mode: v.mode, cls: v.cls, line: v.line ?? '', alert: alertIds.has(v.id) ? 1 : 0, est: v.estimated ? 1 : 0, picto: pictoFor(v.mode) };
         if (prev && prev.to[0] === to[0] && prev.to[1] === to[1]) {
           next.set(v.id, { ...prev, props });
           continue;

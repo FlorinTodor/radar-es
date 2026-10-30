@@ -3,6 +3,7 @@
 import {
   DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, SEVERITY_RANK, esc, fmtDateTime, fmtDelay, fmtNum, fmtTime, sevClass, timeAgo, vehicleTitle,
 } from './format.js';
+import { pictoFor, vehicleIconUrl } from './icons.js';
 
 const $ = (id) => document.getElementById(id);
 const MAX_ROWS = 250;
@@ -129,7 +130,7 @@ export function renderVehicles(el, vehicles, total, sel = NO_SELECTION) {
     const on = sel.ids.has(v.id);
     return `
     <button class="item vrow${on ? ' selected' : ''}" data-kind="vehicle" data-id="${esc(v.id)}" aria-pressed="${on}" style="border-left-color:${DELAY_CLASSES[v.cls][0]}">
-      <span class="dot" style="background:${DELAY_CLASSES[v.cls][0]}"></span>
+      <img class="plate" src="${vehicleIconUrl(pictoFor(v.mode), v.estimated && !v.cls ? '#c3c2b7' : DELAY_CLASSES[v.cls][0], !!v.estimated)}" alt="">
       <span class="title">${check(on)} ${esc(vehicleTitle(v))}</span>
       <span class="delay">${v.estimated && (v.delay === null || v.delay === undefined) ? 'Estimado' : esc(fmtDelay(v))}</span>
       <span class="sub">${esc(MODE_LABEL[v.mode] ?? v.mode)} · ${esc(v.origin ?? '?')} → ${esc(v.destination ?? '?')}</span>
@@ -189,11 +190,15 @@ export function renderLayers(el, prefs, countsByMode) {
       ${esc(MODE_LABEL[m])}<span class="count" data-count="${m}">${fmtNum(countsByMode[m] ?? 0)}</span></label>`).join('');
   const groups = GROUP_ITEMS.map(([g, label]) => `
     <label><input type="checkbox" data-group="${g}" ${(g === 'obras' ? prefs.obras : groupOn(prefs, g)) ? 'checked' : ''}> ${esc(label)}</label>`).join('');
-  const legend = DELAY_CLASSES.slice(1).concat([DELAY_CLASSES[0]]).map(([color, label]) => `<i style="background:${color}"></i><span>${esc(label)}</span>`).join('');
+  const plate = (picto, color, estimated) => `<img class="plate" src="${vehicleIconUrl(picto, color, estimated)}" alt="">`;
+  const legend = DELAY_CLASSES.slice(1).concat([DELAY_CLASSES[0]]).map(([color, label]) => `${plate('tren', color)}<span>${esc(label)}</span>`).join('');
+  const types = [['av', 'Alta velocidad'], ['tren', 'Larga y media distancia, Cercanías'], ['metro', 'Metro'], ['tranvia', 'Tranvía'], ['bus', 'Autobús']]
+    .map(([picto, label]) => `${plate(picto, '#8b8b85')}<span>${label}</span>`).join('');
   const shape = (path, fill, stroke) => `<svg viewBox="0 0 14 14" width="12" height="12" aria-hidden="true"><path d="${path}" fill="${fill}" stroke="${stroke}" stroke-width="1.4"/></svg>`;
-  el.innerHTML = `<h4>Trenes</h4>${modes}<h4>Contexto</h4>${groups}<h4>Retraso del tren</h4><div class="legend">${legend}
+  el.innerHTML = `<h4>Trenes</h4>${modes}<h4>Contexto</h4>${groups}<h4>Tipo de vehículo</h4><div class="legend">${types}</div>
+    <h4>Retraso (color de la placa)</h4><div class="legend">${legend}
+    ${plate('tren', '#fab219', true)}<span>Posición estimada por horario (no GPS): placa hueca; el color indica el retraso si se conoce</span>
     <i style="background:transparent;border:2px solid #d03b3b"></i><span>Tren con alerta activa</span>
-    <i style="background:transparent;border:1.8px solid #c3c2b7"></i><span>Posición estimada por horario (no GPS); el color indica el retraso si se conoce</span>
     <i style="background:transparent;border:2.5px solid #6ea8fe"></i><span>Tren seleccionado</span>
     <i style="height:0;border-radius:0;border-top:2.5px dashed #6ea8fe"></i><span>Su recorrido en los últimos 45 min</span>
     <i style="height:0;border-radius:0;border-top:1.5px solid #9db4d8"></i><span>Estela de cada tren (capa opcional, 15 min)</span></div>
