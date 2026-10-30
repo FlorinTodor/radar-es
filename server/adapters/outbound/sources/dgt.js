@@ -1,0 +1,80 @@
+// DGT: incidencias de tráfico activas en carreteras (DATEX II v3.7, Punto de Acceso
+// Nacional de Tráfico). ~1.000 situaciones y ~4 MB de XML: se lee cada 5 minutos.
+import { arr, findKey, num, text, xmlParser } from './parse.js';
+
+const URL_DGT = 'https://nap.dgt.es/datex2/v3/dgt/SituationPublication/datex2_v37.xml';
+
+const CAUSES = {
+  accident: 'Accidente',
+  vehicleObstruction: 'Vehículo detenido u obstáculo',
+  roadMaintenance: 'Obras',
+  obstruction: 'Obstáculo en la vía',
+  abnormalTraffic: 'Retención',
+  environmentalObstruction: 'Fenómeno meteorológico o ambiental',
+  infrastructureDamageObstruction: 'Daños en la infraestructura',
+  roadOrCarriagewayOrLaneManagement: 'Restricción de carriles',
+  poorEnvironment: 'Condiciones adversas',
+  equipmentOrSystemFault: 'Avería de equipamiento',
+};
+
+const SEVERITY = { highest: 'muy alta', high: 'alta', medium: 'media', low: 'baja', lowest: 'baja' };
+
+function coords(p) {
+  return p?.pointCoordinates ? { lat: num(p.pointCoordinates.latitude), lon: num(p.pointCoordinates.longitude) } : null;
+}
+
+function locate(record) {
+  const loc = record.locationReference ?? {};
+  const linear = loc.tpegLinearLocation;
+  const fallback = findKey(loc, 'pointCoordinates');
+  return {
+    from: coords(linear?.from) ?? (fallback ? { lat: num(fallback.latitude), lon: num(fallback.longitude) } : null),
+    to: coords(linear?.to),
+  };
+}
+
+/** @param {{ http: import('../http/http-client.js').HttpClient }} deps */
+export function createDgtSource({ http }) {
+  return {
+    id: 'dgt',
+    name: 'DGT incidencias de tráfico (DATEX II)',
+    kind: 'events',
+    interval: 300_000,
+    url: URL_DGT,
+    license: 'DGT · Punto de Acceso Nacional de Tráfico',
+    async fetch() {
+      const doc = xmlParser.parse(await http.text(URL_DGT, { timeout: 60_000 })).payload ?? {};
+      const events = [];
+      for (const sit of arr(doc.situation)) {
+        for (const r of arr(sit.situationRecord)) {
+          const { from, to } = locate(r);
+          if (!from?.lat || !from?.lon) continue;
+          const cause = text(findKey(r.cause, 'causeType'));
+          const detail = r.cause?.detailedCauseType ? Object.values(r.cause.detailedCauseType).map(text).find(Boolean) ?? null : null;
+          const loc = r.locationReference;
+          const road = text(findKey(loc, 'roadName'));
+          const km = num(text(findKey(loc?.tpegLinearLocation?.from ?? loc, 'kilometerPoint')));
+          const place = [text(findKey(loc, 'municipality')), text(findKey(loc, 'province'))].filter(Boolean).join(', ');
+          const closed = text(r.roadOrCarriagewayOrLaneManagementType) === 'roadClosed';
+          events.push({
+            id: `dgt:${r['@_id'] ?? sit['@_id']}`,
+            category: 'carretera',
+            type: cause ?? 'otro',
+            subtype: detail,
+            severity: SEVERITY[text(r.severity)] ?? 'media',
+            closed,
+            title: `${CAUSES[cause] ?? cause ?? 'Incidencia'}${road ? ` · ${road}` : ''}${km !== null ? ` km ${km.toFixed(1)}` : ''}`,
+            description: place + (closed ? ' · Carretera cortada' : ''),
+            lat: from.lat,
+            lon: from.lon,
+            lat2: to?.lat ?? null,
+            lon2: to?.lon ?? null,
+            start: Date.parse(text(findKey(r.validity, 'overallStartTime'))) || null,
+          });
+        }
+      }
+      const published = Date.parse(text(doc.publicationTime));
+      return { events, sourceTime: Number.isNaN(published) ? null : published };
+    },
+  };
+}

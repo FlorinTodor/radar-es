@@ -1,0 +1,22 @@
+{
+  "name": "radar-es",
+  "version": "0.1.0",
+  "description": "Radar en tiempo real de trenes, metros, tranvías e incidencias en España a partir de datos públicos",
+  "private": true,
+  "type": "module",
+  "main": "server/main.js",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server/main.js",
+    "dev": "node --env-file-if-exists=.env --watch server/main.js",
+    "test": "node --test 'test/**/*.test.js'"
+  },
+  "engines": {
+    "node": ">=22.9"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.11.2",
+    "fflate": "^0.8.3",
+    "gtfs-realtime-bindings": "^2.2.0",
+    "maplibre-gl": "^6.16.0"
+  }
+}

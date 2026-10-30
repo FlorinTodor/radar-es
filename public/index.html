@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Radar ES</title>
+  <meta name="description" content="Trenes, metros, incidencias y emergencias en España en tiempo real a partir de datos públicos.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%230d0d0d' stroke='%236ea8fe' stroke-width='2'/%3E%3Ccircle cx='12' cy='12' r='3' fill='%236ea8fe'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/vendor/maplibre/maplibre-gl.css">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="5.5" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".6"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>
+      <span>Radar ES</span>
+    </div>
+    <div id="live" class="live" data-state="connecting" role="status" aria-live="polite">
+      <span class="dot"></span><span class="txt">Conectando…</span>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><span class="label">Trenes con GPS</span><span class="value" id="k-vehicles">–</span></div>
+      <div class="kpi"><span class="label">Con retraso de 5 min o más</span><span class="value" id="k-delayed">–</span><span class="sub" id="k-delayed-sub"></span></div>
+      <div class="kpi"><span class="label">Retraso mediano</span><span class="value" id="k-median">–</span></div>
+      <div class="kpi"><span class="label">Alertas activas</span><span class="value" id="k-alerts">–</span></div>
+      <div class="kpi"><span class="label">Demanda eléctrica</span><span class="value" id="k-grid">–</span><span class="sub" id="k-grid-sub"></span></div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="map-wrap">
+      <div id="map" aria-label="Mapa de España con trenes e incidencias"></div>
+      <div class="card layers" id="layers">
+        <button class="layers-toggle" id="layers-toggle" aria-expanded="true">Capas</button>
+        <div class="layers-body" id="layers-body"></div>
+      </div>
+    </section>
+
+    <aside class="sidebar">
+      <nav class="tabs" role="tablist">
+        <button role="tab" data-tab="alerts" aria-selected="true">Alertas <span class="badge" id="b-alerts">0</span></button>
+        <button role="tab" data-tab="events" aria-selected="false">Incidencias <span class="badge" id="b-events">0</span></button>
+        <button role="tab" data-tab="vehicles" aria-selected="false">Trenes</button>
+        <button role="tab" data-tab="sources" aria-selected="false">Fuentes</button>
+      </nav>
+
+      <div class="panel" id="panel-alerts" role="tabpanel"></div>
+
+      <div class="panel" id="panel-events" role="tabpanel" hidden>
+        <div class="chips" id="event-filters"></div>
+        <div class="list" id="events-list"></div>
+      </div>
+
+      <div class="panel" id="panel-vehicles" role="tabpanel" hidden>
+        <input type="search" id="vehicle-search" placeholder="Buscar tren, línea o estación…" autocomplete="off">
+        <div class="list" id="vehicles-list"></div>
+      </div>
+
+      <div class="panel" id="panel-sources" role="tabpanel" hidden></div>
+
+      <footer class="disclaimer">
+        Datos públicos de Renfe, FGC, NAP, DGT, SCT, Euskadi, IGN, AEMET, NASA FIRMS y Red Eléctrica. Proyecto independiente, sin relación con
+        esos organismos. Sirve para vigilar y dar contexto; no para decisiones de seguridad operativa.
+        <button type="button" class="link" id="open-notice">Qué datos faltan</button>
+      </footer>
+    </aside>
+  </main>
+
+  <dialog class="notice" id="notice" aria-labelledby="notice-title">
+    <h2 id="notice-title">Aviso: todavía faltan datos</h2>
+    <p>Radar ES muestra en tiempo real todos los datos públicos que existen hoy. Pero hay dos huecos importantes:</p>
+    <ul>
+      <li><strong>Adif</strong>, el gestor de la red ferroviaria, no publica en un formato reutilizable el estado de la red,
+        las incidencias ni las circulaciones de todos los operadores, incluidos los trenes de mercancías.</li>
+      <li><strong>Iryo</strong> no publica la posición ni los retrasos de sus trenes, así que no aparecen en el mapa.
+        <strong>Ouigo</strong> solo publica horarios: sus trenes se muestran con una posición estimada (anillo hueco), no con GPS.</li>
+    </ul>
+    <p><strong>Vamos a solicitar acceso formal a estas entidades</strong> para poder mostrarlo todo. Mientras tanto, ten en
+      cuenta que esos trenes e incidencias no están en el mapa.</p>
+    <form method="dialog" class="actions"><button class="btn" value="ok">Entendido</button></form>
+  </dialog>
+
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>
