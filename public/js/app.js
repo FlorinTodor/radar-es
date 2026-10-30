@@ -49,6 +49,9 @@ const map = createMap('map', {
   },
 });
 
+// Con ?debug en la URL se expone el mapa para inspeccionarlo desde la consola o en pruebas.
+if (new URLSearchParams(location.search).has('debug')) window.radarDebug = { map, prefs };
+
 map.ready.then(async () => {
   applyLayerPrefs();
   render('vehicles', 'events');
