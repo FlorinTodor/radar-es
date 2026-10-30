@@ -3,7 +3,7 @@
 /**
  * @typedef {'av'|'ld'|'md'|'cercanias'|'metro'|'tranvia'|'bus'|'otros'} Mode
  * @typedef {'baja'|'media'|'alta'|'muy alta'} Severity
- * @typedef {'ferroviario'|'carretera'|'sismo'|'meteo'|'incendio'|'internet'|'catastrofe'} EventCategory
+ * @typedef {'ferroviario'|'carretera'|'sismo'|'meteo'|'incendio'|'catastrofe'} EventCategory
  */
 
 /**
