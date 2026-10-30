@@ -76,6 +76,21 @@ function applyLayerPrefs() {
   map.setModes(P.MODE_ITEMS.filter((m) => P.modeOn(prefs, m)));
   for (const [g] of P.GROUP_ITEMS) if (g !== 'obras') map.setGroupVisible(g, P.groupOn(prefs, g));
   map.setObras(prefs.obras);
+  watchTrails(P.groupOn(prefs, 'trails'));
+}
+
+// Estelas de todos los trenes: sólo se piden mientras la capa está activa.
+let trailsTimer = null;
+function watchTrails(on) {
+  if (!on) {
+    clearInterval(trailsTimer);
+    trailsTimer = null;
+    return map.setTrails(null);
+  }
+  if (trailsTimer) return;
+  const load = () => fetch('/api/trails?min=15').then((r) => r.json()).then((fc) => map.setTrails(fc)).catch(() => {});
+  load();
+  trailsTimer = setInterval(load, 60_000);
 }
 
 // ---------- Render (agrupado por frame) ----------
@@ -95,6 +110,8 @@ function flush() {
     const alertIds = new Set(state.alerts.flatMap((a) => [a.vehicleId, ...(a.vehicleIds ?? [])]).filter(Boolean));
     const vehicles = allVehicles();
     map.setVehicles(vehicles, alertIds);
+    const selected = map.selectedVehicleId() && findVehicle(map.selectedVehicleId());
+    if (selected) map.refreshVehicle(selected);
     const counts = {};
     for (const v of vehicles) counts[v.mode] = (counts[v.mode] ?? 0) + 1;
     P.updateModeCounts(document.getElementById('layers-body'), counts);
@@ -169,15 +186,15 @@ connect({
 function selectVehicle(id) {
   const v = findVehicle(id);
   if (!v) return;
+  map.showVehicle(v); // primero la ficha, para que el encuadre le deje hueco
   map.flyTo(v.lon, v.lat, 10);
-  map.showVehicle(v);
 }
 
 function selectEvent(id) {
   const e = findEvent(id);
   if (!e || e.lat === null || e.lat === undefined) return;
-  map.flyTo(e.lon, e.lat, e.category === 'sismo' || e.category === 'meteo' ? 7 : 10);
   map.showEvent(e);
+  map.flyTo(e.lon, e.lat, e.category === 'sismo' || e.category === 'meteo' ? 7 : 10);
 }
 
 // ---------- Selección de alertas ----------

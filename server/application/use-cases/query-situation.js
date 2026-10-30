@@ -25,6 +25,26 @@ export function makeQuerySituation({ situation, stations, network }) {
     lines: () => network.lines(),
     track: (id) => situation.tracks().get(id) ?? null,
 
+    /** Estelas de todos los trenes (sin autobuses) en los últimos `minutes` minutos, como GeoJSON. */
+    trails(minutes = 15) {
+      const since = Date.now() - minutes * 60_000;
+      const modes = new Map(situation.vehicles().map((v) => [v.id, v.mode]));
+      const round = (x) => Math.round(x * 1e5) / 1e5;
+      const features = [];
+      for (const [id, track] of situation.tracks()) {
+        const mode = modes.get(id);
+        if (!mode || mode === 'bus') continue;
+        const points = track.filter((p, i) => p.t >= since || i === track.length - 1);
+        if (points.length < 2) continue;
+        features.push({
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: points.map((p) => [round(p.lon), round(p.lat)]) },
+          properties: { id, mode },
+        });
+      }
+      return { type: 'FeatureCollection', features };
+    },
+
     /** Datos de una sola fuente, para empujar cambios incrementales. */
     sourcePayload(id) {
       const s = situation.source(id);

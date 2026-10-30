@@ -145,6 +145,7 @@ las alertas ni para los KPIs**.
 | `GET /api/alerts` | alertas activas y resueltas |
 | `GET /api/tracks/:id` | recorrido de un vehículo en los últimos 45 min |
 | `GET /api/lines` | trazados de las líneas (GeoJSON) |
+| `GET /api/trails?min=15` | estela de cada tren en los últimos minutos (GeoJSON, máx. 45) |
 | `GET /api/health`, `/api/kpis`, `/api/metrics`, `/api/stations` | salud de fuentes, KPIs, métricas y estaciones |
 
 Las alertas y los KPIs por minuto se guardan en `data/history/*.jsonl` para analizarlos

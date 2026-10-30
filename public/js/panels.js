@@ -151,11 +151,12 @@ export const MODE_ITEMS = ['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'b
 // Modos ocultos hasta que el usuario los active (los autobuses taparían los trenes).
 export const MODES_OFF_BY_DEFAULT = ['bus'];
 export const modeOn = (prefs, m) => prefs.modes[m] ?? !MODES_OFF_BY_DEFAULT.includes(m);
-export const GROUPS_OFF_BY_DEFAULT = ['effis'];
+export const GROUPS_OFF_BY_DEFAULT = ['effis', 'trails'];
 export const groupOn = (prefs, g) => prefs.groups[g] ?? !GROUPS_OFF_BY_DEFAULT.includes(g);
 export const GROUP_ITEMS = [
   ['rail', 'Red ferroviaria'],
   ['lines', 'Líneas de metro, tranvía y Cercanías'],
+  ['trails', 'Estelas de todos los trenes (15 min)'],
   ['stations', 'Estaciones Renfe (al acercar)'],
   ['renfe-avisos', 'Avisos ferroviarios (Renfe, Rodalies)'],
   ['meteo', 'Avisos meteorológicos (AEMET)'],
@@ -177,7 +178,10 @@ export function renderLayers(el, prefs, countsByMode) {
   const shape = (path, fill, stroke) => `<svg viewBox="0 0 14 14" width="12" height="12" aria-hidden="true"><path d="${path}" fill="${fill}" stroke="${stroke}" stroke-width="1.4"/></svg>`;
   el.innerHTML = `<h4>Trenes</h4>${modes}<h4>Contexto</h4>${groups}<h4>Retraso del tren</h4><div class="legend">${legend}
     <i style="background:transparent;border:2px solid #d03b3b"></i><span>Tren con alerta activa</span>
-    <i style="background:transparent;border:1.8px solid #c3c2b7"></i><span>Posición estimada por horario (no GPS); el color indica el retraso si se conoce</span></div>
+    <i style="background:transparent;border:1.8px solid #c3c2b7"></i><span>Posición estimada por horario (no GPS); el color indica el retraso si se conoce</span>
+    <i style="background:transparent;border:2.5px solid #6ea8fe"></i><span>Tren seleccionado</span>
+    <i style="height:0;border-radius:0;border-top:2.5px dashed #6ea8fe"></i><span>Su recorrido en los últimos 45 min</span>
+    <i style="height:0;border-radius:0;border-top:1.5px solid #9db4d8"></i><span>Estela de cada tren (capa opcional, 15 min)</span></div>
     <h4>Incidencias</h4><div class="legend">
     ${shape('M7 1.2L12.8 7L7 12.8L1.2 7Z', '#fab219', '#0d0d0d')}<span>Tráfico (color = gravedad)</span>
     ${shape('M2.2 2.2H11.8V11.8H2.2Z', '#fab219', '#0d0d0d')}<span>Obras en carretera (color = gravedad)</span>
