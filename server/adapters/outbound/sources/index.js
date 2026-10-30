@@ -9,7 +9,7 @@ import { createFgcSource } from './fgc.js';
 import { createGtfsRtVehicleSource } from './gtfs-rt.js';
 import { createTranviaTenerifeSource } from './tranvia-tenerife.js';
 import { createMoveuskadiBusSource } from './moveuskadi-bus.js';
-import { createOuigoHorarioSource } from './ouigo-horario.js';
+import { createGtfsScheduleSource } from './gtfs-horario.js';
 import { createDgtSource } from './dgt.js';
 import { createSctSource, createTraficoEuskadiSource } from './trafico-autonomico.js';
 import { createIgnSismosSource } from './ign-sismos.js';
@@ -18,6 +18,23 @@ import { createFirmsSource } from './firms.js';
 import { createReeSource } from './ree.js';
 
 const MOVEUSKADI = 'https://opendata.euskadi.eus/transport/moveuskadi';
+
+// Redes sin GPS público cuyo horario GTFS del NAP está vigente: [id, nombre, operador, ficheroId del NAP].
+// Metro de Madrid no está porque su GTFS en el NAP caducó en mayo de 2026.
+const ESTIMATED_BY_SCHEDULE = [
+  ['metro-barcelona', 'Metro de Barcelona (TMB)', 'Metro de Barcelona', 1328],
+  ['tram-baix', 'TRAM Baix (Barcelona)', 'TRAM', 1329],
+  ['tram-besos', 'TRAM Besòs (Barcelona)', 'TRAM', 1330],
+  ['metro-ligero-madrid', 'Metro Ligero y tranvía de Madrid', 'Metro Ligero', 1427],
+  ['metrovalencia', 'Metrovalencia y TRAM de Valencia', 'Metrovalencia', 1168],
+  ['tram-alacant', "TRAM d'Alacant", "TRAM d'Alacant", 1167],
+  ['metro-sevilla', 'Metro de Sevilla', 'Metro de Sevilla', 1583],
+  ['tranvia-sevilla', 'Tranvía de Sevilla (Metrocentro)', 'Metrocentro', 1567],
+  ['metro-malaga', 'Metro de Málaga', 'Metro de Málaga', 1497],
+  ['metro-granada', 'Metro de Granada', 'Metro de Granada', 1568],
+  ['tranvia-zaragoza', 'Tranvía de Zaragoza', 'Tranvía de Zaragoza', 1687],
+  ['tranvia-murcia', 'Tranvía de Murcia', 'Tranvía de Murcia', 1569],
+];
 
 /**
  * @param {{ http: import('../http/http-client.js').HttpClient, stations: import('../../../application/ports.js').StationCatalogPort,
@@ -30,7 +47,18 @@ export function createSources(deps) {
     // Ferrocarril
     ...createRenfeSources(deps),
     createFgcSource(deps),
-    createOuigoHorarioSource(deps),
+    createGtfsScheduleSource(deps, {
+      id: 'ouigo-horario', name: 'Ouigo (posición estimada según horario)', operator: 'Ouigo', ficheroId: 1766, mode: 'av',
+      label: (trip) => trip.label?.replace(/^TGV\s*/i, '') ?? trip.id,
+    }),
+    createGtfsScheduleSource(deps, {
+      id: 'euskotren', name: 'Euskotren (horario + retraso en tiempo real)', operator: 'Euskotren', ficheroId: 1263,
+      tripUpdatesUrl: `${MOVEUSKADI}/euskotren/gtfsrt_euskotren_trip_updates.pb`,
+      license: 'Euskotren · Open Data Euskadi y NAP (posición estimada con retraso real)',
+    }),
+    ...ESTIMATED_BY_SCHEDULE.map(([id, name, operator, ficheroId]) => createGtfsScheduleSource(deps, {
+      id: `horario-${id}`, name: `${name} (posición estimada según horario)`, operator, ficheroId,
+    })),
     // Metro y tranvía
     createGtfsRtVehicleSource(deps, {
       id: 'metro-bilbao',

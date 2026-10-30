@@ -3,6 +3,7 @@
 // El resultado se cachea en disco una semana: construirlo exige descargar ~40 MB.
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
+import { modeOf } from '../gtfs/gtfs-modes.js';
 
 const MAX_AGE_MS = 7 * 24 * 3600_000;
 const TOLERANCE_DEG = 0.00008; // ~8 m: suficiente para el mapa y reduce mucho el tamaño
@@ -17,16 +18,6 @@ export const NETWORKS = [
 ];
 
 const DEFAULT_COLOR = { metro: '#8a7fd1', tranvia: '#4fb3a9', cercanias: '#c45a5a', otros: '#8b8b85' };
-
-/** route_type GTFS (básico y extendido) → modo del dominio; null = no se pinta (autobús, etc.). */
-function modeOf(routeType) {
-  const n = Number(routeType);
-  if (n === 0 || (n >= 900 && n < 1000)) return 'tranvia';
-  if (n === 1 || (n >= 400 && n < 500)) return 'metro';
-  if (n === 2 || (n >= 100 && n < 200)) return 'cercanias';
-  if ([5, 6, 7, 12].includes(n) || (n >= 1300 && n < 1500)) return 'otros';
-  return null;
-}
 
 /** Douglas-Peucker sobre [lon, lat] en grados. */
 function simplify(points, tol) {

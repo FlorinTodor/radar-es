@@ -102,7 +102,7 @@ export function renderVehicles(el, vehicles, total) {
     <button class="item vrow" data-kind="vehicle" data-id="${esc(v.id)}" style="border-left-color:${DELAY_CLASSES[v.cls][0]}">
       <span class="dot" style="background:${DELAY_CLASSES[v.cls][0]}"></span>
       <span class="title">${esc(vehicleTitle(v))}</span>
-      <span class="delay">${v.estimated ? 'Estimado' : esc(fmtDelay(v))}</span>
+      <span class="delay">${v.estimated && (v.delay === null || v.delay === undefined) ? 'Estimado' : esc(fmtDelay(v))}</span>
       <span class="sub">${esc(MODE_LABEL[v.mode] ?? v.mode)} · ${esc(v.origin ?? '?')} → ${esc(v.destination ?? '?')}</span>
     </button>`).join('');
   const more = vehicles.length > MAX_ROWS ? `<div class="empty">Mostrando ${MAX_ROWS} de ${fmtNum(vehicles.length)}. Usa el buscador para afinar.</div>` : '';
@@ -158,7 +158,7 @@ export function renderLayers(el, prefs, countsByMode) {
   const shape = (path, fill, stroke) => `<svg viewBox="0 0 14 14" width="12" height="12" aria-hidden="true"><path d="${path}" fill="${fill}" stroke="${stroke}" stroke-width="1.4"/></svg>`;
   el.innerHTML = `<h4>Trenes</h4>${modes}<h4>Contexto</h4>${groups}<h4>Retraso del tren</h4><div class="legend">${legend}
     <i style="background:transparent;border:2px solid #d03b3b"></i><span>Tren con alerta activa</span>
-    <i style="background:transparent;border:1.8px solid #c3c2b7"></i><span>Posición estimada por horario (no GPS)</span></div>
+    <i style="background:transparent;border:1.8px solid #c3c2b7"></i><span>Posición estimada por horario (no GPS); el color indica el retraso si se conoce</span></div>
     <h4>Incidencias</h4><div class="legend">
     ${shape('M7 1.2L12.8 7L7 12.8L1.2 7Z', '#fab219', '#0d0d0d')}<span>Tráfico (color = gravedad)</span>
     ${shape('M7 1.5L12.8 12.3L1.2 12.3Z', '#ec835a', '#f0efec')}<span>Aviso Renfe en estación</span>

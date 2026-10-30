@@ -32,6 +32,26 @@ export function scheduledPosition(stops, t) {
 }
 
 /**
+ * Viajes por frecuencia (frequencies.txt): el viaje "plantilla" se repite cada `headway`
+ * segundos entre `start` y `end`. Devuelve los desfases (en segundos respecto a la plantilla)
+ * de las repeticiones que están en circulación en el instante `t`.
+ * @param {{ start: number, end: number, headway: number }} freq
+ * @param {number} firstDep salida de la plantilla
+ * @param {number} duration duración del viaje
+ */
+export function activeFrequencyOffsets(freq, firstDep, duration, t) {
+  if (!(freq.headway > 0)) return [];
+  const offsets = [];
+  const kMin = Math.max(0, Math.ceil((t - duration - freq.start) / freq.headway));
+  for (let k = kMin; ; k++) {
+    const departure = freq.start + k * freq.headway;
+    if (departure >= freq.end || departure > t) break;
+    offsets.push(departure - firstDep);
+  }
+  return offsets;
+}
+
+/**
  * ¿Circula el servicio ese día? (calendar.txt + excepciones de calendar_dates.txt)
  * @param {{ days?: boolean[], start?: string, end?: string } | undefined} calendar  days[0] = lunes
  * @param {Map<string, 1|2> | undefined} exceptions  'YYYYMMDD' → 1 añadido, 2 suprimido

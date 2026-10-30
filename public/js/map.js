@@ -146,7 +146,13 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     // Posición estimada por horario: anillo hueco, para que nunca se confunda con un GPS real.
     map.addLayer({
       id: 'veh-est', type: 'circle', source: 'vehicles', filter: vehicleFilter(IS_EST),
-      paint: { 'circle-radius': VEHICLE_RADIUS, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#c3c2b7', 'circle-stroke-width': 1.8 },
+      paint: {
+        'circle-radius': VEHICLE_RADIUS,
+        'circle-color': 'rgba(0,0,0,0)',
+        // Si el operador publica el retraso real (Euskotren), el anillo lleva su color; si no, gris.
+        'circle-stroke-color': ['match', ['get', 'cls'], ...DELAY_CLASSES.flatMap(([color], i) => (i ? [i, color] : [])), '#c3c2b7'],
+        'circle-stroke-width': 1.8,
+      },
     });
     map.addLayer({
       id: 'vehicles', type: 'circle', source: 'vehicles', filter: vehicleFilter(NOT_EST),
@@ -364,9 +370,11 @@ function vehiclePopup(v) {
     v.fixTime && ['GPS', timeAgo(v.fixTime)],
     ['Fuente', v.source],
   ].filter(Boolean);
-  const note = v.estimated
-    ? '<strong>Posición estimada</strong> a partir del horario publicado: no es GPS y no refleja retrasos.'
-    : 'La línea discontinua es su recorrido en los últimos 45 min.';
+  const note = !v.estimated
+    ? 'La línea discontinua es su recorrido en los últimos 45 min.'
+    : v.delay !== null && v.delay !== undefined
+      ? '<strong>Posición estimada</strong> a partir del horario y del retraso real que publica el operador: no es GPS.'
+      : '<strong>Posición estimada</strong> a partir del horario publicado: no es GPS y no refleja retrasos.';
   return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3><dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>
     <div class="note">${note}</div></div>`;
 }
