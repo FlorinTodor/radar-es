@@ -19,6 +19,7 @@ const VEHICLE_RADIUS = ['interpolate', ['linear'], ['zoom'],
 export const LAYER_GROUPS = {
   rail: ['rail-network'],
   lines: ['net-lines'],
+  trails: ['trails-line'],
   stations: ['stations-dots', 'stations-labels'],
   meteo: ['meteo-fill', 'meteo-outline'],
   dgt: ['ev-road', 'ev-road-major'],
@@ -67,8 +68,9 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
 
   let anims = new Map(); // id → { from, to, t0, props }
   let raf = null;
-  let popup = null;
-  let popupVehicleId = null;
+  let selectedId = null;  // tren seleccionado: lleva anillo y su recorrido reciente
+  let trackFetchedAt = 0;
+  const card = createDetailCard(map.getContainer().parentElement);
   let loaded = false;
   let modeFilter = null;
   let showObras = false;
@@ -123,7 +125,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       },
     }, firstSymbol);
 
-    for (const id of ['lines', 'areas', 'stations', 'events', 'track', 'vehicles']) map.addSource(id, { type: 'geojson', data: EMPTY });
+    for (const id of ['lines', 'areas', 'stations', 'events', 'trails', 'track', 'vehicles']) map.addSource(id, { type: 'geojson', data: EMPTY });
 
     // Avisos meteorológicos debajo de todo lo demás, para no tapar trenes ni incidencias.
     map.addLayer({ id: 'meteo-fill', type: 'fill', source: 'areas', paint: { 'fill-color': LEVEL_COLOR, 'fill-opacity': 0.13 } }, firstSymbol);
@@ -161,9 +163,14 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       layout: { 'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': 11, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-optional': true },
       paint: { 'text-color': '#898781', 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.2 },
     });
+    // Estelas de todos los trenes (capa opcional) y recorrido del tren seleccionado, más visible.
     map.addLayer({
-      id: 'track-line', type: 'line', source: 'track',
-      paint: { 'line-color': '#6ea8fe', 'line-width': 2, 'line-dasharray': [2, 1.5], 'line-opacity': 0.85 },
+      id: 'trails-line', type: 'line', source: 'trails', layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#9db4d8', 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 0.8, 11, 1.6], 'line-opacity': 0.45 },
+    });
+    map.addLayer({
+      id: 'track-line', type: 'line', source: 'track', layout: { 'line-cap': 'round' },
+      paint: { 'line-color': '#6ea8fe', 'line-width': 3, 'line-dasharray': [1.6, 1.2], 'line-opacity': 0.95 },
     });
     // A escala de país sólo las incidencias graves o cortes; el resto aparece al acercarse.
     const roadLayout = {
@@ -244,6 +251,13 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       },
     });
     map.addLayer({
+      id: 'veh-selected', type: 'circle', source: 'vehicles', filter: ['==', ['get', 'id'], ''],
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 9, 10, 14, 14, 18],
+        'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#6ea8fe', 'circle-stroke-width': 3,
+      },
+    });
+    map.addLayer({
       id: 'veh-labels', type: 'symbol', source: 'vehicles', minzoom: 9,
       layout: { 'text-field': ['get', 'line'], 'text-font': FONT, 'text-size': 11, 'text-offset': [0, -1.3], 'text-optional': true },
       paint: { 'text-color': '#f0efec', 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.5 },
@@ -256,7 +270,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     }
     map.on('click', (e) => {
       const f = map.queryRenderedFeatures(e.point, { layers: clickable })[0];
-      if (!f) return;
+      if (!f) return clearSelection(); // clic en una zona vacía: se quita la selección
       if (['vehicles', 'veh-est'].includes(f.layer.id)) onVehicleClick(f.properties.id);
       else onEventClick(f.properties.id, e.lngLat);
     });
@@ -300,23 +314,39 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: position(a, now) }, properties: a.props });
     }
     map.getSource('vehicles').setData({ type: 'FeatureCollection', features });
-    if (popup && popupVehicleId && anims.has(popupVehicleId)) popup.setLngLat(position(anims.get(popupVehicleId), now));
     if (moving) raf = requestAnimationFrame(frame);
   }
 
   const kick = () => { if (!raf) raf = requestAnimationFrame(frame); };
 
-  function openPopup(lngLat, html, vehicleId = null) {
-    popup?.remove();
-    popupVehicleId = vehicleId;
-    popup = new maplibregl.Popup({ maxWidth: '320px', focusAfterOpen: false }).setLngLat(lngLat).setHTML(html).addTo(map);
-    popup.on('close', () => {
-      if (popupVehicleId === vehicleId) {
-        popupVehicleId = null;
-        map.getSource('track')?.setData(EMPTY);
-      }
-    });
+  function setSelected(id) {
+    selectedId = id;
+    if (loaded) map.setFilter('veh-selected', ['==', ['get', 'id'], id ?? '']);
+    if (!id) map.getSource('track')?.setData(EMPTY);
   }
+
+  function clearSelection() {
+    setSelected(null);
+    card.hide();
+  }
+
+  function loadTrack(id) {
+    trackFetchedAt = Date.now();
+    fetch(`/api/tracks/${encodeURIComponent(id)}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((track) => {
+        if (selectedId !== id) return;
+        map.getSource('track').setData(track.length < 2 ? EMPTY
+          : { type: 'Feature', geometry: { type: 'LineString', coordinates: track.map((p) => [p.lon, p.lat]) }, properties: {} });
+      })
+      .catch(() => {});
+  }
+
+  // La ficha ocupa la derecha del mapa (abajo en el móvil): se encuadra dejando ese hueco libre.
+  const isNarrow = () => map.getContainer().clientWidth < 700;
+  const sidePadding = () => (isNarrow()
+    ? { top: 60, bottom: card.open ? 260 : 60, left: 30, right: 30 }
+    : { top: 70, bottom: 50, left: 260, right: card.open ? 360 : 70 });
 
   return {
     ready,
@@ -393,10 +423,10 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     /** Encuadra una lista de puntos [lon, lat]. */
     fitTo(points) {
       if (!points.length) return;
-      if (points.length === 1) return map.flyTo({ center: points[0], zoom: Math.max(map.getZoom(), 10), speed: 1.6 });
+      if (points.length === 1) return map.flyTo({ center: points[0], zoom: Math.max(map.getZoom(), 10), speed: 1.6, padding: sidePadding() });
       const lons = points.map((p) => p[0]);
       const lats = points.map((p) => p[1]);
-      map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: 90, maxZoom: 11, duration: 900 });
+      map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: sidePadding(), maxZoom: 11, duration: 900 });
     },
 
     setObras(on) {
@@ -409,26 +439,34 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       for (const id of LAYER_GROUPS[group] ?? []) map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
     },
 
+    /** Centra un punto dejando libre el hueco de la ficha y del panel de capas. */
     flyTo(lon, lat, zoom = 11) {
-      map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), zoom), speed: 1.6 });
+      map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), zoom), speed: 1.6, padding: sidePadding() });
     },
 
+    /** Selecciona un tren: anillo, recorrido reciente y ficha. La × de la ficha sólo la cierra. */
     showVehicle(v) {
-      const a = anims.get(v.id);
-      openPopup(a ? position(a, performance.now()) : [v.lon, v.lat], vehiclePopup(v), v.id);
-      fetch(`/api/tracks/${encodeURIComponent(v.id)}`)
-        .then((r) => (r.ok ? r.json() : []))
-        .then((track) => {
-          if (popupVehicleId !== v.id || track.length < 2) return;
-          map.getSource('track').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: track.map((p) => [p.lon, p.lat]) }, properties: {} });
-        })
-        .catch(() => {});
+      setSelected(v.id);
+      card.show(vehicleDetail(v));
+      loadTrack(v.id);
     },
 
-    /** @param {object} e  @param {{lng: number, lat: number}} [at] punto del clic (para zonas) */
-    showEvent(e, at) {
-      if (!at && (e.lat === null || e.lat === undefined)) return;
-      openPopup(at ? [at.lng, at.lat] : [e.lon, e.lat], eventPopup(e));
+    /** Actualiza la ficha y, cada 15 s, el recorrido del tren seleccionado cuando llegan datos. */
+    refreshVehicle(v) {
+      if (selectedId !== v.id) return;
+      if (card.open) card.show(vehicleDetail(v));
+      if (Date.now() - trackFetchedAt > 15_000) loadTrack(v.id);
+    },
+
+    selectedVehicleId: () => selectedId,
+
+    showEvent(e) {
+      setSelected(null);
+      card.show(eventDetail(e));
+    },
+
+    setTrails(collection) {
+      if (loaded) map.getSource('trails').setData(collection ?? EMPTY);
     },
   };
 }
@@ -457,7 +495,27 @@ export function icon(shape, fill, stroke) {
   return { width: size, height: size, data: g.getImageData(0, 0, size, size).data };
 }
 
-function vehiclePopup(v) {
+/** Ficha fija sobre el mapa (sustituye a las ventanas emergentes, que tapaban el recorrido). */
+function createDetailCard(host) {
+  const el = document.createElement('div');
+  el.className = 'card detail';
+  el.hidden = true;
+  el.setAttribute('role', 'region');
+  el.setAttribute('aria-label', 'Detalle del elemento seleccionado');
+  el.innerHTML = '<button type="button" class="detail-close" aria-label="Cerrar ficha">×</button><div class="detail-body"></div>';
+  el.querySelector('.detail-close').addEventListener('click', () => { el.hidden = true; });
+  host.appendChild(el);
+  return {
+    show(html) {
+      el.querySelector('.detail-body').innerHTML = html;
+      el.hidden = false;
+    },
+    hide() { el.hidden = true; },
+    get open() { return !el.hidden; },
+  };
+}
+
+function vehicleDetail(v) {
   const rows = [
     ['Tipo', MODE_LABEL[v.mode] ?? v.mode],
     (v.origin || v.destination) && ['Recorrido', `${v.origin ?? '?'} → ${v.destination ?? '?'}`],
@@ -471,7 +529,8 @@ function vehiclePopup(v) {
     ['Fuente', v.source],
   ].filter(Boolean);
   const note = !v.estimated
-    ? 'La línea discontinua es su recorrido en los últimos 45 min.'
+    ? 'La <strong>línea azul discontinua</strong> es el recorrido de este tren en los últimos 45 min (desde que el radar lo sigue). '
+      + 'La × sólo cierra esta ficha; pulsa en una zona vacía del mapa para quitar la selección.'
     : v.delay !== null && v.delay !== undefined
       ? '<strong>Posición estimada</strong> a partir del horario y del retraso real que publica el operador: no es GPS.'
       : '<strong>Posición estimada</strong> a partir del horario publicado: no es GPS y no refleja retrasos.';
@@ -479,7 +538,7 @@ function vehiclePopup(v) {
     <div class="note">${note}</div></div>`;
 }
 
-function eventPopup(e) {
+function eventDetail(e) {
   const rows = [
     ['Gravedad', SEVERITY_LABEL[e.severity] ?? e.severity],
     e.issued && ['Emitido', fmtDateTime(e.issued)],

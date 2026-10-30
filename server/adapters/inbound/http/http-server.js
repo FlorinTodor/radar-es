@@ -34,6 +34,7 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
     '/api/metrics': () => query.metrics(),
     '/api/stations': () => query.stations(),
     '/api/lines': () => query.lines(),
+    '/api/trails': (p) => query.trails(Math.min(Number(p.get('min')) || 15, 45)),
     '/api/about': () => about,
   };
 
