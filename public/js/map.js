@@ -112,6 +112,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     for (const [sev, color] of Object.entries(SEV_COLORS)) {
       map.addImage(`diamond-${sev}`, icon('diamond', color, '#0d0d0d'), { pixelRatio: 2 });
       map.addImage(`triangle-${sev}`, icon('triangle', color, '#f0efec'), { pixelRatio: 2 });
+      map.addImage(`square-${sev}`, icon('square', color, '#0d0d0d'), { pixelRatio: 2 });
     }
 
     map.addLayer({
@@ -138,6 +139,17 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     };
     map.addLayer({ id: 'ev-road', type: 'symbol', source: 'events', minzoom: 6.5, filter: roadFilter(false), layout: roadLayout });
     map.addLayer({ id: 'ev-road-major', type: 'symbol', source: 'events', filter: roadFilter(true), layout: roadLayout });
+    // Obras: capa propia (cuadrado), independiente de la de tráfico y, si se activa, a cualquier zoom.
+    map.addLayer({
+      id: 'ev-works', type: 'symbol', source: 'events',
+      filter: ['all', ['==', ['get', 'category'], 'carretera'], ['==', ['get', 'type'], 'roadMaintenance']],
+      layout: {
+        visibility: showObras ? 'visible' : 'none',
+        'icon-image': ['concat', 'square-', ['get', 'severity']],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.5, 8, 0.7, 11, 0.95],
+        'icon-allow-overlap': true, 'icon-ignore-placement': true,
+      },
+    });
     map.addLayer({
       id: 'ev-gdacs', type: 'circle', source: 'events', filter: ['==', ['get', 'category'], 'catastrofe'],
       paint: {
@@ -214,7 +226,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       paint: { 'text-color': '#f0efec', 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.5 },
     });
 
-    const clickable = ['vehicles', 'veh-est', 'veh-air', 'ev-rail', 'ev-quake', 'ev-gdacs', 'ev-road', 'ev-road-major', 'ev-fire-glow', 'meteo-fill'];
+    const clickable = ['vehicles', 'veh-est', 'veh-air', 'ev-rail', 'ev-quake', 'ev-gdacs', 'ev-road', 'ev-road-major', 'ev-works', 'ev-fire-glow', 'meteo-fill'];
     for (const id of clickable) {
       map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
@@ -237,11 +249,12 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     return parts.length > 1 ? parts : ['all', true];
   }
 
+  // Incidencias de tráfico sin obras (las obras tienen su propia capa, 'ev-works').
   function roadFilter(major) {
     const isMajor = ['any', ['in', ['get', 'severity'], ['literal', ['alta', 'muy alta']]], ['==', ['get', 'closed'], true]];
     return ['all',
       ['==', ['get', 'category'], 'carretera'],
-      showObras ? true : ['!=', ['get', 'type'], 'roadMaintenance'],
+      ['!=', ['get', 'type'], 'roadMaintenance'],
       major ? isMajor : ['!', isMajor],
     ];
   }
@@ -349,9 +362,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
 
     setObras(on) {
       showObras = on;
-      if (!loaded) return;
-      map.setFilter('ev-road', roadFilter(false));
-      map.setFilter('ev-road-major', roadFilter(true));
+      if (loaded) map.setLayoutProperty('ev-works', 'visibility', on ? 'visible' : 'none');
     },
 
     setGroupVisible(group, visible) {
@@ -383,7 +394,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
   };
 }
 
-/** Icono rasterizado para MapLibre (rombo o triángulo de 14 px a doble resolución). */
+/** Icono rasterizado para MapLibre (rombo, cuadrado o triángulo de 14 px a doble resolución). */
 export function icon(shape, fill, stroke) {
   const size = 28;
   const canvas = document.createElement('canvas');
@@ -393,6 +404,8 @@ export function icon(shape, fill, stroke) {
   g.beginPath();
   if (shape === 'diamond') {
     g.moveTo(7, 1.2); g.lineTo(12.8, 7); g.lineTo(7, 12.8); g.lineTo(1.2, 7);
+  } else if (shape === 'square') {
+    g.rect(2.2, 2.2, 9.6, 9.6);
   } else {
     g.moveTo(7, 1.5); g.lineTo(12.8, 12.3); g.lineTo(1.2, 12.3);
   }

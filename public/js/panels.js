@@ -167,6 +167,7 @@ export function renderLayers(el, prefs, countsByMode) {
     <i style="background:transparent;border:1.8px solid #c3c2b7"></i><span>Posición estimada por horario (no GPS); el color indica el retraso si se conoce</span></div>
     <h4>Incidencias</h4><div class="legend">
     ${shape('M7 1.2L12.8 7L7 12.8L1.2 7Z', '#fab219', '#0d0d0d')}<span>Tráfico (color = gravedad)</span>
+    ${shape('M2.2 2.2H11.8V11.8H2.2Z', '#fab219', '#0d0d0d')}<span>Obras en carretera (color = gravedad)</span>
     ${shape('M7 1.5L12.8 12.3L1.2 12.3Z', '#ec835a', '#f0efec')}<span>Aviso Renfe en estación</span>
     <i style="border-radius:2px;background:rgba(236,131,90,.25);border:1.2px solid #ec835a"></i><span>Aviso meteorológico (amarillo, naranja o rojo)</span>
     <i style="background:radial-gradient(circle,#ffd27a 25%,#ff5a1f 60%,transparent 75%)"></i><span>Foco de calor por satélite</span>
