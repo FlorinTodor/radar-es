@@ -1,5 +1,5 @@
 import * as maplibregl from '/vendor/maplibre/maplibre-gl.mjs';
-import { DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, STATUS, esc, fmtDateTime, fmtDelay, fmtLocalHour, timeAgo, vehicleTitle } from './format.js';
+import { DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, STATUS, esc, fmtDateTime, fmtDelay, fmtLocalHour, safeUrl, timeAgo, vehicleTitle } from './format.js';
 import { PICTOS, pictoFor, vehicleImage } from './icons.js';
 
 const STYLE = 'https://tiles.openfreemap.org/styles/dark';
@@ -571,7 +571,8 @@ function eventDetail(e) {
     e.end && ['Fin previsto', fmtDateTime(e.end)],
     ['Fuente', e.source],
   ].filter(Boolean);
-  const link = e.url ? `<div class="note"><a href="${esc(e.url)}" target="_blank" rel="noopener">Ficha oficial</a></div>` : '';
+  const url = safeUrl(e.url);
+  const link = url ? `<div class="note"><a href="${esc(url)}" target="_blank" rel="noopener">Ficha oficial</a></div>` : '';
   return `<div class="pop"><h3>${esc(e.title)}</h3>${e.description ? `<p>${esc(e.description)}</p>` : ''}
     <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>${link}</div>`;
 }

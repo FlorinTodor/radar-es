@@ -99,3 +99,18 @@ export function vehicleLabel(v) {
   const service = v.service && v.service !== v.line ? `${v.service} ` : '';
   return `${service}${v.line ?? ''} ${v.label ?? ''}`.replace(/\s+/g, ' ').trim();
 }
+
+/**
+ * Enlace externo que se puede mostrar: sólo http(s). Los feeds son de terceros y un
+ * `javascript:` en un enlace se ejecutaría en nuestra web al pulsarlo.
+ * @param {unknown} url @returns {string | null}
+ */
+export function safeLink(url) {
+  if (typeof url !== 'string') return null;
+  try {
+    const { protocol } = new URL(url.trim());
+    return protocol === 'https:' || protocol === 'http:' ? url.trim() : null;
+  } catch {
+    return null;
+  }
+}
