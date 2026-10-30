@@ -160,7 +160,8 @@ button { font: inherit; color: inherit; }
 .layers { position: absolute; top: 12px; left: 12px; width: 230px; max-height: calc(100% - 24px); overflow-y: auto; font-size: 13px; }
 .layers-toggle { display: block; width: 100%; padding: 9px 12px; text-align: left; background: none; border: 0; font-weight: 600; cursor: pointer; }
 .layers-toggle::after { content: "▾"; float: right; color: var(--muted); }
-.layers-toggle[aria-expanded="false"]::after { content: "▸"; }
+.layers-toggle[aria-expanded="false"]::after { content: "▸"; margin-left: 12px; }
+.layers.collapsed { width: auto; }
 .layers-body { padding: 0 12px 10px; }
 .layers-body[hidden] { display: none; }
 .layers h4 { margin: 8px 0 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
@@ -191,6 +192,9 @@ button { font: inherit; color: inherit; }
 
 .maplibregl-ctrl-attrib { background: rgba(13, 13, 13, 0.7) !important; color: var(--muted); }
 .maplibregl-ctrl-attrib a { color: var(--ink-2); }
+/* Plegada en el móvil: MapLibre la pone en negro sobre blanco; aquí, clara sobre oscuro. */
+.maplibregl-ctrl-attrib.maplibregl-compact { color: var(--ink-2); background: rgba(13, 13, 13, 0.85) !important; }
+.maplibregl-ctrl-attrib-button { background-color: var(--ink-2) !important; }
 @media (max-width: 860px) { .maplibregl-ctrl-attrib { font-size: 10px; } }
 
 /* ---------- Aviso de cobertura ---------- */
@@ -226,17 +230,66 @@ body.doc { overflow: auto; display: block; }
 .doc-body th, .doc-body td { padding: 8px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
 .doc-body th { color: var(--ink); background: var(--surface); font-weight: 600; }
 .doc-body tr:last-child td { border-bottom: 0; }
+/* En el móvil las tablas pasan a fichas apiladas (legal.html pone data-label en cada celda). */
+@media (max-width: 640px) {
+  .doc-body thead { display: none; }
+  .doc-body tr { display: block; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  .doc-body tr:last-child { border-bottom: 0; }
+  .doc-body td { display: block; padding: 2px 0; border: 0; }
+  .doc-body td:first-child { padding-bottom: 4px; color: var(--ink); font-weight: 600; }
+  .doc-body td[data-label]:not(:first-child)::before { content: attr(data-label) ": "; color: var(--muted); }
+}
 
-/* ---------- Móvil ---------- */
+.sheet-handle { display: none; }
+
+/* ---------- Móvil ----------
+   El mapa ocupa toda la pantalla y el panel lateral pasa a ser una hoja que sube desde abajo
+   (sólo pestañas, media pantalla o entera; ver app.js). Los indicadores van en una fila que
+   se desliza de lado. */
 @media (max-width: 860px) {
-  body { overflow: auto; }
-  .topbar { flex-wrap: wrap; gap: 8px 16px; padding: 8px 16px; }
-  .kpis { width: 100%; margin-left: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; }
-  .kpi .label, .kpi .sub { white-space: normal; line-height: 1.25; }
-  .kpi .value { font-size: 18px; }
-  .layout { flex-direction: column; }
-  .map-wrap { min-height: 55vh; }
-  .sidebar { width: 100%; border-left: 0; border-top: 1px solid var(--border); min-height: 60vh; }
-  .layers { width: 200px; }
-  .detail { top: auto; bottom: 40px; left: 8px; right: 8px; width: auto; max-height: 48%; }
+  :root { --peek: 65px; --sheet-half: 55%; }  /* --sheet-half = SHEET_HALF de app.js */
+  body { height: 100dvh; }
+
+  .topbar { flex-wrap: wrap; gap: 2px 12px; min-height: 0; padding: 6px 12px 4px; }
+  .brand { font-size: 15px; }
+  .live { margin-left: auto; }
+  .kpis {
+    order: 3; width: calc(100% + 24px); margin: 0 -12px; padding: 0 12px 2px; gap: 18px;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+  }
+  .kpi { flex: none; }
+  .kpi .label { font-size: 10.5px; }
+  .kpi .value { font-size: 16px; }
+  .kpi .sub { display: none; }
+
+  .layout { position: relative; }
+  .map-wrap { position: absolute; inset: 0 0 var(--peek); }
+  .sidebar {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; width: auto; overflow: hidden;
+    height: var(--peek); min-height: var(--peek); max-height: 100%;
+    border-left: 0; border-top: 1px solid var(--border); border-radius: 14px 14px 0 0;
+    box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.45); transition: height .25s ease;
+  }
+  .sidebar[data-sheet="half"] { height: var(--sheet-half); }
+  .sidebar[data-sheet="full"] { height: 100%; border-radius: 0; }
+  .sidebar.dragging { transition: none; }
+  .sheet-handle {
+    display: flex; flex: none; align-items: center; justify-content: center; width: 100%; height: 20px;
+    padding: 0; border: 0; background: none; cursor: grab; touch-action: none;
+  }
+  .sheet-handle span { width: 40px; height: 4px; border-radius: 2px; background: var(--muted); }
+  .tabs { flex: none; }
+  .tabs button { height: 43px; padding: 0 6px; }
+  .panel { overscroll-behavior: contain; }
+  .disclaimer { padding: 6px 12px; font-size: 10.5px; line-height: 1.35; }
+
+  .layers { top: 10px; left: 10px; width: 270px; max-width: calc(100% - 64px); max-height: calc(100% - 20px); }
+  .layers.collapsed { width: auto; }
+  .focus-banner { top: auto; bottom: 10px; left: 10px; right: 10px; transform: none; justify-content: space-between; }
+  .detail { top: auto; bottom: 10px; left: 8px; right: 8px; width: auto; max-height: 45%; }
+  /* Con el aviso de selección abajo, la ficha y los controles del mapa suben por encima. */
+  .map-wrap:has(> .focus-banner:not([hidden])) .detail { bottom: 64px; }
+  .map-wrap:has(> .focus-banner:not([hidden])) .maplibregl-ctrl-bottom-left,
+  .map-wrap:has(> .focus-banner:not([hidden])) .maplibregl-ctrl-bottom-right { bottom: 54px; }
 }

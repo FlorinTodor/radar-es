@@ -66,8 +66,10 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     zoom: 5.4,
     minZoom: 3,
     maxPitch: 0,
-    // Siempre desplegada: varias licencias exigen que la atribución se vea en el propio mapa.
-    attributionControl: { compact: false, customAttribution: ATTRIBUTION },
+    // Desplegada en pantallas anchas. En el móvil (≤ 640 px) MapLibre la muestra al cargar y la
+    // pliega en un botón (i) al mover el mapa, como permiten las normas de atribución de OSM;
+    // además todas las atribuciones están en /legal.html.
+    attributionControl: { customAttribution: ATTRIBUTION },
   });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
   map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
@@ -348,10 +350,21 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       .catch(() => {});
   }
 
-  // La ficha ocupa la derecha del mapa (abajo en el móvil): se encuadra dejando ese hueco libre.
-  const isNarrow = () => map.getContainer().clientWidth < 700;
-  const sidePadding = () => (isNarrow()
-    ? { top: 60, bottom: card.open ? 260 : 60, left: 30, right: 30 }
+  // La ficha ocupa la derecha del mapa (abajo en el móvil, junto al aviso de selección): se
+  // encuadra dejando ese hueco libre. El corte coincide con el de la vista móvil del CSS.
+  const narrow = window.matchMedia('(max-width: 860px)');
+  const bottomOverlays = () => {
+    const box = map.getContainer().getBoundingClientRect();
+    let top = box.bottom;
+    for (const el of map.getContainer().parentElement.querySelectorAll('.detail, .focus-banner')) {
+      if (el.hidden) continue;
+      const r = el.getBoundingClientRect();
+      if (r.bottom > box.top + box.height / 2) top = Math.min(top, r.top); // sólo lo que está abajo
+    }
+    return box.bottom - top;
+  };
+  const sidePadding = () => (narrow.matches
+    ? { top: 60, bottom: 40 + bottomOverlays(), left: 30, right: 30 }
     : { top: 70, bottom: 50, left: 260, right: card.open ? 360 : 70 });
   // Para centrar un punto se usa un desplazamiento y no `padding`: en MapLibre el padding de
   // flyTo se queda guardado en el mapa y se sumaría al de encuadres posteriores (fitBounds).
