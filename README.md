@@ -87,6 +87,7 @@ Todas son públicas. Solo las marcadas con 🔑 necesitan `NAP_API_KEY`, una cla
 | Renfe GTFS-RT alerts (`gtfsrt.renfe.com/alerts.json`) | avisos de servicio | 2 min |
 | Estaciones Renfe (GeoJSON de ambos visores) | nombres y coordenadas de 1.512 estaciones | 24 h |
 | FGC (`dadesobertes.fgc.cat`, `posicionament-dels-trens`) | posición y si va en hora | 30 s |
+| Rodalies de Catalunya (API de su app, salidas de 8 estaciones nodales) | trenes cancelados y avisos de servicio (p. ej. transporte por carretera) | 3 min |
 | Metro Bilbao (GTFS-RT, Open Data Euskadi) | posición | 30 s |
 | Tranvía de Tenerife (endpoint no documentado de su web) | posición y próxima parada | 30 s |
 | Renfe GTFS-RT (`gtfsrt.renfe.com`) | ~90 trenes de Cercanías más que el visor no muestra (muchos en andén) | 20 s |
