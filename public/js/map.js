@@ -13,7 +13,7 @@ const NOT_EST = ['!=', ['get', 'est'], 1];
 const IS_AIR = ['==', ['get', 'mode'], 'avion'];
 const NOT_AIR = ['!=', ['get', 'mode'], 'avion'];
 const VEHICLE_RADIUS = ['interpolate', ['linear'], ['zoom'],
-  5, ['match', ['get', 'mode'], ['av', 'ld'], 3.5, 'md', 3, 'bus', 1.6, 2.6],
+  5, ['match', ['get', 'mode'], ['av', 'ld'], 4.2, 'md', 3.6, 'bus', 1.8, 3.1],
   10, ['match', ['get', 'mode'], ['av', 'ld'], 6.5, 'md', 6, 'bus', 3.5, 5],
   14, 9];
 
@@ -30,6 +30,10 @@ export const LAYER_GROUPS = {
   gdacs: ['ev-gdacs'],
   effis: ['effis-burnt'],
 };
+
+const RAIL_TILES = 'https://servicios.idee.es/wms-inspire/transportes?service=WMS&request=GetMap&version=1.3.0'
+  + '&layers=TN.RailTransportNetwork.RailwayLink&styles=&format=image/png&transparent=true&crs=EPSG:3857&width=256&height=256&bbox={bbox-epsg-3857}';
+const RAIL_ATTRIBUTION = 'Red ferroviaria: IGN-CNIG, <a href="https://www.scne.es" target="_blank" rel="noopener">CC BY 4.0 scne.es</a>';
 
 // Áreas quemadas de los últimos 30 días (Copernicus EFFIS, WMS con CORS abierto).
 const EFFIS_TILES = 'https://maps.effis.emergency.copernicus.eu/effis?service=WMS&request=GetMap&version=1.1.1&layers=modis.ba.month'
@@ -74,13 +78,14 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
   const ready = new Promise((resolve) => map.on('load', resolve)).then(() => {
     const firstSymbol = map.getStyle().layers.find((l) => l.type === 'symbol')?.id;
 
-    // La red ferroviaria del estilo base sólo aparece de cerca; la realzamos desde zoom 5.
+    // Red ferroviaria del IGN: se ve entera a cualquier zoom (las vías de OpenStreetMap del mapa
+    // base sólo aparecen muy de cerca). Viene en gris oscuro: se invierte para que destaque.
+    map.addSource('rail-ign', { type: 'raster', tiles: [RAIL_TILES], tileSize: 256, attribution: RAIL_ATTRIBUTION });
     map.addLayer({
-      id: 'rail-network', type: 'line', source: 'openmaptiles', 'source-layer': 'transportation', minzoom: 5,
-      filter: ['all', ['==', ['get', 'class'], 'rail'], ['!', ['has', 'service']]],
+      id: 'rail-network', type: 'raster', source: 'rail-ign',
       paint: {
-        'line-color': '#3d4b66',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 5, 0.6, 9, 1.1, 14, 2.2],
+        'raster-brightness-min': 1, 'raster-brightness-max': 0, 'raster-saturation': -1,
+        'raster-opacity': ['interpolate', ['linear'], ['zoom'], 5, 0.4, 9, 0.5, 13, 0.6],
       },
     }, firstSymbol);
 
@@ -95,8 +100,8 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
         'line-color': ['get', 'color'],
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.8, 10, 2, 14, 3.5],
-        'line-opacity': ['interpolate', ['linear'], ['zoom'], 6, 0.35, 11, 0.6],
+        'line-width': ['interpolate', ['linear'], ['zoom'], 5, 1.1, 10, 2.2, 14, 3.5],
+        'line-opacity': ['interpolate', ['linear'], ['zoom'], 5, 0.6, 11, 0.75],
       },
     });
     map.addSource('effis', { type: 'raster', tiles: [EFFIS_TILES], tileSize: 256, attribution: 'Copernicus EFFIS' });
@@ -110,11 +115,14 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     }
 
     map.addLayer({
-      id: 'stations-dots', type: 'circle', source: 'stations', minzoom: 8,
-      paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 1.8, 13, 4], 'circle-color': '#6b6b66', 'circle-stroke-color': '#0d0d0d', 'circle-stroke-width': 1 },
+      id: 'stations-dots', type: 'circle', source: 'stations', minzoom: 6.5,
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 6.5, 1.8, 9, 2.8, 13, 4.5],
+        'circle-color': '#b5b4ad', 'circle-stroke-color': '#0d0d0d', 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 6.5, 0.5, 9, 1],
+      },
     });
     map.addLayer({
-      id: 'stations-labels', type: 'symbol', source: 'stations', minzoom: 11,
+      id: 'stations-labels', type: 'symbol', source: 'stations', minzoom: 10,
       layout: { 'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': 11, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-optional': true },
       paint: { 'text-color': '#898781', 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.2 },
     });
@@ -125,10 +133,10 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     // A escala de país sólo las incidencias graves o cortes; el resto aparece al acercarse.
     const roadLayout = {
       'icon-image': ['concat', 'diamond-', ['get', 'severity']],
-      'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.7, 10, 1],
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.7, 7, 0.75, 10, 1],
       'icon-allow-overlap': true, 'icon-ignore-placement': true,
     };
-    map.addLayer({ id: 'ev-road', type: 'symbol', source: 'events', minzoom: 8, filter: roadFilter(false), layout: roadLayout });
+    map.addLayer({ id: 'ev-road', type: 'symbol', source: 'events', minzoom: 6.5, filter: roadFilter(false), layout: roadLayout });
     map.addLayer({ id: 'ev-road-major', type: 'symbol', source: 'events', filter: roadFilter(true), layout: roadLayout });
     map.addLayer({
       id: 'ev-gdacs', type: 'circle', source: 'events', filter: ['==', ['get', 'category'], 'catastrofe'],
@@ -201,7 +209,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       },
     });
     map.addLayer({
-      id: 'veh-labels', type: 'symbol', source: 'vehicles', minzoom: 10, filter: vehicleFilter(),
+      id: 'veh-labels', type: 'symbol', source: 'vehicles', minzoom: 9, filter: vehicleFilter(),
       layout: { 'text-field': ['get', 'line'], 'text-font': FONT, 'text-size': 11, 'text-offset': [0, -1.3], 'text-optional': true },
       paint: { 'text-color': '#f0efec', 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.5 },
     });
@@ -275,6 +283,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
 
   return {
     ready,
+    raw: map, // acceso directo para depuración (?debug) y pruebas automáticas
 
     /** @param {object[]} list vehículos  @param {Set<string>} alertIds */
     setVehicles(list, alertIds) {
