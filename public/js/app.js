@@ -20,7 +20,7 @@ const state = {
 
 const PREFS_KEY = 'radar-es:prefs';
 const prefs = Object.assign(
-  { modes: {}, groups: {}, obras: false, eventCats: ['ferroviario', 'carretera', 'meteo', 'incendio', 'sismo', 'catastrofe', 'internet'] },
+  { modes: {}, groups: {}, obras: false, eventCats: ['ferroviario', 'carretera', 'meteo', 'incendio', 'sismo', 'catastrofe'] },
   readPrefs(),
 );
 

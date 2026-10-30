@@ -125,7 +125,6 @@ Todas son públicas. Solo las marcadas con 🔑 necesitan `NAP_API_KEY`, una cla
 | NASA FIRMS (VIIRS NOAA-20, CSV público) | focos de calor por satélite (España, Portugal, Canarias) | 30 min |
 | IGN sismología (GeoRSS) | terremotos de los últimos 10 días | 3 min |
 | GDACS (ONU / Comisión Europea) | alertas de catástrofes en la zona (verde, naranja, roja) | 15 min |
-| IODA (Georgia Tech) | caídas de conectividad a Internet en España y sus regiones | 10 min |
 | Copernicus EFFIS (WMS, en el navegador) | capa de áreas quemadas en los últimos 30 días | — |
 | Red Eléctrica REData | demanda real frente a prevista | 5 min |
 

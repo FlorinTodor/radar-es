@@ -209,17 +209,6 @@ export function fleetDrop(ctx) {
   }];
 }
 
-/** Caídas de conectividad a Internet detectadas por IODA en España o sus regiones. */
-export function internetOutages(ctx) {
-  return ctx.events
-    .filter((e) => e.category === 'internet' && (!e.end || ctx.now - e.end <= ctx.thresholds.internetWindowMinutes * 60_000))
-    .map((e) => ({
-      id: `internet:${e.id}`, type: 'internet', severity: e.scope === 'country' ? 'muy alta' : 'alta', eventIds: [e.id],
-      lat: e.lat ?? undefined, lon: e.lon ?? undefined,
-      title: e.title, description: e.description,
-    }));
-}
-
 /** Alertas naranja o roja de GDACS (terremotos, inundaciones, ciclones, volcanes…) en la zona. */
 export function disasterAlerts(ctx) {
   return ctx.events
@@ -256,7 +245,6 @@ export const RULES = [
   earthquakesNearTrains,
   severeWeather,
   firesNearTrains,
-  internetOutages,
   disasterAlerts,
   gridDemandDrop,
   fleetDrop,

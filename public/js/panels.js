@@ -74,7 +74,6 @@ export const EVENT_CATEGORIES = [
   ['incendio', 'Incendios'],
   ['sismo', 'Terremotos'],
   ['catastrofe', 'Catástrofes'],
-  ['internet', 'Internet'],
 ];
 
 export function renderEventFilters(el, prefs) {
