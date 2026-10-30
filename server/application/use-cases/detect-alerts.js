@@ -19,12 +19,14 @@ export function makeDetectAlerts({ situation, stations, history, publisher, cloc
 
   return function detectAlerts() {
     const now = clock.now();
-    const vehicles = monitoredVehicles(situation.vehicles());
+    const all = situation.vehicles();
+    const vehicles = monitoredVehicles(all);
     const kpis = computeKpis(vehicles, now);
 
     const candidates = evaluateRules({
       now,
       vehicles,
+      aircraft: all.filter((v) => v.mode === 'avion'),
       tracks: situation.tracks(),
       events: situation.events(),
       metrics: situation.metrics(),

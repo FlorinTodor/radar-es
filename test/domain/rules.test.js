@@ -95,6 +95,25 @@ test('foco de incendio cerca de un tren genera alerta; lejos, no', () => {
   assert.equal(far.length, 0);
 });
 
+test('un avión con squawk 7700 genera alerta muy alta; uno normal, no', () => {
+  const plane = (id, squawk) => ({ id, mode: 'avion', label: id, lat: 40, lon: -3, squawk, emergency: 'none' });
+  const alerts = evaluateRules(ctx({ aircraft: [plane('IBE123', '7700'), plane('VLG456', '2632')] })).filter((a) => a.type === 'avion');
+  assert.deepEqual(alerts.map((a) => [a.vehicleId, a.severity]), [['IBE123', 'muy alta']]);
+});
+
+test('caída de Internet en todo el país es muy alta; ya pasada hace horas, no alerta', () => {
+  const outage = (id, scope, end) => ({ id, category: 'internet', scope, title: id, description: '', end });
+  const alerts = evaluateRules(ctx({ events: [outage('es', 'country', T0 - 5 * MIN), outage('vieja', 'region', T0 - 5 * 60 * MIN)] }))
+    .filter((a) => a.type === 'internet');
+  assert.deepEqual(alerts.map((a) => [a.id, a.severity]), [['internet:es', 'muy alta']]);
+});
+
+test('GDACS: sólo las alertas naranja o roja generan alerta', () => {
+  const ev = (id, level) => ({ id, category: 'catastrofe', level, title: id, description: '', lat: 36, lon: -4 });
+  const alerts = evaluateRules(ctx({ events: [ev('verde', 'verde'), ev('naranja', 'naranja')] })).filter((a) => a.type === 'catastrofe');
+  assert.deepEqual(alerts.map((a) => a.severity), ['alta']);
+});
+
 test('el ciclo de vida conserva "since", detecta escaladas y resuelve lo que desaparece', () => {
   const active = new Map();
   const first = reconcileAlerts(active, [{ id: 'x', severity: 'media' }, { id: 'y', severity: 'baja' }], T0);
