@@ -641,7 +641,7 @@ const LAND_COVER = [
 ];
 
 function burntAreaDetail(p) {
-  const pct = (v) => `${Math.round(Number(v))} %`;
+  const pct = (v) => `${Math.round(Number(v))}\u00a0%`; // espacio duro: que el % no salte de línea
   const date = (s) => (s ? s.slice(0, 10).split('-').reverse().join('/') : null);
   const cover = LAND_COVER.filter(([k]) => Number(p[k]) >= 1).sort(([a], [b]) => p[b] - p[a])
     .map(([k, label]) => `${label} ${pct(p[k])}`).join(' · ');
@@ -657,7 +657,7 @@ function burntAreaDetail(p) {
   return `<div class="pop"><h3>Área quemada${place ? ` en ${esc(place)}` : ''}</h3>
     <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>
     <div class="note">Perímetro estimado por satélite por el sistema europeo de incendios forestales (EFFIS), no es un
-    dato oficial de extinción. <a href="https://forest-fire.emergency.copernicus.eu/apps/effis_current_situation/" target="_blank" rel="noopener">Ver en EFFIS</a></div></div>`;
+    dato oficial de extinción. <a href="https://forest-fire.emergency.copernicus.eu/apps/effis.csv/" target="_blank" rel="noopener">Ver en EFFIS</a></div></div>`;
 }
 
 const fmtArea = (ha) => new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(Number(ha));
