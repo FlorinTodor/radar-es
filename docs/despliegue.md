@@ -56,6 +56,13 @@ ingress:
 Para añadir un nombre: `cloudflared tunnel route dns radar <nombre>`, añadir la entrada
 al `config.yml` y `systemctl restart cloudflared`.
 
+Ojo con la ñ: en `route dns` hay que escribir el nombre **con ñ** (`www.radarespaña.es`). En
+punycode, Cloudflare no lo reconoce como parte de la zona y crea `www.xn--radarespaa-19a.es.radarespaña.es`.
+En el `config.yml`, en cambio, va en punycode, que es lo que llega en la cabecera `Host`.
+
+Las actualizaciones de `cloudflared` las instala `unattended-upgrades`
+(`/etc/apt/apt.conf.d/53-cloudflared`).
+
 ## Montar un VPS desde cero
 
 1. Asegurar SSH (solo clave) y `ufw` (solo el 22).
@@ -64,5 +71,6 @@ al `config.yml` y `systemctl restart cloudflared`.
 3. `scp .env root@VPS:/opt/radar/.env`
 4. Dar de alta el dominio en Cloudflare y cambiar los DNS en DonDominio.
 5. En el VPS: `cloudflared tunnel login` (abre una URL para autorizar), `cloudflared tunnel create radar`,
-   `cloudflared tunnel route dns radar <dominio>`, escribir `/etc/cloudflared/config.yml` y
+   `cloudflared tunnel route dns radar radarespaña.es` (y `www.radarespaña.es`), copiar
+   `~/.cloudflared/<id>.json` a `/etc/cloudflared/`, escribir `/etc/cloudflared/config.yml` y
    `cloudflared service install`.
