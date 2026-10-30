@@ -6,6 +6,7 @@
 // cuando la variable no esté en .env.
 import { createRenfeSources } from './renfe.js';
 import { createFgcSource } from './fgc.js';
+import { createRodaliesSource } from './rodalies.js';
 import { createGtfsRtVehicleSource } from './gtfs-rt.js';
 import { createTranviaTenerifeSource } from './tranvia-tenerife.js';
 import { createMoveuskadiBusSource } from './moveuskadi-bus.js';
@@ -46,6 +47,7 @@ export function createSources(deps) {
   return [
     // Ferrocarril
     ...createRenfeSources(deps),
+    createRodaliesSource(deps),
     createFgcSource(deps),
     createGtfsScheduleSource(deps, {
       id: 'ouigo-horario', name: 'Ouigo (posición estimada según horario)', operator: 'Ouigo', ficheroId: 1766, mode: 'av',
