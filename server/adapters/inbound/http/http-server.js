@@ -5,6 +5,7 @@ import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
+import { createConnectionLimiter } from './connection-limiter.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -38,7 +39,10 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
     '/api/about': () => about,
   };
 
+  const security = Object.entries(securityHeaders(about));
+  const streams = createConnectionLimiter();
   const server = createServer(async (req, res) => {
+    for (const [name, value] of security) res.setHeader(name, value);
     try {
       const url = new URL(req.url, 'http://localhost');
       if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'Método no permitido' });
@@ -63,6 +67,13 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
   });
 
   function stream(req, res) {
+    // Detrás del túnel todas las conexiones vienen de cloudflared (127.0.0.1); la IP real la pone
+    // Cloudflare. Es fiable porque el puerto sólo escucha en local y no se puede llegar saltándose el túnel.
+    const release = streams.acquire(req.headers['cf-connecting-ip'] ?? req.socket.remoteAddress);
+    if (!release) {
+      res.setHeader('Retry-After', '30');
+      return send(res, 429, { error: 'Demasiadas conexiones en directo; prueba dentro de un momento' });
+    }
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
@@ -85,6 +96,7 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
     req.on('close', () => {
       clearInterval(heartbeat);
       unsubscribe.forEach((off) => off());
+      release();
     });
   }
 
@@ -105,6 +117,39 @@ function sendJson(req, res, status, body) {
   }
   res.writeHead(status, headers);
   res.end(json);
+}
+
+/**
+ * Cabeceras de seguridad de todas las respuestas. La CSP enumera lo único que la página carga de
+ * fuera: teselas y fuentes de OpenFreeMap, las WMS de IGN y EFFIS y, si está configurado, el
+ * contador de GoatCounter. Ningún script en línea; los estilos en línea sí (la leyenda los usa).
+ * Sin upgrade-insecure-requests para no romper el servidor local por http.
+ * @param {{ goatcounter?: string | null }} about
+ */
+export function securityHeaders({ goatcounter } = {}) {
+  const counter = goatcounter ? ` ${new URL(goatcounter).origin}` : '';
+  const csp = [
+    "default-src 'self'",
+    `script-src 'self'${goatcounter ? ' https://gc.zgo.at' : ''}`,
+    "style-src 'self' 'unsafe-inline'",
+    `img-src 'self' data: blob:${counter}`,
+    `connect-src 'self' https://tiles.openfreemap.org https://servicios.idee.es https://maps.effis.emergency.copernicus.eu${counter}`,
+    "worker-src 'self' blob:",
+    "font-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join('; ');
+  return {
+    'Content-Security-Policy': csp,
+    'Strict-Transport-Security': 'max-age=15552000; includeSubDomains', // 180 días; los navegadores la ignoran por http
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+    'Cross-Origin-Opener-Policy': 'same-origin',
+  };
 }
 
 // Nuestros ficheros cambian con cada despliegue: el navegador debe preguntar siempre, y el ETag

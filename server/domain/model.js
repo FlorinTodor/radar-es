@@ -53,6 +53,8 @@
  * @property {IncidentEvent[]} [events]
  * @property {Record<string, unknown>} [metrics]
  * @property {number|null} [sourceTime]  Epoch ms de la última actualización según la fuente.
+ * @property {number|null} [datasetUpdated]  Epoch ms en que la fuente actualizó el conjunto de datos estático
+ *   (horario GTFS) del que se calcula el resultado. Lo exigen las licencias; no es la hora del dato.
  */
 
 /**
@@ -98,4 +100,19 @@ export const MODES = ['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'bus', 
 export function vehicleLabel(v) {
   const service = v.service && v.service !== v.line ? `${v.service} ` : '';
   return `${service}${v.line ?? ''} ${v.label ?? ''}`.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Enlace externo que se puede mostrar: sólo http(s). Los feeds son de terceros y un
+ * `javascript:` en un enlace se ejecutaría en nuestra web al pulsarlo.
+ * @param {unknown} url @returns {string | null}
+ */
+export function safeLink(url) {
+  if (typeof url !== 'string') return null;
+  try {
+    const { protocol } = new URL(url.trim());
+    return protocol === 'https:' || protocol === 'http:' ? url.trim() : null;
+  } catch {
+    return null;
+  }
 }

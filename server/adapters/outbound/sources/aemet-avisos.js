@@ -65,7 +65,7 @@ export function createAemetAvisosSource({ http, log }) {
     kind: 'events',
     interval: 600_000,
     url: RSS,
-    license: 'Fuente: AEMET',
+    license: '© AEMET · Avisos sin alterar: nivel, zona, vigencia y fecha de emisión',
     async fetch() {
       const rss = xmlParser.parse(await http.text(RSS));
       const links = arr(rss.rss?.channel?.item).map((it) => text(it.link)).filter(Boolean);

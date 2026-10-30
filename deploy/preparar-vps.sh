@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Prepara un VPS Ubuntu para Radar ES. Idempotente: se puede relanzar las veces que haga falta.
 #   ssh root@VPS 'bash -s' < deploy/preparar-vps.sh
-# No toca SSH ni el cortafuegos (ya asegurados a mano) ni da de alta el túnel de Cloudflare,
-# que necesita autorizarse desde el navegador. Ver docs/despliegue.md.
+# No toca SSH (eso lo hace deploy/endurecer-ssh.sh) ni el cortafuegos (asegurado a mano), ni da
+# de alta el túnel de Cloudflare, que necesita autorizarse desde el navegador. Ver docs/despliegue.md.
 set -euo pipefail
 
 REPO=FlorinTodor/radar-es

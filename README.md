@@ -101,8 +101,10 @@ Escribe una función pura `(ctx) => Alert[]` en `server/domain/alerts/rules.js`,
 ## Fuentes integradas (todas verificadas)
 
 Solo se usan fuentes con licencia de reutilización. Los endpoints internos de visores o apps
-(el visor web de Renfe, la API del tranvía de Tenerife…) se descartaron tras revisar sus avisos
-legales. El tranvía de Tenerife no aparece porque su único horario con licencia caducó en 2025.
+(el visor web de Renfe, la API del tranvía de Tenerife, la API de la app de Rodalies…) se descartaron
+tras revisar sus avisos legales. Del tranvía de Tenerife solo se dibuja el trazado, que Metrotenerife
+publica con licencia CC BY en el portal del Cabildo. La licencia y la atribución de cada fuente están
+en `/legal.html`.
 
 Todas son públicas. Solo las marcadas con 🔑 necesitan `NAP_API_KEY`, una clave gratuita del NAP.
 
@@ -110,16 +112,16 @@ Todas son públicas. Solo las marcadas con 🔑 necesitan `NAP_API_KEY`, una cla
 |---|---|---|
 | Renfe Cercanías/Rodalies (GTFS-RT `gtfsrt.renfe.com/vehicle_positions.json` + `trip_updates.json`) | posición, línea, retraso y estación; origen y destino desde su GTFS | 20 s |
 | Renfe AV/LD/MD (GTFS-RT `vehicle_positions_LD.json` + `trip_updates_LD.json`) | posición y retraso; producto (AVE, Alvia…), origen y destino desde su GTFS | 20 s |
-| Renfe GTFS-RT alerts (`gtfsrt.renfe.com/alerts.json`) | avisos de servicio | 2 min |
+| Renfe GTFS-RT alerts + trip updates (`alerts.json`, `trip_updates.json`) | avisos de servicio y trenes de Cercanías/Rodalies cancelados | 2 min |
 | Estaciones Renfe (lista oficial `estaciones.csv` + paradas de sus GTFS) | nombres y coordenadas de ~1.530 estaciones | 24 h |
 | FGC (`dadesobertes.fgc.cat`, `posicionament-dels-trens`) | posición y si va en hora | 30 s |
-| Rodalies de Catalunya (API de su app, salidas de 8 estaciones nodales) | trenes cancelados y avisos de servicio (p. ej. transporte por carretera) | 3 min |
+| Rodalies de Catalunya (RSS «Estat del servei» de la Generalitat) | avisos por línea (p. ej. transporte por carretera) | 3 min |
 | Metro Bilbao (GTFS-RT, Open Data Euskadi) | posición | 30 s |
 | 🔑 Euskotren (GTFS del NAP + trip updates de Open Data Euskadi) | **posición estimada** con su **retraso real** | 30 s |
 | 🔑 Ouigo (GTFS del NAP) | **posición estimada** por horario, marcada como tal | 30 s |
 | 🔑 Metros y tranvías sin GPS (GTFS del NAP) | **posición estimada** por horario en Barcelona (Metro, TRAM), Madrid (Metro Ligero), Valencia, Alicante, Sevilla, Málaga, Granada, Zaragoza y Murcia | 30 s |
 | Autobuses de Euskadi (~25 operadores), EMT Málaga, EMT Fuenlabrada (GTFS-RT) | posición; capa oculta por defecto y fuera de las alertas | 60 s |
-| 🔑 GTFS de 18 redes en el NAP | trazados de Cercanías, metros, tranvías, FGC y Euskotren | 7 días |
+| 🔑 GTFS de 16 redes en el NAP + líneas del tranvía de Tenerife (Cabildo de Tenerife) | trazados de Cercanías, metros, tranvías, FGC y Euskotren | 24 h |
 | DGT DATEX II v3.7 (`nap.dgt.es`) | ~1.000 incidencias de tráfico | 5 min |
 | Servei Català de Trànsit (GML) | incidencias de carreteras catalanas | 5 min |
 | Tráfico Euskadi (API Trafikoa) | incidencias de carreteras vascas | 5 min |

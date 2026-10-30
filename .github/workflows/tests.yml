@@ -1,0 +1,27 @@
+# Pasa los tests y comprueba la sintaxis en cada push. GitHub avisa por email si falla, antes de
+# que llegue a produccion (el VPS también los pasa al construir la imagen y no despliega si fallan).
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Sintaxis del navegador y de los scripts de despliegue
+        run: |
+          for f in public/js/*.js; do node --check "$f"; done
+          for f in deploy/*.sh; do bash -n "$f"; done

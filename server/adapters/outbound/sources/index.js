@@ -20,21 +20,24 @@ import { createGdacsSource } from './emergencias-extra.js';
 
 const MOVEUSKADI = 'https://opendata.euskadi.eus/transport/moveuskadi';
 
-// Redes sin GPS público cuyo horario GTFS del NAP está vigente: [id, nombre, operador, ficheroId del NAP].
-// Metro de Madrid no está porque su GTFS en el NAP caducó en mayo de 2026.
+// Redes sin GPS público cuyo horario GTFS del NAP está vigente:
+// [id, nombre, operador, ficheroId del NAP, conjunto de datos del NAP, atribución que pide el operador].
+// La licencia del NAP suma las condiciones del operador original: TMB pide citarlo con la fecha
+// de actualización (licencia de developer.tmb.cat), TRAM "Powered by TRAM Barcelona" y el CRTM
+// "Powered by CRTM". Metro de Madrid no está porque su GTFS en el NAP caducó en mayo de 2026.
 const ESTIMATED_BY_SCHEDULE = [
-  ['metro-barcelona', 'Metro de Barcelona (TMB)', 'Metro de Barcelona', 1328],
-  ['tram-baix', 'TRAM Baix (Barcelona)', 'TRAM', 1329],
-  ['tram-besos', 'TRAM Besòs (Barcelona)', 'TRAM', 1330],
-  ['metro-ligero-madrid', 'Metro Ligero y tranvía de Madrid', 'Metro Ligero', 1427],
-  ['metrovalencia', 'Metrovalencia y TRAM de Valencia', 'Metrovalencia', 1168],
-  ['tram-alacant', "TRAM d'Alacant", "TRAM d'Alacant", 1167],
-  ['metro-sevilla', 'Metro de Sevilla', 'Metro de Sevilla', 1583],
-  ['tranvia-sevilla', 'Tranvía de Sevilla (Metrocentro)', 'Metrocentro', 1567],
-  ['metro-malaga', 'Metro de Málaga', 'Metro de Málaga', 1497],
-  ['metro-granada', 'Metro de Granada', 'Metro de Granada', 1568],
-  ['tranvia-zaragoza', 'Tranvía de Zaragoza', 'Tranvía de Zaragoza', 1687],
-  ['tranvia-murcia', 'Tranvía de Murcia', 'Tranvía de Murcia', 1569],
+  ['metro-barcelona', 'Metro de Barcelona (TMB)', 'Metro de Barcelona', 1328, 1127, 'Fuente: TMB'],
+  ['tram-baix', 'TRAM Baix (Barcelona)', 'TRAM', 1329, 1128, 'Powered by TRAM Barcelona'],
+  ['tram-besos', 'TRAM Besòs (Barcelona)', 'TRAM', 1330, 1129, 'Powered by TRAM Barcelona'],
+  ['metro-ligero-madrid', 'Metro Ligero y tranvía de Madrid', 'Metro Ligero', 1427, 1226, 'Powered by CRTM'],
+  ['metrovalencia', 'Metrovalencia y TRAM de Valencia', 'Metrovalencia', 1168, 967, 'Ferrocarrils de la Generalitat Valenciana (FGV)'],
+  ['tram-alacant', "TRAM d'Alacant", "TRAM d'Alacant", 1167, 966, 'Ferrocarrils de la Generalitat Valenciana (FGV)'],
+  ['metro-sevilla', 'Metro de Sevilla', 'Metro de Sevilla', 1583, 1385, 'Metro de Sevilla'],
+  ['tranvia-sevilla', 'Tranvía de Sevilla (Metrocentro)', 'Metrocentro', 1567, 1369, 'TUSSAM'],
+  ['metro-malaga', 'Metro de Málaga', 'Metro de Málaga', 1497, 1296, 'Metro de Málaga'],
+  ['metro-granada', 'Metro de Granada', 'Metro de Granada', 1568, 1370, 'Agencia de Obra Pública de la Junta de Andalucía'],
+  ['tranvia-zaragoza', 'Tranvía de Zaragoza', 'Tranvía de Zaragoza', 1687, 1394, 'Tranvía de Zaragoza'],
+  ['tranvia-murcia', 'Tranvía de Murcia', 'Tranvía de Murcia', 1569, 1371, 'Tranvía de Murcia'],
 ];
 
 /**
@@ -50,16 +53,17 @@ export function createSources(deps) {
     createRodaliesSource(deps),
     createFgcSource(deps),
     createGtfsScheduleSource(deps, {
-      id: 'ouigo-horario', name: 'Ouigo (posición estimada según horario)', operator: 'Ouigo', ficheroId: 1766, mode: 'av',
+      id: 'ouigo-horario', name: 'Ouigo (posición estimada según horario)', operator: 'Ouigo', ficheroId: 1766, dataset: 1515, mode: 'av',
       label: (trip) => trip.label?.replace(/^TGV\s*/i, '') ?? trip.id,
     }),
     createGtfsScheduleSource(deps, {
-      id: 'euskotren', name: 'Euskotren (horario + retraso en tiempo real)', operator: 'Euskotren', ficheroId: 1263,
+      id: 'euskotren', name: 'Euskotren (horario + retraso en tiempo real)', operator: 'Euskotren', ficheroId: 1263, dataset: 1062,
       tripUpdatesUrl: `${MOVEUSKADI}/euskotren/gtfsrt_euskotren_trip_updates.pb`,
-      license: 'Powered by MITRAMS (horario, Punto de Acceso Nacional) · Open Data Euskadi, CC BY 4.0 (retrasos). Posición estimada, no GPS',
+      license: 'Powered by MITRAMS (horario, Punto de Acceso Nacional) · Open Data Euskadi, CC BY 4.0 (retrasos) · '
+        + 'Posición estimada a partir del horario (dato explotado, no GPS)',
     }),
-    ...ESTIMATED_BY_SCHEDULE.map(([id, name, operator, ficheroId]) => createGtfsScheduleSource(deps, {
-      id: `horario-${id}`, name: `${name} (posición estimada según horario)`, operator, ficheroId,
+    ...ESTIMATED_BY_SCHEDULE.map(([id, name, operator, ficheroId, dataset, credit]) => createGtfsScheduleSource(deps, {
+      id: `horario-${id}`, name: `${name} (posición estimada según horario)`, operator, ficheroId, dataset, credit,
     })),
     // Metro y tranvía
     createGtfsRtVehicleSource(deps, {
@@ -68,7 +72,7 @@ export function createSources(deps) {
       url: `${MOVEUSKADI}/metro_bilbao/gtfsrt_metro_bilbao_vehicle_positions.pb`,
       mode: 'metro',
       operator: 'Metro Bilbao',
-      license: 'Open Data Euskadi · MoveUskadi (CC BY 4.0)',
+      license: 'Open Data Euskadi · MoveUskadi (CC BY 4.0). Formato adaptado, contenido sin alterar',
       line: () => null, // el feed sólo trae routeId "MB"
       // El id de entidad es "ORIGEN_ORIGEN2_DESTINO_timestamp" con códigos de estación de 3 letras.
       describe: (e) => ({ destination: e.id?.split('_')[2] ?? null, current: e.id?.split('_')[0] ?? null }),
@@ -77,12 +81,13 @@ export function createSources(deps) {
     createMoveuskadiBusSource(deps),
     createGtfsRtVehicleSource(deps, {
       id: 'emt-malaga', name: 'EMT Málaga (GTFS-RT)', mode: 'bus', operator: 'EMT Málaga', interval: 60_000,
-      license: 'Powered by MITRAMS (Punto de Acceso Nacional, transportes.gob.es) · EMT Málaga',
+      // El portal de datos abiertos de Málaga declara para estos datos CC BY-SA 4.0: se cumple la más estricta.
+      license: 'Powered by MITRAMS (Punto de Acceso Nacional) · EMT Málaga, Ayuntamiento de Málaga · Datos en bruto, CC BY-SA 4.0',
       url: 'https://gtfs.emtmalaga.es/GTFSRTapi/api/vehicleposition',
     }),
     createGtfsRtVehicleSource(deps, {
       id: 'emt-fuenlabrada', name: 'EMT Fuenlabrada (GTFS-RT)', mode: 'bus', operator: 'EMT Fuenlabrada', interval: 60_000,
-      license: 'Powered by MITRAMS (Punto de Acceso Nacional, transportes.gob.es) · EMT Fuenlabrada',
+      license: 'Powered by MITRAMS (Punto de Acceso Nacional) · EMT Fuenlabrada · Datos en bruto',
       url: 'https://api.control.optibus.co/opendata/v1/gtfs-rt/vehicle-positions?uid=c-5cfcd2d1',
     }),
     // Carreteras

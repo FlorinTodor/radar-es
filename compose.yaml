@@ -14,3 +14,16 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - ./data:/app/data
+    # Endurecido: sistema de ficheros de sólo lectura (sólo se escribe en data/ y en /tmp en memoria),
+    # sin capacidades de Linux ni forma de ganar privilegios, y con techo de recursos para que un
+    # fallo no se coma el VPS, que comparte con otros proyectos. Pico medido al cargar los GTFS: ~470 MB.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 1g
+    cpus: 2
+    pids_limit: 256

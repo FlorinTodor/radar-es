@@ -1,7 +1,7 @@
 // Render de los paneles laterales y la barra de KPIs. Funciones puras de estado → HTML;
 // los clics se gestionan por delegación en app.js mediante data-id / data-kind.
 import {
-  DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, SEVERITY_RANK, esc, fmtDateTime, fmtDelay, fmtNum, fmtTime, sevClass, timeAgo, vehicleTitle,
+  DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, SEVERITY_RANK, esc, fmtDateTime, fmtDelay, fmtNum, fmtTime, safeUrl, sevClass, timeAgo, vehicleTitle,
 } from './format.js';
 import { pictoFor, vehicleIconUrl } from './icons.js';
 
@@ -16,8 +16,9 @@ export function renderKpis(kpis, metrics, alertCount) {
   $('k-alerts').textContent = fmtNum(alertCount);
   const ree = metrics?.ree;
   $('k-grid').textContent = ree?.demandMW ? `${fmtNum(ree.demandMW)} MW` : '–';
+  // Red Eléctrica exige citarla y dar la hora del dato.
   $('k-grid-sub').textContent = ree?.deviation !== null && ree?.deviation !== undefined
-    ? `${ree.deviation >= 0 ? '+' : '−'}${Math.abs(ree.deviation * 100).toFixed(1).replace('.', ',')} % frente a lo previsto`
+    ? `${ree.deviation >= 0 ? '+' : '−'}${Math.abs(ree.deviation * 100).toFixed(1).replace('.', ',')} % frente a lo previsto · Red Eléctrica, ${fmtTime(ree.at)}`
     : '';
 }
 
@@ -152,13 +153,14 @@ export function renderSources(el, health) {
         ${s.count !== null && s.count !== undefined ? `<span>${fmtNum(s.count)} elementos</span>` : ''}
         ${s.lastOk ? `<span>leída ${timeAgo(s.lastOk, now)}</span>` : ''}
         ${s.sourceTime ? `<span>dato de ${fmtTime(s.sourceTime)}</span>` : ''}
+        ${s.datasetUpdated ? `<span>horario actualizado el ${fmtDateTime(s.datasetUpdated)}</span>` : ''}
         ${s.ms ? `<span>${fmtNum(s.ms)} ms</span>` : ''}
         <span>cada ${Math.round(s.interval / 1000)} s</span>
       </div>
       ${s.reason ? `<div class="err">${esc(s.reason)}</div>` : ''}
       ${s.error ? `<div class="err">${esc(s.error)}</div>` : ''}
       ${s.license ? `<div class="stat"><span>${esc(s.license)}</span></div>` : ''}
-      ${s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url)}</a>` : ''}
+      ${safeUrl(s.url) ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url)}</a>` : ''}
     </div>`;
   }).join('');
 }
