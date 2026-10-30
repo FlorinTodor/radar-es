@@ -89,7 +89,11 @@ Todas son públicas. Solo las marcadas con 🔑 necesitan `NAP_API_KEY`, una cla
 | FGC (`dadesobertes.fgc.cat`, `posicionament-dels-trens`) | posición y si va en hora | 30 s |
 | Metro Bilbao (GTFS-RT, Open Data Euskadi) | posición | 30 s |
 | Tranvía de Tenerife (endpoint no documentado de su web) | posición y próxima parada | 30 s |
+| Renfe GTFS-RT (`gtfsrt.renfe.com`) | ~90 trenes de Cercanías más que el visor no muestra (muchos en andén) | 20 s |
+| 🔑 Euskotren (GTFS del NAP + trip updates de Open Data Euskadi) | **posición estimada** con su **retraso real** | 30 s |
 | 🔑 Ouigo (GTFS del NAP) | **posición estimada** por horario, marcada como tal | 30 s |
+| 🔑 Metros y tranvías sin GPS (GTFS del NAP) | **posición estimada** por horario en Barcelona (Metro, TRAM), Madrid (Metro Ligero), Valencia, Alicante, Sevilla, Málaga, Granada, Zaragoza y Murcia | 30 s |
+| Autobuses de Euskadi (~25 operadores), EMT Málaga, EMT Fuenlabrada (GTFS-RT) | posición; capa oculta por defecto y fuera de las alertas | 60 s |
 | 🔑 GTFS de 18 redes en el NAP | trazados de Cercanías, metros, tranvías, FGC y Euskotren | 7 días |
 | DGT DATEX II v3.7 (`nap.dgt.es`) | ~1.000 incidencias de tráfico | 5 min |
 | Servei Català de Trànsit (GML) | incidencias de carreteras catalanas | 5 min |

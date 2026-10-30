@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { gtfsTimeToSeconds, scheduledPosition, serviceRuns } from '../../server/domain/schedule.js';
+import { activeFrequencyOffsets, gtfsTimeToSeconds, scheduledPosition, serviceRuns } from '../../server/domain/schedule.js';
 import { pointInGeometry } from '../../server/domain/geo.js';
 
 const stops = [
@@ -38,6 +38,16 @@ test('calendario con excepciones', () => {
   assert.equal(serviceRuns(cal, undefined, '20261031', 5), false); // sábado
   assert.equal(serviceRuns(cal, new Map([['20261030', 2]]), '20261030', 4), false); // suprimido
   assert.equal(serviceRuns(undefined, new Map([['20261031', 1]]), '20261031', 5), true); // añadido
+});
+
+test('viajes por frecuencia: repeticiones en circulación', () => {
+  // Un metro cada 5 min de 06:00 a 07:00; el viaje dura 20 min; la plantilla sale a las 06:00.
+  const freq = { start: 21600, end: 25200, headway: 300 };
+  const at = (t) => activeFrequencyOffsets(freq, 21600, 1200, t);
+  assert.deepEqual(at(21000), []); // antes de empezar
+  assert.deepEqual(at(21600), [0]); // sale el primero
+  assert.deepEqual(at(22800), [0, 300, 600, 900, 1200]); // 06:20: el primero llega, salen 5
+  assert.equal(at(26400).length, 0); // 07:20: el último (06:55) ya llegó a las 07:15
 });
 
 test('punto dentro de polígono con hueco', () => {
