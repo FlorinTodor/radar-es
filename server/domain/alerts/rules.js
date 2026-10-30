@@ -130,7 +130,7 @@ export function earthquakesNearTrains(ctx) {
     const radius = 25 * (e.magnitude - 2); // M3.5 → 37 km, M5 → 75 km
     const near = ctx.vehicles.filter((v) => distanceKm(e.lat, e.lon, v.lat, v.lon) <= radius);
     alerts.push({
-      id: `sismo:${e.id}`, type: 'sismo', lat: e.lat, lon: e.lon,
+      id: `sismo:${e.id}`, type: 'sismo', lat: e.lat, lon: e.lon, eventIds: [e.id],
       severity: e.magnitude >= 4.5 ? 'muy alta' : near.length ? 'alta' : 'media',
       vehicleIds: near.map((v) => v.id),
       title: e.title,
@@ -148,7 +148,7 @@ export function severeWeather(ctx) {
     if (e.start && e.start > ctx.now) continue; // aún no ha empezado
     const inside = e.geometry ? ctx.vehicles.filter((v) => pointInGeometry(v.lon, v.lat, e.geometry)) : [];
     alerts.push({
-      id: `meteo:${e.id}`, type: 'meteo', severity: e.level === 'rojo' ? 'muy alta' : 'alta',
+      id: `meteo:${e.id}`, type: 'meteo', severity: e.level === 'rojo' ? 'muy alta' : 'alta', eventIds: [e.id],
       lat: e.lat ?? undefined, lon: e.lon ?? undefined,
       vehicleIds: inside.map((v) => v.id),
       title: inside.length ? `${e.title} · ${inside.length} trenes dentro` : e.title,
@@ -176,7 +176,7 @@ export function firesNearTrains(ctx) {
     if (!near.length) continue;
     const maxFrp = Math.max(...cluster.map((g) => g.frp ?? 0));
     alerts.push({
-      id: `incendio:${f.id}`, type: 'incendio', lat: f.lat, lon: f.lon,
+      id: `incendio:${f.id}`, type: 'incendio', lat: f.lat, lon: f.lon, eventIds: cluster.map((g) => g.id),
       severity: cluster.length >= 3 || maxFrp >= 30 ? 'alta' : 'media',
       vehicleIds: near.map((v) => v.id),
       title: `Posible incendio a menos de ${th.fireNearKm} km de ${near.length} ${near.length === 1 ? 'tren' : 'trenes'}`,
@@ -237,7 +237,7 @@ export function internetOutages(ctx) {
   return ctx.events
     .filter((e) => e.category === 'internet' && (!e.end || ctx.now - e.end <= ctx.thresholds.internetWindowMinutes * 60_000))
     .map((e) => ({
-      id: `internet:${e.id}`, type: 'internet', severity: e.scope === 'country' ? 'muy alta' : 'alta',
+      id: `internet:${e.id}`, type: 'internet', severity: e.scope === 'country' ? 'muy alta' : 'alta', eventIds: [e.id],
       lat: e.lat ?? undefined, lon: e.lon ?? undefined,
       title: e.title, description: e.description,
     }));
@@ -248,7 +248,7 @@ export function disasterAlerts(ctx) {
   return ctx.events
     .filter((e) => e.category === 'catastrofe' && (e.level === 'naranja' || e.level === 'rojo'))
     .map((e) => ({
-      id: `gdacs:${e.id}`, type: 'catastrofe', severity: e.level === 'rojo' ? 'muy alta' : 'alta',
+      id: `gdacs:${e.id}`, type: 'catastrofe', severity: e.level === 'rojo' ? 'muy alta' : 'alta', eventIds: [e.id],
       lat: e.lat, lon: e.lon, title: e.title, description: e.description,
     }));
 }

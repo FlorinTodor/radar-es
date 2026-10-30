@@ -14,6 +14,8 @@ const state = {
   health: [],
   tab: 'alerts',
   search: '',
+  selected: new Set(), // alertas seleccionadas: el mapa muestra sólo lo suyo
+  multi: false,         // interruptor "Varias a la vez"
 };
 
 const PREFS_KEY = 'radar-es:prefs';
@@ -106,7 +108,7 @@ function flush() {
   }
   if (parts.has('alerts')) {
     document.getElementById('b-alerts').textContent = state.alerts.length;
-    if (state.tab === 'alerts') P.renderAlerts(document.getElementById('panel-alerts'), state.alerts, state.resolved);
+    if (state.tab === 'alerts') P.renderAlerts(document.getElementById('panel-alerts'), state.alerts, state.resolved, state.selected, state.multi);
   }
   if (parts.has('kpis') || parts.has('alerts')) P.renderKpis(state.kpis, state.metrics, state.alerts.length);
   if (parts.has('health') && state.tab === 'sources') P.renderSources(document.getElementById('panel-sources'), state.health);
@@ -158,6 +160,7 @@ connect({
   },
   alerts({ alerts, kpis, resolved }) {
     Object.assign(state, { alerts, kpis, resolved });
+    if (state.selected.size) applyFocus(); // los trenes de una alerta pueden cambiar
     render('alerts', 'kpis');
   },
 });
@@ -177,17 +180,73 @@ function selectEvent(id) {
   map.showEvent(e);
 }
 
+// ---------- Selección de alertas ----------
+// Clic: el mapa muestra sólo lo de esa alerta (otro clic en la misma vuelve a tus capas).
+// Con el interruptor "Varias a la vez", cada clic suma o quita la alerta de la selección.
+// Todo con clics: funciona igual con ratón y en el móvil.
 function selectAlert(id) {
-  const a = state.alerts.find((x) => x.id === id);
-  if (!a) return;
-  if (a.vehicleId && findVehicle(a.vehicleId)) return selectVehicle(a.vehicleId);
-  if (a.lat !== undefined && a.lon !== undefined) map.flyTo(a.lon, a.lat, a.type === 'sismo' ? 7 : 10);
+  const sel = state.selected;
+  if (state.multi) {
+    if (sel.has(id)) sel.delete(id);
+    else sel.add(id);
+  } else if (sel.size === 1 && sel.has(id)) {
+    sel.clear();
+  } else {
+    state.selected = new Set([id]);
+  }
+  applyFocus({ fit: true });
+}
+
+function clearFocus() {
+  state.selected.clear();
+  applyFocus();
+}
+
+function applyFocus({ fit = false } = {}) {
+  const active = new Map(state.alerts.map((a) => [a.id, a]));
+  for (const id of state.selected) if (!active.has(id)) state.selected.delete(id); // ya resueltas
+  const alerts = [...state.selected].map((id) => active.get(id));
+
+  if (!alerts.length) {
+    map.setFocus(null);
+    applyLayerPrefs();
+  } else {
+    const vehicleIds = [...new Set(alerts.flatMap((a) => [a.vehicleId, ...(a.vehicleIds ?? [])]).filter(Boolean))];
+    const eventIds = [...new Set(alerts.flatMap((a) => a.eventIds ?? []))];
+    map.setFocus({ vehicleIds, eventIds });
+    if (fit) {
+      const only = alerts.length === 1 ? alerts[0] : null;
+      if (only?.vehicleId && findVehicle(only.vehicleId)) {
+        selectVehicle(only.vehicleId);
+      } else {
+        const points = [
+          ...alerts.filter((a) => a.lon !== undefined && a.lat !== undefined).map((a) => [a.lon, a.lat]),
+          ...vehicleIds.map(findVehicle).filter(Boolean).map((v) => [v.lon, v.lat]),
+          ...eventIds.map(findEvent).filter((e) => e?.lat !== null && e?.lat !== undefined).map((e) => [e.lon, e.lat]),
+        ];
+        map.fitTo(points);
+      }
+    }
+  }
+  const banner = document.getElementById('focus-banner');
+  banner.hidden = !alerts.length;
+  banner.querySelector('.txt').textContent = alerts.length === 1 ? 'Mostrando sólo 1 alerta' : `Mostrando sólo ${alerts.length} alertas`;
+  render('alerts');
 }
 
 document.querySelector('.sidebar').addEventListener('click', (ev) => {
+  if (ev.target.closest('[data-action=clear-focus]')) return clearFocus();
   const item = ev.target.closest('[data-kind]');
   if (!item) return;
   ({ alert: selectAlert, event: selectEvent, vehicle: selectVehicle })[item.dataset.kind]?.(item.dataset.id);
+});
+document.getElementById('panel-alerts').addEventListener('change', (ev) => {
+  if (ev.target.dataset.action !== 'multi') return;
+  state.multi = ev.target.checked;
+  render('alerts');
+});
+document.getElementById('focus-banner').addEventListener('click', (ev) => {
+  if (ev.target.closest('[data-action=clear-focus]')) clearFocus();
 });
 
 document.querySelector('.tabs').addEventListener('click', (ev) => {
@@ -231,6 +290,12 @@ const layersBody = document.getElementById('layers-body');
 P.renderLayers(layersBody, prefs, {});
 layersBody.addEventListener('change', (ev) => {
   const input = ev.target;
+  if (state.selected.size) {
+    state.selected.clear();
+    map.setFocus(null);
+    document.getElementById('focus-banner').hidden = true;
+    render('alerts');
+  }
   if (input.dataset.mode) prefs.modes[input.dataset.mode] = input.checked;
   if (input.dataset.group === 'obras') {
     prefs.obras = input.checked;

@@ -67,6 +67,7 @@
  * @property {number} [lon]
  * @property {string} [vehicleId]
  * @property {string[]} [vehicleIds]
+ * @property {string[]} [eventIds]   Sucesos (avisos, terremotos, focos…) que motivan la alerta.
  * @property {number} [since]
  * @property {number} [updated]
  * @property {number} [resolvedAt]
