@@ -6,30 +6,43 @@ import { arr, num, text, xmlParser } from './parse.js';
 const inZone = (lat, lon) => lat >= 26 && lat <= 44.5 && lon >= -19.5 && lon <= 5;
 
 // ---------- Aviones (adsb.lol) ----------
-// Radios de 150–250 NM que cubren el espacio aéreo español (la API admite hasta 250 NM).
-const ADSB_POINTS = [[40.2, -3.7, 250], [41.6, 1.5, 200], [42.6, -7.6, 200], [37.3, -5.5, 200], [39.6, 3.0, 150], [28.3, -15.8, 250]];
+// Radios de 200–250 NM que cubren el espacio aéreo español (la API admite hasta 250 NM);
+// Baleares queda dentro del círculo de Cataluña. adsb.lol responde 429 si se le pide mucho,
+// así que se consulta UNA zona en cada lectura, rotando, y se guardan los aviones vistos en
+// los últimos minutos: cada zona se refresca cada ~100 s.
+const ADSB_POINTS = [[40.2, -3.7, 250], [41.6, 1.5, 200], [42.6, -7.6, 200], [37.3, -5.5, 200], [28.3, -15.8, 250]];
+const AIRCRAFT_TTL_MS = 2.5 * 60_000;
+const RATE_LIMIT_PAUSE_MS = 2 * 60_000;
 
 /** @param {{ http: import('../http/http-client.js').HttpClient, log: import('../../../application/ports.js').LoggerPort }} deps */
 export function createAvionesSource({ http, log }) {
+  const seen = new Map(); // hex → { a, at }
+  let next = 0;
+  let pausedUntil = 0;
+
   return {
     id: 'aviones',
     name: 'Aviones en vuelo (ADS-B, adsb.lol)',
     kind: 'vehicles',
-    interval: 60_000,
+    interval: 20_000,
     url: 'https://api.adsb.lol/v2/point',
     license: 'adsb.lol (ODbL 1.0)',
     async fetch() {
       const now = Date.now();
-      const byHex = new Map();
-      for (const [lat, lon, nm] of ADSB_POINTS) {
+      if (now >= pausedUntil) {
+        const [lat, lon, nm] = ADSB_POINTS[next];
+        next = (next + 1) % ADSB_POINTS.length;
         try {
           const d = await http.json(`https://api.adsb.lol/v2/point/${lat}/${lon}/${nm}`);
-          for (const a of d.ac ?? []) if (Number.isFinite(a.lat) && Number.isFinite(a.lon) && inZone(a.lat, a.lon)) byHex.set(a.hex, a);
+          for (const a of d.ac ?? []) if (Number.isFinite(a.lat) && Number.isFinite(a.lon) && inZone(a.lat, a.lon)) seen.set(a.hex, { a, at: now });
         } catch (err) {
-          log.warn(`[aviones] ${lat},${lon}: ${err.message}`);
+          if (!/HTTP 429/.test(err.message)) throw err;
+          pausedUntil = now + RATE_LIMIT_PAUSE_MS;
+          log.warn('[aviones] adsb.lol nos limita (429): pausa de 2 min');
         }
       }
-      const vehicles = [...byHex.values()].map((a) => {
+      for (const [hex, s] of seen) if (now - s.at > AIRCRAFT_TTL_MS) seen.delete(hex);
+      const vehicles = [...seen.values()].map(({ a, at }) => {
         const callsign = a.flight?.trim() || null;
         return {
           id: `avion:${a.hex}`,
@@ -48,7 +61,7 @@ export function createAvionesSource({ http, log }) {
           emergency: a.emergency ?? null,
           aircraftType: a.t ?? null,
           registration: a.r ?? null,
-          fixTime: Number.isFinite(a.seen_pos) ? now - a.seen_pos * 1000 : null,
+          fixTime: Number.isFinite(a.seen_pos) ? at - a.seen_pos * 1000 : null,
         };
       });
       return { vehicles };
