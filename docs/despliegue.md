@@ -25,6 +25,17 @@ En menos de 2 minutos el VPS lo detecta y se actualiza solo.
 ha cambiado, hace checkout, reconstruye la imagen y reinicia el contenedor. El VPS clona el
 repo con una deploy key de solo lectura (`/root/.ssh/deploy_radar-es`).
 
+Un despliegue roto no tumba la web:
+
+- **Tests**: se pasan dentro de `docker build`. Si fallan no hay imagen nueva y el contenedor
+  que funciona no se toca.
+- **Arranque**: tras cambiar el contenedor espera a que `/api/health` responda (hasta 3 min).
+  Si se cae o no responde, vuelve a la imagen y al código anteriores (`radar-es:anterior`).
+- En los dos casos el commit queda en `.fallido` y no se reintenta cada 2 minutos; se vuelve a
+  intentar cuando llega otro commit o con `--forzar`.
+- **Colgado**: en cada vuelta, si el contenedor está `unhealthy` (vivo pero sin responder,
+  ~2 min seguidos), lo reinicia. Docker sólo reinicia solo los que terminan.
+
 ```bash
 ssh root@IP_DEL_VPS
 journalctl -u radar-actualizar -n 50        # últimos despliegues
