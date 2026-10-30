@@ -1,21 +1,26 @@
 // Trazados de las redes de metro, tranvía y Cercanías a partir de los GTFS del NAP.
 // Si el GTFS trae shapes.txt se usan; si no, la línea une sus estaciones en orden.
-// El resultado se cachea en disco una semana: construirlo exige descargar ~40 MB.
+// El resultado se cachea en disco un día: la licencia del NAP exige mostrar datos actualizados.
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
 import { modeOf } from '../gtfs/gtfs-modes.js';
 
-const MAX_AGE_MS = 7 * 24 * 3600_000;
+const MAX_AGE_MS = 24 * 3600_000;
 const TOLERANCE_DEG = 0.00008; // ~8 m: suficiente para el mapa y reduce mucho el tamaño
 
 // ficheroId del NAP → nombre de la red. Para encontrar más: API /Fichero/GetListByType/2.
+// Sin Metro de Madrid: su GTFS en el NAP caducó en mayo de 2026 y no hay versión nueva.
 export const NETWORKS = [
-  [1130, 'Cercanías Renfe'], [1134, 'Metro de Madrid'], [1427, 'Metro Ligero y Tranvía de Madrid'],
+  [1130, 'Cercanías Renfe'], [1427, 'Metro Ligero y Tranvía de Madrid'],
   [1328, 'Metro de Barcelona (TMB)'], [1329, 'TRAM Baix'], [1330, 'TRAM Besòs'], [1571, 'FGC'],
   [1168, 'Metrovalencia'], [1167, "TRAM d'Alacant"], [1583, 'Metro de Sevilla'], [1567, 'Tranvía de Sevilla'],
   [1497, 'Metro de Málaga'], [1568, 'Metro de Granada'], [1687, 'Tranvía de Zaragoza'], [1569, 'Tranvía de Murcia'],
-  [1690, 'Tranvía de Tenerife'], [1267, 'Metro Bilbao'], [1263, 'Euskotren'],
+  [1267, 'Metro Bilbao'], [1263, 'Euskotren'],
 ];
+
+// El tranvía de Tenerife no sale del NAP (su GTFS allí caducó en julio de 2025), sino del trazado
+// que Metropolitano de Tenerife publica en el portal de datos abiertos del Cabildo (CC BY).
+const TENERIFE_LINES = 'https://datos.tenerife.es/ckan/dataset/64182a24-3418-42dd-94e7-d66cf92bc020/resource/2085c33e-b6c9-4565-bfdd-658f293b2dca/download/lineas-de-tranvia.geojson';
 
 const DEFAULT_COLOR = { metro: '#8a7fd1', tranvia: '#4fb3a9', cercanias: '#c45a5a', otros: '#8b8b85' };
 
@@ -123,13 +128,32 @@ function buildNetwork(zip, network) {
   return features;
 }
 
+/** Líneas de tranvía de Tenerife (GeoJSON de LineString, una por sentido). */
+function buildTenerife(bytes) {
+  const seen = new Set();
+  const features = [];
+  for (const f of JSON.parse(new TextDecoder().decode(bytes)).features ?? []) {
+    const line = f.properties?.linea_id;
+    if (f.geometry?.type !== 'LineString' || !line || seen.has(line)) continue; // ida y vuelta coinciden
+    seen.add(line);
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: simplify(f.geometry.coordinates, TOLERANCE_DEG).map(round) },
+      properties: { network: 'Tranvía de Tenerife', line, color: DEFAULT_COLOR.tranvia, mode: 'tranvia' },
+    });
+  }
+  return features;
+}
+
 /**
- * @param {{ nap: ReturnType<typeof import('../nap/nap-client.js').createNapClient>, cacheDir: URL,
+ * @param {{ nap: ReturnType<typeof import('../nap/nap-client.js').createNapClient>,
+ *           cache: ReturnType<typeof import('../http/file-cache.js').createFileCache>, cacheDir: URL,
  *           log: import('../../../application/ports.js').LoggerPort }} deps
  * @returns {import('../../../application/ports.js').NetworkCatalogPort}
  */
-export function createGtfsNetworkCatalog({ nap, cacheDir, log }) {
-  const cacheFile = new URL('network-lines.json', cacheDir);
+export function createGtfsNetworkCatalog({ nap, cache, cacheDir, log }) {
+  // Nombre nuevo para no reutilizar la caché que aún incluía Metro de Madrid y el GTFS caducado de Tenerife.
+  const cacheFile = new URL('trazados-red.json', cacheDir);
   let collection = { type: 'FeatureCollection', features: [] };
 
   return {
@@ -154,11 +178,16 @@ export function createGtfsNetworkCatalog({ nap, cacheDir, log }) {
           log.warn(`[líneas] ${name}: ${err.message}`);
         }
       }
+      try {
+        features.push(...buildTenerife(await cache.bytes(TENERIFE_LINES, 'tenerife-lineas-tranvia.geojson', MAX_AGE_MS)));
+      } catch (err) {
+        log.warn(`[líneas] Tranvía de Tenerife: ${err.message}`);
+      }
       if (features.length) {
         collection = { type: 'FeatureCollection', features };
         await mkdir(cacheDir, { recursive: true });
         await writeFile(cacheFile, JSON.stringify(collection));
-        log.info(`[líneas] ${features.length} trazados de ${NETWORKS.length} redes`);
+        log.info(`[líneas] ${features.length} trazados de ${NETWORKS.length + 1} redes`);
       }
       return features.length;
     },

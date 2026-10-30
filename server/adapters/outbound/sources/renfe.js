@@ -206,18 +206,46 @@ export function createRenfeSources({ http, cache, stations, log }) {
     },
   };
 
+  /** Trenes de Cercanías/Rodalies que el GTFS-RT marca como cancelados (sin posición: sólo la línea). */
+  function cancellations(feed) {
+    const events = [];
+    for (const e of feed?.entity ?? []) {
+      const trip = e.tripUpdate?.trip;
+      if (trip?.scheduleRelationship !== 'CANCELED' || !trip.tripId) continue;
+      const route = timetables.cercanias(trip.tripId);
+      if (!route) continue; // viaje que no está en el horario vigente
+      const number = /^\d+V(\d+)/.exec(trip.tripId)?.[1] ?? trip.tripId; // "1002V20109C3" → 20109
+      const network = /^R/i.test(route.line ?? '') ? 'Rodalies' : 'Cercanías';
+      events.push({
+        id: `renfe-cancelado:${trip.tripId}`,
+        category: 'ferroviario',
+        type: 'cancelacion',
+        severity: 'alta',
+        title: `${network} ${route.line ?? ''} · tren ${number} cancelado`.replace(/\s+/g, ' '),
+        description: `Renfe marca el tren como cancelado. Línea ${[route.origin, route.destination].filter(Boolean).join(' – ')}.`,
+        lat: null,
+        lon: null,
+        start: null,
+      });
+    }
+    return events;
+  }
+
   const avisos = {
     id: 'renfe-avisos',
-    name: 'Renfe avisos de servicio (GTFS-RT)',
+    name: 'Renfe avisos de servicio y trenes de Cercanías cancelados (GTFS-RT)',
     kind: 'events',
     interval: 120_000,
     url: `${GTFSRT}/alerts.json`,
     license: ATTRIBUTION,
     async fetch() {
-      const d = await http.json(this.url);
+      await timetables.loadCercanias();
+      const [alerts, updates] = await Promise.allSettled([http.json(this.url), http.json(`${GTFSRT}/trip_updates.json`)]);
+      if (alerts.status === 'rejected' && updates.status === 'rejected') throw alerts.reason;
+      const d = alerts.status === 'fulfilled' ? alerts.value : null;
       const now = Date.now() / 1000;
-      const events = [];
-      for (const e of d.entity ?? []) {
+      const events = updates.status === 'fulfilled' ? cancellations(updates.value) : [];
+      for (const e of d?.entity ?? []) {
         const a = e.alert;
         if (!a) continue;
         const periods = a.activePeriod ?? [];
@@ -241,7 +269,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
           end: periods[0]?.end ? +periods[0].end * 1000 : null,
         });
       }
-      return { events, sourceTime: d.header?.timestamp ? +d.header.timestamp * 1000 : null };
+      return { events, sourceTime: freshest(d, updates.status === 'fulfilled' ? updates.value : null) };
     },
   };
 

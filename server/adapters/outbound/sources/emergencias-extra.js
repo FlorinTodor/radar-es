@@ -17,7 +17,7 @@ export function createGdacsSource({ http }) {
     kind: 'events',
     interval: 900_000,
     url: GDACS,
-    license: 'GDACS (Naciones Unidas y Comisión Europea)',
+    license: 'Global Disaster Awareness and Coordination System (GDACS) · CC BY 4.0 · Filtrado a España; no sustituye las alertas oficiales',
     async fetch() {
       const doc = xmlParser.parse(await http.text(GDACS, { timeout: 60_000 }));
       const events = [];

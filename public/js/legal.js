@@ -21,9 +21,12 @@ fetch('/api/about').then((r) => r.json()).then((about) => {
 
 fetch('/api/health').then((r) => r.json()).then((health) => {
   document.getElementById('estado-filas').innerHTML = health.map((s) => {
-    const last = s.sourceTime ?? s.lastOk;
+    // Fecha que da la propia fuente; en las posiciones estimadas, la de su horario en el NAP.
+    const last = s.sourceTime ? when.format(s.sourceTime)
+      : s.datasetUpdated ? `Horario actualizado el ${when.format(s.datasetUpdated)}`
+        : s.lastOk ? `Leída el ${when.format(s.lastOk)}` : '—';
     const status = !s.enabled ? 'Desactivada' : s.ok === null ? 'Pendiente' : s.ok ? 'Operativa' : 'Con errores';
-    return `<tr><td>${esc(s.name)}</td><td>${esc(s.license)}</td><td>${last ? when.format(last) : '—'}</td><td>${status}</td></tr>`;
+    return `<tr><td>${esc(s.name)}</td><td>${esc(s.license)}</td><td>${esc(last)}</td><td>${status}</td></tr>`;
   }).join('');
   labelCells(document.getElementById('estado-filas').closest('table'));
 }).catch(() => {

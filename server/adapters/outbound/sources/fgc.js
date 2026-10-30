@@ -10,7 +10,7 @@ export function createFgcSource({ http }) {
     kind: 'vehicles',
     interval: 30_000,
     url: BASE,
-    license: 'Ferrocarrils de la Generalitat de Catalunya (CC BY 4.0)',
+    license: 'Ferrocarrils de la Generalitat de Catalunya (CC BY 4.0). Formato adaptado',
     async fetch() {
       const vehicles = [];
       // La API pagina de 100 en 100; FGC rara vez pasa de 100 trenes, pero por si acaso.

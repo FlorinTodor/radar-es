@@ -16,8 +16,9 @@ export function renderKpis(kpis, metrics, alertCount) {
   $('k-alerts').textContent = fmtNum(alertCount);
   const ree = metrics?.ree;
   $('k-grid').textContent = ree?.demandMW ? `${fmtNum(ree.demandMW)} MW` : '–';
+  // Red Eléctrica exige citarla y dar la hora del dato.
   $('k-grid-sub').textContent = ree?.deviation !== null && ree?.deviation !== undefined
-    ? `${ree.deviation >= 0 ? '+' : '−'}${Math.abs(ree.deviation * 100).toFixed(1).replace('.', ',')} % frente a lo previsto`
+    ? `${ree.deviation >= 0 ? '+' : '−'}${Math.abs(ree.deviation * 100).toFixed(1).replace('.', ',')} % frente a lo previsto · Red Eléctrica, ${fmtTime(ree.at)}`
     : '';
 }
 
@@ -152,6 +153,7 @@ export function renderSources(el, health) {
         ${s.count !== null && s.count !== undefined ? `<span>${fmtNum(s.count)} elementos</span>` : ''}
         ${s.lastOk ? `<span>leída ${timeAgo(s.lastOk, now)}</span>` : ''}
         ${s.sourceTime ? `<span>dato de ${fmtTime(s.sourceTime)}</span>` : ''}
+        ${s.datasetUpdated ? `<span>horario actualizado el ${fmtDateTime(s.datasetUpdated)}</span>` : ''}
         ${s.ms ? `<span>${fmtNum(s.ms)} ms</span>` : ''}
         <span>cada ${Math.round(s.interval / 1000)} s</span>
       </div>

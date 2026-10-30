@@ -53,6 +53,8 @@
  * @property {IncidentEvent[]} [events]
  * @property {Record<string, unknown>} [metrics]
  * @property {number|null} [sourceTime]  Epoch ms de la última actualización según la fuente.
+ * @property {number|null} [datasetUpdated]  Epoch ms en que la fuente actualizó el conjunto de datos estático
+ *   (horario GTFS) del que se calcula el resultado. Lo exigen las licencias; no es la hora del dato.
  */
 
 /**
