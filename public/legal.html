@@ -92,7 +92,16 @@
     <section id="privacidad">
       <h2>Privacidad</h2>
       <ul>
-        <li><strong>No hay cuentas, formularios, analítica ni publicidad</strong>, y la web no instala cookies propias.</li>
+        <li data-analitica="no"><strong>No hay cuentas, formularios, analítica ni publicidad</strong>, y la web no instala cookies propias.</li>
+        <li data-analitica="si" hidden><strong>No hay cuentas, formularios ni publicidad</strong>, y la web no instala cookies propias.</li>
+        <li data-analitica="si" hidden>Para saber cuánta gente usa la web contamos las visitas con
+          <a href="https://www.goatcounter.com/help/privacy" target="_blank" rel="noopener">GoatCounter</a>, un contador sin
+          cookies que no guarda tu dirección IP ni te sigue por otras webs. Solo registra datos agregados: la página
+          visitada, la web desde la que llegas, el navegador y el sistema, el idioma, el ancho de pantalla y el país o la
+          región aproximados (deducidos de la IP). La IP y el navegador se guardan en memoria unas horas como máximo, solo
+          para no contar dos veces la misma visita, y después se descartan. GoatCounter almacena los datos en la Unión
+          Europea (Finlandia y Alemania). Lo hacemos por interés legítimo en conocer el uso del servicio; si bloqueas el
+          contador, la web funciona igual.</li>
         <li>Tu navegador guarda en su almacenamiento local (localStorage) tus preferencias de capas y si ya has visto
           el aviso inicial. No sale de tu dispositivo y puedes borrarlo desde el navegador.</li>
         <li>La web pasa por Cloudflare, que actúa como intermediario de red y de seguridad. Cloudflare trata tu dirección
@@ -104,6 +113,7 @@
     </section>
   </main>
 
+  <script type="module" src="/js/analytics.js"></script>
   <script type="module">
     const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
     const when = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', dateStyle: 'short', timeStyle: 'medium' });
@@ -115,6 +125,7 @@
         el.textContent = value;
         if (el.dataset.about === 'contact' && value.includes('@')) el.innerHTML = `<a href="mailto:${esc(value)}">${esc(value)}</a>`;
       }
+      for (const el of document.querySelectorAll('[data-analitica]')) el.hidden = (el.dataset.analitica === 'si') !== Boolean(about.goatcounter);
     }).catch(() => {});
 
     fetch('/api/health').then((r) => r.json()).then((health) => {

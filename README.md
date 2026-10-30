@@ -26,6 +26,8 @@ npm test               # tests del dominio (sin red)
 
 Requiere Node.js 22.9 o superior. Para los trazados de líneas y las posiciones estimadas por
 horario hace falta `NAP_API_KEY` en `.env` (clave gratuita del Punto de Acceso Nacional).
+Para contar visitas en producción se pone `GOATCOUNTER_URL` (GoatCounter, sin cookies); sin ella
+no se carga ningún contador y la página de privacidad lo indica.
 
 ## Ramas
 
