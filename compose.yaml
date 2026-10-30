@@ -1,0 +1,16 @@
+services:
+  radar:
+    build: .
+    image: radar-es
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8080
+    # Solo en local: desde fuera se entra por el túnel de Cloudflare, no por este puerto.
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./data:/app/data

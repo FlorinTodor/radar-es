@@ -43,6 +43,9 @@ git switch dev && git merge --no-ff feature/mi-mejora && git push
 git switch produccion && git merge --no-ff dev && git push
 ```
 
+En producción corre con Docker en un VPS detrás de un túnel de Cloudflare, y se actualiza solo
+desde la rama `produccion`: ver [`docs/despliegue.md`](docs/despliegue.md).
+
 ## Arquitectura hexagonal
 
 ```
