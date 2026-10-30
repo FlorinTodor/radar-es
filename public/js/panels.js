@@ -212,7 +212,7 @@ export function renderLayers(el, prefs, countsByMode) {
     <i style="background:radial-gradient(circle,#ffd27a 25%,#ff5a1f 60%,transparent 75%)"></i><span>Foco de calor por satélite</span>
     <i style="background:rgba(180,140,255,.25);border:1.5px solid #b48cff"></i><span>Terremoto (tamaño = magnitud)</span>
     <i style="background:transparent;border:2.5px solid #ec835a"></i><span>Alerta GDACS (naranja o roja)</span>
-    <i style="border-radius:2px;background:linear-gradient(90deg,#e8261c 33%,#f39c12 33% 66%,#1f6fd1 66%)"></i><span>Área quemada (EFFIS): rojo, último día; naranja, 7 días; azul, 30 días</span></div>`;
+    <i style="border-radius:2px;background:linear-gradient(90deg,#e8261c 33%,#f39c12 33% 66%,#1f6fd1 66%)"></i><span>Área quemada (EFFIS): rojo, último día; naranja, 7 días; azul, 30 días. Púlsala para ver su ficha</span></div>`;
 }
 
 export function updateModeCounts(el, countsByMode) {

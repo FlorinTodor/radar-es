@@ -33,7 +33,7 @@ export const LAYER_GROUPS = {
   sismos: ['ev-quake'],
   'renfe-avisos': ['ev-rail'],
   gdacs: ['ev-gdacs'],
-  effis: ['effis-burnt'],
+  effis: ['effis-burnt', 'burnt-sel-line'],
 };
 
 const RAIL_TILES = 'https://servicios.idee.es/wms-inspire/transportes?service=WMS&request=GetMap&version=1.3.0'
@@ -85,6 +85,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
   let anims = new Map(); // id → { from, to, t0, props }
   let raf = null;
   let selectedId = null;  // tren seleccionado: lleva anillo y su recorrido reciente
+  let clicks = 0;         // contador de clics en el mapa, para descartar respuestas tardías de EFFIS
   let trackFetchedAt = 0;
   const card = createDetailCard(map.getContainer().parentElement);
   let loaded = false;
@@ -158,6 +159,9 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     });
     map.addSource('effis', { type: 'raster', tiles: [EFFIS_TILES], tileSize: 256, attribution: EFFIS_ATTRIBUTION });
     map.addLayer({ id: 'effis-burnt', type: 'raster', source: 'effis', layout: { visibility: 'none' }, paint: { 'raster-opacity': 0.75 } });
+    // Contorno del área quemada que se ha pulsado (la capa de EFFIS es una imagen y no se puede resaltar).
+    map.addSource('burnt-sel', { type: 'geojson', data: EMPTY });
+    map.addLayer({ id: 'burnt-sel-line', type: 'line', source: 'burnt-sel', layout: { visibility: 'none' }, paint: { 'line-color': '#f0efec', 'line-width': 2.5 } });
 
     // Las incidencias usan forma propia (rombo DGT, triángulo Renfe) para no confundirse
     // con los trenes, que son círculos con la misma paleta de estado.
@@ -285,8 +289,14 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
     }
     map.on('click', (e) => {
+      clicks++;
       const f = map.queryRenderedFeatures(e.point, { layers: clickable })[0];
-      if (!f) return clearSelection(); // clic en una zona vacía: se quita la selección
+      if (!f) {
+        clearSelection(); // clic en una zona vacía: se quita la selección…
+        // …pero las áreas quemadas son una imagen (WMS): se pregunta a EFFIS si hay una en ese punto.
+        if (map.getLayoutProperty('effis-burnt', 'visibility') === 'visible') showBurntAreaAt(e.point);
+        return;
+      }
       if (['vehicles', 'veh-est'].includes(f.layer.id)) onVehicleClick(f.properties.id);
       else onEventClick(f.properties.id, e.lngLat);
     });
@@ -339,6 +349,25 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     selectedId = id;
     if (loaded) map.setFilter('veh-selected', ['==', ['get', 'id'], id ?? '']);
     if (!id) map.getSource('track')?.setData(EMPTY);
+    map.getSource('burnt-sel')?.setData(EMPTY);
+  }
+
+  /** Pregunta a EFFIS por el área quemada bajo un punto de la pantalla y, si hay, muestra su ficha. */
+  async function showBurntAreaAt(point) {
+    const click = clicks; // si se pulsa otra cosa antes de que EFFIS responda, gana el último clic
+    const at = map.unproject(point);
+    const sw = map.unproject([point.x - 4, point.y + 4]);
+    const ne = map.unproject([point.x + 4, point.y - 4]);
+    try {
+      const res = await fetch(`${EFFIS_WFS}&bbox=${sw.lng},${sw.lat},${ne.lng},${ne.lat}`);
+      const { features = [] } = res.ok ? await res.json() : {};
+      if (click !== clicks) return;
+      const areas = features.map((f) => lonLatFeature(f, at));
+      const hit = areas.find((a) => containsPoint(a.geometry, [at.lng, at.lat])) ?? areas[0];
+      if (!hit) return;
+      map.getSource('burnt-sel').setData(hit);
+      card.show(burntAreaDetail(hit.properties));
+    } catch { /* EFFIS no responde: no se muestra nada */ }
   }
 
   function clearSelection() {
@@ -570,6 +599,68 @@ function vehicleDetail(v) {
   return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3><dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>
     <div class="note">${note}</div></div>`;
 }
+
+// Áreas quemadas del último mes como polígonos con sus datos (WFS de EFFIS, CORS abierto).
+const EFFIS_WFS = 'https://maps.effis.emergency.copernicus.eu/effis?service=WFS&version=1.0.0&request=GetFeature'
+  + '&typename=ms:modis.ba.poly.month&outputformat=geojson';
+
+/**
+ * EFFIS devuelve las coordenadas en orden [lat, lon] aunque GeoJSON pide [lon, lat]. Como se pide
+ * el área que hay bajo el clic, su primer vértice tiene que estar cerca de él: se mira qué orden
+ * encaja y sólo se dan la vuelta si hace falta (así no se rompe si un día EFFIS lo corrige).
+ */
+function lonLatFeature(f, near) {
+  const g = f.geometry;
+  const rings = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : [];
+  const [a, b] = rings[0]?.[0]?.[0] ?? [near.lng, near.lat];
+  const swapped = Math.abs(b - near.lng) + Math.abs(a - near.lat) < Math.abs(a - near.lng) + Math.abs(b - near.lat);
+  if (!swapped) return f;
+  const flip = (poly) => poly.map((ring) => ring.map(([x, y]) => [y, x]));
+  return { ...f, geometry: { type: g.type, coordinates: g.type === 'Polygon' ? flip(g.coordinates) : g.coordinates.map(flip) } };
+}
+
+/** ¿Está el punto [lon, lat] dentro del (Multi)Polygon? Regla par-impar, con los huecos incluidos. */
+function containsPoint(g, [x, y]) {
+  const polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : [];
+  return polys.some((poly) => poly.reduce((inside, ring) => {
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i];
+      const [xj, yj] = ring[j];
+      if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }, false));
+}
+
+// Cubierta del suelo de EFFIS (clases de CORINE Land Cover), en % del área quemada.
+const LAND_COVER = [
+  ['BROADLEA', 'Bosque de frondosas'], ['CONIFER', 'Bosque de coníferas'], ['MIXED', 'Bosque mixto'],
+  ['SCLEROPH', 'Vegetación esclerófila'], ['TRANSIT', 'Matorral boscoso de transición'],
+  ['OTHERNATLC', 'Otros espacios naturales'], ['AGRIAREAS', 'Zonas agrícolas'],
+  ['ARTIFSURF', 'Superficies artificiales'], ['OTHERLC', 'Otros usos'],
+];
+
+function burntAreaDetail(p) {
+  const pct = (v) => `${Math.round(Number(v))} %`;
+  const date = (s) => (s ? s.slice(0, 10).split('-').reverse().join('/') : null);
+  const cover = LAND_COVER.filter(([k]) => Number(p[k]) >= 1).sort(([a], [b]) => p[b] - p[a])
+    .map(([k, label]) => `${label} ${pct(p[k])}`).join(' · ');
+  const place = [p.COMMUNE, p.PROVINCE].filter(Boolean).join(', ');
+  const rows = [
+    ['Fecha del incendio', date(p.FIREDATE)],
+    ['Superficie', p.AREA_HA ? `${fmtArea(p.AREA_HA)} ha` : null],
+    cover && ['Qué ha ardido', cover],
+    Number(p.PERCNA2K) >= 1 && ['En Red Natura 2000', pct(p.PERCNA2K)],
+    ['Actualizado', date(p.LASTUPDATE)],
+    ['Fuente', 'Copernicus EFFIS'],
+  ].filter((r) => r && r[1]);
+  return `<div class="pop"><h3>Área quemada${place ? ` en ${esc(place)}` : ''}</h3>
+    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>
+    <div class="note">Perímetro estimado por satélite por el sistema europeo de incendios forestales (EFFIS), no es un
+    dato oficial de extinción. <a href="https://forest-fire.emergency.copernicus.eu/apps/effis_current_situation/" target="_blank" rel="noopener">Ver en EFFIS</a></div></div>`;
+}
+
+const fmtArea = (ha) => new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(Number(ha));
 
 function eventDetail(e) {
   const rows = [
