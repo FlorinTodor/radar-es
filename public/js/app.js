@@ -131,8 +131,10 @@ function flush() {
   if (parts.has('health') && state.tab === 'sources') P.renderSources(document.getElementById('panel-sources'), state.health);
 }
 
+// La lista y el buscador no dependen de las capas activas: se puede buscar cualquier tren y, al
+// pulsarlo, el mapa lo muestra aunque su capa esté apagada. Los autobuses, sólo con su capa activa.
 function renderVehiclesPanel(all = allVehicles()) {
-  const vehicles = all.filter((v) => P.modeOn(prefs, v.mode));
+  const vehicles = all.filter((v) => v.mode !== 'bus' || P.modeOn(prefs, 'bus'));
   P.renderVehicles(document.getElementById('vehicles-list'), P.filterVehicles(vehicles, state.search), vehicles.length, selection('vehicle'));
 }
 
