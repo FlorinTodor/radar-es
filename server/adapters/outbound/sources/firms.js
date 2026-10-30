@@ -22,7 +22,7 @@ export function createFirmsSource({ http }) {
     kind: 'events',
     interval: 3_600_000, // el CSV se regenera cada hora
     url: FILES[0],
-    license: 'NASA FIRMS (LANCE/ESDIS). No apto para decisiones tácticas',
+    license: 'NASA FIRMS (LANCE, ESDIS) · Datos de NASA sin restricciones de uso · No apto para decisiones tácticas',
     async fetch() {
       const events = [];
       for (const url of FILES) {

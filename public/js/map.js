@@ -38,11 +38,15 @@ export const LAYER_GROUPS = {
 
 const RAIL_TILES = 'https://servicios.idee.es/wms-inspire/transportes?service=WMS&request=GetMap&version=1.3.0'
   + '&layers=TN.RailTransportNetwork.RailwayLink&styles=&format=image/png&transparent=true&crs=EPSG:3857&width=256&height=256&bbox={bbox-epsg-3857}';
-const RAIL_ATTRIBUTION = 'Red ferroviaria: IGN-CNIG, <a href="https://www.scne.es" target="_blank" rel="noopener">CC BY 4.0 scne.es</a>';
+// Al invertir sus colores la capa es obra derivada: fórmula de la licencia del IGN con el producto y
+// año de la tabla de productos del SCNE (scne.es/tablaProductos.php).
+const RAIL_ATTRIBUTION = 'Red ferroviaria: Obra derivada de IGR-RT 2026 CC-BY 4.0 <a href="https://www.scne.es" target="_blank" rel="noopener">scne.es</a>';
 
 // Áreas quemadas de los últimos 30 días (Copernicus EFFIS, WMS con CORS abierto).
 const EFFIS_TILES = 'https://maps.effis.emergency.copernicus.eu/effis?service=WMS&request=GetMap&version=1.1.1&layers=modis.ba.month'
   + '&styles=&format=image/png&transparent=true&srs=EPSG:3857&width=256&height=256&bbox={bbox-epsg-3857}';
+const EFFIS_ATTRIBUTION = '© European Union, 1995-2025 · <a href="https://forest-fire.emergency.copernicus.eu/about-effis/data-license" '
+  + 'target="_blank" rel="noopener">EFFIS – Copernicus Emergency Management Service</a> · CC BY 4.0';
 
 const LEVEL_COLOR = ['match', ['get', 'level'], 'rojo', STATUS.critical, 'naranja', STATUS.serious, STATUS.warning];
 const LEVEL_ORDER = { amarillo: 0, naranja: 1, rojo: 2 };
@@ -52,10 +56,14 @@ const today = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', date
 const ATTRIBUTION = [
   '<a href="/legal.html#fuentes">Fuentes y licencias</a>',
   'Powered by <a href="https://www.transportes.gob.es/" target="_blank" rel="noopener">MITRAMS</a>',
+  'Powered by <a href="https://www.crtm.es/" target="_blank" rel="noopener">CRTM</a>',
+  'Powered by <a href="https://www.tram.cat/" target="_blank" rel="noopener">TRAM Barcelona</a>',
   'Origen de los datos: Renfe Operadora',
   `Obra derivada de Catálogo de terremotos IGN ${today} · CC-BY 4.0 <a href="https://www.ign.es" target="_blank" rel="noopener">ign.es</a>`,
-  'Fuente: AEMET',
+  '© AEMET',
   'Fuente: DGT',
+  '<a href="https://www.gdacs.org" target="_blank" rel="noopener">GDACS</a>',
+  'NASA FIRMS',
 ];
 
 export function createMap(container, { onVehicleClick, onEventClick }) {
@@ -148,7 +156,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
         'line-opacity': ['interpolate', ['linear'], ['zoom'], 5, 0.6, 11, 0.75],
       },
     });
-    map.addSource('effis', { type: 'raster', tiles: [EFFIS_TILES], tileSize: 256, attribution: 'Copernicus EFFIS' });
+    map.addSource('effis', { type: 'raster', tiles: [EFFIS_TILES], tileSize: 256, attribution: EFFIS_ATTRIBUTION });
     map.addLayer({ id: 'effis-burnt', type: 'raster', source: 'effis', layout: { visibility: 'none' }, paint: { 'raster-opacity': 0.75 } });
 
     // Las incidencias usan forma propia (rombo DGT, triángulo Renfe) para no confundirse

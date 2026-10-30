@@ -21,6 +21,7 @@ export function createReeSource({ http }) {
       const last = real.at(-1);
       const expected = last ? forecast.get(last.datetime) ?? null : null;
       return {
+        sourceTime: last ? Date.parse(last.datetime) : null,
         metrics: {
           demandMW: last?.value ?? null,
           forecastMW: expected,

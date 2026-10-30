@@ -7,6 +7,7 @@ import { modeOf } from '../gtfs/gtfs-modes.js';
 import { decodeFeed } from './gtfs-rt.js';
 import { activeFrequencyOffsets, gtfsTimeToSeconds, scheduledPosition, serviceRuns } from '../../../domain/schedule.js';
 import { madridLocalToMs } from './parse.js';
+import { napDatasetPage } from '../nap/nap-client.js';
 
 const RELOAD_MS = 24 * 3600_000;
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
@@ -118,14 +119,17 @@ function delaysFromTripUpdates(feed, schedule) {
 
 /**
  * @param {{ nap: ReturnType<typeof import('../nap/nap-client.js').createNapClient>, http: import('../http/http-client.js').HttpClient }} deps
- * @param {{ id: string, name: string, operator: string, ficheroId: number, license?: string, interval?: number,
- *           mode?: import('../../../domain/model.js').Mode, tripUpdatesUrl?: string, label?: (trip: object) => string }} options
+ * @param {{ id: string, name: string, operator: string, ficheroId: number, dataset: number, credit?: string, license?: string,
+ *           interval?: number, mode?: import('../../../domain/model.js').Mode, tripUpdatesUrl?: string, label?: (trip: object) => string }} options
+ *   dataset: conjunto de datos del NAP al que pertenece el fichero (para su fecha de actualización).
+ *   credit: atribución que pide el propio operador además de la del NAP ("Powered by CRTM"…).
  * @returns {import('../../../application/ports.js').DataSourcePort}
  */
 export function createGtfsScheduleSource({ nap, http }, options) {
-  const { id, name, operator, ficheroId, mode, tripUpdatesUrl, interval = 30_000 } = options;
+  const { id, name, operator, ficheroId, dataset, mode, tripUpdatesUrl, interval = 30_000 } = options;
   let schedule = null;
   let loadedAt = 0;
+  let datasetUpdated = null;
 
   function vehicle(trip, day, t, delaySec, offset = 0) {
     const tt = t - offset;
@@ -159,12 +163,14 @@ export function createGtfsScheduleSource({ nap, http }, options) {
     kind: 'vehicles',
     interval,
     requires: ['NAP_API_KEY'],
-    url: tripUpdatesUrl ?? 'https://nap.transportes.gob.es',
-    license: options.license ?? `Powered by MITRAMS (Punto de Acceso Nacional, transportes.gob.es) · ${operator}. Posición estimada a partir del horario (dato explotado, no GPS)`,
+    url: tripUpdatesUrl ?? napDatasetPage(dataset),
+    license: options.license
+      ?? `Powered by MITRAMS (Punto de Acceso Nacional) · ${options.credit ?? operator} · Posición estimada a partir del horario (dato explotado, no GPS)`,
     async fetch() {
       if (!schedule || Date.now() - loadedAt > RELOAD_MS) {
         schedule = parseSchedule(await nap.gtfs(ficheroId, RELOAD_MS), mode);
         loadedAt = Date.now();
+        datasetUpdated = await nap.updatedAt(dataset, ficheroId).then(madridLocalToMs).catch(() => datasetUpdated);
       }
       const rt = tripUpdatesUrl ? delaysFromTripUpdates(decodeFeed(await http.bytes(tripUpdatesUrl)), schedule) : null;
       const now = Date.now();
@@ -197,7 +203,7 @@ export function createGtfsScheduleSource({ nap, http }, options) {
           }
         }
       }
-      return { vehicles };
+      return { vehicles, datasetUpdated };
     },
   };
 }

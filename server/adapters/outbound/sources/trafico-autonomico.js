@@ -63,7 +63,7 @@ export function createTraficoEuskadiSource({ http }) {
     kind: 'events',
     interval: 300_000,
     url: EUSKADI_URL,
-    license: 'Open Data Euskadi (CC BY 4.0)',
+    license: 'Open Data Euskadi (CC BY 4.0) · Gobierno Vasco y ayuntamientos de Bilbao, Vitoria-Gasteiz y Donostia',
     async fetch() {
       const [y, m, d] = madridToday().split('-');
       const now = Date.now();
