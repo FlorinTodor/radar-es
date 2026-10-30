@@ -45,8 +45,13 @@ cd /opt/radar && docker compose logs -f     # logs de la aplicación
 
 ## Datos y secretos
 
-- `/opt/radar/.env`: `NAP_API_KEY`. No está en git; se copia a mano con `scp`.
-- `/opt/radar/data/`: cachés de GTFS e histórico JSONL. Sobrevive a los redespliegues.
+- `/opt/radar/.env`: `NAP_API_KEY`, titular, contacto, `GOATCOUNTER_URL`. No está en git; se copia a mano con `scp`.
+- `/opt/radar/data/`: cachés de GTFS e histórico JSONL. Sobrevive a los redespliegues y, si se
+  pierde, se regenera solo.
+- `/etc/cloudflared/config.yml` y `<id>.json`: credenciales del túnel.
+
+El `.env` y las credenciales del túnel deben estar copiados en un gestor de contraseñas: es lo
+único que no está en GitHub. Ver [seguridad.md](seguridad.md).
 
 ## Túnel de Cloudflare
 
@@ -76,7 +81,8 @@ Las actualizaciones de `cloudflared` las instala `unattended-upgrades`
 
 ## Montar un VPS desde cero
 
-1. Asegurar SSH (solo clave) y `ufw` (solo el 22).
+1. Copiar la clave SSH (`ssh-copy-id`), lanzar `ssh root@VPS 'bash -s' < deploy/endurecer-ssh.sh`
+   y activar `ufw` dejando sólo el 22 (`ufw limit 22/tcp && ufw enable`).
 2. `ssh root@VPS 'bash -s' < deploy/preparar-vps.sh`. La primera vez se para y pide añadir la
    deploy key en GitHub; se añade y se relanza.
 3. `scp .env root@VPS:/opt/radar/.env`
@@ -85,3 +91,13 @@ Las actualizaciones de `cloudflared` las instala `unattended-upgrades`
    `cloudflared tunnel route dns radar radarespaña.es` (y `www.radarespaña.es`), copiar
    `~/.cloudflared/<id>.json` a `/etc/cloudflared/`, escribir `/etc/cloudflared/config.yml` y
    `cloudflared service install`.
+
+### Si se pierde el VPS y hay copia de los secretos
+
+Más rápido que lo anterior: se reutiliza el mismo túnel, así que no hay que tocar Cloudflare ni el DNS.
+
+1. VPS nuevo con Ubuntu: pasos 1 a 3 de arriba (SSH, `preparar-vps.sh`, `.env`).
+2. Instalar `cloudflared` (lo hace `preparar-vps.sh`), copiar `config.yml` y `<id>.json` a
+   `/etc/cloudflared/` y `cloudflared service install`.
+3. En cuanto el túnel conecta, Cloudflare manda el tráfico al VPS nuevo. Los datos (`data/`) se
+   regeneran solos en unos minutos.
