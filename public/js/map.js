@@ -10,8 +10,6 @@ const EMPTY = { type: 'FeatureCollection', features: [] };
 const SEV_COLORS = { 'muy alta': STATUS.critical, alta: STATUS.serious, media: STATUS.warning, baja: STATUS.none };
 const IS_EST = ['==', ['get', 'est'], 1];
 const NOT_EST = ['!=', ['get', 'est'], 1];
-const IS_AIR = ['==', ['get', 'mode'], 'avion'];
-const NOT_AIR = ['!=', ['get', 'mode'], 'avion'];
 const VEHICLE_RADIUS = ['interpolate', ['linear'], ['zoom'],
   5, ['match', ['get', 'mode'], ['av', 'ld'], 4.2, 'md', 3.6, 'bus', 1.8, 3.1],
   10, ['match', ['get', 'mode'], ['av', 'ld'], 6.5, 'md', 6, 'bus', 3.5, 5],
@@ -81,9 +79,8 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
   const category = (c) => ['==', ['get', 'category'], c];
   const VEHICLE_FILTERS = {
     'veh-halo': ['==', ['get', 'alert'], 1],
-    'veh-est': ['all', IS_EST, NOT_AIR],
-    vehicles: ['all', NOT_EST, NOT_AIR],
-    'veh-air': IS_AIR,
+    'veh-est': IS_EST,
+    vehicles: NOT_EST,
     'veh-labels': null,
   };
   const EVENT_FILTERS = {
@@ -246,22 +243,13 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
         'circle-stroke-color': '#0d0d0d', 'circle-stroke-width': 1.5,
       },
     });
-    // Aviones: flecha orientada según el rumbo, de un color que no pertenece a la paleta de retrasos.
-    map.addImage('plane', planeIcon(), { pixelRatio: 2 });
-    map.addLayer({
-      id: 'veh-air', type: 'symbol', source: 'vehicles',
-      layout: {
-        'icon-image': 'plane', 'icon-rotate': ['get', 'heading'], 'icon-rotation-alignment': 'map',
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.7, 10, 1.1], 'icon-allow-overlap': true, 'icon-ignore-placement': true,
-      },
-    });
     map.addLayer({
       id: 'veh-labels', type: 'symbol', source: 'vehicles', minzoom: 9,
       layout: { 'text-field': ['get', 'line'], 'text-font': FONT, 'text-size': 11, 'text-offset': [0, -1.3], 'text-optional': true },
       paint: { 'text-color': '#f0efec', 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.5 },
     });
 
-    const clickable = ['vehicles', 'veh-est', 'veh-air', 'ev-rail', 'ev-quake', 'ev-gdacs', 'ev-road', 'ev-road-major', 'ev-works', 'ev-fire-glow', 'meteo-fill'];
+    const clickable = ['vehicles', 'veh-est', 'ev-rail', 'ev-quake', 'ev-gdacs', 'ev-road', 'ev-road-major', 'ev-works', 'ev-fire-glow', 'meteo-fill'];
     for (const id of clickable) {
       map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
@@ -269,7 +257,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     map.on('click', (e) => {
       const f = map.queryRenderedFeatures(e.point, { layers: clickable })[0];
       if (!f) return;
-      if (['vehicles', 'veh-est', 'veh-air'].includes(f.layer.id)) onVehicleClick(f.properties.id);
+      if (['vehicles', 'veh-est'].includes(f.layer.id)) onVehicleClick(f.properties.id);
       else onEventClick(f.properties.id, e.lngLat);
     });
 
@@ -341,7 +329,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       for (const v of list) {
         const to = [v.lon, v.lat];
         const prev = anims.get(v.id);
-        const props = { id: v.id, mode: v.mode, cls: v.cls, line: v.line ?? '', alert: alertIds.has(v.id) ? 1 : 0, est: v.estimated ? 1 : 0, heading: v.heading ?? 0 };
+        const props = { id: v.id, mode: v.mode, cls: v.cls, line: v.line ?? '', alert: alertIds.has(v.id) ? 1 : 0, est: v.estimated ? 1 : 0 };
         if (prev && prev.to[0] === to[0] && prev.to[1] === to[1]) {
           next.set(v.id, { ...prev, props });
           continue;
@@ -469,40 +457,7 @@ export function icon(shape, fill, stroke) {
   return { width: size, height: size, data: g.getImageData(0, 0, size, size).data };
 }
 
-/** Flecha de avión (apunta al norte; el mapa la gira según el rumbo). */
-function planeIcon() {
-  const size = 32;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const g = canvas.getContext('2d');
-  g.scale(2, 2);
-  g.beginPath();
-  g.moveTo(8, 1); g.lineTo(13.5, 14); g.lineTo(8, 11); g.lineTo(2.5, 14);
-  g.closePath();
-  g.fillStyle = '#8ecae6';
-  g.fill();
-  g.lineWidth = 1.2;
-  g.strokeStyle = '#0d0d0d';
-  g.stroke();
-  return { width: size, height: size, data: g.getImageData(0, 0, size, size).data };
-}
-
-function aircraftPopup(v) {
-  const rows = [
-    ['Indicativo', v.label],
-    v.registration && ['Matrícula', v.registration],
-    v.aircraftType && ['Modelo', v.aircraftType],
-    ['Altitud', v.altitudeFt === 0 ? 'En tierra' : v.altitudeFt ? `${v.altitudeFt.toLocaleString('es-ES')} ft` : '—'],
-    v.speedKt && ['Velocidad', `${Math.round(v.speedKt)} kt`],
-    v.squawk && ['Squawk', v.squawk],
-    v.fixTime && ['Posición', timeAgo(v.fixTime)],
-    ['Fuente', `${v.source} (ADS-B)`],
-  ].filter(Boolean);
-  return `<div class="pop"><h3>Avión ${esc(v.label)}</h3><dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl></div>`;
-}
-
 function vehiclePopup(v) {
-  if (v.mode === 'avion') return aircraftPopup(v);
   const rows = [
     ['Tipo', MODE_LABEL[v.mode] ?? v.mode],
     (v.origin || v.destination) && ['Recorrido', `${v.origin ?? '?'} → ${v.destination ?? '?'}`],

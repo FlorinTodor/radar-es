@@ -147,9 +147,9 @@ export function renderSources(el, health) {
   }).join('');
 }
 
-export const MODE_ITEMS = ['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'bus', 'avion', 'otros'];
+export const MODE_ITEMS = ['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'bus', 'otros'];
 // Modos ocultos hasta que el usuario los active (los autobuses taparían los trenes).
-export const MODES_OFF_BY_DEFAULT = ['bus', 'avion'];
+export const MODES_OFF_BY_DEFAULT = ['bus'];
 export const modeOn = (prefs, m) => prefs.modes[m] ?? !MODES_OFF_BY_DEFAULT.includes(m);
 export const GROUPS_OFF_BY_DEFAULT = ['effis'];
 export const groupOn = (prefs, g) => prefs.groups[g] ?? !GROUPS_OFF_BY_DEFAULT.includes(g);
@@ -186,8 +186,7 @@ export function renderLayers(el, prefs, countsByMode) {
     <i style="background:radial-gradient(circle,#ffd27a 25%,#ff5a1f 60%,transparent 75%)"></i><span>Foco de calor por satélite</span>
     <i style="background:rgba(180,140,255,.25);border:1.5px solid #b48cff"></i><span>Terremoto (tamaño = magnitud)</span>
     <i style="background:transparent;border:2.5px solid #ec835a"></i><span>Alerta GDACS (naranja o roja)</span>
-    <i style="border-radius:2px;background:linear-gradient(90deg,#e8261c 33%,#f39c12 33% 66%,#1f6fd1 66%)"></i><span>Área quemada (EFFIS): rojo, último día; naranja, 7 días; azul, 30 días</span>
-    ${shape('M7 1L12.5 13L7 10.3L1.5 13Z', '#8ecae6', '#0d0d0d')}<span>Avión (ADS-B), orientado según su rumbo</span></div>`;
+    <i style="border-radius:2px;background:linear-gradient(90deg,#e8261c 33%,#f39c12 33% 66%,#1f6fd1 66%)"></i><span>Área quemada (EFFIS): rojo, último día; naranja, 7 días; azul, 30 días</span></div>`;
 }
 
 export function updateModeCounts(el, countsByMode) {

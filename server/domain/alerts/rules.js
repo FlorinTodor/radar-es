@@ -11,7 +11,6 @@ import { stationarySince } from '../tracking.js';
  * @typedef {object} RuleContext
  * @property {number} now
  * @property {import('../model.js').Vehicle[]} vehicles  Sólo trenes, metros y tranvías con GPS.
- * @property {Array<import('../model.js').Vehicle & { squawk?: string, emergency?: string }>} [aircraft]
  * @property {Map<string, import('../tracking.js').TrackPoint[]>} tracks
  * @property {import('../model.js').IncidentEvent[]} events
  * @property {Record<string, any>} metrics
@@ -210,28 +209,6 @@ export function fleetDrop(ctx) {
   }];
 }
 
-const SQUAWKS = {
-  7500: ['muy alta', 'interferencia ilícita (7500)'],
-  7700: ['muy alta', 'emergencia general (7700)'],
-  7600: ['alta', 'fallo de comunicaciones (7600)'],
-};
-
-/** Aeronaves que declaran emergencia con su transpondedor. */
-export function aircraftEmergencies(ctx) {
-  const alerts = [];
-  for (const a of ctx.aircraft ?? []) {
-    const [severity, what] = SQUAWKS[a.squawk] ?? (a.emergency && a.emergency !== 'none' ? ['alta', `emergencia (${a.emergency})`] : []);
-    if (!severity) continue;
-    alerts.push({
-      id: `avion:${a.id}`, type: 'avion', severity, vehicleId: a.id, lat: a.lat, lon: a.lon,
-      title: `Avión ${a.label ?? a.id} declara ${what}`,
-      description: `${a.aircraftType ?? 'Aeronave'}${a.registration ? ` ${a.registration}` : ''} a ${a.altitudeFt ?? '?'} ft. ` +
-        'Dato ADS-B público: puede ser una prueba o un error de transpondedor.',
-    });
-  }
-  return alerts;
-}
-
 /** Caídas de conectividad a Internet detectadas por IODA en España o sus regiones. */
 export function internetOutages(ctx) {
   return ctx.events
@@ -279,7 +256,6 @@ export const RULES = [
   earthquakesNearTrains,
   severeWeather,
   firesNearTrains,
-  aircraftEmergencies,
   internetOutages,
   disasterAlerts,
   gridDemandDrop,
