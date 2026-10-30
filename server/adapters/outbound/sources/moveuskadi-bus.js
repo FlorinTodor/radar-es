@@ -32,7 +32,7 @@ export function createMoveuskadiBusSource({ http, log }) {
     kind: 'vehicles',
     interval: 60_000,
     url: INDEX,
-    license: 'Open Data Euskadi · MoveUskadi',
+    license: 'Open Data Euskadi · MoveUskadi (CC BY 4.0)',
     async fetch() {
       await loadIndex();
       const vehicles = [];

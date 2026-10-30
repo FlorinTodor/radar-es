@@ -7,6 +7,7 @@ import { makeIngestSource } from './application/use-cases/ingest-source.js';
 import { makeDetectAlerts } from './application/use-cases/detect-alerts.js';
 import { makeQuerySituation } from './application/use-cases/query-situation.js';
 import { createHttpClient } from './adapters/outbound/http/http-client.js';
+import { createFileCache } from './adapters/outbound/http/file-cache.js';
 import { createConsoleLogger } from './adapters/outbound/logging/console-logger.js';
 import { createRenfeStationCatalog } from './adapters/outbound/stations/renfe-station-catalog.js';
 import { createNapClient } from './adapters/outbound/nap/nap-client.js';
@@ -21,18 +22,19 @@ import { createHttpServer } from './adapters/inbound/http/http-server.js';
 const config = loadConfig();
 const log = createConsoleLogger();
 const clock = { now: () => Date.now() };
-const http = createHttpClient();
+const http = createHttpClient({ userAgent: config.userAgent });
 
 // --- Adaptadores de salida -------------------------------------------------
 const cacheDir = new URL('cache/', config.dataDir);
-const nap = createNapClient({ http, apiKey: config.env.NAP_API_KEY, cacheDir, log });
-const stations = assertPort('StationCatalog', createRenfeStationCatalog({ http, cacheDir, log }), PORT_MEMBERS.StationCatalog);
+const cache = createFileCache({ http, dir: cacheDir, log });
+const nap = createNapClient({ cache, apiKey: config.env.NAP_API_KEY });
+const stations = assertPort('StationCatalog', createRenfeStationCatalog({ cache, cacheDir, log }), PORT_MEMBERS.StationCatalog);
 const network = assertPort('NetworkCatalog', createGtfsNetworkCatalog({ nap, cacheDir, log }), PORT_MEMBERS.NetworkCatalog);
 const situation = assertPort('SituationRepository', createInMemorySituation(), PORT_MEMBERS.SituationRepository);
 const history = assertPort('History', createJsonlHistory({ dir: new URL('history/', config.dataDir), log }), PORT_MEMBERS.History);
 const bus = assertPort('EventPublisher', createInProcessEventBus(), PORT_MEMBERS.EventPublisher);
 
-const sources = createSources({ http, stations, nap, log, env: config.env })
+const sources = createSources({ http, cache, stations, nap, log, env: config.env })
   .map((s) => assertPort(`DataSource(${s.id})`, s, PORT_MEMBERS.DataSource));
 
 const enabledSources = [];
@@ -64,6 +66,7 @@ const server = createHttpServer({
   query,
   bus,
   log,
+  about: config.about,
   publicDir: fileURLToPath(new URL('../public/', import.meta.url)).replace(/\/$/, ''),
   vendorDirs: { '/vendor/maplibre/': fileURLToPath(new URL('../node_modules/maplibre-gl/dist/', import.meta.url)).replace(/\/$/, '') },
 });

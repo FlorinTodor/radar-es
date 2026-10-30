@@ -17,9 +17,9 @@ const SSE_HEARTBEAT_MS = 25_000;
 /**
  * @param {{ query: ReturnType<typeof import('../../../application/use-cases/query-situation.js').makeQuerySituation>,
  *           bus: import('../../../application/ports.js').EventPublisherPort, log: import('../../../application/ports.js').LoggerPort,
- *           publicDir: string, vendorDirs: Record<string, string> }} deps
+ *           publicDir: string, vendorDirs: Record<string, string>, about?: object }} deps
  */
-export function createHttpServer({ query, bus, log, publicDir, vendorDirs }) {
+export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about = {} }) {
   const routes = {
     '/api/snapshot': () => query.snapshot(),
     '/api/vehicles': (p) => query.vehicles({
@@ -34,6 +34,7 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs }) {
     '/api/metrics': () => query.metrics(),
     '/api/stations': () => query.stations(),
     '/api/lines': () => query.lines(),
+    '/api/about': () => about,
   };
 
   const server = createServer(async (req, res) => {

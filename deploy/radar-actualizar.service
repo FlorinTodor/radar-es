@@ -1,0 +1,9 @@
+[Unit]
+Description=Radar ES: desplegar la rama produccion si ha cambiado en GitHub
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/radar/deploy/actualizar.sh
