@@ -61,6 +61,15 @@ export const fmtLocalHour = (s) => (s ? s.slice(11, 16) : '—');
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ESC[c]);
 
+/** Enlace externo seguro para un href: sólo http(s); si no, null (el servidor ya filtra, esto es la segunda barrera). */
+export function safeUrl(url) {
+  try {
+    return ['https:', 'http:'].includes(new URL(url).protocol) ? url : null;
+  } catch {
+    return null;
+  }
+}
+
 export function vehicleTitle(v) {
   const service = v.service && v.service !== v.line ? `${v.service} ` : '';
   return `${service}${v.line ?? ''} ${v.label ?? ''}`.replace(/\s+/g, ' ').trim();

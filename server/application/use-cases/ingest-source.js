@@ -1,4 +1,5 @@
 // Caso de uso: leer una fuente, guardar su resultado y avisar de que hay datos nuevos.
+import { safeLink } from '../../domain/model.js';
 import { recordPositions } from '../../domain/tracking.js';
 
 /**
@@ -11,6 +12,7 @@ export function makeIngestSource({ situation, publisher, clock, log }) {
     const started = clock.now();
     try {
       const result = await source.fetch();
+      for (const e of result.events ?? []) if ('url' in e) e.url = safeLink(e.url);
       const now = clock.now();
       situation.saveResult(source.id, result, now, now - started);
       if (result.vehicles) recordPositions(situation.tracks(), result.vehicles, now);
