@@ -74,6 +74,43 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
   let loaded = false;
   let modeFilter = null;
   let showObras = false;
+  let focus = null; // { vehicleIds, eventIds } mientras hay alertas seleccionadas
+
+  // Filtro base de cada capa de trenes y de sucesos. El modo foco le añade "y sólo estos ids"
+  // y hace visibles las capas, aunque el usuario las tuviera apagadas.
+  const category = (c) => ['==', ['get', 'category'], c];
+  const VEHICLE_FILTERS = {
+    'veh-halo': ['==', ['get', 'alert'], 1],
+    'veh-est': ['all', IS_EST, NOT_AIR],
+    vehicles: ['all', NOT_EST, NOT_AIR],
+    'veh-air': IS_AIR,
+    'veh-labels': null,
+  };
+  const EVENT_FILTERS = {
+    'ev-road': () => roadFilter(false),
+    'ev-road-major': () => roadFilter(true),
+    'ev-works': ['all', category('carretera'), ['==', ['get', 'type'], 'roadMaintenance']],
+    'ev-gdacs': category('catastrofe'),
+    'ev-fire-glow': category('incendio'),
+    'ev-fire-core': category('incendio'),
+    'ev-quake': category('sismo'),
+    'ev-rail': category('ferroviario'),
+    'meteo-fill': null,
+    'meteo-outline': null,
+  };
+
+  function applyFilters() {
+    if (!loaded) return;
+    const only = (ids, base) => ['all', base ?? true, ['in', ['get', 'id'], ['literal', ids]]];
+    for (const [id, base] of Object.entries(VEHICLE_FILTERS)) {
+      map.setFilter(id, focus ? only(focus.vehicleIds, base) : vehicleFilter(base));
+    }
+    for (const [id, entry] of Object.entries(EVENT_FILTERS)) {
+      const base = typeof entry === 'function' ? entry() : entry;
+      map.setFilter(id, focus ? only(focus.eventIds, base) : base);
+      if (focus) map.setLayoutProperty(id, 'visibility', 'visible');
+    }
+  }
 
   const ready = new Promise((resolve) => map.on('load', resolve)).then(() => {
     const firstSymbol = map.getStyle().layers.find((l) => l.type === 'symbol')?.id;
@@ -137,12 +174,11 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.7, 7, 0.75, 10, 1],
       'icon-allow-overlap': true, 'icon-ignore-placement': true,
     };
-    map.addLayer({ id: 'ev-road', type: 'symbol', source: 'events', minzoom: 6.5, filter: roadFilter(false), layout: roadLayout });
-    map.addLayer({ id: 'ev-road-major', type: 'symbol', source: 'events', filter: roadFilter(true), layout: roadLayout });
+    map.addLayer({ id: 'ev-road', type: 'symbol', source: 'events', minzoom: 6.5, layout: roadLayout });
+    map.addLayer({ id: 'ev-road-major', type: 'symbol', source: 'events', layout: roadLayout });
     // Obras: capa propia (cuadrado), independiente de la de tráfico y, si se activa, a cualquier zoom.
     map.addLayer({
       id: 'ev-works', type: 'symbol', source: 'events',
-      filter: ['all', ['==', ['get', 'category'], 'carretera'], ['==', ['get', 'type'], 'roadMaintenance']],
       layout: {
         visibility: showObras ? 'visible' : 'none',
         'icon-image': ['concat', 'square-', ['get', 'severity']],
@@ -151,34 +187,33 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       },
     });
     map.addLayer({
-      id: 'ev-gdacs', type: 'circle', source: 'events', filter: ['==', ['get', 'category'], 'catastrofe'],
+      id: 'ev-gdacs', type: 'circle', source: 'events',
       paint: {
         'circle-radius': 11, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-width': 3,
         'circle-stroke-color': ['match', ['get', 'severity'], 'muy alta', STATUS.critical, 'alta', STATUS.serious, '#6b6b66'],
       },
     });
     // Focos de calor: halo difuminado + núcleo, para distinguirlos de los trenes (círculos nítidos).
-    const isFire = ['==', ['get', 'category'], 'incendio'];
     map.addLayer({
-      id: 'ev-fire-glow', type: 'circle', source: 'events', filter: isFire,
+      id: 'ev-fire-glow', type: 'circle', source: 'events',
       paint: {
         'circle-radius': ['interpolate', ['linear'], ['get', 'frp'], 0, 5, 10, 8, 50, 13, 200, 20],
         'circle-color': '#ff5a1f', 'circle-blur': 0.9, 'circle-opacity': 0.55,
       },
     });
     map.addLayer({
-      id: 'ev-fire-core', type: 'circle', source: 'events', filter: isFire,
+      id: 'ev-fire-core', type: 'circle', source: 'events',
       paint: { 'circle-radius': 2, 'circle-color': '#ffd27a' },
     });
     map.addLayer({
-      id: 'ev-quake', type: 'circle', source: 'events', filter: ['==', ['get', 'category'], 'sismo'],
+      id: 'ev-quake', type: 'circle', source: 'events',
       paint: {
         'circle-radius': ['interpolate', ['linear'], ['get', 'magnitude'], 1, 3, 3, 7, 5, 18, 7, 34],
         'circle-color': '#b48cff', 'circle-opacity': 0.25, 'circle-stroke-color': '#b48cff', 'circle-stroke-width': 1.5,
       },
     });
     map.addLayer({
-      id: 'ev-rail', type: 'symbol', source: 'events', filter: ['==', ['get', 'category'], 'ferroviario'],
+      id: 'ev-rail', type: 'symbol', source: 'events',
       layout: {
         'icon-image': ['concat', 'triangle-', ['get', 'severity']],
         'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 1, 10, 1.4],
@@ -186,7 +221,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       },
     });
     map.addLayer({
-      id: 'veh-halo', type: 'circle', source: 'vehicles', filter: vehicleFilter(['==', ['get', 'alert'], 1]),
+      id: 'veh-halo', type: 'circle', source: 'vehicles',
       paint: {
         'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 8, 10, 13, 14, 16],
         'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': STATUS.critical, 'circle-stroke-width': 2, 'circle-stroke-opacity': 0.9,
@@ -194,7 +229,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     });
     // Posición estimada por horario: anillo hueco, para que nunca se confunda con un GPS real.
     map.addLayer({
-      id: 'veh-est', type: 'circle', source: 'vehicles', filter: vehicleFilter(['all', IS_EST, NOT_AIR]),
+      id: 'veh-est', type: 'circle', source: 'vehicles',
       paint: {
         'circle-radius': VEHICLE_RADIUS,
         'circle-color': 'rgba(0,0,0,0)',
@@ -204,7 +239,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       },
     });
     map.addLayer({
-      id: 'vehicles', type: 'circle', source: 'vehicles', filter: vehicleFilter(['all', NOT_EST, NOT_AIR]),
+      id: 'vehicles', type: 'circle', source: 'vehicles',
       paint: {
         'circle-radius': VEHICLE_RADIUS,
         'circle-color': ['match', ['get', 'cls'], ...DELAY_CLASSES.flatMap(([color], i) => (i ? [i, color] : [])), DELAY_CLASSES[0][0]],
@@ -214,14 +249,14 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     // Aviones: flecha orientada según el rumbo, de un color que no pertenece a la paleta de retrasos.
     map.addImage('plane', planeIcon(), { pixelRatio: 2 });
     map.addLayer({
-      id: 'veh-air', type: 'symbol', source: 'vehicles', filter: vehicleFilter(IS_AIR),
+      id: 'veh-air', type: 'symbol', source: 'vehicles',
       layout: {
         'icon-image': 'plane', 'icon-rotate': ['get', 'heading'], 'icon-rotation-alignment': 'map',
         'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.7, 10, 1.1], 'icon-allow-overlap': true, 'icon-ignore-placement': true,
       },
     });
     map.addLayer({
-      id: 'veh-labels', type: 'symbol', source: 'vehicles', minzoom: 9, filter: vehicleFilter(),
+      id: 'veh-labels', type: 'symbol', source: 'vehicles', minzoom: 9,
       layout: { 'text-field': ['get', 'line'], 'text-font': FONT, 'text-size': 11, 'text-offset': [0, -1.3], 'text-optional': true },
       paint: { 'text-color': '#f0efec', 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.5 },
     });
@@ -239,6 +274,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     });
 
     loaded = true;
+    applyFilters();
     kick();
   });
 
@@ -352,12 +388,27 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
 
     setModes(modes) {
       modeFilter = modes;
-      if (!loaded) return;
-      map.setFilter('vehicles', vehicleFilter(['all', NOT_EST, NOT_AIR]));
-      map.setFilter('veh-air', vehicleFilter(IS_AIR));
-      map.setFilter('veh-est', vehicleFilter(['all', IS_EST, NOT_AIR]));
-      map.setFilter('veh-labels', vehicleFilter());
-      map.setFilter('veh-halo', vehicleFilter(['==', ['get', 'alert'], 1]));
+      applyFilters();
+    },
+
+    /**
+     * Muestra sólo los trenes y sucesos indicados (alertas seleccionadas), aunque sus capas
+     * estuvieran apagadas. Con null se vuelve a los filtros normales; quien llama debe
+     * restaurar después la visibilidad de las capas según las preferencias del usuario.
+     * @param {{ vehicleIds: string[], eventIds: string[] } | null} f
+     */
+    setFocus(f) {
+      focus = f;
+      applyFilters();
+    },
+
+    /** Encuadra una lista de puntos [lon, lat]. */
+    fitTo(points) {
+      if (!points.length) return;
+      if (points.length === 1) return map.flyTo({ center: points[0], zoom: Math.max(map.getZoom(), 10), speed: 1.6 });
+      const lons = points.map((p) => p[0]);
+      const lats = points.map((p) => p[1]);
+      map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: 90, maxZoom: 11, duration: 900 });
     },
 
     setObras(on) {

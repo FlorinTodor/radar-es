@@ -83,6 +83,7 @@ test('aviso rojo con polígono cuenta los trenes que hay dentro', () => {
   const [alert] = evaluateRules(ctx({ events, vehicles })).filter((a) => a.type === 'meteo');
   assert.equal(alert.severity, 'muy alta');
   assert.deepEqual(alert.vehicleIds, ['dentro']);
+  assert.deepEqual(alert.eventIds, ['dana']);
   assert.match(alert.title, /1 trenes dentro/);
 });
 

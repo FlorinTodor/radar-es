@@ -24,16 +24,29 @@ function severityPill(sev) {
   return `<span class="pill ${sevClass(sev)}">${esc(SEVERITY_LABEL[sev] ?? sev)}</span>`;
 }
 
-export function renderAlerts(el, alerts, resolved) {
+export function renderAlerts(el, alerts, resolved, selected = new Set(), multi = false) {
   const now = Date.now();
+  const n = selected.size;
+  const toolbar = alerts.length ? `
+    <div class="alerts-toolbar">
+      <label class="switch"><input type="checkbox" data-action="multi" ${multi ? 'checked' : ''}><span class="track"></span>Varias a la vez</label>
+      ${n ? '<button type="button" class="btn-ghost" data-action="clear-focus">Ver todo</button>' : ''}
+    </div>
+    <div class="hint">${n
+      ? `El mapa muestra sólo ${n === 1 ? 'la alerta marcada' : `las ${n} alertas marcadas`}.`
+      : multi ? 'Pulsa las alertas que quieras ver juntas en el mapa; vuelve a pulsar una para quitarla.'
+        : 'Pulsa una alerta para ver en el mapa sólo lo suyo.'}</div>` : '';
   const active = alerts.length
-    ? alerts.map((a) => `
-      <button class="item ${sevClass(a.severity)}" data-kind="alert" data-id="${esc(a.id)}">
-        <div class="row">${severityPill(a.severity)}</div>
+    ? alerts.map((a) => {
+      const on = selected.has(a.id);
+      return `
+      <button class="item alert-item ${sevClass(a.severity)}${on ? ' selected' : ''}" data-kind="alert" data-id="${esc(a.id)}" aria-pressed="${on}">
+        <div class="row">${severityPill(a.severity)}${on ? '<span class="check" aria-hidden="true">✓</span>' : ''}</div>
         <div class="title">${esc(a.title)}</div>
         ${a.description ? `<div class="desc">${esc(a.description)}</div>` : ''}
         <div class="meta"><span>Desde las ${fmtTime(a.since)} (${timeAgo(a.since, now)})</span></div>
-      </button>`).join('')
+      </button>`;
+    }).join('')
     : `<div class="empty">Sin alertas activas.<br>El motor revisa trenes detenidos en plena vía, saltos de retraso, terremotos,
        focos de incendio cerca de trenes, avisos meteorológicos naranja o rojo, la red eléctrica y la salud de las fuentes.</div>`;
   const done = resolved.slice(0, 15).map((a) => `
@@ -41,7 +54,7 @@ export function renderAlerts(el, alerts, resolved) {
         <div class="title">${esc(a.title)}</div>
         <div class="meta"><span>${fmtTime(a.since)} – ${fmtTime(a.resolvedAt)}</span></div>
       </div>`).join('');
-  el.innerHTML = `<div class="section-title">Activas</div>${active}${done ? `<div class="section-title">Resueltas recientemente</div>${done}` : ''}`;
+  el.innerHTML = `<div class="section-title">Activas</div>${toolbar}${active}${done ? `<div class="section-title">Resueltas recientemente</div>${done}` : ''}`;
 }
 
 export const EVENT_CATEGORIES = [
