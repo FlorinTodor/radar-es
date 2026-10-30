@@ -1,9 +1,9 @@
 // Modelo del dominio. No importa nada de infraestructura: sólo tipos y reglas puras.
 
 /**
- * @typedef {'av'|'ld'|'md'|'cercanias'|'metro'|'tranvia'|'bus'|'otros'} Mode
+ * @typedef {'av'|'ld'|'md'|'cercanias'|'metro'|'tranvia'|'bus'|'avion'|'otros'} Mode
  * @typedef {'baja'|'media'|'alta'|'muy alta'} Severity
- * @typedef {'ferroviario'|'carretera'|'sismo'|'meteo'|'incendio'} EventCategory
+ * @typedef {'ferroviario'|'carretera'|'sismo'|'meteo'|'incendio'|'internet'|'catastrofe'} EventCategory
  */
 
 /**
@@ -84,13 +84,14 @@
 export const SEVERITY_RANK = { 'muy alta': 4, alta: 3, media: 2, baja: 1 };
 
 /**
- * Vehículos que vigila el motor de alertas y que cuentan en los KPIs: trenes, metros y
- * tranvías con posición real. Las posiciones estimadas por horario y los autobuses (que
- * paran en cualquier sitio y dispararían "detenido en plena vía") se muestran pero no cuentan.
+ * Vehículos que vigila el motor de alertas ferroviarias y que cuentan en los KPIs: trenes,
+ * metros y tranvías con posición real. Las posiciones estimadas por horario, los autobuses
+ * (que paran en cualquier sitio) y los aviones se muestran pero no cuentan.
  */
-export const monitoredVehicles = (vehicles) => vehicles.filter((v) => !v.estimated && v.mode !== 'bus');
+export const RAIL_MODES = new Set(['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'otros']);
+export const monitoredVehicles = (vehicles) => vehicles.filter((v) => !v.estimated && RAIL_MODES.has(v.mode));
 
-export const MODES = ['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'bus', 'otros'];
+export const MODES = ['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'bus', 'avion', 'otros'];
 
 /** @param {Vehicle} v */
 export function vehicleLabel(v) {

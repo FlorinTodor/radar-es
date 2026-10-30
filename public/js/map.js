@@ -10,6 +10,8 @@ const EMPTY = { type: 'FeatureCollection', features: [] };
 const SEV_COLORS = { 'muy alta': STATUS.critical, alta: STATUS.serious, media: STATUS.warning, baja: STATUS.none };
 const IS_EST = ['==', ['get', 'est'], 1];
 const NOT_EST = ['!=', ['get', 'est'], 1];
+const IS_AIR = ['==', ['get', 'mode'], 'avion'];
+const NOT_AIR = ['!=', ['get', 'mode'], 'avion'];
 const VEHICLE_RADIUS = ['interpolate', ['linear'], ['zoom'],
   5, ['match', ['get', 'mode'], ['av', 'ld'], 3.5, 'md', 3, 'bus', 1.6, 2.6],
   10, ['match', ['get', 'mode'], ['av', 'ld'], 6.5, 'md', 6, 'bus', 3.5, 5],
@@ -25,7 +27,13 @@ export const LAYER_GROUPS = {
   incendios: ['ev-fire-glow', 'ev-fire-core'],
   sismos: ['ev-quake'],
   'renfe-avisos': ['ev-rail'],
+  gdacs: ['ev-gdacs'],
+  effis: ['effis-burnt'],
 };
+
+// Áreas quemadas de los últimos 30 días (Copernicus EFFIS, WMS con CORS abierto).
+const EFFIS_TILES = 'https://maps.effis.emergency.copernicus.eu/effis?service=WMS&request=GetMap&version=1.1.1&layers=modis.ba.month'
+  + '&styles=&format=image/png&transparent=true&srs=EPSG:3857&width=256&height=256&bbox={bbox-epsg-3857}';
 
 const LEVEL_COLOR = ['match', ['get', 'level'], 'rojo', STATUS.critical, 'naranja', STATUS.serious, STATUS.warning];
 const LEVEL_ORDER = { amarillo: 0, naranja: 1, rojo: 2 };
@@ -79,6 +87,8 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
         'line-opacity': ['interpolate', ['linear'], ['zoom'], 6, 0.35, 11, 0.6],
       },
     });
+    map.addSource('effis', { type: 'raster', tiles: [EFFIS_TILES], tileSize: 256, attribution: 'Copernicus EFFIS' });
+    map.addLayer({ id: 'effis-burnt', type: 'raster', source: 'effis', layout: { visibility: 'none' }, paint: { 'raster-opacity': 0.75 } });
 
     // Las incidencias usan forma propia (rombo DGT, triángulo Renfe) para no confundirse
     // con los trenes, que son círculos con la misma paleta de estado.
@@ -108,6 +118,13 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     };
     map.addLayer({ id: 'ev-road', type: 'symbol', source: 'events', minzoom: 8, filter: roadFilter(false), layout: roadLayout });
     map.addLayer({ id: 'ev-road-major', type: 'symbol', source: 'events', filter: roadFilter(true), layout: roadLayout });
+    map.addLayer({
+      id: 'ev-gdacs', type: 'circle', source: 'events', filter: ['==', ['get', 'category'], 'catastrofe'],
+      paint: {
+        'circle-radius': 11, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-width': 3,
+        'circle-stroke-color': ['match', ['get', 'severity'], 'muy alta', STATUS.critical, 'alta', STATUS.serious, '#6b6b66'],
+      },
+    });
     // Focos de calor: halo difuminado + núcleo, para distinguirlos de los trenes (círculos nítidos).
     const isFire = ['==', ['get', 'category'], 'incendio'];
     map.addLayer({
@@ -145,7 +162,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     });
     // Posición estimada por horario: anillo hueco, para que nunca se confunda con un GPS real.
     map.addLayer({
-      id: 'veh-est', type: 'circle', source: 'vehicles', filter: vehicleFilter(IS_EST),
+      id: 'veh-est', type: 'circle', source: 'vehicles', filter: vehicleFilter(['all', IS_EST, NOT_AIR]),
       paint: {
         'circle-radius': VEHICLE_RADIUS,
         'circle-color': 'rgba(0,0,0,0)',
@@ -155,11 +172,20 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       },
     });
     map.addLayer({
-      id: 'vehicles', type: 'circle', source: 'vehicles', filter: vehicleFilter(NOT_EST),
+      id: 'vehicles', type: 'circle', source: 'vehicles', filter: vehicleFilter(['all', NOT_EST, NOT_AIR]),
       paint: {
         'circle-radius': VEHICLE_RADIUS,
         'circle-color': ['match', ['get', 'cls'], ...DELAY_CLASSES.flatMap(([color], i) => (i ? [i, color] : [])), DELAY_CLASSES[0][0]],
         'circle-stroke-color': '#0d0d0d', 'circle-stroke-width': 1.5,
+      },
+    });
+    // Aviones: flecha orientada según el rumbo, de un color que no pertenece a la paleta de retrasos.
+    map.addImage('plane', planeIcon(), { pixelRatio: 2 });
+    map.addLayer({
+      id: 'veh-air', type: 'symbol', source: 'vehicles', filter: vehicleFilter(IS_AIR),
+      layout: {
+        'icon-image': 'plane', 'icon-rotate': ['get', 'heading'], 'icon-rotation-alignment': 'map',
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.7, 10, 1.1], 'icon-allow-overlap': true, 'icon-ignore-placement': true,
       },
     });
     map.addLayer({
@@ -168,7 +194,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       paint: { 'text-color': '#f0efec', 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.5 },
     });
 
-    const clickable = ['vehicles', 'veh-est', 'ev-rail', 'ev-quake', 'ev-road', 'ev-road-major', 'ev-fire-glow', 'meteo-fill'];
+    const clickable = ['vehicles', 'veh-est', 'veh-air', 'ev-rail', 'ev-quake', 'ev-gdacs', 'ev-road', 'ev-road-major', 'ev-fire-glow', 'meteo-fill'];
     for (const id of clickable) {
       map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
@@ -176,7 +202,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     map.on('click', (e) => {
       const f = map.queryRenderedFeatures(e.point, { layers: clickable })[0];
       if (!f) return;
-      if (f.layer.id === 'vehicles' || f.layer.id === 'veh-est') onVehicleClick(f.properties.id);
+      if (['vehicles', 'veh-est', 'veh-air'].includes(f.layer.id)) onVehicleClick(f.properties.id);
       else onEventClick(f.properties.id, e.lngLat);
     });
 
@@ -245,7 +271,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       for (const v of list) {
         const to = [v.lon, v.lat];
         const prev = anims.get(v.id);
-        const props = { id: v.id, mode: v.mode, cls: v.cls, line: v.line ?? '', alert: alertIds.has(v.id) ? 1 : 0, est: v.estimated ? 1 : 0 };
+        const props = { id: v.id, mode: v.mode, cls: v.cls, line: v.line ?? '', alert: alertIds.has(v.id) ? 1 : 0, est: v.estimated ? 1 : 0, heading: v.heading ?? 0 };
         if (prev && prev.to[0] === to[0] && prev.to[1] === to[1]) {
           next.set(v.id, { ...prev, props });
           continue;
@@ -293,8 +319,9 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     setModes(modes) {
       modeFilter = modes;
       if (!loaded) return;
-      map.setFilter('vehicles', vehicleFilter(NOT_EST));
-      map.setFilter('veh-est', vehicleFilter(IS_EST));
+      map.setFilter('vehicles', vehicleFilter(['all', NOT_EST, NOT_AIR]));
+      map.setFilter('veh-air', vehicleFilter(IS_AIR));
+      map.setFilter('veh-est', vehicleFilter(['all', IS_EST, NOT_AIR]));
       map.setFilter('veh-labels', vehicleFilter());
       map.setFilter('veh-halo', vehicleFilter(['==', ['get', 'alert'], 1]));
     },
@@ -357,7 +384,40 @@ export function icon(shape, fill, stroke) {
   return { width: size, height: size, data: g.getImageData(0, 0, size, size).data };
 }
 
+/** Flecha de avión (apunta al norte; el mapa la gira según el rumbo). */
+function planeIcon() {
+  const size = 32;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const g = canvas.getContext('2d');
+  g.scale(2, 2);
+  g.beginPath();
+  g.moveTo(8, 1); g.lineTo(13.5, 14); g.lineTo(8, 11); g.lineTo(2.5, 14);
+  g.closePath();
+  g.fillStyle = '#8ecae6';
+  g.fill();
+  g.lineWidth = 1.2;
+  g.strokeStyle = '#0d0d0d';
+  g.stroke();
+  return { width: size, height: size, data: g.getImageData(0, 0, size, size).data };
+}
+
+function aircraftPopup(v) {
+  const rows = [
+    ['Indicativo', v.label],
+    v.registration && ['Matrícula', v.registration],
+    v.aircraftType && ['Modelo', v.aircraftType],
+    ['Altitud', v.altitudeFt === 0 ? 'En tierra' : v.altitudeFt ? `${v.altitudeFt.toLocaleString('es-ES')} ft` : '—'],
+    v.speedKt && ['Velocidad', `${Math.round(v.speedKt)} kt`],
+    v.squawk && ['Squawk', v.squawk],
+    v.fixTime && ['Posición', timeAgo(v.fixTime)],
+    ['Fuente', `${v.source} (ADS-B)`],
+  ].filter(Boolean);
+  return `<div class="pop"><h3>Avión ${esc(v.label)}</h3><dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl></div>`;
+}
+
 function vehiclePopup(v) {
+  if (v.mode === 'avion') return aircraftPopup(v);
   const rows = [
     ['Tipo', MODE_LABEL[v.mode] ?? v.mode],
     (v.origin || v.destination) && ['Recorrido', `${v.origin ?? '?'} → ${v.destination ?? '?'}`],

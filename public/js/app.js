@@ -18,7 +18,7 @@ const state = {
 
 const PREFS_KEY = 'radar-es:prefs';
 const prefs = Object.assign(
-  { modes: {}, groups: {}, obras: false, eventCats: ['ferroviario', 'carretera', 'meteo', 'incendio', 'sismo'] },
+  { modes: {}, groups: {}, obras: false, eventCats: ['ferroviario', 'carretera', 'meteo', 'incendio', 'sismo', 'catastrofe', 'internet'] },
   readPrefs(),
 );
 
@@ -69,7 +69,7 @@ async function loadLines(attempt = 0) {
 
 function applyLayerPrefs() {
   map.setModes(P.MODE_ITEMS.filter((m) => P.modeOn(prefs, m)));
-  for (const [g] of P.GROUP_ITEMS) if (g !== 'obras') map.setGroupVisible(g, prefs.groups[g] !== false);
+  for (const [g] of P.GROUP_ITEMS) if (g !== 'obras') map.setGroupVisible(g, P.groupOn(prefs, g));
   map.setObras(prefs.obras);
 }
 

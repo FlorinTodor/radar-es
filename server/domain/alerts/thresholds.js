@@ -18,4 +18,5 @@ export const DEFAULT_THRESHOLDS = Object.freeze({
   fireNearKm: 3,            // foco de calor a menos de esto de un tren
   fireClusterKm: 2,         // detecciones a menos de esto se tratan como un mismo incendio
   fireWindowHours: 12,
+  internetWindowMinutes: 60, // una caída de Internet sigue en alerta hasta 1 h después de acabar
 });

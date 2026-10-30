@@ -50,6 +50,8 @@ export const EVENT_CATEGORIES = [
   ['meteo', 'Meteorología'],
   ['incendio', 'Incendios'],
   ['sismo', 'Terremotos'],
+  ['catastrofe', 'Catástrofes'],
+  ['internet', 'Internet'],
 ];
 
 export function renderEventFilters(el, prefs) {
@@ -132,20 +134,24 @@ export function renderSources(el, health) {
   }).join('');
 }
 
-export const MODE_ITEMS = ['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'bus', 'otros'];
+export const MODE_ITEMS = ['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'bus', 'avion', 'otros'];
 // Modos ocultos hasta que el usuario los active (los autobuses taparían los trenes).
-export const MODES_OFF_BY_DEFAULT = ['bus'];
+export const MODES_OFF_BY_DEFAULT = ['bus', 'avion'];
 export const modeOn = (prefs, m) => prefs.modes[m] ?? !MODES_OFF_BY_DEFAULT.includes(m);
+export const GROUPS_OFF_BY_DEFAULT = ['effis'];
+export const groupOn = (prefs, g) => prefs.groups[g] ?? !GROUPS_OFF_BY_DEFAULT.includes(g);
 export const GROUP_ITEMS = [
   ['rail', 'Red ferroviaria'],
   ['lines', 'Líneas de metro, tranvía y Cercanías'],
   ['stations', 'Estaciones Renfe (zoom)'],
-  ['renfe-avisos', 'Avisos Renfe'],
+  ['renfe-avisos', 'Avisos ferroviarios (Renfe, Rodalies)'],
   ['meteo', 'Avisos meteorológicos (AEMET)'],
   ['incendios', 'Focos de calor (satélite)'],
+  ['effis', 'Áreas quemadas, 30 días (EFFIS)'],
   ['dgt', 'Incidencias de tráfico'],
   ['obras', 'Obras en carretera'],
   ['sismos', 'Terremotos'],
+  ['gdacs', 'Alertas de catástrofes (GDACS)'],
 ];
 
 export function renderLayers(el, prefs, countsByMode) {
@@ -153,7 +159,7 @@ export function renderLayers(el, prefs, countsByMode) {
     <label><input type="checkbox" data-mode="${m}" ${modeOn(prefs, m) ? 'checked' : ''}>
       ${esc(MODE_LABEL[m])}<span class="count" data-count="${m}">${fmtNum(countsByMode[m] ?? 0)}</span></label>`).join('');
   const groups = GROUP_ITEMS.map(([g, label]) => `
-    <label><input type="checkbox" data-group="${g}" ${(g === 'obras' ? prefs.obras : prefs.groups[g] !== false) ? 'checked' : ''}> ${esc(label)}</label>`).join('');
+    <label><input type="checkbox" data-group="${g}" ${(g === 'obras' ? prefs.obras : groupOn(prefs, g)) ? 'checked' : ''}> ${esc(label)}</label>`).join('');
   const legend = DELAY_CLASSES.slice(1).concat([DELAY_CLASSES[0]]).map(([color, label]) => `<i style="background:${color}"></i><span>${esc(label)}</span>`).join('');
   const shape = (path, fill, stroke) => `<svg viewBox="0 0 14 14" width="12" height="12" aria-hidden="true"><path d="${path}" fill="${fill}" stroke="${stroke}" stroke-width="1.4"/></svg>`;
   el.innerHTML = `<h4>Trenes</h4>${modes}<h4>Contexto</h4>${groups}<h4>Retraso del tren</h4><div class="legend">${legend}
@@ -164,7 +170,10 @@ export function renderLayers(el, prefs, countsByMode) {
     ${shape('M7 1.5L12.8 12.3L1.2 12.3Z', '#ec835a', '#f0efec')}<span>Aviso Renfe en estación</span>
     <i style="border-radius:2px;background:rgba(236,131,90,.25);border:1.2px solid #ec835a"></i><span>Aviso meteorológico (amarillo, naranja o rojo)</span>
     <i style="background:radial-gradient(circle,#ffd27a 25%,#ff5a1f 60%,transparent 75%)"></i><span>Foco de calor por satélite</span>
-    <i style="background:rgba(180,140,255,.25);border:1.5px solid #b48cff"></i><span>Terremoto (tamaño = magnitud)</span></div>`;
+    <i style="background:rgba(180,140,255,.25);border:1.5px solid #b48cff"></i><span>Terremoto (tamaño = magnitud)</span>
+    <i style="background:transparent;border:2.5px solid #ec835a"></i><span>Alerta GDACS (naranja o roja)</span>
+    <i style="border-radius:2px;background:linear-gradient(90deg,#e8261c 33%,#f39c12 33% 66%,#1f6fd1 66%)"></i><span>Área quemada (EFFIS): rojo, último día; naranja, 7 días; azul, 30 días</span>
+    ${shape('M7 1L12.5 13L7 10.3L1.5 13Z', '#8ecae6', '#0d0d0d')}<span>Avión (ADS-B), orientado según su rumbo</span></div>`;
 }
 
 export function updateModeCounts(el, countsByMode) {
