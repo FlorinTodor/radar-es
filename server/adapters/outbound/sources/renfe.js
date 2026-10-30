@@ -1,141 +1,208 @@
-// Renfe: posiciones de Cercanías/Rodalies y de AV/Larga/Media Distancia (feeds de sus
-// visores públicos) y avisos de servicio (GTFS-RT Service Alerts). Sin clave.
-import { madridLocalToMs, num } from './parse.js';
+// Renfe: posiciones y retrasos de Cercanías/Rodalies y de AV/Larga/Media Distancia, y avisos
+// de servicio. Sólo se usan sus datos abiertos (CC BY 4.0, "Origen de los datos: Renfe
+// Operadora"): el GTFS-RT de gtfsrt.renfe.com y sus GTFS de horarios para saber el producto,
+// el origen y el destino de cada tren. Los endpoints internos de sus visores web no se usan:
+// no tienen licencia de reutilización.
+import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
+import { RENFE_FILES } from '../stations/renfe-station-catalog.js';
+import { num } from './parse.js';
 
-// Tabla de productos extraída del propio visor de Renfe (tiempo-real.largorecorrido.renfe.com).
-const PRODUCTS = {
-  0: ['Movimientos', 'otros'], 2: ['AVE', 'av'], 3: ['Avant', 'av'], 4: ['Talgo', 'ld'], 5: ['Altaria', 'ld'],
-  7: ['Diurno', 'ld'], 8: ['Estrella', 'ld'], 9: ['Tren Hotel', 'ld'], 10: ['Euromed', 'ld'], 11: ['Alvia', 'ld'],
-  13: ['Intercity', 'ld'], 14: ['Andalucía Express', 'md'], 15: ['Catalunya Express', 'md'], 16: ['Media Distancia', 'md'],
-  18: ['Regional', 'md'], 19: ['Regional Exprés', 'md'], 20: ['TRD', 'md'], 21: ['Cercanías', 'cercanias'],
-  22: ['Tren Histórico', 'otros'], 23: ['Tren Turístico', 'otros'], 24: ['AV City', 'ld'], 25: ['AVE TGV', 'av'],
-  26: ['Tranvía', 'tranvia'], 27: ['Euskotren', 'md'], 28: ['Avlo', 'av'], 29: ['Tren Temático', 'otros'],
-};
-
-const INCIDENT_WORDS = /suspend|interrump|cortad|incidencia|avería|accidente/i;
 const GTFSRT = 'https://gtfsrt.renfe.com';
+const ATTRIBUTION = 'Origen de los datos: Renfe Operadora (CC BY 4.0; datos modificados: normalizados y combinados con sus horarios)';
+const TIMETABLE_TTL_MS = 24 * 3600_000;
+const INCIDENT_WORDS = /suspend|interrump|cortad|incidencia|avería|accidente/i;
+
+// route_short_name del GTFS de AV/LD/MD → [nombre comercial, modo].
+const PRODUCTS = {
+  AVE: ['AVE', 'av'], 'AVE INT': ['AVE Internacional', 'av'], AVLO: ['Avlo', 'av'], AVANT: ['Avant', 'av'], 'AVANT EXP': ['Avant Exprés', 'av'],
+  ALVIA: ['Alvia', 'ld'], INTERCITY: ['Intercity', 'ld'], EUROMED: ['Euromed', 'ld'], TRENCELTA: ['Trencelta', 'ld'],
+  MD: ['Media Distancia', 'md'], REGIONAL: ['Regional', 'md'], 'REG.EXP.': ['Regional Exprés', 'md'], PROXIMDAD: ['Proximidad', 'md'],
+};
+const product = (short) => PRODUCTS[(short ?? '').toUpperCase()] ?? [short || 'Renfe', 'ld'];
+
+const madridIso = (epochSec) => new Intl.DateTimeFormat('sv-SE', {
+  timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+}).format(epochSec * 1000).replace(' ', 'T');
+
+/** Horarios oficiales de Renfe, cargados una vez al día y compartidos por las dos fuentes. */
+function createTimetables({ cache, stations, log }) {
+  let ld = new Map();   // trip_id → { service, mode, origin, destination }
+  let cerc = new Map(); // trip_id → { line, origin, destination }
+  const loadedAt = { ld: 0, cerc: 0 };
+
+  async function loadLd() {
+    if (ld.size && Date.now() - loadedAt.ld < TIMETABLE_TTL_MS) return;
+    loadedAt.ld = Date.now(); // aunque falle, no reintentar en cada lectura
+    try {
+      const f = openGtfs(await cache.bytes(RENFE_FILES.largaDistancia, 'renfe-google_transit.zip', TIMETABLE_TTL_MS), ['routes.txt', 'trips.txt', 'stop_times.txt']);
+      const routes = new Map([...csvRows(f['routes.txt'])].map((r) => [r.route_id, r.route_short_name]));
+      const ends = new Map(); // trip_id → [primera parada, última parada]
+      for (const st of csvRows(f['stop_times.txt'])) {
+        const seq = +st.stop_sequence;
+        const e = ends.get(st.trip_id) ?? [[Infinity], [-Infinity]];
+        if (seq < e[0][0]) e[0] = [seq, st.stop_id];
+        if (seq > e[1][0]) e[1] = [seq, st.stop_id];
+        ends.set(st.trip_id, e);
+      }
+      const next = new Map();
+      for (const t of csvRows(f['trips.txt'])) {
+        const [service, mode] = product(routes.get(t.route_id));
+        const e = ends.get(t.trip_id);
+        next.set(t.trip_id, { service, mode, origin: e ? stations.name(e[0][1]) : null, destination: e ? stations.name(e[1][1]) : null });
+      }
+      ld = next;
+    } catch (err) {
+      log.warn(`[renfe] horarios AV/LD/MD: ${err.message}`);
+    }
+  }
+
+  async function loadCercanias() {
+    if (cerc.size && Date.now() - loadedAt.cerc < TIMETABLE_TTL_MS) return;
+    loadedAt.cerc = Date.now();
+    try {
+      // 16 MB: sólo se descomprimen rutas y viajes (el stop_times ocupa 290 MB).
+      const f = openGtfs(await cache.bytes(RENFE_FILES.cercanias, 'renfe-fomento_transit.zip', TIMETABLE_TTL_MS), ['routes.txt', 'trips.txt']);
+      const routes = new Map();
+      for (const r of csvRows(f['routes.txt'])) {
+        // route_long_name: "Principe Pio                            -Aeropuerto-T4"
+        const [origin, destination] = r.route_long_name.split(/\s+-/).map((s) => s.trim());
+        routes.set(r.route_id, { line: r.route_short_name || null, origin: origin || null, destination: destination || null });
+      }
+      const next = new Map();
+      for (const t of csvRows(f['trips.txt'])) {
+        const route = routes.get(t.route_id);
+        if (route) next.set(t.trip_id, route);
+      }
+      cerc = next;
+    } catch (err) {
+      log.warn(`[renfe] horarios de Cercanías: ${err.message}`);
+    }
+  }
+
+  return { loadLd, loadCercanias, ld: (id) => ld.get(id), cercanias: (id) => cerc.get(id) };
+}
+
+/** tripId → { delay (s), arrivals: stopId → epoch s } a partir de un feed de trip updates. */
+function tripUpdates(feed) {
+  const out = new Map();
+  for (const e of feed?.entity ?? []) {
+    const tu = e.tripUpdate;
+    if (!tu?.trip?.tripId) continue;
+    const stus = tu.stopTimeUpdate ?? [];
+    const first = stus.find((s) => s.arrival?.delay !== undefined || s.departure?.delay !== undefined);
+    const arrivals = new Map(stus.filter((s) => s.arrival?.time).map((s) => [s.stopId, +s.arrival.time]));
+    out.set(tu.trip.tripId, { delay: num(tu.delay ?? first?.arrival?.delay ?? first?.departure?.delay), arrivals });
+  }
+  return out;
+}
 
 /**
- * @param {{ http: import('../http/http-client.js').HttpClient, stations: import('../../../application/ports.js').StationCatalogPort }} deps
+ * @param {{ http: import('../http/http-client.js').HttpClient, cache: ReturnType<typeof import('../http/file-cache.js').createFileCache>,
+ *           stations: import('../../../application/ports.js').StationCatalogPort, log: import('../../../application/ports.js').LoggerPort }} deps
  * @returns {import('../../../application/ports.js').DataSourcePort[]}
  */
-export function createRenfeSources({ http, stations }) {
+export function createRenfeSources({ http, cache, stations, log }) {
+  const timetables = createTimetables({ cache, stations, log });
+
+  /** Campos comunes a partir de la posición GTFS-RT y su trip update. */
+  function base(v, update) {
+    const stopped = v.currentStatus === 'STOPPED_AT';
+    // Algunas horas de los trip updates son de paradas ya pasadas: sólo vale si es futura.
+    const eta = update?.arrivals.get(v.stopId);
+    const futureEta = eta && eta * 1000 > Date.now() - 60_000 ? eta : null;
+    return {
+      lat: v.position.latitude,
+      lon: v.position.longitude,
+      delay: update?.delay === null || update?.delay === undefined ? null : Math.round(update.delay / 60),
+      current: stopped ? stations.name(v.stopId) : null,
+      next: stopped ? null : stations.name(v.stopId),
+      nextEta: !stopped && futureEta ? madridIso(futureEta) : null,
+      area: stations.get(v.stopId)?.place ?? null,
+      fixTime: v.timestamp ? +v.timestamp * 1000 : null,
+    };
+  }
+
+  const hasPosition = (v) => Number.isFinite(v?.position?.latitude) && Number.isFinite(v?.position?.longitude) && v?.trip?.tripId;
+
+  // La cabecera de vehicle_positions_LD llega con una hora de retraso (las posiciones son
+  // actuales: coinciden con las del visor): se toma la más reciente de los dos feeds.
+  const freshest = (...feeds) => {
+    const ts = Math.max(...feeds.map((f) => num(f?.header?.timestamp) ?? 0));
+    return ts ? ts * 1000 : null;
+  };
+
   const cercanias = {
     id: 'renfe-cercanias',
-    name: 'Renfe Cercanías / Rodalies (visor + GTFS-RT)',
+    name: 'Renfe Cercanías / Rodalies (GTFS-RT)',
     kind: 'vehicles',
     interval: 20_000,
-    url: 'https://tiempo-real.renfe.com/renfe-visor/flota.json',
-    license: 'Datos públicos de Renfe',
+    url: `${GTFSRT}/vehicle_positions.json`,
+    license: ATTRIBUTION,
     async fetch() {
-      // El visor trae retraso y estaciones, pero omite ~1 de cada 4 trenes (muchos esperando en
-      // andén) que sí están en el GTFS-RT oficial. Se combinan ambos.
-      const [visor, positions, updates] = await Promise.allSettled([
-        http.json(this.url),
-        http.json(`${GTFSRT}/vehicle_positions.json`),
-        http.json(`${GTFSRT}/trip_updates.json`),
-      ]);
-      if (visor.status === 'rejected' && positions.status === 'rejected') throw visor.reason;
-      const d = visor.status === 'fulfilled' ? visor.value : {};
+      await timetables.loadCercanias();
+      const [positions, updates] = await Promise.allSettled([http.json(this.url), http.json(`${GTFSRT}/trip_updates.json`)]);
+      if (positions.status === 'rejected') throw positions.reason;
+      const delays = tripUpdates(updates.status === 'fulfilled' ? updates.value : null);
       const vehicles = [];
-      const seen = new Set();
-      for (const t of d.trenes ?? []) {
-        if (!Number.isFinite(t.latitud) || !Number.isFinite(t.longitud)) continue;
-        seen.add(t.tripId);
+      for (const e of positions.value.entity ?? []) {
+        const v = e.vehicle;
+        if (!hasPosition(v)) continue;
+        const tripId = v.trip.tripId;
+        // Etiqueta "C5-23737-PLATF.(5)": línea, número de tren y vía en la que espera.
+        const [, line, number, platform] = /^([A-Za-z]+\d*[a-z]?)-(\d+)(?:-PLATF\.\((\w+)\))?/.exec(v.vehicle?.label ?? '') ?? [];
+        const route = timetables.cercanias(tripId);
         vehicles.push({
-          id: `renfe-c:${t.tripId || t.codTren}`,
+          id: `renfe-c:${tripId}`,
           mode: 'cercanias',
           operator: 'Renfe',
           service: 'Cercanías',
-          line: t.codLinea || null,
-          label: t.codTren,
-          lat: t.latitud,
-          lon: t.longitud,
-          delay: num(t.retrasoMin),
-          origin: stations.name(t.codEstOrig),
-          destination: stations.name(t.codEstDest),
-          current: stations.name(t.codEstAct),
-          next: stations.name(t.codEstSig),
-          nextEta: t.horaLlegadaSigEst || null,
-          platform: t.via || null,
-          area: stations.get(t.codEstAct)?.place ?? stations.get(t.codEstSig)?.place ?? null,
-          accessible: !!t.accesible,
+          line: line ?? route?.line ?? null,
+          label: number ?? v.vehicle?.id ?? tripId,
+          origin: route?.origin ?? null,
+          destination: route?.destination ?? null,
+          platform: platform ?? null,
+          ...base(v, delays.get(tripId)),
         });
       }
-
-      if (positions.status === 'fulfilled') {
-        // GTFS-RT: el retraso viene en segundos en trip_updates.
-        const delays = new Map(updates.status === 'fulfilled'
-          ? (updates.value.entity ?? []).map((e) => [e.tripUpdate?.trip?.tripId, e.tripUpdate?.delay])
-          : []);
-        for (const e of positions.value.entity ?? []) {
-          const v = e.vehicle;
-          const tripId = v?.trip?.tripId;
-          const pos = v?.position;
-          if (!tripId || seen.has(tripId) || !Number.isFinite(pos?.latitude) || !Number.isFinite(pos?.longitude)) continue;
-          // Etiqueta "C5-23737-PLATF.(5)": línea, número de tren y vía en la que espera.
-          const [, line, number, platform] = /^([A-Za-z]+\d*[a-z]?)-(\d+)(?:-PLATF\.\((\w+)\))?/.exec(v.vehicle?.label ?? '') ?? [];
-          const stopped = v.currentStatus === 'STOPPED_AT';
-          const delay = num(delays.get(tripId));
-          vehicles.push({
-            id: `renfe-c:${tripId}`,
-            mode: 'cercanias',
-            operator: 'Renfe',
-            service: 'Cercanías',
-            line: line ?? null,
-            label: number ?? v.vehicle?.id ?? tripId,
-            lat: pos.latitude,
-            lon: pos.longitude,
-            delay: delay === null ? null : Math.round(delay / 60),
-            origin: null,
-            destination: null,
-            current: stopped ? stations.name(v.stopId) : null,
-            next: stopped ? null : stations.name(v.stopId),
-            platform: platform ?? null,
-            area: stations.get(v.stopId)?.place ?? null,
-            fixTime: v.timestamp ? +v.timestamp * 1000 : null,
-          });
-        }
-      }
-      return { vehicles, sourceTime: madridLocalToMs(d.fechaActualizacion) };
+      return { vehicles, sourceTime: freshest(positions.value, updates.status === 'fulfilled' ? updates.value : null) };
     },
   };
 
   const largaDistancia = {
     id: 'renfe-ld',
-    name: 'Renfe Alta Velocidad, Larga y Media Distancia',
+    name: 'Renfe Alta Velocidad, Larga y Media Distancia (GTFS-RT)',
     kind: 'vehicles',
     interval: 20_000,
-    url: 'https://tiempo-real.largorecorrido.renfe.com/renfe-visor/flotaLD.json',
-    license: 'Datos públicos de Renfe',
+    url: `${GTFSRT}/vehicle_positions_LD.json`,
+    license: ATTRIBUTION,
     async fetch() {
-      const d = await http.json(this.url);
+      await timetables.loadLd();
+      const [positions, updates] = await Promise.allSettled([http.json(this.url), http.json(`${GTFSRT}/trip_updates_LD.json`)]);
+      if (positions.status === 'rejected') throw positions.reason;
+      const delays = tripUpdates(updates.status === 'fulfilled' ? updates.value : null);
       const vehicles = [];
-      for (const t of d.trenes ?? []) {
-        if (!Number.isFinite(t.latitud) || !Number.isFinite(t.longitud)) continue;
-        const [service, mode] = PRODUCTS[t.codProduct] ?? [`Producto ${t.codProduct}`, 'otros'];
+      const seen = new Set();
+      for (const e of positions.value.entity ?? []) {
+        const v = e.vehicle;
+        if (!hasPosition(v)) continue;
+        const tripId = v.trip.tripId; // "0019012026-10-30": número de tren + fecha
+        const number = v.vehicle?.id || tripId.slice(0, 5);
+        if (seen.has(number)) continue;
+        seen.add(number);
+        const trip = timetables.ld(tripId);
         vehicles.push({
-          id: `renfe-ld:${t.codComercial}`,
-          mode,
+          id: `renfe-ld:${number}`,
+          mode: trip?.mode ?? 'ld',
           operator: 'Renfe',
-          service,
-          line: service,
-          label: t.codComercial,
-          lat: t.latitud,
-          lon: t.longitud,
-          delay: num(t.ultRetraso),
-          origin: stations.name(t.codOrigen),
-          destination: stations.name(t.codDestino),
-          current: stations.name(t.codEstAnt),
-          next: stations.name(t.codEstSig),
-          nextEta: t.horaLlegadaSigEst || null,
-          rollingStock: t.mat || null,
-          accessible: !!t.accesible,
-          // Hora del último GPS del tren: permite distinguir "parado" de "sin señal".
-          fixTime: t.time ? t.time * 1000 : null,
+          service: trip?.service ?? 'Renfe',
+          line: trip?.service ?? null,
+          label: number,
+          origin: trip?.origin ?? null,
+          destination: trip?.destination ?? null,
+          ...base(v, delays.get(tripId)),
         });
       }
-      return { vehicles, sourceTime: madridLocalToMs(d.fechaActualizacion) };
+      return { vehicles, sourceTime: freshest(positions.value, updates.status === 'fulfilled' ? updates.value : null) };
     },
   };
 
@@ -144,8 +211,8 @@ export function createRenfeSources({ http, stations }) {
     name: 'Renfe avisos de servicio (GTFS-RT)',
     kind: 'events',
     interval: 120_000,
-    url: 'https://gtfsrt.renfe.com/alerts.json',
-    license: 'Datos públicos de Renfe (GTFS-RT)',
+    url: `${GTFSRT}/alerts.json`,
+    license: ATTRIBUTION,
     async fetch() {
       const d = await http.json(this.url);
       const now = Date.now() / 1000;

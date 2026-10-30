@@ -8,7 +8,6 @@ import { createRenfeSources } from './renfe.js';
 import { createFgcSource } from './fgc.js';
 import { createRodaliesSource } from './rodalies.js';
 import { createGtfsRtVehicleSource } from './gtfs-rt.js';
-import { createTranviaTenerifeSource } from './tranvia-tenerife.js';
 import { createMoveuskadiBusSource } from './moveuskadi-bus.js';
 import { createGtfsScheduleSource } from './gtfs-horario.js';
 import { createDgtSource } from './dgt.js';
@@ -74,7 +73,6 @@ export function createSources(deps) {
       // El id de entidad es "ORIGEN_ORIGEN2_DESTINO_timestamp" con códigos de estación de 3 letras.
       describe: (e) => ({ destination: e.id?.split('_')[2] ?? null, current: e.id?.split('_')[0] ?? null }),
     }),
-    createTranviaTenerifeSource(deps),
     // Autobús (se muestran, pero no cuentan para las alertas ferroviarias)
     createMoveuskadiBusSource(deps),
     createGtfsRtVehicleSource(deps, {
