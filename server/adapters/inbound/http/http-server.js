@@ -5,6 +5,7 @@ import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
+import { createConnectionLimiter } from './connection-limiter.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -39,6 +40,7 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
   };
 
   const security = Object.entries(securityHeaders(about));
+  const streams = createConnectionLimiter();
   const server = createServer(async (req, res) => {
     for (const [name, value] of security) res.setHeader(name, value);
     try {
@@ -65,6 +67,13 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
   });
 
   function stream(req, res) {
+    // Detrás del túnel todas las conexiones vienen de cloudflared (127.0.0.1); la IP real la pone
+    // Cloudflare. Es fiable porque el puerto sólo escucha en local y no se puede llegar saltándose el túnel.
+    const release = streams.acquire(req.headers['cf-connecting-ip'] ?? req.socket.remoteAddress);
+    if (!release) {
+      res.setHeader('Retry-After', '30');
+      return send(res, 429, { error: 'Demasiadas conexiones en directo; prueba dentro de un momento' });
+    }
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
@@ -87,6 +96,7 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
     req.on('close', () => {
       clearInterval(heartbeat);
       unsubscribe.forEach((off) => off());
+      release();
     });
   }
 
