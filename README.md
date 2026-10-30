@@ -24,7 +24,24 @@ npm run dev            # se reinicia al cambiar el código
 npm test               # tests del dominio (sin red)
 ```
 
-Requiere Node.js 22.9 o superior.
+Requiere Node.js 22.9 o superior. Para los trazados de líneas y las posiciones estimadas por
+horario hace falta `NAP_API_KEY` en `.env` (clave gratuita del Punto de Acceso Nacional).
+
+## Ramas
+
+| Rama | Para qué |
+|---|---|
+| `produccion` | Lo que ejecuta el VPS. Solo recibe fusiones desde `dev`. |
+| `dev` | Integración: aquí se fusionan las mejoras y se prueban juntas. |
+| `feature/<nombre>` | Una rama por mejora, creada desde `dev`. |
+
+```bash
+git switch dev && git pull
+git switch -c feature/mi-mejora     # trabajar y hacer commits
+git switch dev && git merge --no-ff feature/mi-mejora && git push
+# cuando dev esté probado:
+git switch produccion && git merge --no-ff dev && git push
+```
 
 ## Arquitectura hexagonal
 
