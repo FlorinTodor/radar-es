@@ -12,7 +12,15 @@ export function loadConfig(env = process.env) {
       owner: env.OWNER_NAME || null,
       contact: env.CONTACT_EMAIL || null,
       publicUrl: env.PUBLIC_URL || null,
+      // Contador de visitas sin cookies. Sin esta variable no se carga (así en local no cuenta).
+      goatcounter: goatcounterUrl(env.GOATCOUNTER_URL),
     },
     env,
   };
+}
+
+/** Acepta sólo la URL de recuento de GoatCounter (https://CODIGO.goatcounter.com/count). */
+export function goatcounterUrl(value) {
+  const url = value?.trim();
+  return url && /^https:\/\/[a-z0-9.-]+\/count$/i.test(url) ? url : null;
 }
