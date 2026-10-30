@@ -354,7 +354,7 @@ export function icon(shape, fill, stroke) {
 function vehiclePopup(v) {
   const rows = [
     ['Tipo', MODE_LABEL[v.mode] ?? v.mode],
-    ['Recorrido', `${v.origin ?? '?'} → ${v.destination ?? '?'}`],
+    (v.origin || v.destination) && ['Recorrido', `${v.origin ?? '?'} → ${v.destination ?? '?'}`],
     ['Retraso', fmtDelay(v)],
     v.current && ['Última estación', v.current],
     v.next && ['Próxima', `${v.next}${v.nextEta ? ` (${fmtLocalHour(v.nextEta)})` : v.nextInMinutes !== undefined && v.nextInMinutes !== null ? ` (en ${v.nextInMinutes} min)` : ''}`],

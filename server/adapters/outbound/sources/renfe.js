@@ -13,6 +13,7 @@ const PRODUCTS = {
 };
 
 const INCIDENT_WORDS = /suspend|interrump|cortad|incidencia|avería|accidente/i;
+const GTFSRT = 'https://gtfsrt.renfe.com';
 
 /**
  * @param {{ http: import('../http/http-client.js').HttpClient, stations: import('../../../application/ports.js').StationCatalogPort }} deps
@@ -21,16 +22,26 @@ const INCIDENT_WORDS = /suspend|interrump|cortad|incidencia|avería|accidente/i;
 export function createRenfeSources({ http, stations }) {
   const cercanias = {
     id: 'renfe-cercanias',
-    name: 'Renfe Cercanías / Rodalies',
+    name: 'Renfe Cercanías / Rodalies (visor + GTFS-RT)',
     kind: 'vehicles',
     interval: 20_000,
     url: 'https://tiempo-real.renfe.com/renfe-visor/flota.json',
     license: 'Datos públicos de Renfe',
     async fetch() {
-      const d = await http.json(this.url);
+      // El visor trae retraso y estaciones, pero omite ~1 de cada 4 trenes (muchos esperando en
+      // andén) que sí están en el GTFS-RT oficial. Se combinan ambos.
+      const [visor, positions, updates] = await Promise.allSettled([
+        http.json(this.url),
+        http.json(`${GTFSRT}/vehicle_positions.json`),
+        http.json(`${GTFSRT}/trip_updates.json`),
+      ]);
+      if (visor.status === 'rejected' && positions.status === 'rejected') throw visor.reason;
+      const d = visor.status === 'fulfilled' ? visor.value : {};
       const vehicles = [];
+      const seen = new Set();
       for (const t of d.trenes ?? []) {
         if (!Number.isFinite(t.latitud) || !Number.isFinite(t.longitud)) continue;
+        seen.add(t.tripId);
         vehicles.push({
           id: `renfe-c:${t.tripId || t.codTren}`,
           mode: 'cercanias',
@@ -50,6 +61,41 @@ export function createRenfeSources({ http, stations }) {
           area: stations.get(t.codEstAct)?.place ?? stations.get(t.codEstSig)?.place ?? null,
           accessible: !!t.accesible,
         });
+      }
+
+      if (positions.status === 'fulfilled') {
+        // GTFS-RT: el retraso viene en segundos en trip_updates.
+        const delays = new Map(updates.status === 'fulfilled'
+          ? (updates.value.entity ?? []).map((e) => [e.tripUpdate?.trip?.tripId, e.tripUpdate?.delay])
+          : []);
+        for (const e of positions.value.entity ?? []) {
+          const v = e.vehicle;
+          const tripId = v?.trip?.tripId;
+          const pos = v?.position;
+          if (!tripId || seen.has(tripId) || !Number.isFinite(pos?.latitude) || !Number.isFinite(pos?.longitude)) continue;
+          // Etiqueta "C5-23737-PLATF.(5)": línea, número de tren y vía en la que espera.
+          const [, line, number, platform] = /^([A-Za-z]+\d*[a-z]?)-(\d+)(?:-PLATF\.\((\w+)\))?/.exec(v.vehicle?.label ?? '') ?? [];
+          const stopped = v.currentStatus === 'STOPPED_AT';
+          const delay = num(delays.get(tripId));
+          vehicles.push({
+            id: `renfe-c:${tripId}`,
+            mode: 'cercanias',
+            operator: 'Renfe',
+            service: 'Cercanías',
+            line: line ?? null,
+            label: number ?? v.vehicle?.id ?? tripId,
+            lat: pos.latitude,
+            lon: pos.longitude,
+            delay: delay === null ? null : Math.round(delay / 60),
+            origin: null,
+            destination: null,
+            current: stopped ? stations.name(v.stopId) : null,
+            next: stopped ? null : stations.name(v.stopId),
+            platform: platform ?? null,
+            area: stations.get(v.stopId)?.place ?? null,
+            fixTime: v.timestamp ? +v.timestamp * 1000 : null,
+          });
+        }
       }
       return { vehicles, sourceTime: madridLocalToMs(d.fechaActualizacion) };
     },
