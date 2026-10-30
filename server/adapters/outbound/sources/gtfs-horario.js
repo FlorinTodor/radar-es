@@ -160,7 +160,7 @@ export function createGtfsScheduleSource({ nap, http }, options) {
     interval,
     requires: ['NAP_API_KEY'],
     url: tripUpdatesUrl ?? 'https://nap.transportes.gob.es',
-    license: options.license ?? `${operator} vía Punto de Acceso Nacional (horario, no GPS)`,
+    license: options.license ?? `Powered by MITRAMS (Punto de Acceso Nacional, transportes.gob.es) · ${operator}. Posición estimada a partir del horario (dato explotado, no GPS)`,
     async fetch() {
       if (!schedule || Date.now() - loadedAt > RELOAD_MS) {
         schedule = parseSchedule(await nap.gtfs(ficheroId, RELOAD_MS), mode);

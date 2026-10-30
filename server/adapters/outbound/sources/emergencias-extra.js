@@ -17,7 +17,7 @@ export function createAvionesSource({ http, log }) {
     kind: 'vehicles',
     interval: 60_000,
     url: 'https://api.adsb.lol/v2/point',
-    license: 'adsb.lol (ODbL)',
+    license: 'adsb.lol (ODbL 1.0)',
     async fetch() {
       const now = Date.now();
       const byHex = new Map();
@@ -67,7 +67,7 @@ export function createIodaSource({ http }) {
     kind: 'events',
     interval: 600_000,
     url: IODA,
-    license: 'IODA · Georgia Tech (uso no comercial, citando la fuente)',
+    license: 'IODA · Georgia Tech (Internet Outage Detection and Analysis)',
     async fetch() {
       const until = Math.floor(Date.now() / 1000);
       const from = until - 24 * 3600;

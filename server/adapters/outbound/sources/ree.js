@@ -8,7 +8,7 @@ export function createReeSource({ http }) {
     name: 'Red Eléctrica: demanda peninsular en tiempo real',
     kind: 'metrics',
     interval: 300_000,
-    license: 'Red Eléctrica (REData)',
+    license: 'Fuente: Red Eléctrica (REData). Uso informativo, sin fines comerciales',
     get url() {
       const day = madridToday();
       return `https://apidatos.ree.es/es/datos/demanda/demanda-tiempo-real?start_date=${day}T00:00&end_date=${day}T23:59&time_trunc=hour`;

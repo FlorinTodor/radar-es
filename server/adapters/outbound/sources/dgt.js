@@ -41,7 +41,7 @@ export function createDgtSource({ http }) {
     kind: 'events',
     interval: 300_000,
     url: URL_DGT,
-    license: 'DGT · Punto de Acceso Nacional de Tráfico',
+    license: 'Fuente: DGT (Punto de Acceso Nacional de Tráfico)',
     async fetch() {
       const doc = xmlParser.parse(await http.text(URL_DGT, { timeout: 60_000 })).payload ?? {};
       const events = [];

@@ -30,7 +30,7 @@ export function createRodaliesSource({ http, log }) {
     kind: 'events',
     interval: 180_000,
     url: `${BASE}/departures`,
-    license: 'Rodalies de Catalunya (API pública de su app)',
+    license: 'Rodalies de Catalunya · Generalitat de Catalunya (reutilización según el aviso legal de gencat.cat)',
     async fetch() {
       await loadStations();
       const trains = new Map();

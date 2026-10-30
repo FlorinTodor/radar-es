@@ -156,6 +156,7 @@ button { font: inherit; color: inherit; }
 
 .maplibregl-ctrl-attrib { background: rgba(13, 13, 13, 0.7) !important; color: var(--muted); }
 .maplibregl-ctrl-attrib a { color: var(--ink-2); }
+@media (max-width: 860px) { .maplibregl-ctrl-attrib { font-size: 10px; } }
 
 /* ---------- Aviso de cobertura ---------- */
 .notice {
@@ -168,10 +169,28 @@ button { font: inherit; color: inherit; }
 .notice ul { padding-left: 18px; margin: 8px 0; }
 .notice li { margin: 6px 0; }
 .notice strong { color: var(--ink); }
+.notice a { color: var(--accent); }
 .notice .actions { display: flex; justify-content: flex-end; margin: 16px 0 0; }
 .btn { padding: 9px 18px; border: 0; border-radius: 6px; background: var(--accent); color: #0d0d0d; font-weight: 600; cursor: pointer; }
 .btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .link { padding: 0; border: 0; background: none; color: var(--ink-2); font-size: inherit; text-decoration: underline; cursor: pointer; }
+
+/* ---------- Página de aviso legal y fuentes ---------- */
+body.doc { overflow: auto; display: block; }
+.doc .brand { text-decoration: none; }
+.doc .back { margin-left: auto; color: var(--ink-2); font-size: 13px; }
+.doc-body { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; line-height: 1.55; color: var(--ink-2); }
+.doc-body h1 { color: var(--ink); font-size: 26px; margin: 8px 0 12px; }
+.doc-body h2 { color: var(--ink); font-size: 18px; margin: 32px 0 8px; }
+.doc-body strong { color: var(--ink); }
+.doc-body a { color: var(--accent); }
+.doc-body .muted { color: var(--muted); font-size: 13px; }
+.doc-body .toc { font-size: 13px; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+.doc-body table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.doc-body th, .doc-body td { padding: 8px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
+.doc-body th { color: var(--ink); background: var(--surface); font-weight: 600; }
+.doc-body tr:last-child td { border-bottom: 0; }
 
 /* ---------- Móvil ---------- */
 @media (max-width: 860px) {

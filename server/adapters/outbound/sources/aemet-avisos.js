@@ -46,6 +46,7 @@ function parseCap(xml) {
       area: areaName,
       lat: num(center.lat),
       lon: num(center.lon),
+      issued: Date.parse(text(alert.sent)) || null, // AEMET pide mostrar la fecha de emisión
       start: Date.parse(text(info.onset) ?? text(info.effective)) || null,
       end: Date.parse(text(info.expires)) || null,
       geometry,
@@ -64,7 +65,7 @@ export function createAemetAvisosSource({ http, log }) {
     kind: 'events',
     interval: 600_000,
     url: RSS,
-    license: 'AEMET (reutilización citando la fuente)',
+    license: 'Fuente: AEMET',
     async fetch() {
       const rss = xmlParser.parse(await http.text(RSS));
       const links = arr(rss.rss?.channel?.item).map((it) => text(it.link)).filter(Boolean);

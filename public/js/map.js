@@ -38,6 +38,17 @@ const EFFIS_TILES = 'https://maps.effis.emergency.copernicus.eu/effis?service=WM
 const LEVEL_COLOR = ['match', ['get', 'level'], 'rojo', STATUS.critical, 'naranja', STATUS.serious, STATUS.warning];
 const LEVEL_ORDER = { amarillo: 0, naranja: 1, rojo: 2 };
 
+const today = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', dateStyle: 'short' }).format(new Date());
+// Textos que exigen las licencias (el resto de atribuciones están en /legal.html#fuentes).
+const ATTRIBUTION = [
+  '<a href="/legal.html#fuentes">Fuentes y licencias</a>',
+  'Powered by <a href="https://www.transportes.gob.es/" target="_blank" rel="noopener">MITRAMS</a>',
+  'Origen de los datos: Renfe Operadora',
+  `Obra derivada de Catálogo de terremotos IGN ${today} · CC-BY 4.0 <a href="https://www.ign.es" target="_blank" rel="noopener">ign.es</a>`,
+  'Fuente: AEMET',
+  'Fuente: DGT',
+];
+
 export function createMap(container, { onVehicleClick, onEventClick }) {
   const map = new maplibregl.Map({
     container,
@@ -46,7 +57,8 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     zoom: 5.4,
     minZoom: 3,
     maxPitch: 0,
-    attributionControl: { compact: true, customAttribution: 'Datos: Renfe · FGC · NAP · DGT · SCT · Euskadi · IGN · AEMET · NASA FIRMS · REE' },
+    // Siempre desplegada: varias licencias exigen que la atribución se vea en el propio mapa.
+    attributionControl: { compact: false, customAttribution: ATTRIBUTION },
   });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
   map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
@@ -442,6 +454,7 @@ function vehiclePopup(v) {
 function eventPopup(e) {
   const rows = [
     ['Gravedad', SEVERITY_LABEL[e.severity] ?? e.severity],
+    e.issued && ['Emitido', fmtDateTime(e.issued)],
     e.start && ['Inicio', fmtDateTime(e.start)],
     e.end && ['Fin previsto', fmtDateTime(e.end)],
     ['Fuente', e.source],

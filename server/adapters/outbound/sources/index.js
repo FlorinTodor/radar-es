@@ -8,7 +8,6 @@ import { createRenfeSources } from './renfe.js';
 import { createFgcSource } from './fgc.js';
 import { createRodaliesSource } from './rodalies.js';
 import { createGtfsRtVehicleSource } from './gtfs-rt.js';
-import { createTranviaTenerifeSource } from './tranvia-tenerife.js';
 import { createMoveuskadiBusSource } from './moveuskadi-bus.js';
 import { createGtfsScheduleSource } from './gtfs-horario.js';
 import { createDgtSource } from './dgt.js';
@@ -57,7 +56,7 @@ export function createSources(deps) {
     createGtfsScheduleSource(deps, {
       id: 'euskotren', name: 'Euskotren (horario + retraso en tiempo real)', operator: 'Euskotren', ficheroId: 1263,
       tripUpdatesUrl: `${MOVEUSKADI}/euskotren/gtfsrt_euskotren_trip_updates.pb`,
-      license: 'Euskotren · Open Data Euskadi y NAP (posición estimada con retraso real)',
+      license: 'Powered by MITRAMS (horario, Punto de Acceso Nacional) · Open Data Euskadi, CC BY 4.0 (retrasos). Posición estimada, no GPS',
     }),
     ...ESTIMATED_BY_SCHEDULE.map(([id, name, operator, ficheroId]) => createGtfsScheduleSource(deps, {
       id: `horario-${id}`, name: `${name} (posición estimada según horario)`, operator, ficheroId,
@@ -69,20 +68,21 @@ export function createSources(deps) {
       url: `${MOVEUSKADI}/metro_bilbao/gtfsrt_metro_bilbao_vehicle_positions.pb`,
       mode: 'metro',
       operator: 'Metro Bilbao',
-      license: 'Open Data Euskadi · MoveUskadi',
+      license: 'Open Data Euskadi · MoveUskadi (CC BY 4.0)',
       line: () => null, // el feed sólo trae routeId "MB"
       // El id de entidad es "ORIGEN_ORIGEN2_DESTINO_timestamp" con códigos de estación de 3 letras.
       describe: (e) => ({ destination: e.id?.split('_')[2] ?? null, current: e.id?.split('_')[0] ?? null }),
     }),
-    createTranviaTenerifeSource(deps),
     // Autobús (se muestran, pero no cuentan para las alertas ferroviarias)
     createMoveuskadiBusSource(deps),
     createGtfsRtVehicleSource(deps, {
       id: 'emt-malaga', name: 'EMT Málaga (GTFS-RT)', mode: 'bus', operator: 'EMT Málaga', interval: 60_000,
+      license: 'Powered by MITRAMS (Punto de Acceso Nacional, transportes.gob.es) · EMT Málaga',
       url: 'https://gtfs.emtmalaga.es/GTFSRTapi/api/vehicleposition',
     }),
     createGtfsRtVehicleSource(deps, {
       id: 'emt-fuenlabrada', name: 'EMT Fuenlabrada (GTFS-RT)', mode: 'bus', operator: 'EMT Fuenlabrada', interval: 60_000,
+      license: 'Powered by MITRAMS (Punto de Acceso Nacional, transportes.gob.es) · EMT Fuenlabrada',
       url: 'https://api.control.optibus.co/opendata/v1/gtfs-rt/vehicle-positions?uid=c-5cfcd2d1',
     }),
     // Carreteras
