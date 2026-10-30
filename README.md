@@ -125,8 +125,6 @@ Todas son públicas. Solo las marcadas con 🔑 necesitan `NAP_API_KEY`, una cla
 | NASA FIRMS (VIIRS NOAA-20, CSV público) | focos de calor por satélite (España, Portugal, Canarias) | 30 min |
 | IGN sismología (GeoRSS) | terremotos de los últimos 10 días | 3 min |
 | GDACS (ONU / Comisión Europea) | alertas de catástrofes en la zona (verde, naranja, roja) | 15 min |
-| IODA (Georgia Tech) | caídas de conectividad a Internet en España y sus regiones | 10 min |
-| adsb.lol (ADS-B) | ~400 aviones sobre España; alerta si declaran emergencia (squawk 7500/7600/7700) | 60 s |
 | Copernicus EFFIS (WMS, en el navegador) | capa de áreas quemadas en los últimos 30 días | — |
 | Red Eléctrica REData | demanda real frente a prevista | 5 min |
 
@@ -146,6 +144,7 @@ las alertas ni para los KPIs**.
 | `GET /api/alerts` | alertas activas y resueltas |
 | `GET /api/tracks/:id` | recorrido de un vehículo en los últimos 45 min |
 | `GET /api/lines` | trazados de las líneas (GeoJSON) |
+| `GET /api/trails?min=15` | estela de cada tren en los últimos minutos (GeoJSON, máx. 45) |
 | `GET /api/health`, `/api/kpis`, `/api/metrics`, `/api/stations` | salud de fuentes, KPIs, métricas y estaciones |
 
 Las alertas y los KPIs por minuto se guardan en `data/history/*.jsonl` para analizarlos

@@ -10,10 +10,8 @@ const EMPTY = { type: 'FeatureCollection', features: [] };
 const SEV_COLORS = { 'muy alta': STATUS.critical, alta: STATUS.serious, media: STATUS.warning, baja: STATUS.none };
 const IS_EST = ['==', ['get', 'est'], 1];
 const NOT_EST = ['!=', ['get', 'est'], 1];
-const IS_AIR = ['==', ['get', 'mode'], 'avion'];
-const NOT_AIR = ['!=', ['get', 'mode'], 'avion'];
 const VEHICLE_RADIUS = ['interpolate', ['linear'], ['zoom'],
-  5, ['match', ['get', 'mode'], ['av', 'ld'], 3.5, 'md', 3, 'bus', 1.6, 2.6],
+  5, ['match', ['get', 'mode'], ['av', 'ld'], 4.2, 'md', 3.6, 'bus', 1.8, 3.1],
   10, ['match', ['get', 'mode'], ['av', 'ld'], 6.5, 'md', 6, 'bus', 3.5, 5],
   14, 9];
 
@@ -21,6 +19,7 @@ const VEHICLE_RADIUS = ['interpolate', ['linear'], ['zoom'],
 export const LAYER_GROUPS = {
   rail: ['rail-network'],
   lines: ['net-lines'],
+  trails: ['trails-line'],
   stations: ['stations-dots', 'stations-labels'],
   meteo: ['meteo-fill', 'meteo-outline'],
   dgt: ['ev-road', 'ev-road-major'],
@@ -30,6 +29,10 @@ export const LAYER_GROUPS = {
   gdacs: ['ev-gdacs'],
   effis: ['effis-burnt'],
 };
+
+const RAIL_TILES = 'https://servicios.idee.es/wms-inspire/transportes?service=WMS&request=GetMap&version=1.3.0'
+  + '&layers=TN.RailTransportNetwork.RailwayLink&styles=&format=image/png&transparent=true&crs=EPSG:3857&width=256&height=256&bbox={bbox-epsg-3857}';
+const RAIL_ATTRIBUTION = 'Red ferroviaria: IGN-CNIG, <a href="https://www.scne.es" target="_blank" rel="noopener">CC BY 4.0 scne.es</a>';
 
 // Áreas quemadas de los últimos 30 días (Copernicus EFFIS, WMS con CORS abierto).
 const EFFIS_TILES = 'https://maps.effis.emergency.copernicus.eu/effis?service=WMS&request=GetMap&version=1.1.1&layers=modis.ba.month'
@@ -65,26 +68,64 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
 
   let anims = new Map(); // id → { from, to, t0, props }
   let raf = null;
-  let popup = null;
-  let popupVehicleId = null;
+  let selectedId = null;  // tren seleccionado: lleva anillo y su recorrido reciente
+  let trackFetchedAt = 0;
+  const card = createDetailCard(map.getContainer().parentElement);
   let loaded = false;
   let modeFilter = null;
   let showObras = false;
+  let focus = null; // { vehicleIds, eventIds } mientras hay alertas seleccionadas
+
+  // Filtro base de cada capa de trenes y de sucesos. El modo foco le añade "y sólo estos ids"
+  // y hace visibles las capas, aunque el usuario las tuviera apagadas.
+  const category = (c) => ['==', ['get', 'category'], c];
+  const VEHICLE_FILTERS = {
+    'veh-halo': ['==', ['get', 'alert'], 1],
+    'veh-est': IS_EST,
+    vehicles: NOT_EST,
+    'veh-labels': null,
+  };
+  const EVENT_FILTERS = {
+    'ev-road': () => roadFilter(false),
+    'ev-road-major': () => roadFilter(true),
+    'ev-works': ['all', category('carretera'), ['==', ['get', 'type'], 'roadMaintenance']],
+    'ev-gdacs': category('catastrofe'),
+    'ev-fire-glow': category('incendio'),
+    'ev-fire-core': category('incendio'),
+    'ev-quake': category('sismo'),
+    'ev-rail': category('ferroviario'),
+    'meteo-fill': null,
+    'meteo-outline': null,
+  };
+
+  function applyFilters() {
+    if (!loaded) return;
+    const only = (ids, base) => ['all', base ?? true, ['in', ['get', 'id'], ['literal', ids]]];
+    for (const [id, base] of Object.entries(VEHICLE_FILTERS)) {
+      map.setFilter(id, focus ? only(focus.vehicleIds, base) : vehicleFilter(base));
+    }
+    for (const [id, entry] of Object.entries(EVENT_FILTERS)) {
+      const base = typeof entry === 'function' ? entry() : entry;
+      map.setFilter(id, focus ? only(focus.eventIds, base) : base);
+      if (focus) map.setLayoutProperty(id, 'visibility', 'visible');
+    }
+  }
 
   const ready = new Promise((resolve) => map.on('load', resolve)).then(() => {
     const firstSymbol = map.getStyle().layers.find((l) => l.type === 'symbol')?.id;
 
-    // La red ferroviaria del estilo base sólo aparece de cerca; la realzamos desde zoom 5.
+    // Red ferroviaria del IGN: se ve entera a cualquier zoom (las vías de OpenStreetMap del mapa
+    // base sólo aparecen muy de cerca). Viene en gris oscuro: se invierte para que destaque.
+    map.addSource('rail-ign', { type: 'raster', tiles: [RAIL_TILES], tileSize: 256, attribution: RAIL_ATTRIBUTION });
     map.addLayer({
-      id: 'rail-network', type: 'line', source: 'openmaptiles', 'source-layer': 'transportation', minzoom: 5,
-      filter: ['all', ['==', ['get', 'class'], 'rail'], ['!', ['has', 'service']]],
+      id: 'rail-network', type: 'raster', source: 'rail-ign',
       paint: {
-        'line-color': '#3d4b66',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 5, 0.6, 9, 1.1, 14, 2.2],
+        'raster-brightness-min': 1, 'raster-brightness-max': 0, 'raster-saturation': -1,
+        'raster-opacity': ['interpolate', ['linear'], ['zoom'], 5, 0.4, 9, 0.5, 13, 0.6],
       },
     }, firstSymbol);
 
-    for (const id of ['lines', 'areas', 'stations', 'events', 'track', 'vehicles']) map.addSource(id, { type: 'geojson', data: EMPTY });
+    for (const id of ['lines', 'areas', 'stations', 'events', 'trails', 'track', 'vehicles']) map.addSource(id, { type: 'geojson', data: EMPTY });
 
     // Avisos meteorológicos debajo de todo lo demás, para no tapar trenes ni incidencias.
     map.addLayer({ id: 'meteo-fill', type: 'fill', source: 'areas', paint: { 'fill-color': LEVEL_COLOR, 'fill-opacity': 0.13 } }, firstSymbol);
@@ -95,8 +136,8 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
         'line-color': ['get', 'color'],
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.8, 10, 2, 14, 3.5],
-        'line-opacity': ['interpolate', ['linear'], ['zoom'], 6, 0.35, 11, 0.6],
+        'line-width': ['interpolate', ['linear'], ['zoom'], 5, 1.1, 10, 2.2, 14, 3.5],
+        'line-opacity': ['interpolate', ['linear'], ['zoom'], 5, 0.6, 11, 0.75],
       },
     });
     map.addSource('effis', { type: 'raster', tiles: [EFFIS_TILES], tileSize: 256, attribution: 'Copernicus EFFIS' });
@@ -107,58 +148,76 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     for (const [sev, color] of Object.entries(SEV_COLORS)) {
       map.addImage(`diamond-${sev}`, icon('diamond', color, '#0d0d0d'), { pixelRatio: 2 });
       map.addImage(`triangle-${sev}`, icon('triangle', color, '#f0efec'), { pixelRatio: 2 });
+      map.addImage(`square-${sev}`, icon('square', color, '#0d0d0d'), { pixelRatio: 2 });
     }
 
     map.addLayer({
-      id: 'stations-dots', type: 'circle', source: 'stations', minzoom: 8,
-      paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 1.8, 13, 4], 'circle-color': '#6b6b66', 'circle-stroke-color': '#0d0d0d', 'circle-stroke-width': 1 },
+      id: 'stations-dots', type: 'circle', source: 'stations', minzoom: 6.5,
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 6.5, 1.8, 9, 2.8, 13, 4.5],
+        'circle-color': '#b5b4ad', 'circle-stroke-color': '#0d0d0d', 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 6.5, 0.5, 9, 1],
+      },
     });
     map.addLayer({
-      id: 'stations-labels', type: 'symbol', source: 'stations', minzoom: 11,
+      id: 'stations-labels', type: 'symbol', source: 'stations', minzoom: 10,
       layout: { 'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': 11, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-optional': true },
       paint: { 'text-color': '#898781', 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.2 },
     });
+    // Estelas de todos los trenes (capa opcional) y recorrido del tren seleccionado, más visible.
     map.addLayer({
-      id: 'track-line', type: 'line', source: 'track',
-      paint: { 'line-color': '#6ea8fe', 'line-width': 2, 'line-dasharray': [2, 1.5], 'line-opacity': 0.85 },
+      id: 'trails-line', type: 'line', source: 'trails', layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#9db4d8', 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 0.8, 11, 1.6], 'line-opacity': 0.45 },
+    });
+    map.addLayer({
+      id: 'track-line', type: 'line', source: 'track', layout: { 'line-cap': 'round' },
+      paint: { 'line-color': '#6ea8fe', 'line-width': 3, 'line-dasharray': [1.6, 1.2], 'line-opacity': 0.95 },
     });
     // A escala de país sólo las incidencias graves o cortes; el resto aparece al acercarse.
     const roadLayout = {
       'icon-image': ['concat', 'diamond-', ['get', 'severity']],
-      'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.7, 10, 1],
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.7, 7, 0.75, 10, 1],
       'icon-allow-overlap': true, 'icon-ignore-placement': true,
     };
-    map.addLayer({ id: 'ev-road', type: 'symbol', source: 'events', minzoom: 8, filter: roadFilter(false), layout: roadLayout });
-    map.addLayer({ id: 'ev-road-major', type: 'symbol', source: 'events', filter: roadFilter(true), layout: roadLayout });
+    map.addLayer({ id: 'ev-road', type: 'symbol', source: 'events', minzoom: 6.5, layout: roadLayout });
+    map.addLayer({ id: 'ev-road-major', type: 'symbol', source: 'events', layout: roadLayout });
+    // Obras: capa propia (cuadrado), independiente de la de tráfico y, si se activa, a cualquier zoom.
     map.addLayer({
-      id: 'ev-gdacs', type: 'circle', source: 'events', filter: ['==', ['get', 'category'], 'catastrofe'],
+      id: 'ev-works', type: 'symbol', source: 'events',
+      layout: {
+        visibility: showObras ? 'visible' : 'none',
+        'icon-image': ['concat', 'square-', ['get', 'severity']],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.5, 8, 0.7, 11, 0.95],
+        'icon-allow-overlap': true, 'icon-ignore-placement': true,
+      },
+    });
+    map.addLayer({
+      id: 'ev-gdacs', type: 'circle', source: 'events',
       paint: {
         'circle-radius': 11, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-width': 3,
         'circle-stroke-color': ['match', ['get', 'severity'], 'muy alta', STATUS.critical, 'alta', STATUS.serious, '#6b6b66'],
       },
     });
     // Focos de calor: halo difuminado + núcleo, para distinguirlos de los trenes (círculos nítidos).
-    const isFire = ['==', ['get', 'category'], 'incendio'];
     map.addLayer({
-      id: 'ev-fire-glow', type: 'circle', source: 'events', filter: isFire,
+      id: 'ev-fire-glow', type: 'circle', source: 'events',
       paint: {
         'circle-radius': ['interpolate', ['linear'], ['get', 'frp'], 0, 5, 10, 8, 50, 13, 200, 20],
         'circle-color': '#ff5a1f', 'circle-blur': 0.9, 'circle-opacity': 0.55,
       },
     });
     map.addLayer({
-      id: 'ev-fire-core', type: 'circle', source: 'events', filter: isFire,
+      id: 'ev-fire-core', type: 'circle', source: 'events',
       paint: { 'circle-radius': 2, 'circle-color': '#ffd27a' },
     });
     map.addLayer({
-      id: 'ev-quake', type: 'circle', source: 'events', filter: ['==', ['get', 'category'], 'sismo'],
+      id: 'ev-quake', type: 'circle', source: 'events',
       paint: {
         'circle-radius': ['interpolate', ['linear'], ['get', 'magnitude'], 1, 3, 3, 7, 5, 18, 7, 34],
         'circle-color': '#b48cff', 'circle-opacity': 0.25, 'circle-stroke-color': '#b48cff', 'circle-stroke-width': 1.5,
       },
     });
     map.addLayer({
-      id: 'ev-rail', type: 'symbol', source: 'events', filter: ['==', ['get', 'category'], 'ferroviario'],
+      id: 'ev-rail', type: 'symbol', source: 'events',
       layout: {
         'icon-image': ['concat', 'triangle-', ['get', 'severity']],
         'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 1, 10, 1.4],
@@ -166,7 +225,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       },
     });
     map.addLayer({
-      id: 'veh-halo', type: 'circle', source: 'vehicles', filter: vehicleFilter(['==', ['get', 'alert'], 1]),
+      id: 'veh-halo', type: 'circle', source: 'vehicles',
       paint: {
         'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 8, 10, 13, 14, 16],
         'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': STATUS.critical, 'circle-stroke-width': 2, 'circle-stroke-opacity': 0.9,
@@ -174,7 +233,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     });
     // Posición estimada por horario: anillo hueco, para que nunca se confunda con un GPS real.
     map.addLayer({
-      id: 'veh-est', type: 'circle', source: 'vehicles', filter: vehicleFilter(['all', IS_EST, NOT_AIR]),
+      id: 'veh-est', type: 'circle', source: 'vehicles',
       paint: {
         'circle-radius': VEHICLE_RADIUS,
         'circle-color': 'rgba(0,0,0,0)',
@@ -184,41 +243,40 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       },
     });
     map.addLayer({
-      id: 'vehicles', type: 'circle', source: 'vehicles', filter: vehicleFilter(['all', NOT_EST, NOT_AIR]),
+      id: 'vehicles', type: 'circle', source: 'vehicles',
       paint: {
         'circle-radius': VEHICLE_RADIUS,
         'circle-color': ['match', ['get', 'cls'], ...DELAY_CLASSES.flatMap(([color], i) => (i ? [i, color] : [])), DELAY_CLASSES[0][0]],
         'circle-stroke-color': '#0d0d0d', 'circle-stroke-width': 1.5,
       },
     });
-    // Aviones: flecha orientada según el rumbo, de un color que no pertenece a la paleta de retrasos.
-    map.addImage('plane', planeIcon(), { pixelRatio: 2 });
     map.addLayer({
-      id: 'veh-air', type: 'symbol', source: 'vehicles', filter: vehicleFilter(IS_AIR),
-      layout: {
-        'icon-image': 'plane', 'icon-rotate': ['get', 'heading'], 'icon-rotation-alignment': 'map',
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.7, 10, 1.1], 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+      id: 'veh-selected', type: 'circle', source: 'vehicles', filter: ['==', ['get', 'id'], ''],
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 9, 10, 14, 14, 18],
+        'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#6ea8fe', 'circle-stroke-width': 3,
       },
     });
     map.addLayer({
-      id: 'veh-labels', type: 'symbol', source: 'vehicles', minzoom: 10, filter: vehicleFilter(),
+      id: 'veh-labels', type: 'symbol', source: 'vehicles', minzoom: 9,
       layout: { 'text-field': ['get', 'line'], 'text-font': FONT, 'text-size': 11, 'text-offset': [0, -1.3], 'text-optional': true },
       paint: { 'text-color': '#f0efec', 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.5 },
     });
 
-    const clickable = ['vehicles', 'veh-est', 'veh-air', 'ev-rail', 'ev-quake', 'ev-gdacs', 'ev-road', 'ev-road-major', 'ev-fire-glow', 'meteo-fill'];
+    const clickable = ['vehicles', 'veh-est', 'ev-rail', 'ev-quake', 'ev-gdacs', 'ev-road', 'ev-road-major', 'ev-works', 'ev-fire-glow', 'meteo-fill'];
     for (const id of clickable) {
       map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
     }
     map.on('click', (e) => {
       const f = map.queryRenderedFeatures(e.point, { layers: clickable })[0];
-      if (!f) return;
-      if (['vehicles', 'veh-est', 'veh-air'].includes(f.layer.id)) onVehicleClick(f.properties.id);
+      if (!f) return clearSelection(); // clic en una zona vacía: se quita la selección
+      if (['vehicles', 'veh-est'].includes(f.layer.id)) onVehicleClick(f.properties.id);
       else onEventClick(f.properties.id, e.lngLat);
     });
 
     loaded = true;
+    applyFilters();
     kick();
   });
 
@@ -229,11 +287,12 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     return parts.length > 1 ? parts : ['all', true];
   }
 
+  // Incidencias de tráfico sin obras (las obras tienen su propia capa, 'ev-works').
   function roadFilter(major) {
     const isMajor = ['any', ['in', ['get', 'severity'], ['literal', ['alta', 'muy alta']]], ['==', ['get', 'closed'], true]];
     return ['all',
       ['==', ['get', 'category'], 'carretera'],
-      showObras ? true : ['!=', ['get', 'type'], 'roadMaintenance'],
+      ['!=', ['get', 'type'], 'roadMaintenance'],
       major ? isMajor : ['!', isMajor],
     ];
   }
@@ -255,26 +314,49 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: position(a, now) }, properties: a.props });
     }
     map.getSource('vehicles').setData({ type: 'FeatureCollection', features });
-    if (popup && popupVehicleId && anims.has(popupVehicleId)) popup.setLngLat(position(anims.get(popupVehicleId), now));
     if (moving) raf = requestAnimationFrame(frame);
   }
 
   const kick = () => { if (!raf) raf = requestAnimationFrame(frame); };
 
-  function openPopup(lngLat, html, vehicleId = null) {
-    popup?.remove();
-    popupVehicleId = vehicleId;
-    popup = new maplibregl.Popup({ maxWidth: '320px', focusAfterOpen: false }).setLngLat(lngLat).setHTML(html).addTo(map);
-    popup.on('close', () => {
-      if (popupVehicleId === vehicleId) {
-        popupVehicleId = null;
-        map.getSource('track')?.setData(EMPTY);
-      }
-    });
+  function setSelected(id) {
+    selectedId = id;
+    if (loaded) map.setFilter('veh-selected', ['==', ['get', 'id'], id ?? '']);
+    if (!id) map.getSource('track')?.setData(EMPTY);
   }
+
+  function clearSelection() {
+    setSelected(null);
+    card.hide();
+  }
+
+  function loadTrack(id) {
+    trackFetchedAt = Date.now();
+    fetch(`/api/tracks/${encodeURIComponent(id)}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((track) => {
+        if (selectedId !== id) return;
+        map.getSource('track').setData(track.length < 2 ? EMPTY
+          : { type: 'Feature', geometry: { type: 'LineString', coordinates: track.map((p) => [p.lon, p.lat]) }, properties: {} });
+      })
+      .catch(() => {});
+  }
+
+  // La ficha ocupa la derecha del mapa (abajo en el móvil): se encuadra dejando ese hueco libre.
+  const isNarrow = () => map.getContainer().clientWidth < 700;
+  const sidePadding = () => (isNarrow()
+    ? { top: 60, bottom: card.open ? 260 : 60, left: 30, right: 30 }
+    : { top: 70, bottom: 50, left: 260, right: card.open ? 360 : 70 });
+  // Para centrar un punto se usa un desplazamiento y no `padding`: en MapLibre el padding de
+  // flyTo se queda guardado en el mapa y se sumaría al de encuadres posteriores (fitBounds).
+  const centerOffset = () => {
+    const p = sidePadding();
+    return [(p.left - p.right) / 2, (p.top - p.bottom) / 2];
+  };
 
   return {
     ready,
+    raw: map, // acceso directo para depuración (?debug) y pruebas automáticas
 
     /** @param {object[]} list vehículos  @param {Set<string>} alertIds */
     setVehicles(list, alertIds) {
@@ -283,7 +365,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       for (const v of list) {
         const to = [v.lon, v.lat];
         const prev = anims.get(v.id);
-        const props = { id: v.id, mode: v.mode, cls: v.cls, line: v.line ?? '', alert: alertIds.has(v.id) ? 1 : 0, est: v.estimated ? 1 : 0, heading: v.heading ?? 0 };
+        const props = { id: v.id, mode: v.mode, cls: v.cls, line: v.line ?? '', alert: alertIds.has(v.id) ? 1 : 0, est: v.estimated ? 1 : 0 };
         if (prev && prev.to[0] === to[0] && prev.to[1] === to[1]) {
           next.set(v.id, { ...prev, props });
           continue;
@@ -330,19 +412,32 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
 
     setModes(modes) {
       modeFilter = modes;
-      if (!loaded) return;
-      map.setFilter('vehicles', vehicleFilter(['all', NOT_EST, NOT_AIR]));
-      map.setFilter('veh-air', vehicleFilter(IS_AIR));
-      map.setFilter('veh-est', vehicleFilter(['all', IS_EST, NOT_AIR]));
-      map.setFilter('veh-labels', vehicleFilter());
-      map.setFilter('veh-halo', vehicleFilter(['==', ['get', 'alert'], 1]));
+      applyFilters();
+    },
+
+    /**
+     * Muestra sólo los trenes y sucesos indicados (alertas seleccionadas), aunque sus capas
+     * estuvieran apagadas. Con null se vuelve a los filtros normales; quien llama debe
+     * restaurar después la visibilidad de las capas según las preferencias del usuario.
+     * @param {{ vehicleIds: string[], eventIds: string[] } | null} f
+     */
+    setFocus(f) {
+      focus = f;
+      applyFilters();
+    },
+
+    /** Encuadra una lista de puntos [lon, lat]. */
+    fitTo(points) {
+      if (!points.length) return;
+      if (points.length === 1) return map.flyTo({ center: points[0], zoom: Math.max(map.getZoom(), 10), speed: 1.6, offset: centerOffset() });
+      const lons = points.map((p) => p[0]);
+      const lats = points.map((p) => p[1]);
+      map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: sidePadding(), maxZoom: 11, duration: 900 });
     },
 
     setObras(on) {
       showObras = on;
-      if (!loaded) return;
-      map.setFilter('ev-road', roadFilter(false));
-      map.setFilter('ev-road-major', roadFilter(true));
+      if (loaded) map.setLayoutProperty('ev-works', 'visibility', on ? 'visible' : 'none');
     },
 
     setGroupVisible(group, visible) {
@@ -350,31 +445,39 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       for (const id of LAYER_GROUPS[group] ?? []) map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
     },
 
+    /** Centra un punto dejando libre el hueco de la ficha y del panel de capas. */
     flyTo(lon, lat, zoom = 11) {
-      map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), zoom), speed: 1.6 });
+      map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), zoom), speed: 1.6, offset: centerOffset() });
     },
 
+    /** Selecciona un tren: anillo, recorrido reciente y ficha. La × de la ficha sólo la cierra. */
     showVehicle(v) {
-      const a = anims.get(v.id);
-      openPopup(a ? position(a, performance.now()) : [v.lon, v.lat], vehiclePopup(v), v.id);
-      fetch(`/api/tracks/${encodeURIComponent(v.id)}`)
-        .then((r) => (r.ok ? r.json() : []))
-        .then((track) => {
-          if (popupVehicleId !== v.id || track.length < 2) return;
-          map.getSource('track').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: track.map((p) => [p.lon, p.lat]) }, properties: {} });
-        })
-        .catch(() => {});
+      setSelected(v.id);
+      card.show(vehicleDetail(v));
+      loadTrack(v.id);
     },
 
-    /** @param {object} e  @param {{lng: number, lat: number}} [at] punto del clic (para zonas) */
-    showEvent(e, at) {
-      if (!at && (e.lat === null || e.lat === undefined)) return;
-      openPopup(at ? [at.lng, at.lat] : [e.lon, e.lat], eventPopup(e));
+    /** Actualiza la ficha y, cada 15 s, el recorrido del tren seleccionado cuando llegan datos. */
+    refreshVehicle(v) {
+      if (selectedId !== v.id) return;
+      if (card.open) card.show(vehicleDetail(v));
+      if (Date.now() - trackFetchedAt > 15_000) loadTrack(v.id);
+    },
+
+    selectedVehicleId: () => selectedId,
+
+    showEvent(e) {
+      setSelected(null);
+      card.show(eventDetail(e));
+    },
+
+    setTrails(collection) {
+      if (loaded) map.getSource('trails').setData(collection ?? EMPTY);
     },
   };
 }
 
-/** Icono rasterizado para MapLibre (rombo o triángulo de 14 px a doble resolución). */
+/** Icono rasterizado para MapLibre (rombo, cuadrado o triángulo de 14 px a doble resolución). */
 export function icon(shape, fill, stroke) {
   const size = 28;
   const canvas = document.createElement('canvas');
@@ -384,6 +487,8 @@ export function icon(shape, fill, stroke) {
   g.beginPath();
   if (shape === 'diamond') {
     g.moveTo(7, 1.2); g.lineTo(12.8, 7); g.lineTo(7, 12.8); g.lineTo(1.2, 7);
+  } else if (shape === 'square') {
+    g.rect(2.2, 2.2, 9.6, 9.6);
   } else {
     g.moveTo(7, 1.5); g.lineTo(12.8, 12.3); g.lineTo(1.2, 12.3);
   }
@@ -396,40 +501,27 @@ export function icon(shape, fill, stroke) {
   return { width: size, height: size, data: g.getImageData(0, 0, size, size).data };
 }
 
-/** Flecha de avión (apunta al norte; el mapa la gira según el rumbo). */
-function planeIcon() {
-  const size = 32;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const g = canvas.getContext('2d');
-  g.scale(2, 2);
-  g.beginPath();
-  g.moveTo(8, 1); g.lineTo(13.5, 14); g.lineTo(8, 11); g.lineTo(2.5, 14);
-  g.closePath();
-  g.fillStyle = '#8ecae6';
-  g.fill();
-  g.lineWidth = 1.2;
-  g.strokeStyle = '#0d0d0d';
-  g.stroke();
-  return { width: size, height: size, data: g.getImageData(0, 0, size, size).data };
+/** Ficha fija sobre el mapa (sustituye a las ventanas emergentes, que tapaban el recorrido). */
+function createDetailCard(host) {
+  const el = document.createElement('div');
+  el.className = 'card detail';
+  el.hidden = true;
+  el.setAttribute('role', 'region');
+  el.setAttribute('aria-label', 'Detalle del elemento seleccionado');
+  el.innerHTML = '<button type="button" class="detail-close" aria-label="Cerrar ficha">×</button><div class="detail-body"></div>';
+  el.querySelector('.detail-close').addEventListener('click', () => { el.hidden = true; });
+  host.appendChild(el);
+  return {
+    show(html) {
+      el.querySelector('.detail-body').innerHTML = html;
+      el.hidden = false;
+    },
+    hide() { el.hidden = true; },
+    get open() { return !el.hidden; },
+  };
 }
 
-function aircraftPopup(v) {
-  const rows = [
-    ['Indicativo', v.label],
-    v.registration && ['Matrícula', v.registration],
-    v.aircraftType && ['Modelo', v.aircraftType],
-    ['Altitud', v.altitudeFt === 0 ? 'En tierra' : v.altitudeFt ? `${v.altitudeFt.toLocaleString('es-ES')} ft` : '—'],
-    v.speedKt && ['Velocidad', `${Math.round(v.speedKt)} kt`],
-    v.squawk && ['Squawk', v.squawk],
-    v.fixTime && ['Posición', timeAgo(v.fixTime)],
-    ['Fuente', `${v.source} (ADS-B)`],
-  ].filter(Boolean);
-  return `<div class="pop"><h3>Avión ${esc(v.label)}</h3><dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl></div>`;
-}
-
-function vehiclePopup(v) {
-  if (v.mode === 'avion') return aircraftPopup(v);
+function vehicleDetail(v) {
   const rows = [
     ['Tipo', MODE_LABEL[v.mode] ?? v.mode],
     (v.origin || v.destination) && ['Recorrido', `${v.origin ?? '?'} → ${v.destination ?? '?'}`],
@@ -443,7 +535,8 @@ function vehiclePopup(v) {
     ['Fuente', v.source],
   ].filter(Boolean);
   const note = !v.estimated
-    ? 'La línea discontinua es su recorrido en los últimos 45 min.'
+    ? 'La <strong>línea azul discontinua</strong> es el recorrido de este tren en los últimos 45 min (desde que el radar lo sigue). '
+      + 'La × sólo cierra esta ficha; pulsa en una zona vacía del mapa para quitar la selección.'
     : v.delay !== null && v.delay !== undefined
       ? '<strong>Posición estimada</strong> a partir del horario y del retraso real que publica el operador: no es GPS.'
       : '<strong>Posición estimada</strong> a partir del horario publicado: no es GPS y no refleja retrasos.';
@@ -451,7 +544,7 @@ function vehiclePopup(v) {
     <div class="note">${note}</div></div>`;
 }
 
-function eventPopup(e) {
+function eventDetail(e) {
   const rows = [
     ['Gravedad', SEVERITY_LABEL[e.severity] ?? e.severity],
     e.issued && ['Emitido', fmtDateTime(e.issued)],

@@ -11,7 +11,6 @@ import { stationarySince } from '../tracking.js';
  * @typedef {object} RuleContext
  * @property {number} now
  * @property {import('../model.js').Vehicle[]} vehicles  Sólo trenes, metros y tranvías con GPS.
- * @property {Array<import('../model.js').Vehicle & { squawk?: string, emergency?: string }>} [aircraft]
  * @property {Map<string, import('../tracking.js').TrackPoint[]>} tracks
  * @property {import('../model.js').IncidentEvent[]} events
  * @property {Record<string, any>} metrics
@@ -130,7 +129,7 @@ export function earthquakesNearTrains(ctx) {
     const radius = 25 * (e.magnitude - 2); // M3.5 → 37 km, M5 → 75 km
     const near = ctx.vehicles.filter((v) => distanceKm(e.lat, e.lon, v.lat, v.lon) <= radius);
     alerts.push({
-      id: `sismo:${e.id}`, type: 'sismo', lat: e.lat, lon: e.lon,
+      id: `sismo:${e.id}`, type: 'sismo', lat: e.lat, lon: e.lon, eventIds: [e.id],
       severity: e.magnitude >= 4.5 ? 'muy alta' : near.length ? 'alta' : 'media',
       vehicleIds: near.map((v) => v.id),
       title: e.title,
@@ -148,7 +147,7 @@ export function severeWeather(ctx) {
     if (e.start && e.start > ctx.now) continue; // aún no ha empezado
     const inside = e.geometry ? ctx.vehicles.filter((v) => pointInGeometry(v.lon, v.lat, e.geometry)) : [];
     alerts.push({
-      id: `meteo:${e.id}`, type: 'meteo', severity: e.level === 'rojo' ? 'muy alta' : 'alta',
+      id: `meteo:${e.id}`, type: 'meteo', severity: e.level === 'rojo' ? 'muy alta' : 'alta', eventIds: [e.id],
       lat: e.lat ?? undefined, lon: e.lon ?? undefined,
       vehicleIds: inside.map((v) => v.id),
       title: inside.length ? `${e.title} · ${inside.length} trenes dentro` : e.title,
@@ -176,7 +175,7 @@ export function firesNearTrains(ctx) {
     if (!near.length) continue;
     const maxFrp = Math.max(...cluster.map((g) => g.frp ?? 0));
     alerts.push({
-      id: `incendio:${f.id}`, type: 'incendio', lat: f.lat, lon: f.lon,
+      id: `incendio:${f.id}`, type: 'incendio', lat: f.lat, lon: f.lon, eventIds: cluster.map((g) => g.id),
       severity: cluster.length >= 3 || maxFrp >= 30 ? 'alta' : 'media',
       vehicleIds: near.map((v) => v.id),
       title: `Posible incendio a menos de ${th.fireNearKm} km de ${near.length} ${near.length === 1 ? 'tren' : 'trenes'}`,
@@ -210,45 +209,12 @@ export function fleetDrop(ctx) {
   }];
 }
 
-const SQUAWKS = {
-  7500: ['muy alta', 'interferencia ilícita (7500)'],
-  7700: ['muy alta', 'emergencia general (7700)'],
-  7600: ['alta', 'fallo de comunicaciones (7600)'],
-};
-
-/** Aeronaves que declaran emergencia con su transpondedor. */
-export function aircraftEmergencies(ctx) {
-  const alerts = [];
-  for (const a of ctx.aircraft ?? []) {
-    const [severity, what] = SQUAWKS[a.squawk] ?? (a.emergency && a.emergency !== 'none' ? ['alta', `emergencia (${a.emergency})`] : []);
-    if (!severity) continue;
-    alerts.push({
-      id: `avion:${a.id}`, type: 'avion', severity, vehicleId: a.id, lat: a.lat, lon: a.lon,
-      title: `Avión ${a.label ?? a.id} declara ${what}`,
-      description: `${a.aircraftType ?? 'Aeronave'}${a.registration ? ` ${a.registration}` : ''} a ${a.altitudeFt ?? '?'} ft. ` +
-        'Dato ADS-B público: puede ser una prueba o un error de transpondedor.',
-    });
-  }
-  return alerts;
-}
-
-/** Caídas de conectividad a Internet detectadas por IODA en España o sus regiones. */
-export function internetOutages(ctx) {
-  return ctx.events
-    .filter((e) => e.category === 'internet' && (!e.end || ctx.now - e.end <= ctx.thresholds.internetWindowMinutes * 60_000))
-    .map((e) => ({
-      id: `internet:${e.id}`, type: 'internet', severity: e.scope === 'country' ? 'muy alta' : 'alta',
-      lat: e.lat ?? undefined, lon: e.lon ?? undefined,
-      title: e.title, description: e.description,
-    }));
-}
-
 /** Alertas naranja o roja de GDACS (terremotos, inundaciones, ciclones, volcanes…) en la zona. */
 export function disasterAlerts(ctx) {
   return ctx.events
     .filter((e) => e.category === 'catastrofe' && (e.level === 'naranja' || e.level === 'rojo'))
     .map((e) => ({
-      id: `gdacs:${e.id}`, type: 'catastrofe', severity: e.level === 'rojo' ? 'muy alta' : 'alta',
+      id: `gdacs:${e.id}`, type: 'catastrofe', severity: e.level === 'rojo' ? 'muy alta' : 'alta', eventIds: [e.id],
       lat: e.lat, lon: e.lon, title: e.title, description: e.description,
     }));
 }
@@ -279,8 +245,6 @@ export const RULES = [
   earthquakesNearTrains,
   severeWeather,
   firesNearTrains,
-  aircraftEmergencies,
-  internetOutages,
   disasterAlerts,
   gridDemandDrop,
   fleetDrop,
