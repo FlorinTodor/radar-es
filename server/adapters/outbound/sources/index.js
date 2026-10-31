@@ -17,6 +17,8 @@ import { createAemetAvisosSource } from './aemet-avisos.js';
 import { createFirmsSource } from './firms.js';
 import { createReeSource } from './ree.js';
 import { createGdacsSource } from './emergencias-extra.js';
+import { createEmtMadridAlertsSource } from './emt-madrid.js';
+import { busGroupSources } from './autobuses-nap.js';
 
 const MOVEUSKADI = 'https://opendata.euskadi.eus/transport/moveuskadi';
 
@@ -86,6 +88,27 @@ export function createSources(deps) {
       mode: 'bus', interval: 60_000,
       line: (name) => name?.replace(/^ALSA\s*-\s*/i, '') || null, // "ALSA - 710" → "710"
     }),
+    // AMB publica sus retrasos (trip updates, sin posiciones): posición estimada con el retraso real.
+    createGtfsScheduleSource(deps, {
+      id: 'amb-bus', name: 'AMB: autobús metropolitano de Barcelona (horario + retraso en tiempo real)', operator: 'AMB',
+      ficheroId: 1496, dataset: 1295, mode: 'bus', interval: 60_000,
+      tripUpdatesUrl: 'https://www.ambmobilitat.cat/transit/trips-updates/trips.bin',
+      license: 'Powered by MITRAMS (Punto de Acceso Nacional) · AMB Àrea Metropolitana de Barcelona · '
+        + 'Posición estimada a partir del horario y del retraso real (dato explotado, no GPS)',
+    }),
+    createGtfsRtVehicleSource(deps, {
+      id: 'la-union', name: 'Autobuses La Unión (GTFS-RT)', mode: 'bus', operator: 'La Unión', interval: 60_000,
+      license: 'Powered by MITRAMS (Punto de Acceso Nacional) · Autobuses La Unión · Datos en bruto',
+      url: 'https://ctb-gtfs-rt.s3.eu-south-2.amazonaws.com/la-union-vehicle-positions.pb',
+    }),
+    // AUVASA lo publica en su web con CC BY 3.0 ES ("Fuente: AUVASA"); sólo por http y en una IP.
+    createGtfsRtVehicleSource(deps, {
+      id: 'auvasa', name: 'AUVASA: autobús urbano de Valladolid (GTFS-RT)', mode: 'bus', operator: 'AUVASA', interval: 60_000,
+      license: 'Fuente: AUVASA (CC BY 3.0 ES)',
+      url: 'http://212.170.201.204:50080/GTFSRTapi/api/vehicleposition',
+      line: (e) => e.vehicle?.trip?.tripId?.split('_')[0] ?? e.vehicle?.trip?.routeId ?? null, // "LB5_LB5A1_7" → "LB5"
+    }),
+    ...busGroupSources(deps, createGtfsScheduleSource),
     createGtfsRtVehicleSource(deps, {
       id: 'emt-malaga', name: 'EMT Málaga (GTFS-RT)', mode: 'bus', operator: 'EMT Málaga', interval: 60_000,
       // El portal de datos abiertos de Málaga declara para estos datos CC BY-SA 4.0: se cumple la más estricta.
@@ -99,6 +122,7 @@ export function createSources(deps) {
     }),
     // Carreteras
     createDgtSource(deps),
+    createEmtMadridAlertsSource(deps),
     createSctSource(deps),
     createTraficoEuskadiSource(deps),
     // Otras situaciones
