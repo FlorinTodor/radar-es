@@ -172,3 +172,13 @@ después (con jq, DuckDB o pandas).
 - **Solo tiempos de llegada, sin posiciones**: Metro de Madrid, Metro Ligero, Metrovalencia,
   Granada y Zaragoza. Se pueden estimar posiciones a partir de su GTFS, igual que con Ouigo.
 - El catálogo de fuentes de Cowork está en `Radar ES · Catálogo de fuentes públicas — Resumen.md`.
+
+## Licencia
+
+El código de Radar ES es software libre con licencia
+[GNU Affero General Public License v3.0 o posterior](LICENSE) (AGPL-3.0-or-later): se puede usar,
+estudiar, modificar y redistribuir, pero quien publique una versión modificada como servicio web
+tiene que ofrecer su código con la misma licencia.
+
+Los datos que muestra no son de este proyecto: cada fuente tiene su propia licencia y su
+atribución obligatoria (ver `/legal.html`).
