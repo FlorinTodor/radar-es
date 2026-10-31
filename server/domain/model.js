@@ -23,8 +23,10 @@
  * @property {string|null} [origin]
  * @property {string|null} [destination]
  * @property {string|null} [current]
+ * @property {boolean} [stopped]      Parado en `current` (si no, `current` es la última estación por la que pasó).
  * @property {string|null} [next]
  * @property {string|null} [nextEta]
+ * @property {string|null} [platform] Vía de la estación en la que está parado o, si no, de la próxima.
  * @property {number|null} [fixTime]  Epoch ms del último GPS, si la fuente lo da.
  * @property {boolean} [estimated]    Posición calculada a partir del horario, no GPS. No cuenta para alertas ni KPIs.
  */
