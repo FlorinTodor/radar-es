@@ -56,7 +56,8 @@ const round = ([lon, lat]) => [Math.round(lon * 1e5) / 1e5, Math.round(lat * 1e5
 /** Trazados de una red a partir de su GTFS. Trabajo de CPU puro: se puede hacer en un hilo de cálculo. */
 export async function buildNetwork(zip, network) {
   const pace = createPacer();
-  const files = await openGtfs(zip, ['routes.txt', 'trips.txt', 'shapes.txt', 'stops.txt', 'stop_times.txt']);
+  // stop_times.txt sólo hace falta si no hay trazados, y es enorme (290 MB en Cercanías): primero lo demás.
+  const files = await openGtfs(zip, ['routes.txt', 'trips.txt', 'shapes.txt']);
 
   const routes = new Map();
   for (const r of csvRows(files['routes.txt'])) {
@@ -68,13 +69,17 @@ export async function buildNetwork(zip, network) {
 
   const trips = new Map(); // trip_id → { route, shape, key }
   for (const t of csvRows(files['trips.txt'])) {
+    if (pace.due()) await pace.pause(); // 140.000 viajes en Cercanías: ~1 s sin ceder el hilo
     if (routes.has(t.route_id)) trips.set(t.trip_id, { route: t.route_id, shape: t.shape_id || null, key: `${t.route_id}|${t.direction_id || 0}` });
   }
 
   const paths = []; // { route, coords }
   const wantedShapes = new Set([...trips.values()].map((t) => t.shape).filter(Boolean));
 
-  if (files['shapes.txt'] && wantedShapes.size) {
+  const fromShapes = Boolean(files['shapes.txt'] && wantedShapes.size);
+  if (!fromShapes) Object.assign(files, await openGtfs(zip, ['stops.txt', 'stop_times.txt']));
+
+  if (fromShapes) {
     const shapes = new Map();
     for (const [shapeId, seq, lon, lat] of csvColumns(files['shapes.txt'], ['shape_id', 'shape_pt_sequence', 'shape_pt_lon', 'shape_pt_lat'])) {
       if (pace.due()) await pace.pause();

@@ -200,8 +200,8 @@ export function renderLayers(el, prefs, countsByMode) {
   const shape = (path, fill, stroke) => `<svg viewBox="0 0 14 14" width="12" height="12" aria-hidden="true"><path d="${path}" fill="${fill}" stroke="${stroke}" stroke-width="1.4"/></svg>`;
   // Cabecera de sección con "Todas · Ninguna": marca o desmarca todas sus casillas (data-mode o data-group).
   const head = (title, kind) => `<div class="layers-head"><h4>${title}</h4><span class="bulk">
-    <button type="button" class="link" data-bulk="${kind}" data-on="1" aria-label="Activar todas: ${title}">Todas</button> ·
-    <button type="button" class="link" data-bulk="${kind}" data-on="0" aria-label="Desactivar todas: ${title}">Ninguna</button></span></div>`;
+    <button type="button" class="link" data-bulk="${kind}" data-on="1" aria-label="Todas: activar todas las capas de ${title}">Todas</button> ·
+    <button type="button" class="link" data-bulk="${kind}" data-on="0" aria-label="Ninguna: desactivar todas las capas de ${title}">Ninguna</button></span></div>`;
   el.innerHTML = `${head('Trenes', 'mode')}${modes}${head('Contexto', 'group')}${groups}<h4>Tipo de vehículo</h4><div class="legend">${types}</div>
     <h4>Retraso (color de la placa)</h4><div class="legend">${legend}
     ${plate('tren', '#fab219', true)}<span>Posición <strong>estimada</strong> a partir del horario, no GPS (Ouigo, ALSA y los metros y tranvías sin GPS): placa hueca; el color indica el retraso si se conoce</span>
@@ -218,6 +218,18 @@ export function renderLayers(el, prefs, countsByMode) {
     <i style="background:rgba(180,140,255,.25);border:1.5px solid #b48cff"></i><span>Terremoto (tamaño = magnitud)</span>
     <i style="background:transparent;border:2.5px solid #ec835a"></i><span>Alerta GDACS (naranja o roja)</span>
     <i style="border-radius:2px;background:linear-gradient(90deg,#e8261c 33%,#f39c12 33% 66%,#1f6fd1 66%)"></i><span>Área quemada (EFFIS): rojo, último día; naranja, 7 días; azul, 30 días. Púlsala para ver su ficha</span></div>`;
+}
+
+// Casilla de "Contexto" que enseña cada incidencia en el mapa.
+const EVENT_GROUP = { ferroviario: 'renfe-avisos', meteo: 'meteo', incendio: 'incendios', sismo: 'sismos', catastrofe: 'gdacs' };
+export const groupForEvent = (e) => (e.category === 'carretera' ? (e.type === 'roadMaintenance' ? 'obras' : 'dgt') : EVENT_GROUP[e.category]);
+
+/** Marca las casillas según lo que se ve en el mapa, sin volver a pintar el panel. */
+export function syncLayers(el, prefs) {
+  for (const input of el.querySelectorAll('input[data-mode]')) input.checked = modeOn(prefs, input.dataset.mode);
+  for (const input of el.querySelectorAll('input[data-group]')) {
+    input.checked = input.dataset.group === 'obras' ? prefs.obras : groupOn(prefs, input.dataset.group);
+  }
 }
 
 export function updateModeCounts(el, countsByMode) {

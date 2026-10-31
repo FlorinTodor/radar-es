@@ -29,8 +29,15 @@ function createTimetables({ cache, stations, log }) {
   let ld = new Map();   // trip_id → { service, mode, origin, destination }
   let cerc = new Map(); // trip_id → { line, origin, destination }
   const loadedAt = { ld: 0, cerc: 0 };
+  // Las dos fuentes de Renfe piden los horarios a la vez al arrancar: mientras una carga está en
+  // marcha, las demás llamadas esperan a esa misma en vez de leer otra vez el GTFS en paralelo.
+  const loading = {};
+  const once = (name, load) => (loading[name] ??= load().finally(() => { loading[name] = null; }));
 
-  async function loadLd() {
+  const loadLd = () => once('ld', loadLdNow);
+  const loadCercanias = () => once('cerc', loadCercaniasNow);
+
+  async function loadLdNow() {
     if (ld.size && Date.now() - loadedAt.ld < TIMETABLE_TTL_MS) return;
     loadedAt.ld = Date.now(); // aunque falle, no reintentar en cada lectura
     try {
@@ -59,7 +66,7 @@ function createTimetables({ cache, stations, log }) {
     }
   }
 
-  async function loadCercanias() {
+  async function loadCercaniasNow() {
     if (cerc.size && Date.now() - loadedAt.cerc < TIMETABLE_TTL_MS) return;
     loadedAt.cerc = Date.now();
     try {
@@ -72,8 +79,8 @@ function createTimetables({ cache, stations, log }) {
         routes.set(r.route_id, { line: r.route_short_name || null, origin: origin || null, destination: destination || null });
       }
       const next = new Map();
-      const pace = createPacer(); // 250.000 viajes
-      for (const [tripId, routeId] of csvColumns(f['trips.txt'], ['trip_id', 'route_id'])) {
+      const pace = createPacer();
+      for (const [tripId, routeId] of csvColumns(f['trips.txt'], ['trip_id', 'route_id'])) { // 140.000 viajes
         if (pace.due()) await pace.pause();
         const route = routes.get(routeId);
         if (route) next.set(own(tripId), route);
