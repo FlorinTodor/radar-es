@@ -14,6 +14,9 @@
  * @property {string} [url]
  * @property {string[]} [requires]             Variables de entorno necesarias (claves de API).
  * @property {() => Promise<import('../domain/model.js').SourceResult>} fetch
+ * @property {(vehicleId: string) => number[][]|null|undefined} [path]  Sólo fuentes de posiciones
+ *   estimadas: tramo de trazado ([lon, lat]) que el vehículo ha recorrido según su horario, para
+ *   dibujarlo por la calle. null = sin trazado; undefined = vehículo desconocido para la fuente.
  */
 
 /**
@@ -68,6 +71,16 @@
  */
 
 /**
+ * Teselas y consultas de capas externas (IGN, EFFIS) servidas desde nuestro dominio para que
+ * Cloudflare las guarde: lo usa el adaptador HTTP.
+ * @typedef {object} TileProviderPort
+ * @property {string[]} layers
+ * @property {(layer: string) => string} cacheControl
+ * @property {(layer: string, z: number, x: number, y: number) => Promise<Uint8Array | null>} tile
+ * @property {(bbox: [number, number, number, number]) => Promise<object>} burntAreas
+ */
+
+/**
  * @typedef {object} ClockPort
  * @property {() => number} now
  *
@@ -92,4 +105,5 @@ export const PORT_MEMBERS = {
     'tracks', 'activeAlerts', 'addResolved', 'resolvedAlerts', 'setKpis', 'kpis', 'pushKpiSample', 'kpiHistory'],
   History: ['append'],
   EventPublisher: ['publish', 'subscribe'],
+  TileProvider: ['layers', 'cacheControl', 'tile', 'burntAreas'],
 };

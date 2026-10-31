@@ -38,6 +38,7 @@ button { font: inherit; color: inherit; }
 .live .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--st-none); }
 .live[data-state="live"] .dot { background: var(--st-good); animation: pulse 2s ease-in-out infinite; }
 .live[data-state="error"] .dot { background: var(--st-critical); }
+.live[data-state="stale"] .dot { background: var(--st-warning); }
 @keyframes pulse { 50% { opacity: .35; } }
 
 .kpis { display: flex; gap: 24px; margin-left: auto; overflow-x: auto; scrollbar-width: none; }

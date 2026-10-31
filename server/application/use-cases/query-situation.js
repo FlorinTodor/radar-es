@@ -3,9 +3,10 @@ import { sortAlerts } from '../../domain/alerts/lifecycle.js';
 
 /**
  * @param {{ situation: import('../ports.js').SituationRepositoryPort, stations: import('../ports.js').StationCatalogPort,
- *           network: import('../ports.js').NetworkCatalogPort }} deps
+ *           network: import('../ports.js').NetworkCatalogPort, sources?: import('../ports.js').DataSourcePort[] }} deps
  */
-export function makeQuerySituation({ situation, stations, network }) {
+export function makeQuerySituation({ situation, stations, network, sources = [] }) {
+  const withPaths = sources.filter((s) => typeof s.path === 'function');
   const alerts = () => sortAlerts(situation.activeAlerts().values());
   // Los autobuses (miles en hora punta) sólo se envían a quien tiene activada su capa.
   const busFilter = (buses) => (buses ? (list) => list : (list) => list.filter((v) => v.mode !== 'bus'));
@@ -30,7 +31,17 @@ export function makeQuerySituation({ situation, stations, network }) {
     kpis: () => ({ current: situation.kpis(), history: situation.kpiHistory() }),
     stations: () => stations.all(),
     lines: () => network.lines(),
-    track: (id) => situation.tracks().get(id) ?? null,
+    /**
+     * Recorrido reciente de un vehículo. Los de posición estimada usan su trazado (las posiciones de
+     * cada lectura, unidas con rectas, cruzarían manzanas); los que no tienen trazado, ninguno.
+     */
+    track(id) {
+      for (const s of withPaths) {
+        const path = s.path(id);
+        if (path !== undefined) return path ? path.map(([lon, lat]) => ({ lon, lat })) : [];
+      }
+      return situation.tracks().get(id) ?? null;
+    },
 
     /** Estelas de todos los trenes (sin autobuses) en los últimos `minutes` minutos, como GeoJSON. */
     trails(minutes = 15) {
@@ -69,6 +80,29 @@ export function makeQuerySituation({ situation, stations, network }) {
         metrics: s.data.metrics ?? null,
       };
     },
+
+    // ---------- Directo por consulta periódica (lo que Cloudflare guarda unos segundos) ----------
+    // Separado por ritmo de cambio y tamaño: las posiciones cambian cada pocos segundos; las
+    // incidencias (más de mil, de tráfico sobre todo) cada minuto; los autobuses son miles y sólo
+    // los pide quien activa su capa.
+
+    /** Posiciones (sin autobuses), recuento por fuente y tipo, alertas e indicadores. */
+    live() {
+      const vehicles = situation.vehicles();
+      const counts = {};
+      for (const v of vehicles) countByMode([v], counts[v.source] ??= {});
+      return {
+        generatedAt: Date.now(),
+        vehicles: busFilter(false)(vehicles),
+        counts,
+        metrics: situation.metrics(),
+        alerts: alerts(),
+        resolved: situation.resolvedAlerts().slice(0, 30),
+        kpis: situation.kpis(),
+      };
+    },
+    liveEvents: () => ({ generatedAt: Date.now(), events: situation.events() }),
+    liveBuses: () => ({ generatedAt: Date.now(), vehicles: situation.vehicles().filter((v) => v.mode === 'bus') }),
 
     snapshot({ buses = true } = {}) {
       const vehicles = situation.vehicles();

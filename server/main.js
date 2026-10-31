@@ -18,6 +18,7 @@ import { createInProcessEventBus } from './adapters/outbound/events/in-process-e
 import { createSources } from './adapters/outbound/sources/index.js';
 import { startPolling } from './adapters/inbound/scheduler/polling-scheduler.js';
 import { createHttpServer } from './adapters/inbound/http/http-server.js';
+import { createWmsTiles } from './adapters/outbound/tiles/wms-tiles.js';
 
 const config = loadConfig();
 const log = createConsoleLogger();
@@ -33,6 +34,7 @@ const network = assertPort('NetworkCatalog', createGtfsNetworkCatalog({ nap, cac
 const situation = assertPort('SituationRepository', createInMemorySituation(), PORT_MEMBERS.SituationRepository);
 const history = assertPort('History', createJsonlHistory({ dir: new URL('history/', config.dataDir), log }), PORT_MEMBERS.History);
 const bus = assertPort('EventPublisher', createInProcessEventBus(), PORT_MEMBERS.EventPublisher);
+const tiles = assertPort('TileProvider', createWmsTiles({ http, dir: fileURLToPath(new URL('tiles/', config.dataDir)), log }), PORT_MEMBERS.TileProvider);
 
 const sources = createSources({ http, cache, stations, nap, log, env: config.env })
   .map((s) => assertPort(`DataSource(${s.id})`, s, PORT_MEMBERS.DataSource));
@@ -48,7 +50,7 @@ for (const s of sources) {
 // --- Casos de uso ----------------------------------------------------------
 const ingestSource = makeIngestSource({ situation, publisher: bus, clock, log });
 const detectAlerts = makeDetectAlerts({ situation, stations, history, publisher: bus, clock });
-const query = makeQuerySituation({ situation, stations, network });
+const query = makeQuerySituation({ situation, stations, network, sources });
 
 // --- Adaptadores de entrada ------------------------------------------------
 await stations.load();
@@ -67,6 +69,7 @@ const server = createHttpServer({
   bus,
   log,
   about: config.about,
+  tiles,
   publicDir: fileURLToPath(new URL('../public/', import.meta.url)).replace(/\/$/, ''),
   vendorDirs: { '/vendor/maplibre/': fileURLToPath(new URL('../node_modules/maplibre-gl/dist/', import.meta.url)).replace(/\/$/, '') },
 });

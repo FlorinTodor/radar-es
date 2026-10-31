@@ -36,15 +36,15 @@ export const LAYER_GROUPS = {
   effis: ['effis-burnt', 'burnt-sel-line'],
 };
 
-const RAIL_TILES = 'https://servicios.idee.es/wms-inspire/transportes?service=WMS&request=GetMap&version=1.3.0'
-  + '&layers=TN.RailTransportNetwork.RailwayLink&styles=&format=image/png&transparent=true&crs=EPSG:3857&width=256&height=256&bbox={bbox-epsg-3857}';
+// Las teselas de IGN y EFFIS salen de nuestro servidor (/tiles), que las guarda y deja que Cloudflare
+// las sirva: con mucha gente, sus servicios reciben cada tesela una vez y no una por visitante.
+const RAIL_TILES = `${location.origin}/tiles/ign-rail/{z}/{x}/{y}.png`;
 // Al invertir sus colores la capa es obra derivada: fórmula de la licencia del IGN con el producto y
 // año de la tabla de productos del SCNE (scne.es/tablaProductos.php).
 const RAIL_ATTRIBUTION = 'Red ferroviaria: Obra derivada de IGR-RT 2026 CC-BY 4.0 <a href="https://www.scne.es" target="_blank" rel="noopener">scne.es</a>';
 
 // Áreas quemadas de los últimos 30 días (Copernicus EFFIS, WMS con CORS abierto).
-const EFFIS_TILES = 'https://maps.effis.emergency.copernicus.eu/effis?service=WMS&request=GetMap&version=1.1.1&layers=modis.ba.month'
-  + '&styles=&format=image/png&transparent=true&srs=EPSG:3857&width=256&height=256&bbox={bbox-epsg-3857}';
+const EFFIS_TILES = `${location.origin}/tiles/effis/{z}/{x}/{y}.png`;
 const EFFIS_ATTRIBUTION = '© European Union, 1995-2025 · <a href="https://forest-fire.emergency.copernicus.eu/about-effis/data-license" '
   + 'target="_blank" rel="noopener">EFFIS – Copernicus Emergency Management Service</a> · CC BY 4.0';
 
@@ -363,7 +363,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     const sw = map.unproject([point.x - 4, point.y + 4]);
     const ne = map.unproject([point.x + 4, point.y - 4]);
     try {
-      const res = await fetch(`${EFFIS_WFS}&bbox=${sw.lng},${sw.lat},${ne.lng},${ne.lat}`);
+      const res = await fetch(`/api/burnt-areas?bbox=${sw.lng},${sw.lat},${ne.lng},${ne.lat}`);
       const { features = [] } = res.ok ? await res.json() : {};
       if (click !== clicks) return;
       const areas = features.map((f) => lonLatFeature(f, at));
@@ -431,7 +431,9 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
           continue;
         }
         const from = prev ? position(prev, now) : to;
-        const jump = Math.abs(from[0] - to[0]) > MAX_ANIM_DEG || Math.abs(from[1] - to[1]) > MAX_ANIM_DEG;
+        // Las posiciones estimadas cambian a saltos de una lectura a otra (a veces cientos de metros por
+        // la calle): deslizarlas en línea recta las haría cruzar manzanas, así que saltan.
+        const jump = v.estimated || Math.abs(from[0] - to[0]) > MAX_ANIM_DEG || Math.abs(from[1] - to[1]) > MAX_ANIM_DEG;
         next.set(v.id, { from: jump ? to : from, to, t0: now, props });
       }
       anims = next;
@@ -597,18 +599,18 @@ function vehicleDetail(v) {
   const note = !v.estimated
     ? 'La <strong>línea azul discontinua</strong> es el recorrido de este tren en los últimos 45 min (desde que el radar lo sigue). '
       + 'La × sólo cierra esta ficha; pulsa en una zona vacía del mapa para quitar la selección.'
-    : v.delay !== null && v.delay !== undefined
-      ? '<strong>Posición estimada</strong> a partir del horario y del retraso real que publica el operador: no es GPS.'
-      : '<strong>Posición estimada</strong> a partir del horario publicado: no es GPS y no refleja retrasos.'
-        + (v.atLastStop ? ' El operador no publica el recorrido entre paradas, así que se muestra en la última parada por la que ha pasado.' : '');
+    : (v.delay !== null && v.delay !== undefined
+      ? '<strong>Posición estimada</strong> a partir del horario y del retraso real que publica el operador: no es GPS. '
+      : '<strong>Posición estimada</strong> a partir del horario publicado: no es GPS y no refleja retrasos. ')
+      + (v.atLastStop
+        ? 'El operador no publica el recorrido entre paradas, así que se muestra en la última parada por la que ha pasado.'
+        : 'Se mueve a saltos, en cada actualización. Si su ruta tiene trazado publicado, la <strong>línea azul discontinua</strong> '
+          + 'es el tramo que habría recorrido en los últimos 45 min según el horario.');
   const badge = v.estimated ? '<div class="est-badge">Posición estimada · no es GPS</div>' : '';
   return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>
     <div class="note">${note}</div></div>`;
 }
 
-// Áreas quemadas del último mes como polígonos con sus datos (WFS de EFFIS, CORS abierto).
-const EFFIS_WFS = 'https://maps.effis.emergency.copernicus.eu/effis?service=WFS&version=1.0.0&request=GetFeature'
-  + '&typename=ms:modis.ba.poly.month&outputformat=geojson';
 
 /**
  * EFFIS devuelve las coordenadas en orden [lat, lon] aunque GeoJSON pide [lon, lat]. Como se pide
