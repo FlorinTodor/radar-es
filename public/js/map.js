@@ -93,8 +93,8 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
   let showObras = false;
   let focus = null; // { vehicleIds, eventIds } mientras hay alertas seleccionadas
 
-  // Filtro base de cada capa de trenes y de sucesos. El modo foco le añade "y sólo estos ids"
-  // y hace visibles las capas, aunque el usuario las tuviera apagadas.
+  // Filtro base de cada capa de trenes y de sucesos. El modo foco le añade "y sólo estos ids";
+  // qué capas se ven lo siguen decidiendo las casillas del panel.
   const category = (c) => ['==', ['get', 'category'], c];
   const VEHICLE_FILTERS = {
     'veh-halo': ['==', ['get', 'alert'], 1],
@@ -119,12 +119,11 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     if (!loaded) return;
     const only = (ids, base) => ['all', base ?? true, ['in', ['get', 'id'], ['literal', ids]]];
     for (const [id, base] of Object.entries(VEHICLE_FILTERS)) {
-      map.setFilter(id, focus ? only(focus.vehicleIds, base) : vehicleFilter(base));
+      map.setFilter(id, focus ? only(focus.vehicleIds, vehicleFilter(base)) : vehicleFilter(base));
     }
     for (const [id, entry] of Object.entries(EVENT_FILTERS)) {
       const base = typeof entry === 'function' ? entry() : entry;
       map.setFilter(id, focus ? only(focus.eventIds, base) : base);
-      if (focus) map.setLayoutProperty(id, 'visibility', 'visible');
     }
   }
 
@@ -478,9 +477,9 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     },
 
     /**
-     * Muestra sólo los trenes y sucesos indicados (alertas seleccionadas), aunque sus capas
-     * estuvieran apagadas. Con null se vuelve a los filtros normales; quien llama debe
-     * restaurar después la visibilidad de las capas según las preferencias del usuario.
+     * Muestra sólo los trenes y sucesos indicados (alertas seleccionadas) de las capas que estén
+     * encendidas; quien llama enciende antes las que hagan falta. Con null se vuelve a los
+     * filtros normales.
      * @param {{ vehicleIds: string[], eventIds: string[] } | null} f
      */
     setFocus(f) {
