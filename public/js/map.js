@@ -584,13 +584,15 @@ function createDetailCard(host) {
 }
 
 function vehicleDetail(v) {
+  // La vía es la de una estación (en la que está parado o a la que llega), nunca la del trayecto:
+  // va pegada a esa estación para que no se lea como la vía por la que circula.
+  const via = v.platform ? ` · vía ${v.platform}` : '';
   const rows = [
     ['Tipo', MODE_LABEL[v.mode] ?? v.mode],
     (v.origin || v.destination) && ['Recorrido', `${v.origin ?? '?'} → ${v.destination ?? '?'}`],
     ['Retraso', fmtDelay(v)],
-    v.current && [v.mode === 'bus' ? 'Última parada' : 'Última estación', v.current],
-    v.next && ['Próxima', `${v.next}${v.nextEta ? ` (${fmtLocalHour(v.nextEta)})` : v.nextInMinutes !== undefined && v.nextInMinutes !== null ? ` (en ${v.nextInMinutes} min)` : ''}`],
-    v.platform && ['Vía', v.platform],
+    v.current && [v.stopped ? 'Parado en' : v.mode === 'bus' ? 'Última parada' : 'Última estación', `${v.current}${v.stopped ? via : ''}`],
+    v.next && ['Próxima', `${v.next}${v.nextEta ? ` (${fmtLocalHour(v.nextEta)})` : v.nextInMinutes !== undefined && v.nextInMinutes !== null ? ` (en ${v.nextInMinutes} min)` : ''}${v.stopped ? '' : via}`],
     v.area && ['Núcleo', v.area],
     v.rollingStock && ['Material', v.rollingStock],
     v.fixTime && ['GPS', timeAgo(v.fixTime)],
