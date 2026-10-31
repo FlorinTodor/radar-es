@@ -98,6 +98,9 @@ desde la rama `produccion`: ver [`docs/despliegue.md`](docs/despliegue.md).
 2. Regístrala en `server/adapters/outbound/sources/index.js`.
 3. Si necesita clave, declara `requires: ['MI_CLAVE']`. Se activará sola cuando la variable
    exista en `.env`.
+4. Si la URL del dato no es una página para personas (un JSON, un .pb), añade `page` con la ficha
+   pública del conjunto de datos: es lo que enlaza el panel de Fuentes.
+5. Añade su fila de licencia y atribución en `public/legal.html`.
 
 ### Añadir una regla de alerta
 
