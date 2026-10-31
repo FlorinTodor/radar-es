@@ -150,6 +150,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
     kind: 'vehicles',
     interval: 20_000,
     url: `${GTFSRT}/vehicle_positions.json`,
+    page: 'https://data.renfe.com/dataset/ubicacion-vehiculos',
     license: ATTRIBUTION,
     async fetch() {
       await timetables.loadCercanias();
@@ -188,6 +189,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
     kind: 'vehicles',
     interval: 20_000,
     url: `${GTFSRT}/vehicle_positions_LD.json`,
+    page: 'https://data.renfe.com/dataset/posicion-vehiculos-av-ld-md',
     license: ATTRIBUTION,
     async fetch() {
       await timetables.loadLd();
@@ -251,6 +253,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
     kind: 'events',
     interval: 120_000,
     url: `${GTFSRT}/alerts.json`,
+    page: 'https://data.renfe.com/dataset/incidencias-avisos',
     license: ATTRIBUTION,
     async fetch() {
       await timetables.loadCercanias();

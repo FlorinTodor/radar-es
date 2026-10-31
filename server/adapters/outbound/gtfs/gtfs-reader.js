@@ -54,13 +54,14 @@ export async function openGtfs(zipBytes, files) {
   });
   const out = {};
   for (const e of wanted) {
-    out[e.name] = e.method === 0 ? e.data : await inflate(e.data, { chunkSize: Math.min(Math.max(e.usize, MIN_CHUNK), MAX_CHUNK) });
+    out[e.name] = e.method === 0 ? e.data : await inflate(e.data, { chunkSize: Math.min(Math.max(e.usize, MIN_CHUNK), MAX_CHUNK), maxOutputLength: MAX_CHUNK });
   }
   return out;
 }
 
 // El tamaño descomprimido lo declara el propio ZIP: se acota por si viene mal (si se queda corto,
-// zlib sigue con más bloques; si es enorme, no se reserva de golpe más de 512 MB).
+// zlib sigue con más bloques; si es enorme, no se reserva de golpe más de 512 MB). Ningún fichero
+// puede pasar de 512 MB descomprimido: un ZIP malicioso (bomba de descompresión) da error.
 const MIN_CHUNK = 64 * 1024;
 const MAX_CHUNK = 512 * 1024 * 1024;
 

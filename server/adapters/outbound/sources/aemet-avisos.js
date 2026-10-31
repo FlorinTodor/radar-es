@@ -1,6 +1,6 @@
 // AEMET: avisos meteorológicos en CAP con el polígono de cada zona (sin clave).
 // El RSS lista los CAP vigentes; cada CAP es inmutable, así que sólo se descargan los nuevos.
-import { arr, num, text, xmlParser } from './parse.js';
+import { arr, lookup, num, text, xmlParser } from './parse.js';
 import { roughCentroid } from '../../../domain/geo.js';
 
 const RSS = 'https://www.aemet.es/documentos_d/eltiempo/prediccion/avisos/rss/CAP_AFAE_wah_RSS.xml';
@@ -24,7 +24,7 @@ function parseCap(xml) {
   const params = Object.fromEntries(arr(info.parameter).map((p) => [text(p.valueName), text(p.value)]));
   // AEMET usa "AEMET-Meteoalerta nivel: amarillo"; MeteoAlarm, "awareness_level: 2; yellow; Moderate".
   const aemetLevel = params['AEMET-Meteoalerta nivel']?.trim().toLowerCase();
-  const level = SEVERITY[aemetLevel] ? aemetLevel : LEVELS[(params.awareness_level ?? '').split(';')[1]?.trim()];
+  const level = lookup(SEVERITY, aemetLevel) ? aemetLevel : lookup(LEVELS, (params.awareness_level ?? '').split(';')[1]?.trim());
   if (!level) return []; // nivel verde = sin aviso
   // "Aviso de tormentas de nivel amarillo" → "tormentas"
   const phenomenon = (text(info.event) ?? 'fenómenos adversos').replace(/^aviso (de|por)\s+/i, '').replace(/\s+de nivel \w+$/i, '');

@@ -22,7 +22,7 @@ export function createInMemorySituation() {
   return {
     registerSource(src, { enabled, reason }) {
       sources.set(src.id, {
-        meta: { id: src.id, name: src.name, kind: src.kind, interval: src.interval, license: src.license ?? null, url: publicUrl(src.url) },
+        meta: { id: src.id, name: src.name, kind: src.kind, interval: src.interval, license: src.license ?? null, url: publicUrl(src.page ?? src.url) },
         status: { enabled, reason: reason ?? null, ok: null, lastOk: null, lastError: null, error: null, count: null, sourceTime: null, datasetUpdated: null, datasetUpdatedFrom: null, ms: null },
         data: null,
       });
@@ -41,7 +41,7 @@ export function createInMemorySituation() {
     },
 
     saveFailure(id, error, at) {
-      Object.assign(sources.get(id).status, { ok: false, lastError: at, error: error.message });
+      Object.assign(sources.get(id).status, { ok: false, lastError: at, error: publicError(error) });
     },
 
     source: (id) => sources.get(id),
@@ -69,6 +69,12 @@ export function createInMemorySituation() {
     },
     kpiHistory: () => kpiHistory,
   };
+}
+
+// El estado de las fuentes es público (/api/health): los errores salen sin rutas del servidor
+// (un fallo de disco diría «/app/data/cache/…»). El detalle completo ya queda en el log.
+function publicError(error) {
+  return String(error?.message ?? error).replace(/(?<=^|[\s'"(])(?:file:\/\/)?\/(?:app|home|opt|root|srv|tmp|usr|var)\/[^\s'")]*/g, '[ruta interna]');
 }
 
 // Nunca exponemos claves de API que vayan en la URL.
