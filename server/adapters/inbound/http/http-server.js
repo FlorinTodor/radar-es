@@ -14,6 +14,9 @@ const MIME = {
 };
 
 const SSE_HEARTBEAT_MS = 25_000;
+// El estado de las fuentes (decenas, con sus licencias) cambia con cada lectura: se agrupa y se envía
+// como mucho cada 15 s por conexión, en vez de en cada actualización.
+const SSE_HEALTH_EVERY_MS = 15_000;
 
 /**
  * @param {{ query: ReturnType<typeof import('../../../application/use-cases/query-situation.js').makeQuerySituation>,
@@ -47,7 +50,7 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
       const url = new URL(req.url, 'http://localhost');
       if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'Método no permitido' });
 
-      if (url.pathname === '/api/stream') return stream(req, res);
+      if (url.pathname === '/api/stream') return stream(req, res, url.searchParams.get('buses') === '1');
       if (routes[url.pathname]) return sendJson(req, res, 200, routes[url.pathname](url.searchParams));
       if (url.pathname.startsWith('/api/tracks/')) {
         const track = query.track(decodeURIComponent(url.pathname.slice('/api/tracks/'.length)));
@@ -66,7 +69,8 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
     }
   });
 
-  function stream(req, res) {
+  /** @param {boolean} buses  El cliente tiene activada la capa de autobuses. */
+  function stream(req, res, buses) {
     // Detrás del túnel todas las conexiones vienen de cloudflared (127.0.0.1); la IP real la pone
     // Cloudflare. Es fiable porque el puerto sólo escucha en local y no se puede llegar saltándose el túnel.
     const release = streams.acquire(req.headers['cf-connecting-ip'] ?? req.socket.remoteAddress);
@@ -81,20 +85,28 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
       'X-Accel-Buffering': 'no',
     });
     const emit = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-    emit('snapshot', query.snapshot());
+    emit('snapshot', query.snapshot({ buses }));
 
+    let healthTimer = null;
+    const emitHealthSoon = () => {
+      healthTimer ??= setTimeout(() => {
+        healthTimer = null;
+        emit('health', query.health());
+      }, SSE_HEALTH_EVERY_MS);
+    };
     const unsubscribe = [
       bus.subscribe('source.updated', ({ id }) => {
-        const payload = query.sourcePayload(id);
+        const payload = query.sourcePayload(id, { buses });
         if (payload) emit('source', payload);
-        emit('health', query.health());
+        emitHealthSoon();
       }),
-      bus.subscribe('source.failed', () => emit('health', query.health())),
+      bus.subscribe('source.failed', emitHealthSoon),
       bus.subscribe('alerts.updated', ({ alerts, kpis }) => emit('alerts', { alerts, kpis, resolved: query.resolvedAlerts().slice(0, 30) })),
     ];
     const heartbeat = setInterval(() => res.write(': ping\n\n'), SSE_HEARTBEAT_MS);
     req.on('close', () => {
       clearInterval(heartbeat);
+      clearTimeout(healthTimer);
       unsubscribe.forEach((off) => off());
       release();
     });
