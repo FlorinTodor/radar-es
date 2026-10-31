@@ -6,9 +6,27 @@
  *   arr/dep en segundos desde el inicio del día de servicio (pueden pasar de 86400).
  */
 
+const TIME_RE = /^\s*(\d+):(\d{2}):(\d{2})\s*$/;
+const digitAt = (s, i) => {
+  const d = s.charCodeAt(i) - 48;
+  return d >= 0 && d <= 9 ? d : -1;
+};
+
 /** "25:10:00" → 90600. Devuelve null si el formato no es válido. */
 export function gtfsTimeToSeconds(s) {
-  const m = /^\s*(\d+):(\d{2}):(\d{2})\s*$/.exec(s ?? '');
+  // Camino rápido sin expresión regular para el caso normal "H…H:MM:SS" (se llama dos veces por cada
+  // fila de stop_times, millones al cargar los horarios); lo demás (espacios alrededor…), con ella.
+  if (typeof s === 'string') {
+    const n = s.length;
+    let h = 0;
+    let i = 0;
+    for (let d = digitAt(s, 0); d >= 0 && i < n - 6; d = digitAt(s, ++i)) h = h * 10 + d;
+    if (i > 0 && i === n - 6 && s.charCodeAt(i) === 58 && s.charCodeAt(i + 3) === 58) {
+      const m1 = digitAt(s, i + 1); const m2 = digitAt(s, i + 2); const s1 = digitAt(s, i + 4); const s2 = digitAt(s, i + 5);
+      if (m1 >= 0 && m2 >= 0 && s1 >= 0 && s2 >= 0) return h * 3600 + (m1 * 10 + m2) * 60 + s1 * 10 + s2;
+    }
+  }
+  const m = TIME_RE.exec(s ?? '');
   return m ? +m[1] * 3600 + +m[2] * 60 + +m[3] : null;
 }
 

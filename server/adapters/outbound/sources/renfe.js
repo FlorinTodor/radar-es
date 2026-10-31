@@ -3,7 +3,7 @@
 // Operadora"): el GTFS-RT de gtfsrt.renfe.com y sus GTFS de horarios para saber el producto,
 // el origen y el destino de cada tren. Los endpoints internos de sus visores web no se usan:
 // no tienen licencia de reutilización.
-import { createPacer, csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
+import { createPacer, csvColumns, csvRows, openGtfs, own } from '../gtfs/gtfs-reader.js';
 import { RENFE_FILES } from '../stations/renfe-station-catalog.js';
 import { num } from './parse.js';
 
@@ -38,16 +38,17 @@ function createTimetables({ cache, stations, log }) {
       const routes = new Map([...csvRows(f['routes.txt'])].map((r) => [r.route_id, r.route_short_name]));
       const ends = new Map(); // trip_id → [primera parada, última parada]
       const pace = createPacer();
-      for (const st of csvRows(f['stop_times.txt'])) {
+      for (const [tripId, stopId, stopSequence] of csvColumns(f['stop_times.txt'], ['trip_id', 'stop_id', 'stop_sequence'])) {
         if (pace.due()) await pace.pause();
-        const seq = +st.stop_sequence;
-        const e = ends.get(st.trip_id) ?? [[Infinity], [-Infinity]];
-        if (seq < e[0][0]) e[0] = [seq, st.stop_id];
-        if (seq > e[1][0]) e[1] = [seq, st.stop_id];
-        ends.set(st.trip_id, e);
+        const seq = +stopSequence;
+        let e = ends.get(tripId);
+        if (!e) ends.set(own(tripId), (e = [[Infinity], [-Infinity]]));
+        if (seq < e[0][0]) e[0] = [seq, own(stopId)];
+        if (seq > e[1][0]) e[1] = [seq, own(stopId)];
       }
       const next = new Map();
       for (const t of csvRows(f['trips.txt'])) {
+        if (pace.due()) await pace.pause();
         const [service, mode] = product(routes.get(t.route_id));
         const e = ends.get(t.trip_id);
         next.set(t.trip_id, { service, mode, origin: e ? stations.name(e[0][1]) : null, destination: e ? stations.name(e[1][1]) : null });
@@ -71,9 +72,11 @@ function createTimetables({ cache, stations, log }) {
         routes.set(r.route_id, { line: r.route_short_name || null, origin: origin || null, destination: destination || null });
       }
       const next = new Map();
-      for (const t of csvRows(f['trips.txt'])) {
-        const route = routes.get(t.route_id);
-        if (route) next.set(t.trip_id, route);
+      const pace = createPacer(); // 250.000 viajes
+      for (const [tripId, routeId] of csvColumns(f['trips.txt'], ['trip_id', 'route_id'])) {
+        if (pace.due()) await pace.pause();
+        const route = routes.get(routeId);
+        if (route) next.set(own(tripId), route);
       }
       cerc = next;
     } catch (err) {
