@@ -252,7 +252,7 @@ body.doc { overflow: auto; display: block; }
 .doc-body th, .doc-body td { padding: 8px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
 .doc-body th { color: var(--ink); background: var(--surface); font-weight: 600; }
 .doc-body tr:last-child td { border-bottom: 0; }
-/* En el móvil las tablas pasan a fichas apiladas (legal.html pone data-label en cada celda). */
+/* En el móvil las tablas pasan a fichas apiladas (la página legal pone data-label en cada celda). */
 @media (max-width: 640px) {
   .doc-body thead { display: none; }
   .doc-body tr { display: block; padding: 10px 12px; border-bottom: 1px solid var(--border); }

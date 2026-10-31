@@ -29,8 +29,15 @@ function createTimetables({ cache, stations, log }) {
   let ld = new Map();   // trip_id → { service, mode, origin, destination }
   let cerc = new Map(); // trip_id → { line, origin, destination }
   const loadedAt = { ld: 0, cerc: 0 };
+  // Las dos fuentes de Renfe piden los horarios a la vez al arrancar: mientras una carga está en
+  // marcha, las demás llamadas esperan a esa misma en vez de leer otra vez el GTFS en paralelo.
+  const loading = {};
+  const once = (name, load) => (loading[name] ??= load().finally(() => { loading[name] = null; }));
 
-  async function loadLd() {
+  const loadLd = () => once('ld', loadLdNow);
+  const loadCercanias = () => once('cerc', loadCercaniasNow);
+
+  async function loadLdNow() {
     if (ld.size && Date.now() - loadedAt.ld < TIMETABLE_TTL_MS) return;
     loadedAt.ld = Date.now(); // aunque falle, no reintentar en cada lectura
     try {
@@ -48,6 +55,7 @@ function createTimetables({ cache, stations, log }) {
       }
       const next = new Map();
       for (const t of csvRows(f['trips.txt'])) {
+        if (pace.due()) await pace.pause();
         const [service, mode] = product(routes.get(t.route_id));
         const e = ends.get(t.trip_id);
         next.set(t.trip_id, { service, mode, origin: e ? stations.name(e[0][1]) : null, destination: e ? stations.name(e[1][1]) : null });
@@ -58,7 +66,7 @@ function createTimetables({ cache, stations, log }) {
     }
   }
 
-  async function loadCercanias() {
+  async function loadCercaniasNow() {
     if (cerc.size && Date.now() - loadedAt.cerc < TIMETABLE_TTL_MS) return;
     loadedAt.cerc = Date.now();
     try {
@@ -71,7 +79,9 @@ function createTimetables({ cache, stations, log }) {
         routes.set(r.route_id, { line: r.route_short_name || null, origin: origin || null, destination: destination || null });
       }
       const next = new Map();
-      for (const t of csvRows(f['trips.txt'])) {
+      const pace = createPacer();
+      for (const t of csvRows(f['trips.txt'])) { // 140.000 viajes
+        if (pace.due()) await pace.pause();
         const route = routes.get(t.route_id);
         if (route) next.set(t.trip_id, route);
       }
