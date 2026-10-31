@@ -80,7 +80,9 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
       // El directo antiguo (SSE) se mantiene para las pestañas que se abrieron antes del cambio.
       if (url.pathname === '/api/stream') return stream(req, res, url.searchParams.get('buses') === '1');
       if (url.pathname.startsWith('/api/tracks/')) {
-        const track = query.track(decodeURIComponent(url.pathname.slice('/api/tracks/'.length)));
+        const id = decodeOrNull(url.pathname.slice('/api/tracks/'.length));
+        if (id === null) return send(res, 400, { error: 'Ruta inválida' });
+        const track = query.track(id);
         return track ? sendJson(req, res, 200, track) : send(res, 404, { error: 'Vehículo sin historial' });
       }
       if (url.pathname.startsWith('/api/')) return send(res, 404, { error: 'Ruta no encontrada' });
@@ -240,6 +242,15 @@ export function cleanPagePath(pathname) {
   trim(); // «/foo/.html» → «/foo/» → «/foo», en una sola redirección
   if (path === '/index' || path === '') path = '/';
   return path;
+}
+
+/** decodeURIComponent sin excepciones: null si la ruta trae un %-escape roto (p. ej. «%E0%A4%A»). */
+function decodeOrNull(text) {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return null;
+  }
 }
 
 function send(res, status, body) {
