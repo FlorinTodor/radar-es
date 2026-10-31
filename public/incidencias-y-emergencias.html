@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Incidencias de tráfico, incendios y avisos en tiempo real</title>
+  <meta name="description" content="Incidencias de tráfico de la DGT, avisos meteorológicos de AEMET, focos de incendio, áreas quemadas, terremotos y demanda eléctrica de España en un mapa en directo que se actualiza solo.">
+  <link rel="canonical" href="https://xn--radarespaa-19a.es/incidencias-y-emergencias">
+  <meta name="theme-color" content="#1a1a19">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Radar España">
+  <meta property="og:locale" content="es_ES">
+  <meta property="og:title" content="Incidencias y emergencias en España en tiempo real · Radar España">
+  <meta property="og:description" content="Tráfico, avisos de AEMET, incendios, terremotos y red eléctrica en un solo mapa en directo.">
+  <meta property="og:url" content="https://xn--radarespaa-19a.es/incidencias-y-emergencias">
+  <meta property="og:image" content="https://xn--radarespaa-19a.es/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/favicon.ico" sizes="48x48">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="stylesheet" href="/style.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Radar España", "item": "https://xn--radarespaa-19a.es/" },
+      { "@type": "ListItem", "position": 2, "name": "Incidencias y emergencias", "item": "https://xn--radarespaa-19a.es/incidencias-y-emergencias" }
+    ]
+  }
+  </script>
+</head>
+<body class="doc">
+  <header class="topbar">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="5.5" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".6"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>
+      <span>Radar España</span>
+    </a>
+    <a class="back" href="/">Abrir el mapa en directo →</a>
+  </header>
+
+  <main class="doc-body">
+    <nav class="crumbs" aria-label="Estás en"><a href="/">Radar España</a> › Incidencias y emergencias</nav>
+    <h1>Incidencias y emergencias en España en tiempo real</h1>
+    <p class="lead">El mapa de Radar España junta en un solo sitio las incidencias de tráfico, los avisos meteorológicos,
+      los incendios, los terremotos y el estado de la red eléctrica, a partir de las fuentes oficiales que los publican.
+      Están en la pestaña <strong>Incidencias</strong>, con filtros por tipo, y cada una se puede ver en el mapa.</p>
+
+    <h2>Tráfico</h2>
+    <p>Accidentes, obras, retenciones, cortes y otras incidencias en carretera. La <strong>DGT</strong> publica las de casi
+      toda España; Cataluña y el País Vasco tienen su propia autoridad de tráfico, así que se añaden las del
+      <strong>Servei Català de Trànsit</strong> y las de <strong>Open Data Euskadi</strong> (incluidas Bilbao,
+      Vitoria-Gasteiz y Donostia).</p>
+
+    <h2>Avisos meteorológicos</h2>
+    <p>Los avisos de <strong>AEMET</strong> por lluvia, viento, nieve, calor, tormentas o fenómenos costeros, con su nivel
+      (amarillo, naranja o rojo), la zona afectada y el periodo en que están vigentes. Si hay trenes circulando dentro
+      de una zona con aviso importante, se indica en la alerta.</p>
+
+    <h2>Incendios</h2>
+    <ul>
+      <li><strong>Focos de calor</strong> detectados por los satélites de la NASA (FIRMS). Un foco es un posible incendio,
+        no una confirmación: también pueden ser quemas agrícolas o instalaciones industriales.</li>
+      <li><strong>Áreas quemadas</strong> que delimita el sistema europeo de información sobre incendios forestales
+        (Copernicus EFFIS), en una capa semitransparente.</li>
+      <li>Si hay un foco a pocos kilómetros de trenes en circulación, aparece una alerta.</li>
+    </ul>
+
+    <h2>Terremotos</h2>
+    <p>Los terremotos del catálogo del <strong>Instituto Geográfico Nacional</strong> en España y su entorno, con su
+      magnitud y su hora. Son datos preliminares que el IGN revisa después. Los que superan cierta magnitud generan una
+      alerta que indica cuántos trenes circulan cerca.</p>
+
+    <h2>Catástrofes internacionales</h2>
+    <p>Las alertas del sistema mundial de alerta y coordinación de catástrofes (<strong>GDACS</strong>) que afectan a
+      España: inundaciones, ciclones, terremotos o erupciones volcánicas, como en Canarias.</p>
+
+    <h2>Red eléctrica y apagones</h2>
+    <p>La demanda eléctrica peninsular de <strong>Red Eléctrica</strong>, comparada con la prevista. Si cae de forma brusca
+      por debajo de lo previsto, Radar España lanza una alerta de posible apagón o de un corte grande. Es una estimación
+      propia a partir de los datos públicos, no un aviso de Red Eléctrica.</p>
+
+    <h2>Avisos del transporte</h2>
+    <p>Los avisos de servicio de Renfe (incluidos los trenes de Cercanías cancelados), el estado de cada línea de
+      Rodalies de Catalunya y los avisos de la EMT de Madrid. Los trenes, metros y autobuses se explican en
+      <a href="/trenes-en-tiempo-real">trenes en tiempo real</a> y en
+      <a href="/metro-tranvia-autobus">metro, tranvía y autobús</a>.</p>
+
+    <h2>Antes de usarlo</h2>
+    <p>Radar España no es una web oficial: muestra los datos tal y como los publican sus fuentes, con un retraso de
+      segundos a minutos, y <strong>no sustituye a los avisos de protección civil ni de las autoridades</strong>. Ante una
+      emergencia, llama al <strong>112</strong>. Las fuentes y sus licencias están en
+      <a href="/legal#fuentes">fuentes y licencias</a>.</p>
+
+    <p class="cta"><a class="btn" href="/">Ver las incidencias en el mapa</a></p>
+  </main>
+
+  <footer class="doc-foot">
+    <nav aria-label="Más información">
+      <a href="/">Mapa en directo</a> · <a href="/que-es-radar-espana">Qué es Radar España</a> ·
+      <a href="/trenes-en-tiempo-real">Trenes en tiempo real</a> · <a href="/metro-tranvia-autobus">Metro, tranvía y autobús</a> ·
+      <a href="/legal">Aviso legal, privacidad y fuentes</a>
+    </nav>
+  </footer>
+
+  <script type="module" src="/js/analytics.js"></script>
+</body>
+</html>

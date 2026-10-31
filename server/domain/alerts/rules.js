@@ -194,7 +194,7 @@ export function gridDemandDrop(ctx) {
   return [{
     id: 'red-electrica', type: 'red-electrica', severity: m.deviation <= th.gridDropCritical ? 'muy alta' : 'alta',
     title: `Demanda eléctrica ${Math.round(m.deviation * 100)} % por debajo de lo previsto`,
-    description: `Real ${m.demandMW} MW frente a ${m.forecastMW} MW previstos. Una caída brusca puede indicar un apagón o un corte grande (estimación de Radar ES con datos de Red Eléctrica).`,
+    description: `Real ${m.demandMW} MW frente a ${m.forecastMW} MW previstos. Una caída brusca puede indicar un apagón o un corte grande (estimación de Radar España con datos de Red Eléctrica).`,
   }];
 }
 

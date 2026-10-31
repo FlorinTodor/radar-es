@@ -52,9 +52,9 @@ const LEVEL_COLOR = ['match', ['get', 'level'], 'rojo', STATUS.critical, 'naranj
 const LEVEL_ORDER = { amarillo: 0, naranja: 1, rojo: 2 };
 
 const today = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', dateStyle: 'short' }).format(new Date());
-// Textos que exigen las licencias (el resto de atribuciones están en /legal.html#fuentes).
+// Textos que exigen las licencias (el resto de atribuciones están en /legal#fuentes).
 const ATTRIBUTION = [
-  '<a href="/legal.html#fuentes">Fuentes y licencias</a>',
+  '<a href="/legal#fuentes">Fuentes y licencias</a>',
   'Powered by <a href="https://www.transportes.gob.es/" target="_blank" rel="noopener">MITRAMS</a>',
   'Powered by <a href="https://www.crtm.es/" target="_blank" rel="noopener">CRTM</a>',
   'Powered by <a href="https://www.tram.cat/" target="_blank" rel="noopener">TRAM Barcelona</a>',
@@ -76,7 +76,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     maxPitch: 0,
     // Desplegada en pantallas anchas. En el móvil (≤ 640 px) MapLibre la muestra al cargar y la
     // pliega en un botón (i) al mover el mapa, como permiten las normas de atribución de OSM;
-    // además todas las atribuciones están en /legal.html.
+    // además todas las atribuciones están en /legal.
     attributionControl: { customAttribution: ATTRIBUTION },
   });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');

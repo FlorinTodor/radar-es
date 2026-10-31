@@ -75,7 +75,7 @@ const server = createHttpServer({
 });
 
 server.listen(config.port, config.host, () => {
-  log.info(`Radar ES escuchando en http://${config.host}:${config.port} · ${enabledSources.length}/${sources.length} fuentes activas`);
+  log.info(`Radar España escuchando en http://${config.host}:${config.port} · ${enabledSources.length}/${sources.length} fuentes activas`);
 });
 
 function shutdown() {
