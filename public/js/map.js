@@ -295,7 +295,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       clicks++;
       const f = map.queryRenderedFeatures(e.point, { layers: clickable })[0];
       if (!f) {
-        clearSelection(); // clic en una zona vacía: se quita la selección…
+        clearSelection(); // clic en una zona vacía: se quitan el anillo, el recorrido y la ficha…
         // …pero las áreas quemadas son una imagen (WMS): se pregunta a EFFIS si hay una en ese punto.
         if (map.getLayoutProperty('effis-burnt', 'visibility') === 'visible') showBurntAreaAt(e.point);
         return;
@@ -599,7 +599,7 @@ function vehicleDetail(v) {
   ].filter(Boolean);
   const note = !v.estimated
     ? 'La <strong>línea azul discontinua</strong> es el recorrido de este tren en los últimos 45 min (desde que el radar lo sigue). '
-      + 'La × sólo cierra esta ficha; pulsa en una zona vacía del mapa para quitar la selección.'
+      + 'La × sólo cierra esta ficha; pulsa en una zona vacía del mapa para quitar el recorrido y «Ver todo» para volver a verlo todo.'
     : (v.delay !== null && v.delay !== undefined
       ? '<strong>Posición estimada</strong> a partir del horario y del retraso real que publica el operador: no es GPS. '
       : '<strong>Posición estimada</strong> a partir del horario publicado: no es GPS y no refleja retrasos. ')
