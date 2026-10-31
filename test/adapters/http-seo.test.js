@@ -64,6 +64,7 @@ test('una página que no existe devuelve 404 en HTML y sin indexar', async () =>
   assert.match(res.headers.get('content-type'), /text\/html/);
   assert.match(await res.text(), /<meta name="robots" content="noindex">/);
   assert.match((await get('/no-existe.js')).headers.get('content-type'), /application\/json/, 'un fichero que falta sigue siendo JSON');
+  assert.equal((await get('/404')).status, 404, '/404 no es una página propia');
 });
 
 test('la API no se indexa', async () => {
