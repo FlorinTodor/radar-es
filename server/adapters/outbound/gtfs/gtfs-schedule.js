@@ -28,7 +28,9 @@ const titleCase = (s) => (/[a-z]/.test(s) ? s : s.toLowerCase().replace(/(^|[\s(
  */
 export async function parseSchedule(zip, forcedMode, days, { excludeAgency, excludeRoute } = {}) {
   const pace = createPacer(); // horarios de millones de filas: sin bloquear el servidor mientras se leen
-  const f = await openGtfs(zip, ['agency.txt', 'routes.txt', 'trips.txt', 'stops.txt', 'stop_times.txt', 'calendar.txt', 'calendar_dates.txt', 'frequencies.txt', 'shapes.txt']);
+  // stop_times.txt y shapes.txt (los grandes: hasta 100 MB) se descomprimen cada uno sólo mientras se
+  // recorre: con varios hilos leyendo a la vez, cada uno tiene así un solo fichero grande en memoria.
+  const f = await openGtfs(zip, ['agency.txt', 'routes.txt', 'trips.txt', 'stops.txt', 'calendar.txt', 'calendar_dates.txt', 'frequencies.txt']);
 
   const agencies = new Map([...csvRows(f['agency.txt'])].map((a) => [a.agency_id, a.agency_name]));
   const routes = new Map();
@@ -79,7 +81,9 @@ export async function parseSchedule(zip, forcedMode, days, { excludeAgency, excl
   // Las paradas de todos los viajes van en un único array tipado (seq, índice de parada, llegada,
   // salida): como objetos, o con un array por viaje, ocuparían cientos de MB.
   const stopTimeColumns = ['trip_id', 'stop_id', 'stop_sequence', 'arrival_time', 'departure_time'];
-  for (const [tripId, stopId, seq, arrival, departure] of csvColumns(f['stop_times.txt'], stopTimeColumns)) {
+  f['stops.txt'] = f['trips.txt'] = null;
+  let { 'stop_times.txt': stopTimes } = await openGtfs(zip, ['stop_times.txt']);
+  for (const [tripId, stopId, seq, arrival, departure] of csvColumns(stopTimes, stopTimeColumns)) {
     if (pace.due()) await pace.pause();
     const trip = trips.get(tripId);
     const si = trip && stopIndex.get(stopId);
@@ -88,6 +92,7 @@ export async function parseSchedule(zip, forcedMode, days, { excludeAgency, excl
     const dep = gtfsTimeToSeconds(departure || arrival);
     if (arr !== null && dep !== null) trip.raw.push(+seq, si, arr, dep);
   }
+  stopTimes = null;
   for (const [tripId, startTime, endTime, headway] of csvColumns(f['frequencies.txt'], ['trip_id', 'start_time', 'end_time', 'headway_secs'])) {
     const trip = trips.get(tripId);
     const start = gtfsTimeToSeconds(startTime);
@@ -117,7 +122,8 @@ export async function parseSchedule(zip, forcedMode, days, { excludeAgency, excl
   // Cada trazado se lee en un array plano [seq, lon, lat, seq, lon, lat…]: un array por punto
   // ocuparía varias veces más mientras se carga (hay GTFS con 800.000 puntos).
   const shapePoints = new Map();
-  for (const [shapeId, seq, ptLon, ptLat] of csvColumns(f['shapes.txt'], ['shape_id', 'shape_pt_sequence', 'shape_pt_lon', 'shape_pt_lat'])) {
+  let { 'shapes.txt': shapesTxt } = wantedShapes.size ? await openGtfs(zip, ['shapes.txt']) : {};
+  for (const [shapeId, seq, ptLon, ptLat] of csvColumns(shapesTxt, ['shape_id', 'shape_pt_sequence', 'shape_pt_lon', 'shape_pt_lat'])) {
     if (pace.due()) await pace.pause();
     if (!wantedShapes.has(shapeId)) continue;
     const lon = +ptLon;
@@ -126,6 +132,7 @@ export async function parseSchedule(zip, forcedMode, days, { excludeAgency, excl
     if (!shapePoints.has(shapeId)) shapePoints.set(own(shapeId), []);
     shapePoints.get(shapeId).push(+seq, lon, lat);
   }
+  shapesTxt = null;
   const shapes = [];
   const shapeIndex = new Map();
   for (const [sid, raw] of shapePoints) {
