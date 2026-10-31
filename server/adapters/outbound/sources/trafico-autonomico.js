@@ -1,6 +1,6 @@
 // Tráfico de las comunidades con competencias propias, que la DGT no cubre del todo:
 // Cataluña (Servei Català de Trànsit, GML) y Euskadi (Trafikoa, API JSON). Sin clave.
-import { arr, madridLocalToMs, madridToday, num, text, xmlParser } from './parse.js';
+import { arr, lookup, madridLocalToMs, madridToday, num, text, xmlParser } from './parse.js';
 
 // ---------- Cataluña ----------
 const SCT_URL = 'https://www.gencat.cat/transit/opendata/incidenciesGML.xml';
@@ -24,7 +24,7 @@ export function createSctSource({ http }) {
         const [lon, lat] = (text(f?.geom?.Point?.coordinates) ?? '').split(',').map(Number);
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
         const kind = text(f.descripcio_tipus) ?? '';
-        const [type, label] = SCT_TYPES[kind] ?? ['otro', kind || 'Incidencia'];
+        const [type, label] = lookup(SCT_TYPES, kind) ?? ['otro', kind || 'Incidencia'];
         const level = num(text(f.nivell));
         const desc = text(f.descripcio) ?? '';
         const road = text(f.carretera);
@@ -33,7 +33,7 @@ export function createSctSource({ http }) {
           id: `sct:${text(f.identificador)}`,
           category: 'carretera',
           type,
-          severity: SCT_LEVEL[level] ?? 'media',
+          severity: lookup(SCT_LEVEL, level) ?? 'media',
           closed: level === 5 || /tallad/i.test(desc),
           title: `${label}${road ? ` · ${road}` : ''}${km !== null ? ` km ${km.toFixed(1)}` : ''}`,
           description: [desc, text(f.causa), text(f.cap_a) && `sentido ${text(f.cap_a)}`].filter(Boolean).join(' · '),
@@ -82,7 +82,7 @@ export function createTraficoEuskadiSource({ http }) {
             id: `euskadi:${i.incidenceId}`,
             category: 'carretera',
             type: isWork ? 'roadMaintenance' : /accidente/i.test(i.incidenceType) ? 'accident' : 'otro',
-            severity: EUSKADI_LEVEL[i.incidenceLevel] ?? 'media',
+            severity: lookup(EUSKADI_LEVEL, i.incidenceLevel) ?? 'media',
             closed: i.incidenceLevel === 'Negro',
             title: `${i.cause || i.incidenceType}${i.road ? ` · ${i.road}` : ''}${km !== null ? ` km ${km.toFixed(1)}` : ''}`,
             description: [i.incidenceType, i.cityTown, i.direction && `sentido ${i.direction}`].filter(Boolean).join(' · '),

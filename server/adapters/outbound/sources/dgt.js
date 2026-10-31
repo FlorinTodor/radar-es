@@ -1,6 +1,6 @@
 // DGT: incidencias de tráfico activas en carreteras (DATEX II v3.7, Punto de Acceso
 // Nacional de Tráfico). ~1.000 situaciones y ~4 MB de XML: se lee cada 5 minutos.
-import { arr, findKey, num, text, xmlParser } from './parse.js';
+import { arr, findKey, lookup, num, text, xmlParser } from './parse.js';
 
 const URL_DGT = 'https://nap.dgt.es/datex2/v3/dgt/SituationPublication/datex2_v37.xml';
 
@@ -61,9 +61,9 @@ export function createDgtSource({ http }) {
             category: 'carretera',
             type: cause ?? 'otro',
             subtype: detail,
-            severity: SEVERITY[text(r.severity)] ?? 'media',
+            severity: lookup(SEVERITY, text(r.severity)) ?? 'media',
             closed,
-            title: `${CAUSES[cause] ?? cause ?? 'Incidencia'}${road ? ` · ${road}` : ''}${km !== null ? ` km ${km.toFixed(1)}` : ''}`,
+            title: `${lookup(CAUSES, cause) ?? cause ?? 'Incidencia'}${road ? ` · ${road}` : ''}${km !== null ? ` km ${km.toFixed(1)}` : ''}`,
             description: place + (closed ? ' · Carretera cortada' : ''),
             lat: from.lat,
             lon: from.lon,

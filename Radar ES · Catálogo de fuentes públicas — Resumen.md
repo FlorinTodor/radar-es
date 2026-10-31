@@ -1,5 +1,11 @@
 # Radar ES · Catálogo de fuentes públicas — Resumen
 
+> **Aviso (2026-11-01): algunas fuentes de este documento ya NO se usan.** Por licencia se retiraron el visor de Renfe
+> (`flota.json`, `flotaLD.json`, `estaciones.geojson`, `trenesConEstacionesLD.json`), la API del
+> tranvía de Tenerife (`tranviaonline`), la API de la app de Rodalies (`serveisgrs`), adsb.lol e IODA.
+> Este documento recoge la exploración inicial; las fuentes vigentes y sus licencias están en
+> [radarespaña.es/legal](https://radarespaña.es/legal).
+
 Oct 30, 2026 · @Backend-GestionaSistemas
 
 ## Alcance y método

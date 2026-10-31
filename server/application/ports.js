@@ -12,6 +12,7 @@
  * @property {number} interval                 ms entre lecturas.
  * @property {string} [license]
  * @property {string} [url]
+ * @property {string} [page]                   Ficha pública del conjunto de datos, para enlazarla en vez de `url`.
  * @property {string[]} [requires]             Variables de entorno necesarias (claves de API).
  * @property {() => Promise<import('../domain/model.js').SourceResult>} fetch
  * @property {(vehicleId: string) => number[][]|null|undefined} [path]  Sólo fuentes de posiciones

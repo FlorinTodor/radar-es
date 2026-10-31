@@ -14,6 +14,13 @@ export function num(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Valor de una tabla de traducción para una clave que viene de una fuente externa, sin caer en
+ * propiedades heredadas: con «__proto__» o «constructor», `TABLA[clave]` devolvería un objeto y
+ * rompería el panel o la lectura de la fuente.
+ */
+export const lookup = (table, key) => (typeof key === 'string' && Object.hasOwn(table, key) ? table[key] : undefined);
+
 export const arr = (v) => (v === undefined || v === null ? [] : Array.isArray(v) ? v : [v]);
 
 /** Texto de un nodo XML parseado, tenga o no atributos. */
