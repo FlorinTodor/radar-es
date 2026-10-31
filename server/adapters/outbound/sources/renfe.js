@@ -119,6 +119,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
       nextEta: !stopped && futureEta ? madridIso(futureEta) : null,
       area: stations.get(v.stopId)?.place ?? null,
       fixTime: v.timestamp ? +v.timestamp * 1000 : null,
+      stopped,
     };
   }
 
@@ -148,7 +149,8 @@ export function createRenfeSources({ http, cache, stations, log }) {
         const v = e.vehicle;
         if (!hasPosition(v)) continue;
         const tripId = v.trip.tripId;
-        // Etiqueta "C5-23737-PLATF.(5)": línea, número de tren y vía en la que espera.
+        // Etiqueta "C5-23737-PLATF.(5)": línea, número de tren y vía de la estación de stopId
+        // (en la que está parado o a la que llega). Renfe no publica por qué vía va en el trayecto.
         const [, line, number, platform] = /^([A-Za-z]+\d*[a-z]?)-(\d+)(?:-PLATF\.\((\w+)\))?/.exec(v.vehicle?.label ?? '') ?? [];
         const route = timetables.cercanias(tripId);
         vehicles.push({
