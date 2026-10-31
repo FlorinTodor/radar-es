@@ -141,7 +141,7 @@ function renderVehiclesPanel(all = allVehicles()) {
 // ---------- Datos en tiempo real ----------
 const withClass = (list) => list.map((v) => ({ ...v, cls: delayClass(v) }));
 
-connect({
+const stream = connect({
   status(s) {
     const el = document.getElementById('live');
     el.dataset.state = s;
@@ -184,7 +184,7 @@ connect({
     if (state.selected.size) applyFocus(); // los trenes de una alerta pueden cambiar
     render('alerts', 'kpis');
   },
-});
+}, { buses: P.modeOn(prefs, 'bus') });
 
 // ---------- Interacción ----------
 function selectVehicle(id) {
@@ -403,6 +403,7 @@ layersBody.addEventListener('change', (ev) => {
     render('alerts', 'events', 'vehicles');
   }
   if (input.dataset.mode) prefs.modes[input.dataset.mode] = input.checked;
+  if (input.dataset.mode === 'bus') stream.setBuses(input.checked);
   if (input.dataset.group === 'obras') {
     prefs.obras = input.checked;
     P.renderEventFilters(filtersEl, prefs);
