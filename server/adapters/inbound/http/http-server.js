@@ -3,7 +3,7 @@
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
-import { extname, resolve, sep } from 'node:path';
+import { extname, join, resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { createConnectionLimiter } from './connection-limiter.js';
@@ -12,6 +12,8 @@ const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png',
   '.ico': 'image/x-icon', '.map': 'application/json', '.woff2': 'font/woff2',
+  '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8', '.webmanifest': 'application/manifest+json',
+  '.jpg': 'image/jpeg', '.webp': 'image/webp',
 };
 
 const SSE_HEARTBEAT_MS = 25_000;
@@ -65,11 +67,19 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
 
   const security = Object.entries(securityHeaders(about));
   const streams = createConnectionLimiter();
+  // Dominio canónico (PUBLIC_URL): www.<dominio> redirige a él para que los buscadores no vean dos
+  // webs iguales. Sólo esa variante: localhost, la IP y el chequeo de salud siguen igual.
+  const canonical = about.publicUrl ? new URL(about.publicUrl) : null;
   const server = createServer(async (req, res) => {
     for (const [name, value] of security) res.setHeader(name, value);
     try {
       const url = new URL(req.url, 'http://localhost');
+      if (canonical && req.headers.host?.toLowerCase() === `www.${canonical.host}`) {
+        return redirect(res, `${canonical.origin}${url.pathname}${url.search}`);
+      }
       if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'Método no permitido' });
+      // La API y las teselas no son páginas: fuera de los resultados de búsqueda.
+      if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/tiles/')) res.setHeader('X-Robots-Tag', 'noindex');
 
       if (live[url.pathname]) return sendLive(req, res, url.pathname);
       if (url.pathname.startsWith('/tiles/')) return sendTile(res, url.pathname);
@@ -86,7 +96,13 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
       for (const [prefix, dir] of Object.entries(vendorDirs)) {
         if (url.pathname.startsWith(prefix)) return serveFile(req, res, dir, url.pathname.slice(prefix.length), VENDOR_CACHE);
       }
-      return serveFile(req, res, publicDir, url.pathname === '/' ? 'index.html' : url.pathname, OWN_CACHE);
+      // Páginas con URL limpia y una sola dirección por página: /legal sirve legal.html, y /legal.html,
+      // /legal/ e /index.html redirigen a /legal y a /.
+      const clean = cleanPagePath(url.pathname);
+      if (clean !== url.pathname) return redirect(res, `${clean}${url.search}`);
+      const isPage = !extname(url.pathname);
+      const file = url.pathname === '/' ? 'index.html' : isPage ? `${url.pathname}.html` : url.pathname;
+      return serveFile(req, res, publicDir, file, OWN_CACHE, isPage ? join(publicDir, '404.html') : null);
     } catch (err) {
       log.error(`[http] ${err.stack ?? err.message}`);
       if (!res.headersSent) send(res, 500, { error: 'Error interno' });
@@ -187,6 +203,26 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
   return server;
 }
 
+/** Redirección permanente (301). Se guarda un día: la dirección canónica no cambia. */
+function redirect(res, location) {
+  res.writeHead(301, { Location: location, 'Cache-Control': 'public, max-age=86400' });
+  res.end();
+}
+
+/**
+ * Dirección única de cada página: sin ".html", sin barra final e /index.html → /.
+ * Los ficheros con otra extensión (CSS, JS, imágenes, robots.txt…) no se tocan.
+ * Las barras repetidas se juntan: así la redirección nunca puede empezar por "//" (otra web).
+ * @param {string} pathname
+ */
+export function cleanPagePath(pathname) {
+  let path = pathname.replace(/\/{2,}/g, '/');
+  if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
+  if (path.endsWith('.html')) path = path.slice(0, -'.html'.length);
+  if (path === '/index') path = '/';
+  return path;
+}
+
 function send(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(body));
@@ -247,7 +283,8 @@ export function fileEtag(info) {
   return `W/"${info.size.toString(16)}-${Math.floor(info.mtimeMs).toString(16)}"`;
 }
 
-async function serveFile(req, res, root, pathname, cacheControl) {
+/** @param {string|null} [notFoundPage]  Página HTML que se sirve con 404 si el fichero no existe. */
+async function serveFile(req, res, root, pathname, cacheControl, notFoundPage = null) {
   let rel;
   try {
     rel = decodeURIComponent(pathname).replace(/^\/+/, '');
@@ -268,6 +305,13 @@ async function serveFile(req, res, root, pathname, cacheControl) {
     res.writeHead(200, { ...headers, 'Content-Type': MIME[extname(file)] ?? 'application/octet-stream', 'Content-Length': info.size });
     createReadStream(file).pipe(res);
   } catch {
-    send(res, 404, { error: 'No encontrado' });
+    if (!notFoundPage) return send(res, 404, { error: 'No encontrado' });
+    try {
+      const info = await stat(notFoundPage);
+      res.writeHead(404, { 'Content-Type': MIME['.html'], 'Content-Length': info.size, 'Cache-Control': 'no-cache' });
+      createReadStream(notFoundPage).pipe(res);
+    } catch {
+      send(res, 404, { error: 'No encontrado' });
+    }
   }
 }
