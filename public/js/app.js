@@ -5,7 +5,7 @@ import * as P from './panels.js';
 
 // ---------- Estado ----------
 const state = {
-  vehicles: new Map(), // sourceId → vehículos
+  vehicles: new Map(), // fuente → vehículos (los autobuses con la clave bus:<fuente>)
   counts: new Map(),   // sourceId → { modo: número }: incluye los autobuses aunque no se hayan pedido
   events: new Map(),   // sourceId → incidencias
   metrics: {},
@@ -143,52 +143,53 @@ function renderVehiclesPanel(all = allVehicles()) {
 }
 
 // ---------- Datos en tiempo real ----------
-const withClass = (list) => list.map((v) => ({ ...v, cls: delayClass(v) }));
+// Vehículos por fuente; los autobuses con la clave `bus:<fuente>`, porque llegan en otra consulta.
+const bySource = (list, prefix = '') => {
+  const out = new Map();
+  for (const v of list) {
+    const key = prefix + v.source;
+    if (!out.has(key)) out.set(key, []);
+    out.get(key).push({ ...v, cls: delayClass(v) });
+  }
+  return out;
+};
+const replaceVehicles = (isBus, fresh) => {
+  for (const key of [...state.vehicles.keys()]) if (key.startsWith('bus:') === isBus) state.vehicles.delete(key);
+  for (const [key, list] of fresh) state.vehicles.set(key, list);
+};
 
 const stream = connect({
-  status(s) {
+  status(s, ageMs) {
     const el = document.getElementById('live');
     el.dataset.state = s;
-    el.querySelector('.txt').textContent = s === 'live' ? 'En directo' : s === 'error' ? 'Sin conexión' : 'Reconectando…';
+    el.querySelector('.txt').textContent = s === 'live' ? 'En directo'
+      : s === 'stale' ? `Datos de hace ${Math.round(ageMs / 60_000)} min`
+        : s === 'error' ? 'Sin conexión' : 'Reconectando…';
   },
-  snapshot(snap) {
-    state.vehicles.clear();
+  live(d) {
+    replaceVehicles(false, bySource(d.vehicles));
+    state.counts = new Map(Object.entries(d.counts ?? {}));
+    Object.assign(state, { metrics: d.metrics, alerts: d.alerts, resolved: d.resolved, kpis: d.kpis });
+    if (state.selected.size) applyFocus(); // quita lo marcado que ya no existe
+    render('vehicles', 'alerts', 'kpis');
+  },
+  events(d) {
     state.events.clear();
-    state.counts = new Map(Object.entries(snap.counts ?? {}));
-    for (const v of snap.vehicles) {
-      if (!state.vehicles.has(v.source)) state.vehicles.set(v.source, []);
-      state.vehicles.get(v.source).push({ ...v, cls: delayClass(v) });
-    }
-    for (const e of snap.events) {
+    for (const e of d.events) {
       if (!state.events.has(e.source)) state.events.set(e.source, []);
       state.events.get(e.source).push(e);
     }
-    Object.assign(state, { metrics: snap.metrics, alerts: snap.alerts, resolved: snap.resolved, health: snap.health, kpis: snap.kpis.current });
-    render('vehicles', 'events', 'alerts', 'kpis', 'health');
+    if (state.selected.size) applyFocus();
+    render('events');
   },
-  source(p) {
-    if (p.kind === 'vehicles') {
-      state.vehicles.set(p.id, withClass(p.items));
-      if (p.counts) state.counts.set(p.id, p.counts);
-      if (state.selected.size) applyFocus(); // quita lo marcado que ya no existe
-      render('vehicles');
-    } else if (p.kind === 'events') {
-      state.events.set(p.id, p.items);
-      if (state.selected.size) applyFocus();
-      render('events');
-    } else if (p.kind === 'metrics') {
-      state.metrics[p.id] = p.metrics;
-      render('kpis');
-    }
+  buses(d) {
+    replaceVehicles(true, d ? bySource(d.vehicles, 'bus:') : new Map());
+    if (state.selected.size) applyFocus();
+    render('vehicles');
   },
   health(h) {
     state.health = h;
     render('health');
-  },
-  alerts({ alerts, kpis, resolved }) {
-    Object.assign(state, { alerts, kpis, resolved });
-    if (state.selected.size) applyFocus(); // los trenes de una alerta pueden cambiar
-    render('alerts', 'kpis');
   },
 }, { buses: P.modeOn(prefs, 'bus') });
 
