@@ -50,7 +50,7 @@ for (const s of sources) {
 // --- Casos de uso ----------------------------------------------------------
 const ingestSource = makeIngestSource({ situation, publisher: bus, clock, log });
 const detectAlerts = makeDetectAlerts({ situation, stations, history, publisher: bus, clock });
-const query = makeQuerySituation({ situation, stations, network, sources });
+const query = makeQuerySituation({ situation, stations, network, clock, sources });
 
 // --- Adaptadores de entrada ------------------------------------------------
 await stations.load();
