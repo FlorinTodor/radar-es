@@ -28,42 +28,33 @@ const SSE_HEALTH_EVERY_MS = 15_000;
  *           tiles?: import('../../../application/ports.js').TileProviderPort }} deps
  */
 export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about = {}, tiles }) {
+  // Todas las respuestas JSON se calculan, comprimen y firman (ETag) como mucho una vez cada `ttl`,
+  // así que pedirlas mil veces cuesta lo mismo que pedirlas una. Sin esto, /api/lines (1 MB)
+  // saturaba un núcleo con unas 20 peticiones por segundo. `key` separa las variantes por parámetros.
+  // - Directo (/api/live*, /api/health): iguales para todo el mundo; Cloudflare los guarda unos
+  //   segundos (regla de caché) y, si el servidor cae, sirve la última copia hasta 15 min
+  //   (stale-if-error). El navegador avisa de su antigüedad con el `generatedAt` de /api/live.
+  // - `stableEtag`: la firma no cuenta `generatedAt`, para que el navegador reciba un 304 vacío si
+  //   las incidencias, los autobuses o el estado no han cambiado. /api/live no la usa: su
+  //   `generatedAt` es justo lo que dice si el servidor se está actualizando.
   const routes = {
-    '/api/snapshot': () => query.snapshot(),
-    '/api/vehicles': (p) => query.vehicles({
-      mode: p.get('mode') ?? undefined,
-      source: p.get('source') ?? undefined,
-      minDelay: p.has('minDelay') ? Number(p.get('minDelay')) : undefined,
-    }),
-    '/api/events': (p) => query.events({ category: p.get('category') ?? undefined }),
-    '/api/alerts': () => ({ active: query.alerts(), resolved: query.resolvedAlerts() }),
-    '/api/kpis': () => query.kpis(),
-    '/api/metrics': () => query.metrics(),
-    '/api/stations': () => query.stations(),
-    '/api/lines': () => query.lines(),
-    '/api/trails': (p) => query.trails(Math.min(Number(p.get('min')) || 15, 45)),
-    '/api/about': () => about,
+    '/api/live': { fn: () => query.live(), ttl: 5_000, cache: liveCache(10) },
+    '/api/live/events': { fn: () => query.liveEvents(), ttl: 15_000, cache: liveCache(30), stableEtag: true },
+    '/api/live/buses': { fn: () => query.liveBuses(), ttl: 8_000, cache: liveCache(15), stableEtag: true },
+    '/api/health': { fn: () => query.health(), ttl: 15_000, cache: liveCache(30), stableEtag: true },
+    // Catálogos: cambian unas pocas veces al día.
+    '/api/stations': { fn: () => query.stations(), ttl: 600_000, cache: CATALOG_CACHE },
+    '/api/lines': { fn: () => query.lines(), ttl: 600_000, cache: CATALOG_CACHE },
+    '/api/trails': { fn: (p) => query.trails(trailMinutes(p)), key: trailMinutes, ttl: 15_000, cache: REVALIDATE },
+    '/api/snapshot': { fn: () => query.snapshot(), ttl: 5_000, cache: REVALIDATE },
+    '/api/vehicles': { fn: (p) => query.vehicles(vehicleFilter(p)), key: (p) => JSON.stringify(vehicleFilter(p)), ttl: 5_000, cache: REVALIDATE },
+    '/api/events': { fn: (p) => query.events({ category: p.get('category') ?? undefined }), key: (p) => p.get('category') ?? '', ttl: 15_000, cache: REVALIDATE },
+    '/api/alerts': { fn: () => ({ active: query.alerts(), resolved: query.resolvedAlerts() }), ttl: 5_000, cache: REVALIDATE },
+    '/api/kpis': { fn: () => query.kpis(), ttl: 5_000, cache: REVALIDATE },
+    '/api/metrics': { fn: () => query.metrics(), ttl: 5_000, cache: REVALIDATE },
+    '/api/about': { fn: () => about, ttl: 60_000, cache: REVALIDATE },
   };
-
-  // Directo: JSON iguales para todo el mundo, que Cloudflare guarda `edge` segundos (regla de caché
-  // en /api/live* y /api/health). Aquí se calculan y comprimen una vez cada `ttl`, así que el
-  // servidor trabaja lo mismo con 100 personas que con 100.000. Si el servidor cae, Cloudflare
-  // sigue sirviendo la última copia hasta 15 min (stale-if-error) y el navegador avisa de su edad.
-  const live = {
-    '/api/live': { fn: () => query.live(), ttl: 5_000, edge: 10 },
-    '/api/live/events': { fn: () => query.liveEvents(), ttl: 15_000, edge: 30 },
-    '/api/live/buses': { fn: () => query.liveBuses(), ttl: 8_000, edge: 15 },
-    '/api/health': { fn: () => query.health(), ttl: 15_000, edge: 30 },
-  };
-  const memo = new Map();
-  const liveBody = (path) => {
-    const hit = memo.get(path);
-    if (hit && Date.now() - hit.at < live[path].ttl) return hit;
-    const json = Buffer.from(JSON.stringify(live[path].fn()));
-    const body = { at: Date.now(), json, gz: gzipSync(json), etag: `"${createHash('sha1').update(json).digest('base64url').slice(0, 20)}"` };
-    memo.set(path, body);
-    return body;
-  };
+  const memo = createJsonMemo();
 
   const security = Object.entries(securityHeaders(about));
   const streams = createConnectionLimiter();
@@ -81,12 +72,11 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
       // La API y las teselas no son páginas: fuera de los resultados de búsqueda.
       if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/tiles/')) res.setHeader('X-Robots-Tag', 'noindex');
 
-      if (live[url.pathname]) return sendLive(req, res, url.pathname);
+      if (routes[url.pathname]) return sendRoute(req, res, url.pathname, url.searchParams);
       if (url.pathname.startsWith('/tiles/')) return sendTile(res, url.pathname);
       if (url.pathname === '/api/burnt-areas') return sendBurntAreas(res, url.searchParams.get('bbox'));
       // El directo antiguo (SSE) se mantiene para las pestañas que se abrieron antes del cambio.
       if (url.pathname === '/api/stream') return stream(req, res, url.searchParams.get('buses') === '1');
-      if (routes[url.pathname]) return sendJson(req, res, 200, routes[url.pathname](url.searchParams));
       if (url.pathname.startsWith('/api/tracks/')) {
         const track = query.track(decodeURIComponent(url.pathname.slice('/api/tracks/'.length)));
         return track ? sendJson(req, res, 200, track) : send(res, 404, { error: 'Vehículo sin historial' });
@@ -101,7 +91,8 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
       const clean = cleanPagePath(url.pathname);
       if (clean !== url.pathname) return redirect(res, `${clean}${url.search}`);
       const isPage = !extname(url.pathname);
-      const file = url.pathname === '/' ? 'index.html' : isPage ? `${url.pathname}.html` : url.pathname;
+      // /404 no es una página propia: sirve la de error con su estado 404.
+      const file = url.pathname === '/' ? 'index.html' : isPage && url.pathname !== '/404' ? `${url.pathname}.html` : url.pathname;
       return serveFile(req, res, publicDir, file, OWN_CACHE, isPage ? join(publicDir, '404.html') : null);
     } catch (err) {
       log.error(`[http] ${err.stack ?? err.message}`);
@@ -110,15 +101,11 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
     }
   });
 
-  function sendLive(req, res, path) {
-    const { json, gz, etag } = liveBody(path);
-    const { edge } = live[path];
-    const headers = {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': `public, max-age=0, s-maxage=${edge}, stale-while-revalidate=${edge * 3}, stale-if-error=900`,
-      ETag: etag,
-      Vary: 'Accept-Encoding',
-    };
+  function sendRoute(req, res, path, params) {
+    const route = routes[path];
+    const key = route.key ? `${path}?${route.key(params)}` : path;
+    const { json, gz, etag } = memo(key, route.ttl, () => route.fn(params), route);
+    const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': route.cache, ETag: etag, Vary: 'Accept-Encoding' };
     if (req.headers['if-none-match'] === etag) {
       res.writeHead(304, headers);
       return res.end();
@@ -201,6 +188,40 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
   }
 
   return server;
+}
+
+const REVALIDATE = 'no-cache'; // el navegador guarda la copia y pregunta con el ETag (304 si no cambió)
+const CATALOG_CACHE = 'public, max-age=600, s-maxage=3600';
+/** Directo: Cloudflare lo guarda `edge` s y, si el servidor no responde, sirve la última copia 15 min. */
+const liveCache = (edge) => `public, max-age=0, s-maxage=${edge}, stale-while-revalidate=${edge * 3}, stale-if-error=900`;
+/** Minutos de estela pedidos (1-45; 15 por defecto). Entero, para que no haya infinitas variantes. */
+const trailMinutes = (p) => Math.max(1, Math.min(Math.round(Number(p.get('min'))) || 15, 45));
+const vehicleFilter = (p) => ({
+  mode: p.get('mode') ?? undefined,
+  source: p.get('source') ?? undefined,
+  minDelay: p.has('minDelay') ? Number(p.get('minDelay')) : undefined,
+});
+
+/**
+ * Memo de respuestas JSON ya serializadas, comprimidas y firmadas: `get(clave, ttl, calcular)`
+ * sólo vuelve a calcular cuando la copia tiene más de `ttl` ms. Como quien llama elige los
+ * parámetros (y con ellos las claves), guarda como mucho `max` variantes: al pasar del tope se
+ * descarta la más antigua. Con `stableEtag`, la firma no cuenta el campo `generatedAt`.
+ */
+export function createJsonMemo({ max = 200, now = Date.now } = {}) {
+  const entries = new Map();
+  return function get(key, ttl, compute, { stableEtag = false } = {}) {
+    const hit = entries.get(key);
+    if (hit && now() - hit.at < ttl) return hit;
+    const body = compute();
+    const json = Buffer.from(JSON.stringify(body));
+    const signed = stableEtag && body?.generatedAt !== undefined ? JSON.stringify({ ...body, generatedAt: undefined }) : json;
+    const entry = { at: now(), json, gz: gzipSync(json), etag: `"${createHash('sha1').update(signed).digest('base64url').slice(0, 20)}"` };
+    entries.delete(key);
+    entries.set(key, entry);
+    if (entries.size > max) entries.delete(entries.keys().next().value);
+    return entry;
+  };
 }
 
 /** Redirección permanente (301). Se guarda un día: la dirección canónica no cambia. */
