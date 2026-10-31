@@ -51,7 +51,8 @@ cd /opt/radar && docker compose logs -f     # logs de la aplicación
 - `/etc/cloudflared/config.yml` y `<id>.json`: credenciales del túnel.
 
 El `.env` y las credenciales del túnel deben estar copiados en un gestor de contraseñas: es lo
-único que no está en GitHub. Ver [seguridad.md](seguridad.md).
+único que no está en GitHub. Las comprobaciones y tareas de seguridad pendientes están en
+`docs/privado/seguridad.md`, fuera de git (el repositorio es público).
 
 ## Túnel de Cloudflare
 

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Radar en tiempo real de trenes, metros, tranvías e incidencias en España a partir de datos públicos",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "main": "server/main.js",
   "scripts": {
