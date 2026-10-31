@@ -38,6 +38,9 @@ export const LAYER_GROUPS = {
 
 // Las teselas de IGN y EFFIS salen de nuestro servidor (/tiles), que las guarda y deja que Cloudflare
 // las sirva: con mucha gente, sus servicios reciben cada tesela una vez y no una por visitante.
+// El servidor sólo sirve las que tocan España y hasta un zoom por capa (server/domain/tiles.js):
+// con los mismos `bounds` y `maxzoom` el mapa no pide otras y, más cerca, amplía la última.
+const TILES_BOUNDS = [-18.5, 27.4, 4.6, 44.0];
 const RAIL_TILES = `${location.origin}/tiles/ign-rail/{z}/{x}/{y}.png`;
 // Al invertir sus colores la capa es obra derivada: fórmula de la licencia del IGN con el producto y
 // año de la tabla de productos del SCNE (scne.es/tablaProductos.php).
@@ -132,7 +135,9 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
 
     // Red ferroviaria del IGN: se ve entera a cualquier zoom (las vías de OpenStreetMap del mapa
     // base sólo aparecen muy de cerca). Viene en gris oscuro: se invierte para que destaque.
-    map.addSource('rail-ign', { type: 'raster', tiles: [RAIL_TILES], tileSize: 256, attribution: RAIL_ATTRIBUTION });
+    map.addSource('rail-ign', {
+      type: 'raster', tiles: [RAIL_TILES], tileSize: 256, bounds: TILES_BOUNDS, minzoom: 4, maxzoom: 14, attribution: RAIL_ATTRIBUTION,
+    });
     map.addLayer({
       id: 'rail-network', type: 'raster', source: 'rail-ign',
       paint: {
@@ -156,7 +161,9 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
         'line-opacity': ['interpolate', ['linear'], ['zoom'], 5, 0.6, 11, 0.75],
       },
     });
-    map.addSource('effis', { type: 'raster', tiles: [EFFIS_TILES], tileSize: 256, attribution: EFFIS_ATTRIBUTION });
+    map.addSource('effis', {
+      type: 'raster', tiles: [EFFIS_TILES], tileSize: 256, bounds: TILES_BOUNDS, minzoom: 4, maxzoom: 12, attribution: EFFIS_ATTRIBUTION,
+    });
     map.addLayer({ id: 'effis-burnt', type: 'raster', source: 'effis', layout: { visibility: 'none' }, paint: { 'raster-opacity': 0.75 } });
     // Contorno del área quemada que se ha pulsado (la capa de EFFIS es una imagen y no se puede resaltar).
     map.addSource('burnt-sel', { type: 'geojson', data: EMPTY });

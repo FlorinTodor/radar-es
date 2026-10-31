@@ -6,6 +6,7 @@ import { assertPort, PORT_MEMBERS } from './application/ports.js';
 import { makeIngestSource } from './application/use-cases/ingest-source.js';
 import { makeDetectAlerts } from './application/use-cases/detect-alerts.js';
 import { makeQuerySituation } from './application/use-cases/query-situation.js';
+import { makeServeTiles } from './application/use-cases/serve-tiles.js';
 import { createHttpClient } from './adapters/outbound/http/http-client.js';
 import { createFileCache } from './adapters/outbound/http/file-cache.js';
 import { createConsoleLogger } from './adapters/outbound/logging/console-logger.js';
@@ -51,6 +52,7 @@ for (const s of sources) {
 const ingestSource = makeIngestSource({ situation, publisher: bus, clock, log });
 const detectAlerts = makeDetectAlerts({ situation, stations, history, publisher: bus, clock });
 const query = makeQuerySituation({ situation, stations, network, clock, sources });
+const serveTiles = makeServeTiles({ tiles });
 
 // --- Adaptadores de entrada ------------------------------------------------
 await stations.load();
@@ -69,7 +71,7 @@ const server = createHttpServer({
   bus,
   log,
   about: config.about,
-  tiles,
+  serveTiles,
   publicDir: fileURLToPath(new URL('../public/', import.meta.url)).replace(/\/$/, ''),
   vendorDirs: { '/vendor/maplibre/': fileURLToPath(new URL('../node_modules/maplibre-gl/dist/', import.meta.url)).replace(/\/$/, '') },
 });

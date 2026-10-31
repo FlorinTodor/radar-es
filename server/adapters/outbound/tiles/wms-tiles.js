@@ -6,7 +6,8 @@
 //
 // Cada tesela se pide una sola vez: se guarda en disco (data/tiles) y, mientras está vigente, sale
 // de ahí. Si el servicio falla, se sirve la última copia aunque esté caducada; sin copia, error
-// (el mapa deja ese hueco y no reintenta en bucle).
+// (el mapa deja ese hueco y no reintenta en bucle). Qué teselas se pueden pedir (sólo España y
+// hasta un zoom por capa) lo decide antes el caso de uso serve-tiles: aquí no se filtra nada.
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 

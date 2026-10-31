@@ -73,7 +73,8 @@
 
 /**
  * Teselas y consultas de capas externas (IGN, EFFIS) servidas desde nuestro dominio para que
- * Cloudflare las guarde: lo usa el adaptador HTTP.
+ * Cloudflare las guarde. Lo usa el caso de uso serve-tiles, que antes decide qué teselas se
+ * pueden pedir (domain/tiles.js): el proveedor descarga y guarda en disco todo lo que se le pide.
  * @typedef {object} TileProviderPort
  * @property {string[]} layers
  * @property {(layer: string) => string} cacheControl

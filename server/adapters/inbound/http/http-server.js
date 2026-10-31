@@ -25,9 +25,9 @@ const SSE_HEALTH_EVERY_MS = 15_000;
  * @param {{ query: ReturnType<typeof import('../../../application/use-cases/query-situation.js').makeQuerySituation>,
  *           bus: import('../../../application/ports.js').EventPublisherPort, log: import('../../../application/ports.js').LoggerPort,
  *           publicDir: string, vendorDirs: Record<string, string>, about?: object,
- *           tiles?: import('../../../application/ports.js').TileProviderPort }} deps
+ *           serveTiles?: ReturnType<typeof import('../../../application/use-cases/serve-tiles.js').makeServeTiles> }} deps
  */
-export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about = {}, tiles }) {
+export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about = {}, serveTiles }) {
   // Todas las respuestas JSON se calculan, comprimen y firman (ETag) como mucho una vez cada `ttl`,
   // así que pedirlas mil veces cuesta lo mismo que pedirlas una. Sin esto, /api/lines (1 MB)
   // saturaba un núcleo con unas 20 peticiones por segundo. `key` separa las variantes por parámetros.
@@ -118,30 +118,28 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
   /** /tiles/<capa>/<z>/<x>/<y>.png → tesela de IGN o EFFIS (con copia en disco). */
   async function sendTile(res, path) {
     const m = /^\/tiles\/([a-z-]+)\/(\d{1,2})\/(\d{1,7})\/(\d{1,7})\.png$/.exec(path);
-    const [layer, z, x, y] = m ? [m[1], +m[2], +m[3], +m[4]] : [];
-    if (!m || !tiles?.layers.includes(layer) || z > 19 || x >= 2 ** z || y >= 2 ** z) return send(res, 404, { error: 'Tesela no válida' });
-    const png = await tiles.tile(layer, z, x, y);
-    if (!png) {
+    // El caso de uso decide qué teselas se sirven (sólo España y hasta el zoom de cada capa).
+    const tile = m && serveTiles ? await serveTiles.tile(m[1], +m[2], +m[3], +m[4]) : null;
+    if (!tile) return send(res, 404, { error: 'Tesela no válida' });
+    if (!tile.png) {
       res.setHeader('Cache-Control', 'no-store'); // Cloudflare puede seguir sirviendo su copia (stale-if-error)
       return send(res, 502, { error: 'Servicio de teselas no disponible' });
     }
-    res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': png.length, 'Cache-Control': tiles.cacheControl(layer) });
-    res.end(png);
+    res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': tile.png.length, 'Cache-Control': tile.cacheControl });
+    res.end(tile.png);
   }
 
   /** Áreas quemadas en una caja lon/lat pequeña (lo que hay bajo un clic en el mapa). */
   async function sendBurntAreas(res, bboxParam) {
-    const bbox = (bboxParam ?? '').split(',').map(Number);
-    const valid = bbox.length === 4 && bbox.every(Number.isFinite) && bbox[2] > bbox[0] && bbox[3] > bbox[1]
-      && bbox[2] - bbox[0] < 0.5 && bbox[3] - bbox[1] < 0.5;
-    if (!valid || !tiles) return send(res, 400, { error: 'Caja no válida' });
+    let geojson;
     try {
-      const geojson = await tiles.burntAreas(bbox);
-      res.setHeader('Cache-Control', 'public, max-age=600, s-maxage=1800');
-      return send(res, 200, geojson);
+      geojson = serveTiles ? await serveTiles.burntAreas((bboxParam ?? '').split(',').map(Number)) : null;
     } catch {
       return send(res, 502, { error: 'EFFIS no responde' });
     }
+    if (!geojson) return send(res, 400, { error: 'Caja no válida' });
+    res.setHeader('Cache-Control', 'public, max-age=600, s-maxage=1800');
+    return send(res, 200, geojson);
   }
 
   /** @param {boolean} buses  El cliente tiene activada la capa de autobuses. */
