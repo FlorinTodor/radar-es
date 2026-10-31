@@ -3,3 +3,5 @@ data/
 .env
 *.log
 .desplegado
+# Notas que no deben ser públicas (comprobaciones de seguridad del VPS…)
+docs/privado/

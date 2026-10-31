@@ -132,7 +132,7 @@ export function renderVehicles(el, vehicles, total, sel = NO_SELECTION) {
     return `
     <button class="item vrow${on ? ' selected' : ''}" data-kind="vehicle" data-id="${esc(v.id)}" aria-pressed="${on}" style="border-left-color:${DELAY_CLASSES[v.cls][0]}">
       <img class="plate" src="${vehicleIconUrl(pictoFor(v.mode), v.estimated && !v.cls ? '#c3c2b7' : DELAY_CLASSES[v.cls][0], !!v.estimated)}" alt="">
-      <span class="title">${check(on)} ${esc(vehicleTitle(v))}</span>
+      <span class="title">${check(on)} ${esc(vehicleTitle(v))}${v.estimated ? ' <span class="est-tag">estimada</span>' : ''}</span>
       <span class="delay">${v.estimated && (v.delay === null || v.delay === undefined) ? 'Estimado' : esc(fmtDelay(v))}</span>
       <span class="sub">${esc(MODE_LABEL[v.mode] ?? v.mode)} · ${esc(v.origin ?? '?')} → ${esc(v.destination ?? '?')}</span>
     </button>`;
@@ -153,7 +153,8 @@ export function renderSources(el, health) {
         ${s.count !== null && s.count !== undefined ? `<span>${fmtNum(s.count)} elementos</span>` : ''}
         ${s.lastOk ? `<span>leída ${timeAgo(s.lastOk, now)}</span>` : ''}
         ${s.sourceTime ? `<span>dato de ${fmtTime(s.sourceTime)}</span>` : ''}
-        ${s.datasetUpdated ? `<span>horario actualizado el ${fmtDateTime(s.datasetUpdated)}</span>` : ''}
+        ${s.datasetUpdatedFrom ? `<span>horarios actualizados entre el ${fmtDateTime(s.datasetUpdatedFrom)} y el ${fmtDateTime(s.datasetUpdated)}</span>`
+          : s.datasetUpdated ? `<span>horario actualizado el ${fmtDateTime(s.datasetUpdated)}</span>` : ''}
         ${s.ms ? `<span>${fmtNum(s.ms)} ms</span>` : ''}
         <span>cada ${Math.round(s.interval / 1000)} s</span>
       </div>
@@ -199,7 +200,7 @@ export function renderLayers(el, prefs, countsByMode) {
   const shape = (path, fill, stroke) => `<svg viewBox="0 0 14 14" width="12" height="12" aria-hidden="true"><path d="${path}" fill="${fill}" stroke="${stroke}" stroke-width="1.4"/></svg>`;
   el.innerHTML = `<h4>Trenes</h4>${modes}<h4>Contexto</h4>${groups}<h4>Tipo de vehículo</h4><div class="legend">${types}</div>
     <h4>Retraso (color de la placa)</h4><div class="legend">${legend}
-    ${plate('tren', '#fab219', true)}<span>Posición estimada por horario (no GPS): placa hueca; el color indica el retraso si se conoce</span>
+    ${plate('tren', '#fab219', true)}<span>Posición <strong>estimada</strong> a partir del horario, no GPS (Ouigo, ALSA y los metros y tranvías sin GPS): placa hueca; el color indica el retraso si se conoce</span>
     <i style="background:transparent;border:2px solid #d03b3b"></i><span>Tren con alerta activa</span>
     <i style="background:transparent;border:2.5px solid #6ea8fe"></i><span>Tren seleccionado</span>
     <i style="height:0;border-radius:0;border-top:2.5px dashed #6ea8fe"></i><span>Su recorrido en los últimos 45 min</span>
@@ -212,7 +213,7 @@ export function renderLayers(el, prefs, countsByMode) {
     <i style="background:radial-gradient(circle,#ffd27a 25%,#ff5a1f 60%,transparent 75%)"></i><span>Foco de calor por satélite</span>
     <i style="background:rgba(180,140,255,.25);border:1.5px solid #b48cff"></i><span>Terremoto (tamaño = magnitud)</span>
     <i style="background:transparent;border:2.5px solid #ec835a"></i><span>Alerta GDACS (naranja o roja)</span>
-    <i style="border-radius:2px;background:linear-gradient(90deg,#e8261c 33%,#f39c12 33% 66%,#1f6fd1 66%)"></i><span>Área quemada (EFFIS): rojo, último día; naranja, 7 días; azul, 30 días</span></div>`;
+    <i style="border-radius:2px;background:linear-gradient(90deg,#e8261c 33%,#f39c12 33% 66%,#1f6fd1 66%)"></i><span>Área quemada (EFFIS): rojo, último día; naranja, 7 días; azul, 30 días. Púlsala para ver su ficha</span></div>`;
 }
 
 export function updateModeCounts(el, countsByMode) {

@@ -1,5 +1,5 @@
 // Posición estimada a partir del horario GTFS (del NAP) para operadores que no publican GPS.
-// - Sin tiempo real (Ouigo, metros y tranvías): se colocan los trenes donde dice el horario.
+// - Sin tiempo real (Ouigo, metros, tranvías, autobuses): se colocan donde dice el horario.
 // - Con trip updates GTFS-RT (Euskotren): sólo los viajes en curso, desplazados por su retraso real.
 // Las posiciones se marcan `estimated` (anillo hueco en el mapa) y no cuentan para alertas.
 import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
@@ -10,16 +10,42 @@ import { madridLocalToMs } from './parse.js';
 import { napDatasetPage } from '../nap/nap-client.js';
 
 const RELOAD_MS = 24 * 3600_000;
+const DAY_S = 86_400;
+
+// Los horarios se cargan de uno en uno en todo el servidor: al arrancar (o al cambiar de día) se
+// juntarían en memoria decenas de ZIP descomprimidos a la vez.
+let loadQueue = Promise.resolve();
+const oneAtATime = (fn) => {
+  const run = loadQueue.then(fn, fn);
+  loadQueue = run.catch(() => {});
+  return run;
+};
+// route_type de autobús (básico y extendido): con mode 'bus' sólo se cogen estas rutas, para no
+// duplicar el metro o el tranvía que algunos operadores publican en el mismo GTFS (TMB, TUSSAM…).
+const isBusRoute = (type) => {
+  const n = Number(type);
+  return n === 3 || n === 11 || (n >= 200 && n < 300) || (n >= 700 && n < 800);
+};
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
 const titleCase = (s) => (/[a-z]/.test(s) ? s : s.toLowerCase().replace(/(^|[\s(-])(\p{L})/gu, (_, p, c) => p + c.toUpperCase()));
 
-function parseSchedule(zip, forcedMode) {
-  const f = openGtfs(zip, ['routes.txt', 'trips.txt', 'stops.txt', 'stop_times.txt', 'calendar.txt', 'calendar_dates.txt', 'frequencies.txt']);
+/**
+ * @param {{ today: { ymd: string, weekday: number }, yesterday: { ymd: string, weekday: number } }} days
+ *   Sólo se guardan los viajes de hoy y los de ayer que siguen pasada la medianoche: los horarios
+ *   grandes (ALSA, TMB, AMB…) suman millones de paradas programadas y no caben enteros en memoria.
+ *   Por eso el horario se recarga al cambiar de día.
+ * @param {{ excludeAgency?: RegExp, excludeRoute?: RegExp }} [filter]  Agencias (por nombre) o rutas (por nombre corto)
+ *   que ya llegan por otra fuente, para no pintar dos veces el mismo vehículo.
+ */
+function parseSchedule(zip, forcedMode, days, { excludeAgency, excludeRoute } = {}) {
+  const f = openGtfs(zip, ['agency.txt', 'routes.txt', 'trips.txt', 'stops.txt', 'stop_times.txt', 'calendar.txt', 'calendar_dates.txt', 'frequencies.txt']);
 
+  const agencies = new Map([...csvRows(f['agency.txt'])].map((a) => [a.agency_id, a.agency_name]));
   const routes = new Map();
   for (const r of csvRows(f['routes.txt'])) {
-    const mode = forcedMode ?? modeOf(r.route_type);
+    if (excludeAgency?.test(agencies.get(r.agency_id) ?? '') || excludeRoute?.test(r.route_short_name)) continue;
+    const mode = forcedMode === 'bus' ? (isBusRoute(r.route_type) ? 'bus' : null) : forcedMode ?? modeOf(r.route_type);
     if (mode) routes.set(r.route_id, { mode, line: r.route_short_name || r.route_long_name || null });
   }
 
@@ -33,19 +59,31 @@ function parseSchedule(zip, forcedMode) {
 
   const calendar = new Map();
   for (const c of csvRows(f['calendar.txt'])) calendar.set(c.service_id, { start: c.start_date, end: c.end_date, days: DAYS.map((d) => c[d] === '1') });
+  const wanted = new Set([days.today.ymd, days.yesterday.ymd]);
   const exceptions = new Map();
   for (const d of csvRows(f['calendar_dates.txt'])) {
+    if (!wanted.has(d.date)) continue;
     if (!exceptions.has(d.service_id)) exceptions.set(d.service_id, new Map());
     exceptions.get(d.service_id).set(d.date, +d.exception_type);
   }
 
+  const active = new Map(); // service_id → [circula hoy, circulaba ayer]
+  const runs = (id) => {
+    if (!active.has(id)) {
+      active.set(id, [days.today, days.yesterday].map((d) => serviceRuns(calendar.get(id), exceptions.get(id), d.ymd, d.weekday)));
+    }
+    return active.get(id);
+  };
   const trips = new Map();
   for (const t of csvRows(f['trips.txt'])) {
     const route = routes.get(t.route_id);
-    if (route) trips.set(t.trip_id, { id: t.trip_id, serviceId: t.service_id, route, label: t.trip_short_name || null, raw: [], freqs: [] });
+    const [today, yesterday] = runs(t.service_id);
+    if (route && (today || yesterday)) {
+      trips.set(t.trip_id, { id: t.trip_id, serviceId: t.service_id, route, label: t.trip_short_name || null, today, raw: [], freqs: [] });
+    }
   }
-  // Las paradas se guardan en arrays tipados (seq, índice de parada, llegada, salida): las redes
-  // grandes tienen más de un millón de horarios y como objetos ocuparían cientos de MB.
+  // Las paradas de todos los viajes van en un único array tipado (seq, índice de parada, llegada,
+  // salida): como objetos, o con un array por viaje, ocuparían cientos de MB.
   for (const st of csvRows(f['stop_times.txt'])) {
     const trip = trips.get(st.trip_id);
     const si = trip && stopIndex.get(st.stop_id);
@@ -60,23 +98,37 @@ function parseSchedule(zip, forcedMode) {
     const end = gtfsTimeToSeconds(fr.end_time);
     if (trip && start !== null && end !== null) trip.freqs.push({ start, end, headway: +fr.headway_secs });
   }
-  const compact = [];
+  const kept = [];
+  let total = 0;
   for (const t of trips.values()) {
     const n = t.raw.length / 4;
     if (n < 2) continue;
-    const order = Array.from({ length: n }, (_, i) => i).sort((a, b) => t.raw[a * 4] - t.raw[b * 4]);
-    const times = new Int32Array(n * 4);
-    order.forEach((src, i) => times.set(t.raw.slice(src * 4, src * 4 + 4), i * 4));
-    compact.push({ id: t.id, serviceId: t.serviceId, route: t.route, label: t.label, freqs: t.freqs, times, first: times[3], last: times[(n - 1) * 4 + 2] });
+    // De ayer sólo interesan los viajes que siguen circulando pasada la medianoche.
+    const ends = Math.max(...Array.from({ length: n }, (_, i) => t.raw[i * 4 + 2]));
+    const latest = t.freqs.length ? Math.max(...t.freqs.map((fr) => fr.end)) + ends : ends;
+    if (!t.today && latest <= DAY_S) continue;
+    kept.push(t);
+    total += t.raw.length;
   }
-  return { calendar, exceptions, stopList, trips: compact };
+  const times = new Int32Array(total);
+  const compact = [];
+  let offset = 0;
+  for (const t of kept) {
+    const n = t.raw.length / 4;
+    const order = Array.from({ length: n }, (_, i) => i).sort((a, b) => t.raw[a * 4] - t.raw[b * 4]);
+    order.forEach((src, i) => times.set(t.raw.slice(src * 4, src * 4 + 4), offset + i * 4));
+    compact.push({ id: t.id, serviceId: t.serviceId, route: t.route, label: t.label, freqs: t.freqs, at: offset, n,
+      first: times[offset + 3], last: times[offset + (n - 1) * 4 + 2] });
+    offset += n * 4;
+  }
+  return { calendar, exceptions, stopList, times, trips: compact };
 }
 
 /** Paradas de un viaje como objetos, sólo cuando hace falta (viajes en circulación). */
-function tripStops(trip, stopList) {
+function tripStops(trip, { times, stopList }) {
   const out = [];
-  for (let i = 0; i < trip.times.length; i += 4) {
-    out.push({ seq: trip.times[i], ...stopList[trip.times[i + 1]], arr: trip.times[i + 2], dep: trip.times[i + 3] });
+  for (let i = trip.at; i < trip.at + trip.n * 4; i += 4) {
+    out.push({ seq: times[i], ...stopList[times[i + 1]], arr: times[i + 2], dep: times[i + 3] });
   }
   return out;
 }
@@ -100,7 +152,7 @@ function delaysFromTripUpdates(feed, schedule) {
     const trip = tu && byId.get(tu.trip?.tripId);
     if (!trip) continue;
     const ymd = tu.trip.startDate;
-    const stops = tripStops(trip, schedule.stopList);
+    const stops = tripStops(trip, schedule);
     let delay = null;
     for (const u of tu.stopTimeUpdate ?? []) {
       const ev = u.arrival ?? u.departure;
@@ -118,32 +170,38 @@ function delaysFromTripUpdates(feed, schedule) {
 }
 
 /**
- * @param {{ nap: ReturnType<typeof import('../nap/nap-client.js').createNapClient>, http: import('../http/http-client.js').HttpClient }} deps
- * @param {{ id: string, name: string, operator: string, ficheroId: number, dataset: number, credit?: string, license?: string,
- *           interval?: number, mode?: import('../../../domain/model.js').Mode, tripUpdatesUrl?: string, label?: (trip: object) => string }} options
+ * @param {{ nap: ReturnType<typeof import('../nap/nap-client.js').createNapClient>, http: import('../http/http-client.js').HttpClient,
+ *           log?: import('../../../application/ports.js').LoggerPort }} deps
+ * @param {{ id: string, name: string, operator?: string, ficheroId?: number, dataset?: number, feeds?: Feed[], credit?: string,
+ *           license?: string, interval?: number, mode?: import('../../../domain/model.js').Mode, tripUpdatesUrl?: string,
+ *           label?: (trip: object) => string, line?: (name: string|null) => string|null }} options
  *   dataset: conjunto de datos del NAP al que pertenece el fichero (para su fecha de actualización).
+ *   feeds: varios ficheros en una sola fuente (empresas con muchos conjuntos), en lugar de ficheroId/dataset/operator.
  *   credit: atribución que pide el propio operador además de la del NAP ("Powered by CRTM"…).
+ * @typedef {{ ficheroId: number, dataset: number, operator: string, excludeAgency?: RegExp, excludeRoute?: RegExp }} Feed
  * @returns {import('../../../application/ports.js').DataSourcePort}
  */
-export function createGtfsScheduleSource({ nap, http }, options) {
-  const { id, name, operator, ficheroId, dataset, mode, tripUpdatesUrl, interval = 30_000 } = options;
-  let schedule = null;
+export function createGtfsScheduleSource({ nap, http, log }, options) {
+  const { id, name, mode, tripUpdatesUrl, interval = 30_000 } = options;
+  const feeds = options.feeds ?? [{ ficheroId: options.ficheroId, dataset: options.dataset, operator: options.operator }];
+  const loaded = new Map(); // índice del fichero → { schedule, updatedAt }
   let loadedAt = 0;
-  let datasetUpdated = null;
+  let loadedDay = null; // día de servicio (Madrid) para el que se cargaron los horarios
 
-  function vehicle(trip, day, t, delaySec, offset = 0) {
+  function vehicle(fi, schedule, trip, day, t, delaySec, offset = 0) {
     const tt = t - offset;
     if (tt < trip.first || tt > trip.last) return null; // descarte barato antes de crear objetos
-    const stops = tripStops(trip, schedule.stopList);
+    const stops = tripStops(trip, schedule);
     const pos = scheduledPosition(stops, tt);
     if (!pos) return null;
+    const { operator } = feeds[fi];
     const instance = offset ? `:${offset}` : '';
     return {
-      id: `${id}:${trip.id}:${day.ymd}${instance}`,
+      id: `${id}:${feeds.length > 1 ? `${fi}:` : ''}${trip.id}:${day.ymd}${instance}`,
       mode: trip.route.mode,
       operator,
       service: operator,
-      line: trip.route.line,
+      line: options.line ? options.line(trip.route.line) : trip.route.line,
       label: options.label?.(trip) ?? trip.label ?? null,
       lat: pos.lat,
       lon: pos.lon,
@@ -157,53 +215,77 @@ export function createGtfsScheduleSource({ nap, http }, options) {
     };
   }
 
+  /** Carga los horarios (de uno en uno en todo el servidor); si falla un fichero de un grupo, el resto sigue. */
+  async function load(today) {
+    const days = { today: madridServiceDay(Date.now(), 0), yesterday: madridServiceDay(Date.now(), -1) };
+    for (const [fi, feed] of feeds.entries()) {
+      try {
+        const schedule = await oneAtATime(async () => parseSchedule(await nap.gtfs(feed.ficheroId, RELOAD_MS), mode, days, feed));
+        const updatedAt = await nap.updatedAt(feed.dataset, feed.ficheroId).then(madridLocalToMs).catch(() => loaded.get(fi)?.updatedAt ?? null);
+        loaded.set(fi, { schedule, updatedAt });
+      } catch (err) {
+        if (feeds.length === 1) throw err;
+        log?.warn(`[${id}] ${feed.operator} (fichero ${feed.ficheroId}): ${err.message}`);
+      }
+    }
+    loadedAt = Date.now();
+    loadedDay = today;
+  }
+
   return {
     id,
     name,
     kind: 'vehicles',
     interval,
     requires: ['NAP_API_KEY'],
-    url: tripUpdatesUrl ?? napDatasetPage(dataset),
+    url: tripUpdatesUrl ?? (feeds.length === 1 ? napDatasetPage(feeds[0].dataset) : 'https://nap.transportes.gob.es'),
     license: options.license
-      ?? `Powered by MITRAMS (Punto de Acceso Nacional) · ${options.credit ?? operator} · Posición estimada a partir del horario (dato explotado, no GPS)`,
+      ?? `Powered by MITRAMS (Punto de Acceso Nacional) · ${options.credit ?? [...new Set(feeds.map((f) => f.operator))].join(', ')} · `
+        + 'Posición estimada a partir del horario (dato explotado, no GPS)',
     async fetch() {
-      if (!schedule || Date.now() - loadedAt > RELOAD_MS) {
-        schedule = parseSchedule(await nap.gtfs(ficheroId, RELOAD_MS), mode);
-        loadedAt = Date.now();
-        datasetUpdated = await nap.updatedAt(dataset, ficheroId).then(madridLocalToMs).catch(() => datasetUpdated);
-      }
-      const rt = tripUpdatesUrl ? delaysFromTripUpdates(decodeFeed(await http.bytes(tripUpdatesUrl)), schedule) : null;
+      // Se recarga cada día (sólo se guardan los viajes de hoy y los de ayer que pasan de medianoche).
+      const today = madridServiceDay(Date.now(), 0).ymd;
+      if (!loaded.size || today !== loadedDay || Date.now() - loadedAt > RELOAD_MS) await load(today);
+      const first = loaded.get(0)?.schedule;
+      const rt = tripUpdatesUrl && first ? delaysFromTripUpdates(decodeFeed(await http.bytes(tripUpdatesUrl)), first) : null;
       const now = Date.now();
       const vehicles = [];
-      // Un tren que salió antes de medianoche pertenece al día de servicio anterior.
-      for (const dayOffset of [0, -1]) {
-        const day = madridServiceDay(now, dayOffset);
-        const t = Math.floor((now - day.midnight) / 1000);
-        for (const trip of schedule.trips) {
-          if (rt) {
-            const live = rt.get(trip.id);
-            if (!live || (live.ymd && live.ymd !== day.ymd)) continue;
-            const v = vehicle(trip, day, t - live.delay, live.delay);
-            if (v) vehicles.push(v);
-            continue;
-          }
-          if (!serviceRuns(schedule.calendar.get(trip.serviceId), schedule.exceptions.get(trip.serviceId), day.ymd, day.weekday)) continue;
-          if (!trip.freqs.length) {
-            const v = vehicle(trip, day, t, null);
-            if (v) vehicles.push(v);
-            continue;
-          }
-          const first = trip.first;
-          const duration = trip.last - first;
-          for (const fr of trip.freqs) {
-            for (const off of activeFrequencyOffsets(fr, first, duration, t)) {
-              const v = vehicle(trip, day, t, null, off);
+      for (const [fi, { schedule }] of loaded) {
+        // Un tren que salió antes de medianoche pertenece al día de servicio anterior.
+        for (const dayOffset of [0, -1]) {
+          const day = madridServiceDay(now, dayOffset);
+          const t = Math.floor((now - day.midnight) / 1000);
+          for (const trip of schedule.trips) {
+            if (rt) {
+              const live = rt.get(trip.id);
+              if (!live || (live.ymd && live.ymd !== day.ymd)) continue;
+              const v = vehicle(fi, schedule, trip, day, t - live.delay, live.delay);
               if (v) vehicles.push(v);
+              continue;
+            }
+            if (!serviceRuns(schedule.calendar.get(trip.serviceId), schedule.exceptions.get(trip.serviceId), day.ymd, day.weekday)) continue;
+            if (!trip.freqs.length) {
+              const v = vehicle(fi, schedule, trip, day, t, null);
+              if (v) vehicles.push(v);
+              continue;
+            }
+            const duration = trip.last - trip.first;
+            for (const fr of trip.freqs) {
+              for (const off of activeFrequencyOffsets(fr, trip.first, duration, t)) {
+                const v = vehicle(fi, schedule, trip, day, t, null, off);
+                if (v) vehicles.push(v);
+              }
             }
           }
         }
       }
-      return { vehicles, datasetUpdated };
+      // En los grupos, la fecha del horario más reciente y la del más antiguo.
+      const dates = [...loaded.values()].map((l) => l.updatedAt).filter(Boolean);
+      return {
+        vehicles,
+        datasetUpdated: dates.length ? Math.max(...dates) : null,
+        datasetUpdatedFrom: dates.length > 1 ? Math.min(...dates) : null,
+      };
     },
   };
 }

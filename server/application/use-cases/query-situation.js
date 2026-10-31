@@ -7,6 +7,8 @@ import { sortAlerts } from '../../domain/alerts/lifecycle.js';
  */
 export function makeQuerySituation({ situation, stations, network }) {
   const alerts = () => sortAlerts(situation.activeAlerts().values());
+  // Los autobuses (miles en hora punta) sólo se envían a quien tiene activada su capa.
+  const busFilter = (buses) => (buses ? (list) => list : (list) => list.filter((v) => v.mode !== 'bus'));
 
   return {
     vehicles({ mode, source, minDelay } = {}) {
@@ -45,11 +47,16 @@ export function makeQuerySituation({ situation, stations, network }) {
       return { type: 'FeatureCollection', features };
     },
 
-    /** Datos de una sola fuente, para empujar cambios incrementales. */
-    sourcePayload(id) {
+    /**
+     * Datos de una sola fuente, para empujar cambios incrementales. Sin `buses`, null para las
+     * fuentes que sólo tienen autobuses (no hay nada que enviar).
+     */
+    sourcePayload(id, { buses = true } = {}) {
       const s = situation.source(id);
       if (!s?.data) return null;
-      const items = s.data.vehicles ?? s.data.events ?? null;
+      const all = s.data.vehicles ?? s.data.events ?? null;
+      const items = s.data.vehicles ? busFilter(buses)(all) : all;
+      if (s.data.vehicles && all.length && !items.length) return null;
       return {
         id,
         kind: s.meta.kind,
@@ -58,10 +65,10 @@ export function makeQuerySituation({ situation, stations, network }) {
       };
     },
 
-    snapshot() {
+    snapshot({ buses = true } = {}) {
       return {
         generatedAt: Date.now(),
-        vehicles: situation.vehicles(),
+        vehicles: busFilter(buses)(situation.vehicles()),
         events: situation.events(),
         metrics: situation.metrics(),
         alerts: alerts(),

@@ -121,6 +121,11 @@ Todas son públicas. Solo las marcadas con 🔑 necesitan `NAP_API_KEY`, una cla
 | 🔑 Ouigo (GTFS del NAP) | **posición estimada** por horario, marcada como tal | 30 s |
 | 🔑 Metros y tranvías sin GPS (GTFS del NAP) | **posición estimada** por horario en Barcelona (Metro, TRAM), Madrid (Metro Ligero), Valencia, Alicante, Sevilla, Málaga, Granada, Zaragoza y Murcia | 30 s |
 | Autobuses de Euskadi (~25 operadores), EMT Málaga, EMT Fuenlabrada (GTFS-RT) | posición; capa oculta por defecto y fuera de las alertas | 60 s |
+| 🔑 ALSA (GTFS del NAP) | **posición estimada** por horario de sus autobuses (nadie publica su tiempo real); capa de autobuses | 60 s |
+| 🔑 AMB (GTFS del NAP + trip updates de `ambmobilitat.cat`) | autobús metropolitano de Barcelona: **posición estimada** con su **retraso real** | 60 s |
+| Autobuses La Unión (GTFS-RT, NAP) y AUVASA Valladolid (GTFS-RT, CC BY 3.0 ES) | posición | 60 s |
+| 🔑 ~70 horarios de autobús del NAP (`autobuses-nap.js`) | **posición estimada** de Avanza, Sagalés, Moventis, Grupo Ruiz, AISA, Vectalia, urbanos de ciudades, interurbanos autonómicos e insulares y otras empresas | 60 s |
+| EMT Madrid (GTFS-RT del NAP) | avisos de servicio | 5 min |
 | 🔑 GTFS de 16 redes en el NAP + líneas del tranvía de Tenerife (Cabildo de Tenerife) | trazados de Cercanías, metros, tranvías, FGC y Euskotren | 24 h |
 | DGT DATEX II v3.7 (`nap.dgt.es`) | ~1.000 incidencias de tráfico | 5 min |
 | Servei Català de Trànsit (GML) | incidencias de carreteras catalanas | 5 min |
@@ -167,3 +172,13 @@ después (con jq, DuckDB o pandas).
 - **Solo tiempos de llegada, sin posiciones**: Metro de Madrid, Metro Ligero, Metrovalencia,
   Granada y Zaragoza. Se pueden estimar posiciones a partir de su GTFS, igual que con Ouigo.
 - El catálogo de fuentes de Cowork está en `Radar ES · Catálogo de fuentes públicas — Resumen.md`.
+
+## Licencia
+
+El código de Radar ES es software libre con licencia
+[GNU Affero General Public License v3.0 o posterior](LICENSE) (AGPL-3.0-or-later): se puede usar,
+estudiar, modificar y redistribuir, pero quien publique una versión modificada como servicio web
+tiene que ofrecer su código con la misma licencia.
+
+Los datos que muestra no son de este proyecto: cada fuente tiene su propia licencia y su
+atribución obligatoria (ver `/legal.html`).

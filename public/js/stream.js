@@ -5,12 +5,18 @@
 const RETRY_FIRST_MS = 5000;
 const RETRY_MAX_MS = 60_000;
 
-export function connect(handlers) {
+/**
+ * @param {{ buses?: boolean }} [options]  buses: pedir también los autobuses (sólo si su capa está activa).
+ * @returns {{ setBuses: (on: boolean) => void }}  Cambiar si se piden autobuses reabre la conexión.
+ */
+export function connect(handlers, { buses = false } = {}) {
   let retry = RETRY_FIRST_MS;
   let timer = null;
+  let current = null;
 
   const open = () => {
-    const es = new EventSource('/api/stream');
+    const es = new EventSource(buses ? '/api/stream?buses=1' : '/api/stream');
+    current = es;
     const on = (name, fn) => es.addEventListener(name, (e) => {
       try {
         fn(JSON.parse(e.data));
@@ -27,6 +33,7 @@ export function connect(handlers) {
       handlers.status?.('live');
     });
     es.addEventListener('error', () => {
+      if (es !== current) return; // una conexión ya sustituida por setBuses
       if (es.readyState !== EventSource.CLOSED) return handlers.status?.('connecting'); // reconecta él solo
       handlers.status?.('error');
       clearTimeout(timer);
@@ -35,4 +42,13 @@ export function connect(handlers) {
     });
   };
   open();
+  return {
+    setBuses(on) {
+      if (on === buses) return;
+      buses = on;
+      clearTimeout(timer);
+      current?.close();
+      open(); // el snapshot de la conexión nueva sustituye todo el estado
+    },
+  };
 }
