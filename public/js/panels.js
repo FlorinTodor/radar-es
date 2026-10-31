@@ -132,7 +132,7 @@ export function renderVehicles(el, vehicles, total, sel = NO_SELECTION) {
     return `
     <button class="item vrow${on ? ' selected' : ''}" data-kind="vehicle" data-id="${esc(v.id)}" aria-pressed="${on}" style="border-left-color:${DELAY_CLASSES[v.cls][0]}">
       <img class="plate" src="${vehicleIconUrl(pictoFor(v.mode), v.estimated && !v.cls ? '#c3c2b7' : DELAY_CLASSES[v.cls][0], !!v.estimated)}" alt="">
-      <span class="title">${check(on)} ${esc(vehicleTitle(v))}</span>
+      <span class="title">${check(on)} ${esc(vehicleTitle(v))}${v.estimated ? ' <span class="est-tag">estimada</span>' : ''}</span>
       <span class="delay">${v.estimated && (v.delay === null || v.delay === undefined) ? 'Estimado' : esc(fmtDelay(v))}</span>
       <span class="sub">${esc(MODE_LABEL[v.mode] ?? v.mode)} · ${esc(v.origin ?? '?')} → ${esc(v.destination ?? '?')}</span>
     </button>`;
@@ -199,7 +199,7 @@ export function renderLayers(el, prefs, countsByMode) {
   const shape = (path, fill, stroke) => `<svg viewBox="0 0 14 14" width="12" height="12" aria-hidden="true"><path d="${path}" fill="${fill}" stroke="${stroke}" stroke-width="1.4"/></svg>`;
   el.innerHTML = `<h4>Trenes</h4>${modes}<h4>Contexto</h4>${groups}<h4>Tipo de vehículo</h4><div class="legend">${types}</div>
     <h4>Retraso (color de la placa)</h4><div class="legend">${legend}
-    ${plate('tren', '#fab219', true)}<span>Posición estimada por horario (no GPS): placa hueca; el color indica el retraso si se conoce</span>
+    ${plate('tren', '#fab219', true)}<span>Posición <strong>estimada</strong> a partir del horario, no GPS (Ouigo, ALSA y los metros y tranvías sin GPS): placa hueca; el color indica el retraso si se conoce</span>
     <i style="background:transparent;border:2px solid #d03b3b"></i><span>Tren con alerta activa</span>
     <i style="background:transparent;border:2.5px solid #6ea8fe"></i><span>Tren seleccionado</span>
     <i style="height:0;border-radius:0;border-top:2.5px dashed #6ea8fe"></i><span>Su recorrido en los últimos 45 min</span>

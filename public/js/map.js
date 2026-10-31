@@ -279,7 +279,11 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     });
     map.addLayer({
       id: 'veh-labels', type: 'symbol', source: 'vehicles', minzoom: 9,
-      layout: { 'text-field': ['get', 'line'], 'text-font': FONT, 'text-size': 11, 'text-offset': [0, -1.9], 'text-optional': true },
+      // Las posiciones estimadas lo dicen también en la etiqueta, no sólo con la placa hueca.
+      layout: {
+        'text-field': ['case', IS_EST, ['concat', ['get', 'line'], ' · estimada'], ['get', 'line']],
+        'text-font': FONT, 'text-size': 11, 'text-offset': [0, -1.9], 'text-optional': true,
+      },
       paint: { 'text-color': '#f0efec', 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.5 },
     });
 
@@ -596,7 +600,8 @@ function vehicleDetail(v) {
     : v.delay !== null && v.delay !== undefined
       ? '<strong>Posición estimada</strong> a partir del horario y del retraso real que publica el operador: no es GPS.'
       : '<strong>Posición estimada</strong> a partir del horario publicado: no es GPS y no refleja retrasos.';
-  return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3><dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>
+  const badge = v.estimated ? '<div class="est-badge">Posición estimada · no es GPS</div>' : '';
+  return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>
     <div class="note">${note}</div></div>`;
 }
 

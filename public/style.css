@@ -188,6 +188,11 @@ button { font: inherit; color: inherit; }
 .pop dt { color: var(--muted); }
 .pop dd { margin: 0; }
 .pop .note { margin-top: 8px; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+/* Aviso de posición estimada por horario: en la ficha y en la lista de trenes. */
+.est-badge { display: inline-block; margin: 0 0 8px; padding: 2px 8px; border: 1px dashed var(--st-warning); border-radius: 4px;
+  color: var(--st-warning); font-size: 11.5px; font-weight: 600; }
+.est-tag { margin-left: 4px; padding: 0 5px; border: 1px dashed currentColor; border-radius: 3px; color: var(--muted);
+  font-size: 10.5px; font-weight: 600; vertical-align: 1px; }
 .pop a { color: var(--accent); }
 
 .maplibregl-ctrl-attrib { background: rgba(13, 13, 13, 0.7) !important; color: var(--muted); }
