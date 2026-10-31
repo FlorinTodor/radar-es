@@ -586,7 +586,7 @@ function vehicleDetail(v) {
     ['Tipo', MODE_LABEL[v.mode] ?? v.mode],
     (v.origin || v.destination) && ['Recorrido', `${v.origin ?? '?'} → ${v.destination ?? '?'}`],
     ['Retraso', fmtDelay(v)],
-    v.current && ['Última estación', v.current],
+    v.current && [v.mode === 'bus' ? 'Última parada' : 'Última estación', v.current],
     v.next && ['Próxima', `${v.next}${v.nextEta ? ` (${fmtLocalHour(v.nextEta)})` : v.nextInMinutes !== undefined && v.nextInMinutes !== null ? ` (en ${v.nextInMinutes} min)` : ''}`],
     v.platform && ['Vía', v.platform],
     v.area && ['Núcleo', v.area],
@@ -599,7 +599,8 @@ function vehicleDetail(v) {
       + 'La × sólo cierra esta ficha; pulsa en una zona vacía del mapa para quitar la selección.'
     : v.delay !== null && v.delay !== undefined
       ? '<strong>Posición estimada</strong> a partir del horario y del retraso real que publica el operador: no es GPS.'
-      : '<strong>Posición estimada</strong> a partir del horario publicado: no es GPS y no refleja retrasos.';
+      : '<strong>Posición estimada</strong> a partir del horario publicado: no es GPS y no refleja retrasos.'
+        + (v.atLastStop ? ' El operador no publica el recorrido entre paradas, así que se muestra en la última parada por la que ha pasado.' : '');
   const badge = v.estimated ? '<div class="est-badge">Posición estimada · no es GPS</div>' : '';
   return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>
     <div class="note">${note}</div></div>`;

@@ -5,7 +5,7 @@
 import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
 import { modeOf } from '../gtfs/gtfs-modes.js';
 import { decodeFeed } from './gtfs-rt.js';
-import { activeFrequencyOffsets, gtfsTimeToSeconds, scheduledPosition, serviceRuns } from '../../../domain/schedule.js';
+import { activeFrequencyOffsets, buildShape, gtfsTimeToSeconds, pointAlong, scheduledPosition, serviceRuns, stopsAlongShape } from '../../../domain/schedule.js';
 import { madridLocalToMs } from './parse.js';
 import { napDatasetPage } from '../nap/nap-client.js';
 
@@ -39,7 +39,7 @@ const titleCase = (s) => (/[a-z]/.test(s) ? s : s.toLowerCase().replace(/(^|[\s(
  *   que ya llegan por otra fuente, para no pintar dos veces el mismo vehículo.
  */
 function parseSchedule(zip, forcedMode, days, { excludeAgency, excludeRoute } = {}) {
-  const f = openGtfs(zip, ['agency.txt', 'routes.txt', 'trips.txt', 'stops.txt', 'stop_times.txt', 'calendar.txt', 'calendar_dates.txt', 'frequencies.txt']);
+  const f = openGtfs(zip, ['agency.txt', 'routes.txt', 'trips.txt', 'stops.txt', 'stop_times.txt', 'calendar.txt', 'calendar_dates.txt', 'frequencies.txt', 'shapes.txt']);
 
   const agencies = new Map([...csvRows(f['agency.txt'])].map((a) => [a.agency_id, a.agency_name]));
   const routes = new Map();
@@ -79,7 +79,7 @@ function parseSchedule(zip, forcedMode, days, { excludeAgency, excludeRoute } = 
     const route = routes.get(t.route_id);
     const [today, yesterday] = runs(t.service_id);
     if (route && (today || yesterday)) {
-      trips.set(t.trip_id, { id: t.trip_id, serviceId: t.service_id, route, label: t.trip_short_name || null, today, raw: [], freqs: [] });
+      trips.set(t.trip_id, { id: t.trip_id, serviceId: t.service_id, route, label: t.trip_short_name || null, today, shapeId: t.shape_id || null, raw: [], freqs: [] });
     }
   }
   // Las paradas de todos los viajes van en un único array tipado (seq, índice de parada, llegada,
@@ -110,6 +110,38 @@ function parseSchedule(zip, forcedMode, days, { excludeAgency, excludeRoute } = 
     kept.push(t);
     total += t.raw.length;
   }
+  // Trazados (shapes.txt), sólo los de los viajes que se quedan y aligerados (buildShape).
+  const wantedShapes = new Set(kept.map((t) => t.shapeId).filter(Boolean));
+  // Cada trazado se lee en un array plano [seq, lon, lat, seq, lon, lat…]: un array por punto
+  // ocuparía varias veces más mientras se carga (hay GTFS con 800.000 puntos).
+  const shapePoints = new Map();
+  for (const p of csvRows(f['shapes.txt'])) {
+    if (!wantedShapes.has(p.shape_id)) continue;
+    const lon = +p.shape_pt_lon;
+    const lat = +p.shape_pt_lat;
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+    if (!shapePoints.has(p.shape_id)) shapePoints.set(p.shape_id, []);
+    shapePoints.get(p.shape_id).push(+p.shape_pt_sequence, lon, lat);
+  }
+  const shapes = [];
+  const shapeIndex = new Map();
+  for (const [sid, raw] of shapePoints) {
+    const n = raw.length / 3;
+    if (n < 2) continue;
+    let order = null; // casi siempre vienen ya en orden: sólo se ordena si hace falta
+    for (let i = 1; i < n && !order; i++) if (raw[i * 3] < raw[(i - 1) * 3]) order = Array.from({ length: n }, (_, k) => k).sort((a, b) => raw[a * 3] - raw[b * 3]);
+    const lonLat = new Float64Array(n * 2);
+    for (let i = 0; i < n; i++) {
+      const src = order ? order[i] : i;
+      lonLat[i * 2] = raw[src * 3 + 1];
+      lonLat[i * 2 + 1] = raw[src * 3 + 2];
+    }
+    shapeIndex.set(sid, shapes.length);
+    shapes.push(buildShape(lonLat));
+    shapePoints.set(sid, null); // libera el array crudo en cuanto se usa
+  }
+  shapePoints.clear();
+
   const times = new Int32Array(total);
   const compact = [];
   let offset = 0;
@@ -118,10 +150,10 @@ function parseSchedule(zip, forcedMode, days, { excludeAgency, excludeRoute } = 
     const order = Array.from({ length: n }, (_, i) => i).sort((a, b) => t.raw[a * 4] - t.raw[b * 4]);
     order.forEach((src, i) => times.set(t.raw.slice(src * 4, src * 4 + 4), offset + i * 4));
     compact.push({ id: t.id, serviceId: t.serviceId, route: t.route, label: t.label, freqs: t.freqs, at: offset, n,
-      first: times[offset + 3], last: times[offset + (n - 1) * 4 + 2] });
+      first: times[offset + 3], last: times[offset + (n - 1) * 4 + 2], shape: shapeIndex.get(t.shapeId) ?? -1 });
     offset += n * 4;
   }
-  return { calendar, exceptions, stopList, times, trips: compact };
+  return { calendar, exceptions, stopList, times, trips: compact, shapes };
 }
 
 /** Paradas de un viaje como objetos, sólo cuando hace falta (viajes en circulación). */
@@ -131,6 +163,15 @@ function tripStops(trip, { times, stopList }) {
     out.push({ seq: times[i], ...stopList[times[i + 1]], arr: times[i + 2], dep: times[i + 3] });
   }
   return out;
+}
+
+/**
+ * Distancia sobre el trazado de cada parada del viaje (se calcula una vez por viaje, sólo para los
+ * que llegan a circular). null si no tiene trazado o sus paradas no encajan en él.
+ */
+function alongShape(schedule, trip, stops) {
+  if (trip.along === undefined) trip.along = trip.shape >= 0 ? stopsAlongShape(stops, schedule.shapes[trip.shape]) : null;
+  return trip.along;
 }
 
 /** Día de servicio en Madrid desplazado `offset` días. */
@@ -194,6 +235,20 @@ export function createGtfsScheduleSource({ nap, http, log }, options) {
     const stops = tripStops(trip, schedule);
     const pos = scheduledPosition(stops, tt);
     if (!pos) return null;
+    let { lat, lon } = pos;
+    let atLastStop = false;
+    if (!pos.atStop) {
+      const along = alongShape(schedule, trip, stops);
+      if (along) {
+        // Por su recorrido: a la misma fracción del tramo entre paradas, pero medida sobre el trazado.
+        ({ lat, lon } = pointAlong(schedule.shapes[trip.shape], along[pos.i] + (along[pos.i + 1] - along[pos.i]) * pos.k));
+      } else if (trip.route.mode === 'bus') {
+        // Sin trazado, en línea recta un autobús interurbano cruzaría el campo: se deja en la última
+        // parada por la que ha pasado. Los trenes sí siguen la recta (las vías suelen ser bastante rectas).
+        ({ lat, lon } = pos.prev);
+        atLastStop = true;
+      }
+    }
     const { operator } = feeds[fi];
     const instance = offset ? `:${offset}` : '';
     return {
@@ -203,13 +258,14 @@ export function createGtfsScheduleSource({ nap, http, log }, options) {
       service: operator,
       line: options.line ? options.line(trip.route.line) : trip.route.line,
       label: options.label?.(trip) ?? trip.label ?? null,
-      lat: pos.lat,
-      lon: pos.lon,
+      lat,
+      lon,
       delay: delaySec === null ? null : Math.round(delaySec / 60),
       estimated: true,
+      atLastStop,
       origin: stops[0].name,
       destination: stops.at(-1).name,
-      current: pos.atStop ? pos.prev.name : null,
+      current: pos.atStop || atLastStop ? pos.prev.name : null,
       next: pos.atStop ? pos.next?.name ?? null : pos.next.name,
       nextEta: pos.next ? `${day.iso}T${hhmmss(pos.next.arr + offset + (delaySec ?? 0))}` : null,
     };
