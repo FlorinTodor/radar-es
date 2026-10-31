@@ -52,19 +52,23 @@ desde la rama `produccion`: ver [`docs/despliegue.md`](docs/despliegue.md).
 
 ```
                    ┌───────────────────── adapters/inbound ─────────────────────┐
-  navegador ──────▶│ http/http-server.js  (REST + SSE + estáticos)              │
-  reloj ──────────▶│ scheduler/polling-scheduler.js  (sondeo de fuentes)        │
+  navegador ──────▶│ http/http-server.js  (REST + SSE + teselas + estáticos)    │
+  reloj ──────────▶│ scheduler/polling-scheduler.js (sondeo, alertas, catálogos)│
                    └──────────────┬─────────────────────────────────────────────┘
-                                  ▼
+                                  ▼ sólo casos de uso
                    ┌──────────── application ─────────────┐
                    │ use-cases/ingest-source.js           │
-                   │ use-cases/detect-alerts.js           │──▶ ports.js (contratos)
-                   │ use-cases/query-situation.js         │
+                   │ use-cases/detect-alerts.js           │
+                   │ use-cases/query-situation.js         │──▶ ports.js (contratos)
+                   │ use-cases/watch-situation.js  (SSE)  │
+                   │ use-cases/serve-tiles.js             │
+                   │ use-cases/refresh-catalogs.js        │
                    └──────────────┬───────────────────────┘
                                   ▼
                    ┌──────────────── domain ──────────────┐
                    │ model.js · geo.js · tracking.js      │  puro: sin red, sin disco,
-                   │ kpis.js · alerts/{rules,lifecycle}   │  sin dependencias externas
+                   │ kpis.js · tiles.js                   │  sin dependencias externas
+                   │ alerts/{rules,lifecycle}             │
                    └──────────────────────────────────────┘
                                   ▲ implementan los puertos
                    ┌──────────── adapters/outbound ─────────────────────────────┐
@@ -73,6 +77,7 @@ desde la rama `produccion`: ver [`docs/despliegue.md`](docs/despliegue.md).
                    │ network/, gtfs/, nap/   trazados de líneas desde el NAP    │
                    │ persistence/     estado en memoria + histórico JSONL       │
                    │ events/          bus de eventos en proceso                 │
+                   │ tiles/           teselas de IGN y EFFIS con copia en disco │
                    │ http/, logging/                                            │
                    └────────────────────────────────────────────────────────────┘
 ```
@@ -82,6 +87,7 @@ desde la rama `produccion`: ver [`docs/despliegue.md`](docs/despliegue.md).
 - **`server/adapters/outbound/`**: implementaciones de esos puertos. Para cambiar la memoria
   por Redis o Postgres, o el JSONL por una base de datos, basta con escribir otro adaptador.
 - **`server/adapters/inbound/`**: quien dispara los casos de uso (la API HTTP y el planificador).
+  Sólo hablan con casos de uso, nunca con los puertos de salida.
 - **`server/main.js`**: raíz de composición; el único sitio donde se eligen las implementaciones.
 
 ### Añadir una fuente
