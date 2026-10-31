@@ -14,7 +14,12 @@ const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'
 
 const titleCase = (s) => (/[a-z]/.test(s) ? s : s.toLowerCase().replace(/(^|[\s(-])(\p{L})/gu, (_, p, c) => p + c.toUpperCase()));
 
-function parseSchedule(zip, forcedMode) {
+/**
+ * @param {{ ymd: string, weekday: number }[]} days  Días de servicio que se consultarán antes de la
+ *   próxima recarga. Sólo se guardan los viajes que circulan alguno de ellos: los horarios grandes
+ *   (ALSA, con un calendar_dates de casi un millón de filas) no caben enteros en memoria.
+ */
+function parseSchedule(zip, forcedMode, days) {
   const f = openGtfs(zip, ['routes.txt', 'trips.txt', 'stops.txt', 'stop_times.txt', 'calendar.txt', 'calendar_dates.txt', 'frequencies.txt']);
 
   const routes = new Map();
@@ -33,16 +38,23 @@ function parseSchedule(zip, forcedMode) {
 
   const calendar = new Map();
   for (const c of csvRows(f['calendar.txt'])) calendar.set(c.service_id, { start: c.start_date, end: c.end_date, days: DAYS.map((d) => c[d] === '1') });
+  const wanted = new Set(days.map((d) => d.ymd));
   const exceptions = new Map();
   for (const d of csvRows(f['calendar_dates.txt'])) {
+    if (!wanted.has(d.date)) continue;
     if (!exceptions.has(d.service_id)) exceptions.set(d.service_id, new Map());
     exceptions.get(d.service_id).set(d.date, +d.exception_type);
   }
 
+  const active = new Map(); // service_id → circula alguno de los días
+  const runs = (id) => {
+    if (!active.has(id)) active.set(id, days.some((d) => serviceRuns(calendar.get(id), exceptions.get(id), d.ymd, d.weekday)));
+    return active.get(id);
+  };
   const trips = new Map();
   for (const t of csvRows(f['trips.txt'])) {
     const route = routes.get(t.route_id);
-    if (route) trips.set(t.trip_id, { id: t.trip_id, serviceId: t.service_id, route, label: t.trip_short_name || null, raw: [], freqs: [] });
+    if (route && runs(t.service_id)) trips.set(t.trip_id, { id: t.trip_id, serviceId: t.service_id, route, label: t.trip_short_name || null, raw: [], freqs: [] });
   }
   // Las paradas se guardan en arrays tipados (seq, índice de parada, llegada, salida): las redes
   // grandes tienen más de un millón de horarios y como objetos ocuparían cientos de MB.
@@ -120,7 +132,8 @@ function delaysFromTripUpdates(feed, schedule) {
 /**
  * @param {{ nap: ReturnType<typeof import('../nap/nap-client.js').createNapClient>, http: import('../http/http-client.js').HttpClient }} deps
  * @param {{ id: string, name: string, operator: string, ficheroId: number, dataset: number, credit?: string, license?: string,
- *           interval?: number, mode?: import('../../../domain/model.js').Mode, tripUpdatesUrl?: string, label?: (trip: object) => string }} options
+ *           interval?: number, mode?: import('../../../domain/model.js').Mode, tripUpdatesUrl?: string, label?: (trip: object) => string,
+ *           line?: (name: string|null) => string|null }} options
  *   dataset: conjunto de datos del NAP al que pertenece el fichero (para su fecha de actualización).
  *   credit: atribución que pide el propio operador además de la del NAP ("Powered by CRTM"…).
  * @returns {import('../../../application/ports.js').DataSourcePort}
@@ -143,7 +156,7 @@ export function createGtfsScheduleSource({ nap, http }, options) {
       mode: trip.route.mode,
       operator,
       service: operator,
-      line: trip.route.line,
+      line: options.line ? options.line(trip.route.line) : trip.route.line,
       label: options.label?.(trip) ?? trip.label ?? null,
       lat: pos.lat,
       lon: pos.lon,
@@ -168,7 +181,10 @@ export function createGtfsScheduleSource({ nap, http }, options) {
       ?? `Powered by MITRAMS (Punto de Acceso Nacional) · ${options.credit ?? operator} · Posición estimada a partir del horario (dato explotado, no GPS)`,
     async fetch() {
       if (!schedule || Date.now() - loadedAt > RELOAD_MS) {
-        schedule = parseSchedule(await nap.gtfs(ficheroId, RELOAD_MS), mode);
+        // Sólo ayer (viajes que pasan de medianoche), hoy y mañana: el horario se recarga cada 24 h,
+        // así que mañana basta para llegar a la próxima recarga.
+        const days = [-1, 0, 1].map((offset) => madridServiceDay(Date.now(), offset));
+        schedule = parseSchedule(await nap.gtfs(ficheroId, RELOAD_MS), mode, days);
         loadedAt = Date.now();
         datasetUpdated = await nap.updatedAt(dataset, ficheroId).then(madridLocalToMs).catch(() => datasetUpdated);
       }

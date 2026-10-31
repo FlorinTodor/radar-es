@@ -79,6 +79,13 @@ export function createSources(deps) {
     }),
     // Autobús (se muestran, pero no cuentan para las alertas ferroviarias)
     createMoveuskadiBusSource(deps),
+    // ALSA sólo publica su horario: nadie (ni ALSA ni los consorcios) publica en abierto su tiempo
+    // real. Cuando suba un GTFS-RT al NAP, pasar a posiciones reales.
+    createGtfsScheduleSource(deps, {
+      id: 'alsa-horario', name: 'ALSA autobuses (posición estimada según horario)', operator: 'ALSA', ficheroId: 1133, dataset: 932,
+      mode: 'bus', interval: 60_000,
+      line: (name) => name?.replace(/^ALSA\s*-\s*/i, '') || null, // "ALSA - 710" → "710"
+    }),
     createGtfsRtVehicleSource(deps, {
       id: 'emt-malaga', name: 'EMT Málaga (GTFS-RT)', mode: 'bus', operator: 'EMT Málaga', interval: 60_000,
       // El portal de datos abiertos de Málaga declara para estos datos CC BY-SA 4.0: se cumple la más estricta.
