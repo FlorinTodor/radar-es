@@ -401,26 +401,37 @@ filtersEl.addEventListener('click', (ev) => {
 
 const layersBody = document.getElementById('layers-body');
 P.renderLayers(layersBody, prefs, {});
-layersBody.addEventListener('change', (ev) => {
-  const input = ev.target;
+function layersChanged(inputs) {
   if (state.selected.size) {
     state.selected.clear();
     map.setFocus(null);
     document.getElementById('focus-banner').hidden = true;
     render('alerts', 'events', 'vehicles');
   }
-  if (input.dataset.mode) prefs.modes[input.dataset.mode] = input.checked;
-  if (input.dataset.mode === 'bus') stream.setBuses(input.checked);
-  if (input.dataset.group === 'obras') {
-    prefs.obras = input.checked;
-    P.renderEventFilters(filtersEl, prefs);
-    render('events');
-  } else if (input.dataset.group) {
-    prefs.groups[input.dataset.group] = input.checked;
+  for (const input of inputs) {
+    if (input.dataset.mode) prefs.modes[input.dataset.mode] = input.checked;
+    if (input.dataset.mode === 'bus') stream.setBuses(input.checked);
+    if (input.dataset.group === 'obras') {
+      prefs.obras = input.checked;
+      P.renderEventFilters(filtersEl, prefs);
+      render('events');
+    } else if (input.dataset.group) {
+      prefs.groups[input.dataset.group] = input.checked;
+    }
   }
   savePrefs();
   applyLayerPrefs();
-  if (input.dataset.mode && state.tab === 'vehicles') renderVehiclesPanel();
+  if (inputs.some((i) => i.dataset.mode) && state.tab === 'vehicles') renderVehiclesPanel();
+}
+layersBody.addEventListener('change', (ev) => layersChanged([ev.target]));
+// "Todas · Ninguna" de cada sección: cambia sólo las casillas que no estaban ya así.
+layersBody.addEventListener('click', (ev) => {
+  const btn = ev.target.closest('[data-bulk]');
+  if (!btn) return;
+  const on = btn.dataset.on === '1';
+  const inputs = [...layersBody.querySelectorAll(`input[data-${btn.dataset.bulk}]`)].filter((i) => i.checked !== on);
+  for (const input of inputs) input.checked = on;
+  if (inputs.length) layersChanged(inputs);
 });
 
 const layersToggle = document.getElementById('layers-toggle');

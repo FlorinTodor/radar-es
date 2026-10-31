@@ -198,7 +198,11 @@ export function renderLayers(el, prefs, countsByMode) {
   const types = [['av', 'Alta velocidad'], ['tren', 'Larga y media distancia, Cercanías'], ['metro', 'Metro'], ['tranvia', 'Tranvía'], ['bus', 'Autobús']]
     .map(([picto, label]) => `${plate(picto, '#8b8b85')}<span>${label}</span>`).join('');
   const shape = (path, fill, stroke) => `<svg viewBox="0 0 14 14" width="12" height="12" aria-hidden="true"><path d="${path}" fill="${fill}" stroke="${stroke}" stroke-width="1.4"/></svg>`;
-  el.innerHTML = `<h4>Trenes</h4>${modes}<h4>Contexto</h4>${groups}<h4>Tipo de vehículo</h4><div class="legend">${types}</div>
+  // Cabecera de sección con "Todas · Ninguna": marca o desmarca todas sus casillas (data-mode o data-group).
+  const head = (title, kind) => `<div class="layers-head"><h4>${title}</h4><span class="bulk">
+    <button type="button" class="link" data-bulk="${kind}" data-on="1" aria-label="Activar todas: ${title}">Todas</button> ·
+    <button type="button" class="link" data-bulk="${kind}" data-on="0" aria-label="Desactivar todas: ${title}">Ninguna</button></span></div>`;
+  el.innerHTML = `${head('Trenes', 'mode')}${modes}${head('Contexto', 'group')}${groups}<h4>Tipo de vehículo</h4><div class="legend">${types}</div>
     <h4>Retraso (color de la placa)</h4><div class="legend">${legend}
     ${plate('tren', '#fab219', true)}<span>Posición <strong>estimada</strong> a partir del horario, no GPS (Ouigo, ALSA y los metros y tranvías sin GPS): placa hueca; el color indica el retraso si se conoce</span>
     <i style="background:transparent;border:2px solid #d03b3b"></i><span>Tren con alerta activa</span>
