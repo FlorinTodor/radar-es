@@ -427,7 +427,7 @@ if (window.matchMedia('(max-width: 860px)').matches) layersToggle.click();
 // Aviso de datos que faltan: se muestra al entrar hasta que se acepta. Si cambia el texto,
 // sube NOTICE_VERSION para que vuelva a aparecer a todo el mundo.
 const NOTICE_KEY = 'radar-es:aviso-cobertura';
-const NOTICE_VERSION = '2026-10-30b';
+const NOTICE_VERSION = '2026-10-31';
 const notice = document.getElementById('notice');
 document.getElementById('open-notice').addEventListener('click', () => notice.showModal());
 notice.addEventListener('close', () => {
