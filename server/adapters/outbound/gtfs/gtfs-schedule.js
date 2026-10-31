@@ -108,6 +108,10 @@ export async function parseSchedule(zip, forcedMode, days, { excludeAgency, excl
     kept.push(t);
     total += t.raw.length;
   }
+  // Del calendario sólo hacen falta los servicios de esos viajes (ALSA tiene 35.000 y usa un tercio).
+  const usedServices = new Set(kept.map((t) => t.serviceId));
+  for (const id of calendar.keys()) if (!usedServices.has(id)) calendar.delete(id);
+  for (const id of exceptions.keys()) if (!usedServices.has(id)) exceptions.delete(id);
   // Trazados (shapes.txt), sólo los de los viajes que se quedan y aligerados (buildShape).
   const wantedShapes = new Set(kept.map((t) => t.shapeId).filter(Boolean));
   // Cada trazado se lee en un array plano [seq, lon, lat, seq, lon, lat…]: un array por punto
@@ -167,9 +171,59 @@ export async function parseSchedule(zip, forcedMode, days, { excludeAgency, excl
   return { calendar, exceptions, stopList, times, trips: compact, shapes };
 }
 
-/** Buffers del horario que se pueden transferir entre hilos sin copiarlos (paradas y trazados). */
-export function scheduleTransferables({ times, shapes }) {
-  const out = new Set([times.buffer]);
-  for (const { coords, dist } of shapes) out.add(coords.buffer).add(dist.buffer);
-  return [...out];
+// ---------- Paso entre hilos ----------
+// Copiar el horario tal cual de un hilo a otro (clonación estructurada) cuesta 250-300 ms en los que
+// tienen miles de viajes (ALSA, TMB, AMB): V8 serializa cada objeto con los nombres de todas sus
+// propiedades, y la mitad de ese trabajo, rehacerlos, cae en el hilo principal. Empaquetado en
+// columnas (arrays de cadenas y arrays tipados, que se transfieren sin copiar) se rehace en pocos ms.
+
+/** Horario → forma compacta para enviarlo a otro hilo ({ value, transfer }). */
+export function packSchedule({ calendar, exceptions, stopList, times, trips, shapes }) {
+  const routes = [];
+  const routeIndex = new Map();
+  const nt = trips.length;
+  const tripInts = new Int32Array(nt * 6); // ruta, at, n, first, last, shape
+  const freqAt = new Int32Array(nt + 1);
+  const freqs = [];
+  const ids = new Array(nt);
+  const serviceIds = new Array(nt);
+  const labels = new Array(nt);
+  trips.forEach((t, i) => {
+    if (!routeIndex.has(t.route)) routeIndex.set(t.route, routes.push(t.route) - 1);
+    tripInts.set([routeIndex.get(t.route), t.at, t.n, t.first, t.last, t.shape], i * 6);
+    ids[i] = t.id;
+    serviceIds[i] = t.serviceId;
+    labels[i] = t.label;
+    for (const f of t.freqs) freqs.push(f.start, f.end, f.headway);
+    freqAt[i + 1] = freqs.length;
+  });
+  const services = [...calendar.keys()];
+  const calendarDays = new Uint8Array(services.length);
+  services.forEach((id, i) => calendar.get(id).days?.forEach((on, d) => { if (on) calendarDays[i] |= 1 << d; }));
+  const coords = new Float64Array(stopList.length * 2);
+  stopList.forEach((st, i) => { coords[i * 2] = st.lat; coords[i * 2 + 1] = st.lon; });
+  const value = {
+    exceptions, times, shapes, routes,
+    calendar: { services, start: services.map((id) => calendar.get(id).start), end: services.map((id) => calendar.get(id).end), days: calendarDays },
+    stops: { ids: stopList.map((st) => st.stopId), names: stopList.map((st) => st.name), coords },
+    trips: { ids, serviceIds, labels, ints: tripInts, freqAt, freqs: Float64Array.from(freqs) },
+  };
+  const transfer = new Set([times.buffer, calendarDays.buffer, coords.buffer, tripInts.buffer, freqAt.buffer, value.trips.freqs.buffer]);
+  for (const sh of shapes) transfer.add(sh.coords.buffer).add(sh.dist.buffer);
+  return { value, transfer: [...transfer] };
+}
+
+/** Forma compacta → el mismo horario que devuelve parseSchedule. */
+export function unpackSchedule({ calendar: cal, exceptions, stops, times, trips: t, routes, shapes }) {
+  const calendar = new Map();
+  cal.services.forEach((id, i) => calendar.set(id, { start: cal.start[i], end: cal.end[i], days: Array.from({ length: 7 }, (_, d) => (cal.days[i] & (1 << d)) !== 0) }));
+  const stopList = stops.ids.map((stopId, i) => ({ stopId, name: stops.names[i], lat: stops.coords[i * 2], lon: stops.coords[i * 2 + 1] }));
+  const trips = t.ids.map((id, i) => {
+    const freqs = [];
+    for (let k = t.freqAt[i]; k < t.freqAt[i + 1]; k += 3) freqs.push({ start: t.freqs[k], end: t.freqs[k + 1], headway: t.freqs[k + 2] });
+    const o = i * 6;
+    return { id, serviceId: t.serviceIds[i], route: routes[t.ints[o]], label: t.labels[i], freqs, at: t.ints[o + 1], n: t.ints[o + 2],
+      first: t.ints[o + 3], last: t.ints[o + 4], shape: t.ints[o + 5] };
+  });
+  return { calendar, exceptions, stopList, times, trips, shapes };
 }

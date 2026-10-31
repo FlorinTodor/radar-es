@@ -10,11 +10,13 @@ import { Worker } from 'node:worker_threads';
 import { availableParallelism } from 'node:os';
 import { readFileSync } from 'node:fs';
 
+import { TASKS } from './tasks.js';
+
 const WORKER_URL = new URL('./cpu-worker.js', import.meta.url);
+const taskOf = (name) => (Object.hasOwn(TASKS, name) ? TASKS[name] : null);
 const runInline = async (task, args) => {
-  const { TASKS } = await import('./tasks.js');
-  if (!TASKS[task]) throw new Error(`Tarea desconocida: ${task}`);
-  return TASKS[task].run(...args);
+  if (!taskOf(task)) throw new Error(`Tarea desconocida: ${task}`);
+  return taskOf(task).run(...args);
 };
 
 /**
@@ -102,8 +104,14 @@ export function createCpuPool({ threads = 0, log, heapMb = 256, maxRestarts = 3,
       if (!job) return;
       slot.jobs.delete(id);
       if (!slot.jobs.size) worker.unref();
-      if (ok) job.resolve(result);
-      else job.reject(Object.assign(new Error(error?.message ?? 'Error en el hilo'), { name: error?.name ?? 'Error' }));
+      if (ok) {
+        try {
+          const unpack = taskOf(job.task)?.unpack;
+          job.resolve(unpack ? unpack(result) : result);
+        } catch (err) {
+          job.reject(err);
+        }
+      } else job.reject(Object.assign(new Error(error?.message ?? 'Error en el hilo'), { name: error?.name ?? 'Error' }));
     });
     let failure = null;
     worker.on('error', (err) => { failure = err; });

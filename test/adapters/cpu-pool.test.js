@@ -157,8 +157,11 @@ test('un horario leído en un hilo es igual que leído en el principal', async (
     'routes.txt': strToU8('route_id,agency_id,route_short_name,route_type\nR1,A,L1,1\n'),
     'stops.txt': strToU8('stop_id,stop_name,stop_lat,stop_lon\nS1,SOL,40.4168,-3.7038\nS2,"Gran Vía, 1",40.4200,-3.7050\n'),
     'calendar.txt': strToU8('service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nW,1,1,1,1,1,0,0,20260101,20261231\n'),
-    'trips.txt': strToU8('route_id,service_id,trip_id,shape_id\nR1,W,T1,SH\n'),
-    'stop_times.txt': strToU8('trip_id,arrival_time,departure_time,stop_id,stop_sequence\nT1,08:00:00,08:00:30,S1,1\nT1,08:05:00,08:05:00,S2,2\n'),
+    'calendar_dates.txt': strToU8('service_id,date,exception_type\nW,20261102,2\nF,20261102,1\n'),
+    'trips.txt': strToU8('route_id,service_id,trip_id,shape_id,trip_short_name\nR1,W,T1,SH,\nR1,F,T2,SH,Exprés\n'),
+    'stop_times.txt': strToU8('trip_id,arrival_time,departure_time,stop_id,stop_sequence\nT1,08:00:00,08:00:30,S1,1\nT1,08:05:00,08:05:00,S2,2\n'
+      + 'T2,07:00:00,07:00:00,S2,1\nT2,07:06:00,07:06:00,S1,2\n'),
+    'frequencies.txt': strToU8('trip_id,start_time,end_time,headway_secs\nT2,07:00:00,10:00:00,600\n'),
     'shapes.txt': strToU8('shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence\nSH,40.4168,-3.7038,1\nSH,40.4200,-3.7050,2\n'),
   });
   const days = { today: { ymd: '20261102', weekday: 0 }, yesterday: { ymd: '20261101', weekday: 6 } };
@@ -167,10 +170,17 @@ test('un horario leído en un hilo es igual que leído en el principal', async (
   try {
     const remote = await pool.run('schedule', [gtfs, undefined, days, {}]);
     assert.deepEqual(remote, local);
-    assert.equal(remote.trips.length, 1);
-    assert.deepEqual([...remote.times], [1, 0, 28800, 28830, 2, 1, 29100, 29100]);
+    assert.equal(remote.trips.length, 1); // T1 no circula el lunes 2 (excepción), T2 sí
+    assert.equal(remote.trips[0].label, 'Exprés');
+    assert.deepEqual(remote.trips[0].freqs, [{ start: 25200, end: 36000, headway: 600 }]);
+    // Sólo queda el calendario de los servicios de los viajes que se guardan.
+    assert.equal(remote.exceptions.get('F').get('20261102'), 1);
+    assert.ok(!remote.calendar.has('W') && !remote.exceptions.has('W'));
     assert.equal(remote.stopList[1].name, 'Gran Vía, 1');
     assert.ok(remote.shapes[0].coords instanceof Float32Array);
+    const tuesday = await pool.run('schedule', [gtfs, undefined, { today: { ymd: '20261103', weekday: 1 }, yesterday: { ymd: '20261102', weekday: 0 } }, {}]);
+    assert.deepEqual(tuesday.calendar.get('W').days, [true, true, true, true, true, false, false]);
+    assert.deepEqual(tuesday.trips.map((t) => t.id), ['T1']); // T2 sólo circula el lunes (excepción) y acaba antes de medianoche
   } finally {
     await pool.close();
   }
