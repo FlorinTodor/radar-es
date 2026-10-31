@@ -1,8 +1,8 @@
-# Radar ES
+# Radar España
 
-Mapa en tiempo real de trenes, metros y tranvías de España, cruzado con incidencias de
-tráfico, terremotos, avisos meteorológicos y el estado de la red eléctrica. Todo a partir
-de **datos públicos**, sin claves de API.
+**[radarespaña.es](https://radarespaña.es)** · Mapa en tiempo real de trenes, metros y tranvías de
+España, cruzado con incidencias de tráfico, terremotos, avisos meteorológicos y el estado de la red
+eléctrica. Todo a partir de **datos públicos**, sin claves de API.
 
 Un motor de reglas vigila situaciones que merecen atención humana: trenes detenidos en
 plena vía, varios trenes parados en la misma zona, saltos bruscos de retraso, terremotos
@@ -172,6 +172,7 @@ después (con jq, DuckDB o pandas).
 - **Solo tiempos de llegada, sin posiciones**: Metro de Madrid, Metro Ligero, Metrovalencia,
   Granada y Zaragoza. Se pueden estimar posiciones a partir de su GTFS, igual que con Ouigo.
 - El catálogo de fuentes de Cowork está en `Radar ES · Catálogo de fuentes públicas — Resumen.md`.
+- SEO (páginas, sitemap, datos estructurados y lo que hay que hacer en Search Console): [`docs/seo.md`](docs/seo.md).
 
 ## Licencia
 
