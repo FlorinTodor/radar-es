@@ -251,9 +251,18 @@ function selectItem(kind, id) {
   const alertsById = new Map(state.alerts.map((a) => [a.id, a]));
   const needed = layersFor(focusIds([...state.selected.values()], alertsById));
   for (const k of state.forced) if (!needed.has(k)) state.forced.delete(k);
-  if (state.selected.has(key)) for (const k of layersFor(focusIds([{ kind, id }], alertsById))) state.forced.add(k);
+  // Sólo cuentan como temporales las que estaban apagadas: las que ya tenías encendidas siguen igual.
+  if (state.selected.has(key)) {
+    for (const k of layersFor(focusIds([{ kind, id }], alertsById))) if (!onInPrefs(k)) state.forced.add(k);
+  }
   applyLayerPrefs();
   applyFocus({ fit: true });
+}
+
+/** ¿Está encendida en tus preferencias la casilla «mode:x» o «group:x»? */
+function onInPrefs(key) {
+  const [type, name] = key.split(':');
+  return type === 'mode' ? P.modeOn(prefs, name) : name === 'obras' ? prefs.obras : P.groupOn(prefs, name);
 }
 
 // Trenes e incidencias que muestra lo marcado (una alerta trae los suyos).
