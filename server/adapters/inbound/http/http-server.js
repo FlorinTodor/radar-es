@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
+import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { createConnectionLimiter } from './connection-limiter.js';
 
@@ -21,9 +22,10 @@ const SSE_HEALTH_EVERY_MS = 15_000;
 /**
  * @param {{ query: ReturnType<typeof import('../../../application/use-cases/query-situation.js').makeQuerySituation>,
  *           bus: import('../../../application/ports.js').EventPublisherPort, log: import('../../../application/ports.js').LoggerPort,
- *           publicDir: string, vendorDirs: Record<string, string>, about?: object }} deps
+ *           publicDir: string, vendorDirs: Record<string, string>, about?: object,
+ *           tiles?: import('../../../application/ports.js').TileProviderPort }} deps
  */
-export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about = {} }) {
+export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about = {}, tiles }) {
   const routes = {
     '/api/snapshot': () => query.snapshot(),
     '/api/vehicles': (p) => query.vehicles({
@@ -33,13 +35,32 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
     }),
     '/api/events': (p) => query.events({ category: p.get('category') ?? undefined }),
     '/api/alerts': () => ({ active: query.alerts(), resolved: query.resolvedAlerts() }),
-    '/api/health': () => query.health(),
     '/api/kpis': () => query.kpis(),
     '/api/metrics': () => query.metrics(),
     '/api/stations': () => query.stations(),
     '/api/lines': () => query.lines(),
     '/api/trails': (p) => query.trails(Math.min(Number(p.get('min')) || 15, 45)),
     '/api/about': () => about,
+  };
+
+  // Directo: JSON iguales para todo el mundo, que Cloudflare guarda `edge` segundos (regla de caché
+  // en /api/live* y /api/health). Aquí se calculan y comprimen una vez cada `ttl`, así que el
+  // servidor trabaja lo mismo con 100 personas que con 100.000. Si el servidor cae, Cloudflare
+  // sigue sirviendo la última copia hasta 15 min (stale-if-error) y el navegador avisa de su edad.
+  const live = {
+    '/api/live': { fn: () => query.live(), ttl: 5_000, edge: 10 },
+    '/api/live/events': { fn: () => query.liveEvents(), ttl: 15_000, edge: 30 },
+    '/api/live/buses': { fn: () => query.liveBuses(), ttl: 8_000, edge: 15 },
+    '/api/health': { fn: () => query.health(), ttl: 15_000, edge: 30 },
+  };
+  const memo = new Map();
+  const liveBody = (path) => {
+    const hit = memo.get(path);
+    if (hit && Date.now() - hit.at < live[path].ttl) return hit;
+    const json = Buffer.from(JSON.stringify(live[path].fn()));
+    const body = { at: Date.now(), json, gz: gzipSync(json), etag: `"${createHash('sha1').update(json).digest('base64url').slice(0, 20)}"` };
+    memo.set(path, body);
+    return body;
   };
 
   const security = Object.entries(securityHeaders(about));
@@ -50,6 +71,10 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
       const url = new URL(req.url, 'http://localhost');
       if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'Método no permitido' });
 
+      if (live[url.pathname]) return sendLive(req, res, url.pathname);
+      if (url.pathname.startsWith('/tiles/')) return sendTile(res, url.pathname);
+      if (url.pathname === '/api/burnt-areas') return sendBurntAreas(res, url.searchParams.get('bbox'));
+      // El directo antiguo (SSE) se mantiene para las pestañas que se abrieron antes del cambio.
       if (url.pathname === '/api/stream') return stream(req, res, url.searchParams.get('buses') === '1');
       if (routes[url.pathname]) return sendJson(req, res, 200, routes[url.pathname](url.searchParams));
       if (url.pathname.startsWith('/api/tracks/')) {
@@ -68,6 +93,53 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
       else res.end();
     }
   });
+
+  function sendLive(req, res, path) {
+    const { json, gz, etag } = liveBody(path);
+    const { edge } = live[path];
+    const headers = {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': `public, max-age=0, s-maxage=${edge}, stale-while-revalidate=${edge * 3}, stale-if-error=900`,
+      ETag: etag,
+      Vary: 'Accept-Encoding',
+    };
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, headers);
+      return res.end();
+    }
+    const zipped = /\bgzip\b/.test(req.headers['accept-encoding'] ?? '');
+    res.writeHead(200, { ...headers, ...(zipped && { 'Content-Encoding': 'gzip' }), 'Content-Length': (zipped ? gz : json).length });
+    res.end(req.method === 'HEAD' ? undefined : zipped ? gz : json);
+  }
+
+  /** /tiles/<capa>/<z>/<x>/<y>.png → tesela de IGN o EFFIS (con copia en disco). */
+  async function sendTile(res, path) {
+    const m = /^\/tiles\/([a-z-]+)\/(\d{1,2})\/(\d{1,7})\/(\d{1,7})\.png$/.exec(path);
+    const [layer, z, x, y] = m ? [m[1], +m[2], +m[3], +m[4]] : [];
+    if (!m || !tiles?.layers.includes(layer) || z > 19 || x >= 2 ** z || y >= 2 ** z) return send(res, 404, { error: 'Tesela no válida' });
+    const png = await tiles.tile(layer, z, x, y);
+    if (!png) {
+      res.setHeader('Cache-Control', 'no-store'); // Cloudflare puede seguir sirviendo su copia (stale-if-error)
+      return send(res, 502, { error: 'Servicio de teselas no disponible' });
+    }
+    res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': png.length, 'Cache-Control': tiles.cacheControl(layer) });
+    res.end(png);
+  }
+
+  /** Áreas quemadas en una caja lon/lat pequeña (lo que hay bajo un clic en el mapa). */
+  async function sendBurntAreas(res, bboxParam) {
+    const bbox = (bboxParam ?? '').split(',').map(Number);
+    const valid = bbox.length === 4 && bbox.every(Number.isFinite) && bbox[2] > bbox[0] && bbox[3] > bbox[1]
+      && bbox[2] - bbox[0] < 0.5 && bbox[3] - bbox[1] < 0.5;
+    if (!valid || !tiles) return send(res, 400, { error: 'Caja no válida' });
+    try {
+      const geojson = await tiles.burntAreas(bbox);
+      res.setHeader('Cache-Control', 'public, max-age=600, s-maxage=1800');
+      return send(res, 200, geojson);
+    } catch {
+      return send(res, 502, { error: 'EFFIS no responde' });
+    }
+  }
 
   /** @param {boolean} buses  El cliente tiene activada la capa de autobuses. */
   function stream(req, res, buses) {
@@ -133,7 +205,7 @@ function sendJson(req, res, status, body) {
 
 /**
  * Cabeceras de seguridad de todas las respuestas. La CSP enumera lo único que la página carga de
- * fuera: teselas y fuentes de OpenFreeMap, las WMS de IGN y EFFIS y, si está configurado, el
+ * fuera: teselas y fuentes de OpenFreeMap (las de IGN y EFFIS ya salen de /tiles) y, si está configurado, el
  * contador de GoatCounter. Ningún script en línea; los estilos en línea sí (la leyenda los usa).
  * Sin upgrade-insecure-requests para no romper el servidor local por http.
  * @param {{ goatcounter?: string | null }} about
@@ -145,7 +217,7 @@ export function securityHeaders({ goatcounter } = {}) {
     `script-src 'self'${goatcounter ? ' https://gc.zgo.at' : ''}`,
     "style-src 'self' 'unsafe-inline'",
     `img-src 'self' data: blob:${counter}`,
-    `connect-src 'self' https://tiles.openfreemap.org https://servicios.idee.es https://maps.effis.emergency.copernicus.eu${counter}`,
+    `connect-src 'self' https://tiles.openfreemap.org${counter}`,
     "worker-src 'self' blob:",
     "font-src 'self'",
     "object-src 'none'",

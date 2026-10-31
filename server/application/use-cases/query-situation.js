@@ -81,6 +81,29 @@ export function makeQuerySituation({ situation, stations, network, sources = [] 
       };
     },
 
+    // ---------- Directo por consulta periódica (lo que Cloudflare guarda unos segundos) ----------
+    // Separado por ritmo de cambio y tamaño: las posiciones cambian cada pocos segundos; las
+    // incidencias (más de mil, de tráfico sobre todo) cada minuto; los autobuses son miles y sólo
+    // los pide quien activa su capa.
+
+    /** Posiciones (sin autobuses), recuento por fuente y tipo, alertas e indicadores. */
+    live() {
+      const vehicles = situation.vehicles();
+      const counts = {};
+      for (const v of vehicles) countByMode([v], counts[v.source] ??= {});
+      return {
+        generatedAt: Date.now(),
+        vehicles: busFilter(false)(vehicles),
+        counts,
+        metrics: situation.metrics(),
+        alerts: alerts(),
+        resolved: situation.resolvedAlerts().slice(0, 30),
+        kpis: situation.kpis(),
+      };
+    },
+    liveEvents: () => ({ generatedAt: Date.now(), events: situation.events() }),
+    liveBuses: () => ({ generatedAt: Date.now(), vehicles: situation.vehicles().filter((v) => v.mode === 'bus') }),
+
     snapshot({ buses = true } = {}) {
       const vehicles = situation.vehicles();
       const counts = {}; // fuente → { modo: número }
