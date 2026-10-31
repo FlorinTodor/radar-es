@@ -104,7 +104,7 @@ Solo se usan fuentes con licencia de reutilización. Los endpoints internos de v
 (el visor web de Renfe, la API del tranvía de Tenerife, la API de la app de Rodalies…) se descartaron
 tras revisar sus avisos legales. Del tranvía de Tenerife solo se dibuja el trazado, que Metrotenerife
 publica con licencia CC BY en el portal del Cabildo. La licencia y la atribución de cada fuente están
-en `/legal.html`.
+en `/legal`.
 
 Todas son públicas. Solo las marcadas con 🔑 necesitan `NAP_API_KEY`, una clave gratuita del NAP.
 
@@ -181,4 +181,4 @@ consultar: no se puede copiar, modificar, redistribuir, usar en otros proyectos 
 comercialmente sin permiso por escrito del autor.
 
 Los datos que muestra no son de este proyecto: cada fuente tiene su propia licencia y su
-atribución obligatoria (ver `/legal.html`).
+atribución obligatoria (ver `/legal`).

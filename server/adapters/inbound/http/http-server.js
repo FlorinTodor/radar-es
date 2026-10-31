@@ -238,9 +238,11 @@ function redirect(res, location) {
  */
 export function cleanPagePath(pathname) {
   let path = pathname.replace(/\/{2,}/g, '/');
-  if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
+  const trim = () => { if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1); };
+  trim();
   if (path.endsWith('.html')) path = path.slice(0, -'.html'.length);
-  if (path === '/index') path = '/';
+  trim(); // «/foo/.html» → «/foo/» → «/foo», en una sola redirección
+  if (path === '/index' || path === '') path = '/';
   return path;
 }
 

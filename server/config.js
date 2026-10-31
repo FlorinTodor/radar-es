@@ -11,7 +11,7 @@ export function loadConfig(env = process.env) {
     about: {
       owner: env.OWNER_NAME || null,
       contact: env.CONTACT_EMAIL || null,
-      publicUrl: env.PUBLIC_URL || null,
+      publicUrl: publicUrl(env.PUBLIC_URL),
       // Contador de visitas sin cookies. Sin esta variable no se carga (así en local no cuenta).
       goatcounter: goatcounterUrl(env.GOATCOUNTER_URL),
     },
@@ -23,4 +23,14 @@ export function loadConfig(env = process.env) {
 export function goatcounterUrl(value) {
   const url = value?.trim();
   return url && /^https:\/\/[a-z0-9.-]+\/count$/i.test(url) ? url : null;
+}
+
+/** URL pública de la web (https://dominio): sólo el origen, o null si no es una URL http(s) válida. */
+export function publicUrl(value) {
+  try {
+    const url = new URL(value?.trim());
+    return /^https?:$/.test(url.protocol) ? url.origin : null;
+  } catch {
+    return null;
+  }
 }

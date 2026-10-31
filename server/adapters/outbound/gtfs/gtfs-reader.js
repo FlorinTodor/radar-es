@@ -30,6 +30,12 @@ export function createPacer(sliceMs = 20) {
  * Descomprime los ficheros pedidos con zlib asíncrono, en los hilos de libuv y no en el principal:
  * descomprimir de golpe un GTFS de 20 MB dejaba el servidor sin responder medio segundo. Los ZIP64
  * (tamaños o posiciones que no caben en 32 bits) van por fflate, síncrono, como antes.
+ * - Cada fichero se descomprime en un solo bloque del tamaño final que dice el ZIP: con los bloques
+ *   de 16 KB por defecto, zlib juntaba al final dos copias (el stop_times de Cercanías son 290 MB)
+ *   y dejaba la memoria fragmentada: el pico subía de ~580 a ~920 MB.
+ * - Uno detrás de otro, no a la vez: así sólo hay un fichero grande en memoria a medio hacer.
+ * - Antes de descomprimir nada se comprueba todo el ZIP, para que un fichero dañado sea un error
+ *   normal (que quien llama registra) y no una promesa rechazada sin dueño que tumbe el proceso.
  * @returns {Promise<Record<string, Uint8Array>>} nombre de fichero → contenido
  */
 export async function openGtfs(zipBytes, files) {
@@ -39,18 +45,26 @@ export async function openGtfs(zipBytes, files) {
     const all = unzipSync(zipBytes, { filter: (f) => files.includes(f.name.split('/').pop()) });
     return Object.fromEntries(Object.entries(all).map(([name, data]) => [name.split('/').pop(), data]));
   }
-  const wanted = entries.filter((e) => files.includes(e.name));
-  const contents = await Promise.all(wanted.map((e) => {
+  const wanted = entries.filter((e) => files.includes(e.name)).map((e) => {
+    if (e.method !== 0 && e.method !== 8) throw new Error(`${e.name}: compresión ${e.method} no soportada`);
+    if (e.offset + 30 > zip.length || zip.readUInt32LE(e.offset) !== 0x04034b50) throw new Error(`${e.name}: cabecera local del ZIP dañada`);
     const start = e.offset + 30 + zip.readUInt16LE(e.offset + 26) + zip.readUInt16LE(e.offset + 28);
-    const data = zip.subarray(start, start + e.size);
-    if (e.method === 0) return data;
-    if (e.method === 8) return inflate(data);
-    throw new Error(`${e.name}: compresión ${e.method} no soportada`);
-  }));
-  return Object.fromEntries(wanted.map((e, i) => [e.name, contents[i]]));
+    if (start + e.size > zip.length) throw new Error(`${e.name}: el ZIP está cortado`);
+    return { ...e, data: zip.subarray(start, start + e.size) };
+  });
+  const out = {};
+  for (const e of wanted) {
+    out[e.name] = e.method === 0 ? e.data : await inflate(e.data, { chunkSize: Math.min(Math.max(e.usize, MIN_CHUNK), MAX_CHUNK) });
+  }
+  return out;
 }
 
-/** Entradas del directorio central ({ name, method, size, offset }), o null si es ZIP64. */
+// El tamaño descomprimido lo declara el propio ZIP: se acota por si viene mal (si se queda corto,
+// zlib sigue con más bloques; si es enorme, no se reserva de golpe más de 512 MB).
+const MIN_CHUNK = 64 * 1024;
+const MAX_CHUNK = 512 * 1024 * 1024;
+
+/** Entradas del directorio central ({ name, method, size, usize, offset }), o null si es ZIP64. */
 function centralDirectory(zip) {
   let end = -1; // registro de fin: en los últimos 22 bytes más un comentario de hasta 64 KB
   for (let i = zip.length - 22; i >= Math.max(0, zip.length - 22 - 0xffff); i--) {
@@ -67,10 +81,11 @@ function centralDirectory(zip) {
   for (let k = 0; k < count; k++) {
     if (zip.readUInt32LE(p) !== 0x02014b50) throw new Error('directorio del ZIP dañado');
     const size = zip.readUInt32LE(p + 20);
+    const usize = zip.readUInt32LE(p + 24);
     const offset = zip.readUInt32LE(p + 42);
-    if (size === 0xffffffff || offset === 0xffffffff) return null;
+    if (size === 0xffffffff || usize === 0xffffffff || offset === 0xffffffff) return null;
     const nameLength = zip.readUInt16LE(p + 28);
-    out.push({ name: zip.toString('utf8', p + 46, p + 46 + nameLength).split('/').pop(), method: zip.readUInt16LE(p + 10), size, offset });
+    out.push({ name: zip.toString('utf8', p + 46, p + 46 + nameLength).split('/').pop(), method: zip.readUInt16LE(p + 10), size, usize, offset });
     p += 46 + nameLength + zip.readUInt16LE(p + 30) + zip.readUInt16LE(p + 32);
   }
   return out;
