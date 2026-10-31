@@ -1,9 +1,11 @@
 // Adaptador de entrada temporizado: igual que la API HTTP dispara casos de uso cuando
-// llega una petición, éste los dispara según el intervalo de cada fuente.
+// llega una petición, éste los dispara según el reloj: la lectura de cada fuente según su
+// intervalo, la detección de alertas y la recarga de los catálogos estáticos.
 const FIRST_RETRY_MS = 30_000;
 const MIN_RETRY_CAP_MS = 10 * 60_000;
 const DETECT_DEBOUNCE_MS = 1500;
 const DETECT_HEARTBEAT_MS = 30_000; // las alertas dependen del tiempo transcurrido, no sólo de datos nuevos
+const CATALOG_REFRESH_MS = 6 * 3600_000; // estaciones y trazados cambian pocas veces al día
 
 /**
  * Espera hasta la siguiente lectura. Si la fuente ha fallado, se reintenta pronto (30 s, 1, 2,
@@ -16,11 +18,14 @@ export function nextDelay(interval, failures) {
 }
 
 /**
- * @param {{ sources: import('../../../application/ports.js').DataSourcePort[],
- *           ingestSource: (s: import('../../../application/ports.js').DataSourcePort) => Promise<boolean>,
- *           detectAlerts: () => unknown, log: import('../../../application/ports.js').LoggerPort }} deps
+ * @param {{ feeds: Array<{ id: string, interval: number }>,
+ *           ingestSource: (id: string) => Promise<boolean>,
+ *           detectAlerts: () => unknown, refreshCatalogs?: () => Promise<unknown>,
+ *           log: import('../../../application/ports.js').LoggerPort }} deps
+ *   feeds: qué fuentes leer y cada cuánto (ms). El planificador sólo conoce su id: leerlas es
+ *   cosa del caso de uso ingestSource.
  */
-export function startPolling({ sources, ingestSource, detectAlerts, log }) {
+export function startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, log }) {
   const timers = new Map();
   let pending = null;
   let stopped = false;
@@ -37,22 +42,27 @@ export function startPolling({ sources, ingestSource, detectAlerts, log }) {
     }, DETECT_DEBOUNCE_MS);
   };
 
-  const loop = async (source, failures = 0) => {
+  const loop = async (feed, failures = 0) => {
     if (stopped) return;
-    const ok = await ingestSource(source);
+    const ok = await ingestSource(feed.id);
     scheduleDetect();
     const nextFailures = ok ? 0 : failures + 1;
-    if (!stopped) timers.set(source.id, setTimeout(() => loop(source, nextFailures), nextDelay(source.interval, nextFailures)));
+    if (!stopped) timers.set(feed.id, setTimeout(() => loop(feed, nextFailures), nextDelay(feed.interval, nextFailures)));
   };
 
   // Arranque escalonado para no lanzar todas las peticiones a la vez.
-  sources.forEach((s, i) => timers.set(s.id, setTimeout(() => loop(s), i * 250)));
+  feeds.forEach((f, i) => timers.set(f.id, setTimeout(() => loop(f), i * 250)));
   const heartbeat = setInterval(scheduleDetect, DETECT_HEARTBEAT_MS);
+  // La primera carga de los catálogos la hace el arranque; aquí, las siguientes.
+  const catalogs = refreshCatalogs && setInterval(() => {
+    Promise.resolve().then(refreshCatalogs).catch((err) => log.warn(`[catálogos] ${err.message}`));
+  }, CATALOG_REFRESH_MS);
 
   return {
     stop() {
       stopped = true;
       clearInterval(heartbeat);
+      clearInterval(catalogs);
       clearTimeout(pending);
       for (const t of timers.values()) clearTimeout(t);
     },

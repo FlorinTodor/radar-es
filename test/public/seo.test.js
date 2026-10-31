@@ -13,7 +13,7 @@ let server;
 let base;
 before(async () => {
   server = createHttpServer({
-    query: {}, bus: { subscribe: () => () => {} }, log: { error() {}, info() {}, warn() {} },
+    query: {}, log: { error() {}, info() {}, warn() {} },
     publicDir: PUBLIC, vendorDirs: {}, about: { publicUrl: SITE },
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
