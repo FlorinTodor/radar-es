@@ -431,7 +431,9 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
           continue;
         }
         const from = prev ? position(prev, now) : to;
-        const jump = Math.abs(from[0] - to[0]) > MAX_ANIM_DEG || Math.abs(from[1] - to[1]) > MAX_ANIM_DEG;
+        // Las posiciones estimadas cambian a saltos de una lectura a otra (a veces cientos de metros por
+        // la calle): deslizarlas en línea recta las haría cruzar manzanas, así que saltan.
+        const jump = v.estimated || Math.abs(from[0] - to[0]) > MAX_ANIM_DEG || Math.abs(from[1] - to[1]) > MAX_ANIM_DEG;
         next.set(v.id, { from: jump ? to : from, to, t0: now, props });
       }
       anims = next;
@@ -597,10 +599,13 @@ function vehicleDetail(v) {
   const note = !v.estimated
     ? 'La <strong>línea azul discontinua</strong> es el recorrido de este tren en los últimos 45 min (desde que el radar lo sigue). '
       + 'La × sólo cierra esta ficha; pulsa en una zona vacía del mapa para quitar la selección.'
-    : v.delay !== null && v.delay !== undefined
-      ? '<strong>Posición estimada</strong> a partir del horario y del retraso real que publica el operador: no es GPS.'
-      : '<strong>Posición estimada</strong> a partir del horario publicado: no es GPS y no refleja retrasos.'
-        + (v.atLastStop ? ' El operador no publica el recorrido entre paradas, así que se muestra en la última parada por la que ha pasado.' : '');
+    : (v.delay !== null && v.delay !== undefined
+      ? '<strong>Posición estimada</strong> a partir del horario y del retraso real que publica el operador: no es GPS. '
+      : '<strong>Posición estimada</strong> a partir del horario publicado: no es GPS y no refleja retrasos. ')
+      + (v.atLastStop
+        ? 'El operador no publica el recorrido entre paradas, así que se muestra en la última parada por la que ha pasado.'
+        : 'Se mueve a saltos, en cada actualización. Si su ruta tiene trazado publicado, la <strong>línea azul discontinua</strong> '
+          + 'es el tramo que habría recorrido en los últimos 45 min según el horario.');
   const badge = v.estimated ? '<div class="est-badge">Posición estimada · no es GPS</div>' : '';
   return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>
     <div class="note">${note}</div></div>`;

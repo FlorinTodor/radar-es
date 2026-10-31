@@ -14,6 +14,9 @@
  * @property {string} [url]
  * @property {string[]} [requires]             Variables de entorno necesarias (claves de API).
  * @property {() => Promise<import('../domain/model.js').SourceResult>} fetch
+ * @property {(vehicleId: string) => number[][]|null|undefined} [path]  Sólo fuentes de posiciones
+ *   estimadas: tramo de trazado ([lon, lat]) que el vehículo ha recorrido según su horario, para
+ *   dibujarlo por la calle. null = sin trazado; undefined = vehículo desconocido para la fuente.
  */
 
 /**
