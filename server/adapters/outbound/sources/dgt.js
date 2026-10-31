@@ -33,8 +33,52 @@ function locate(record) {
   };
 }
 
-/** @param {{ http: import('../http/http-client.js').HttpClient }} deps */
-export function createDgtSource({ http }) {
+/**
+ * Incidencias de un documento DATEX II de la DGT. Analizar sus ~4 MB de XML bloquea el hilo medio
+ * segundo: es una función pura para poder hacerlo en un hilo de cálculo (workers/tasks.js).
+ * @param {string} xml
+ * @returns {import('../../../domain/model.js').SourceResult}
+ */
+export function parseDgt(xml) {
+  const doc = xmlParser.parse(xml).payload ?? {};
+  const events = [];
+  for (const sit of arr(doc.situation)) {
+    for (const r of arr(sit.situationRecord)) {
+      const { from, to } = locate(r);
+      if (!from?.lat || !from?.lon) continue;
+      const cause = text(findKey(r.cause, 'causeType'));
+      const detail = r.cause?.detailedCauseType ? Object.values(r.cause.detailedCauseType).map(text).find(Boolean) ?? null : null;
+      const loc = r.locationReference;
+      const road = text(findKey(loc, 'roadName'));
+      const km = num(text(findKey(loc?.tpegLinearLocation?.from ?? loc, 'kilometerPoint')));
+      const place = [text(findKey(loc, 'municipality')), text(findKey(loc, 'province'))].filter(Boolean).join(', ');
+      const closed = text(r.roadOrCarriagewayOrLaneManagementType) === 'roadClosed';
+      events.push({
+        id: `dgt:${r['@_id'] ?? sit['@_id']}`,
+        category: 'carretera',
+        type: cause ?? 'otro',
+        subtype: detail,
+        severity: SEVERITY[text(r.severity)] ?? 'media',
+        closed,
+        title: `${CAUSES[cause] ?? cause ?? 'Incidencia'}${road ? ` · ${road}` : ''}${km !== null ? ` km ${km.toFixed(1)}` : ''}`,
+        description: place + (closed ? ' · Carretera cortada' : ''),
+        lat: from.lat,
+        lon: from.lon,
+        lat2: to?.lat ?? null,
+        lon2: to?.lon ?? null,
+        start: Date.parse(text(findKey(r.validity, 'overallStartTime'))) || null,
+      });
+    }
+  }
+  const published = Date.parse(text(doc.publicationTime));
+  return { events, sourceTime: Number.isNaN(published) ? null : published };
+}
+
+/**
+ * @param {{ http: import('../http/http-client.js').HttpClient, pool?: import('../workers/cpu-pool.js').CpuPool }} deps
+ *   pool: hilos de cálculo para analizar el XML; sin él, en el hilo principal.
+ */
+export function createDgtSource({ http, pool }) {
   return {
     id: 'dgt',
     name: 'DGT incidencias de tráfico (DATEX II)',
@@ -43,38 +87,8 @@ export function createDgtSource({ http }) {
     url: URL_DGT,
     license: 'Fuente: DGT (Punto de Acceso Nacional de Tráfico y Movilidad, nap.dgt.es) · Creative Commons Attribution',
     async fetch() {
-      const doc = xmlParser.parse(await http.text(URL_DGT, { timeout: 60_000 })).payload ?? {};
-      const events = [];
-      for (const sit of arr(doc.situation)) {
-        for (const r of arr(sit.situationRecord)) {
-          const { from, to } = locate(r);
-          if (!from?.lat || !from?.lon) continue;
-          const cause = text(findKey(r.cause, 'causeType'));
-          const detail = r.cause?.detailedCauseType ? Object.values(r.cause.detailedCauseType).map(text).find(Boolean) ?? null : null;
-          const loc = r.locationReference;
-          const road = text(findKey(loc, 'roadName'));
-          const km = num(text(findKey(loc?.tpegLinearLocation?.from ?? loc, 'kilometerPoint')));
-          const place = [text(findKey(loc, 'municipality')), text(findKey(loc, 'province'))].filter(Boolean).join(', ');
-          const closed = text(r.roadOrCarriagewayOrLaneManagementType) === 'roadClosed';
-          events.push({
-            id: `dgt:${r['@_id'] ?? sit['@_id']}`,
-            category: 'carretera',
-            type: cause ?? 'otro',
-            subtype: detail,
-            severity: SEVERITY[text(r.severity)] ?? 'media',
-            closed,
-            title: `${CAUSES[cause] ?? cause ?? 'Incidencia'}${road ? ` · ${road}` : ''}${km !== null ? ` km ${km.toFixed(1)}` : ''}`,
-            description: place + (closed ? ' · Carretera cortada' : ''),
-            lat: from.lat,
-            lon: from.lon,
-            lat2: to?.lat ?? null,
-            lon2: to?.lon ?? null,
-            start: Date.parse(text(findKey(r.validity, 'overallStartTime'))) || null,
-          });
-        }
-      }
-      const published = Date.parse(text(doc.publicationTime));
-      return { events, sourceTime: Number.isNaN(published) ? null : published };
+      const xml = await http.text(URL_DGT, { timeout: 60_000 });
+      return pool ? pool.run('dgt', [xml]) : parseDgt(xml);
     },
   };
 }
