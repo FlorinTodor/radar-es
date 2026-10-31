@@ -175,10 +175,9 @@ después (con jq, DuckDB o pandas).
 
 ## Licencia
 
-El código de Radar ES es software libre con licencia
-[GNU Affero General Public License v3.0 o posterior](LICENSE) (AGPL-3.0-or-later): se puede usar,
-estudiar, modificar y redistribuir, pero quien publique una versión modificada como servicio web
-tiene que ofrecer su código con la misma licencia.
+Todos los derechos reservados (ver [LICENSE](LICENSE)). El código se publica sólo para que se pueda
+consultar: no se puede copiar, modificar, redistribuir, usar en otros proyectos ni explotar
+comercialmente sin permiso por escrito del autor.
 
 Los datos que muestra no son de este proyecto: cada fuente tiene su propia licencia y su
 atribución obligatoria (ver `/legal.html`).
