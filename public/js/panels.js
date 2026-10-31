@@ -153,7 +153,8 @@ export function renderSources(el, health) {
         ${s.count !== null && s.count !== undefined ? `<span>${fmtNum(s.count)} elementos</span>` : ''}
         ${s.lastOk ? `<span>leída ${timeAgo(s.lastOk, now)}</span>` : ''}
         ${s.sourceTime ? `<span>dato de ${fmtTime(s.sourceTime)}</span>` : ''}
-        ${s.datasetUpdated ? `<span>horario actualizado el ${fmtDateTime(s.datasetUpdated)}</span>` : ''}
+        ${s.datasetUpdatedFrom ? `<span>horarios actualizados entre el ${fmtDateTime(s.datasetUpdatedFrom)} y el ${fmtDateTime(s.datasetUpdated)}</span>`
+          : s.datasetUpdated ? `<span>horario actualizado el ${fmtDateTime(s.datasetUpdated)}</span>` : ''}
         ${s.ms ? `<span>${fmtNum(s.ms)} ms</span>` : ''}
         <span>cada ${Math.round(s.interval / 1000)} s</span>
       </div>
