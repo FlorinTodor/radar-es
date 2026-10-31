@@ -224,11 +224,19 @@ export function renderLayers(el, prefs, countsByMode) {
 const EVENT_GROUP = { ferroviario: 'renfe-avisos', meteo: 'meteo', incendio: 'incendios', sismo: 'sismos', catastrofe: 'gdacs' };
 export const groupForEvent = (e) => (e.category === 'carretera' ? (e.type === 'roadMaintenance' ? 'obras' : 'dgt') : EVENT_GROUP[e.category]);
 
-/** Marca las casillas según lo que se ve en el mapa, sin volver a pintar el panel. */
-export function syncLayers(el, prefs) {
-  for (const input of el.querySelectorAll('input[data-mode]')) input.checked = modeOn(prefs, input.dataset.mode);
-  for (const input of el.querySelectorAll('input[data-group]')) {
-    input.checked = input.dataset.group === 'obras' ? prefs.obras : groupOn(prefs, input.dataset.group);
+/**
+ * Marca las casillas según lo que se ve en el mapa, sin volver a pintar el panel. Las que sólo
+ * están encendidas por lo seleccionado (`forced`, claves «mode:x» o «group:x») se distinguen.
+ */
+export function syncLayers(el, prefs, forced = new Set()) {
+  for (const input of el.querySelectorAll('input[data-mode], input[data-group]')) {
+    const { mode, group } = input.dataset;
+    input.checked = mode ? modeOn(prefs, mode) : group === 'obras' ? prefs.obras : groupOn(prefs, group);
+    const temporal = forced.has(mode ? `mode:${mode}` : `group:${group}`);
+    const label = input.closest('label');
+    label?.classList.toggle('temporal', temporal);
+    if (temporal) label?.setAttribute('title', 'Encendida por lo que tienes seleccionado; se apagará al quitar la selección');
+    else label?.removeAttribute('title');
   }
 }
 

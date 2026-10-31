@@ -92,7 +92,7 @@ function applyLayerPrefs() {
   for (const [g] of P.GROUP_ITEMS) if (g !== 'obras') map.setGroupVisible(g, P.groupOn(s, g));
   map.setObras(s.obras);
   watchTrails(P.groupOn(s, 'trails'));
-  P.syncLayers(document.getElementById('layers-body'), s);
+  P.syncLayers(document.getElementById('layers-body'), s, state.forced);
 }
 
 // Estelas de todos los trenes: sólo se piden mientras la capa está activa.
@@ -228,7 +228,7 @@ function selectEvent(id) {
 // las capas que necesita; clic en otro lo sustituye y en el mismo vuelve a tus capas. Lo que se
 // cambie en Capas mientras tanto se aplica sin perder la selección y se guarda. Con "Varias a la
 // vez" cada clic suma o quita, y se pueden mezclar alertas, incidencias y trenes. Todo con clics.
-const KIND_LABEL = { alert: ['alerta', 'alertas'], event: ['incidencia', 'incidencias'], vehicle: ['tren', 'trenes'] };
+const KIND_LABEL = { alert: ['alerta', 'alertas'], event: ['incidencia', 'incidencias'], vehicle: ['tren', 'trenes'], bus: ['autobús', 'autobuses'] };
 
 function selection(kind) {
   const ids = new Set([...state.selected.values()].filter((x) => x.kind === kind).map((x) => x.id));
@@ -295,12 +295,25 @@ function clearFocus() {
 function applyFocus({ fit = false } = {}) {
   const alertsById = new Map(state.alerts.map((a) => [a.id, a]));
   const exists = { alert: (id) => alertsById.has(id), event: (id) => !!findEvent(id), vehicle: (id) => !!findVehicle(id) };
-  for (const [key, { kind, id }] of state.selected) if (!exists[kind](id)) state.selected.delete(key); // ya no existe
+  let gone = false;
+  for (const [key, { kind, id }] of state.selected) {
+    if (!exists[kind](id)) { state.selected.delete(key); gone = true; } // ya no existe
+  }
   const items = [...state.selected.values()];
+  // Si algo marcado ha desaparecido, las capas que sólo encendía él vuelven a como estaban.
+  if (gone && items.length) {
+    const needed = layersFor(focusIds(items, alertsById));
+    const before = state.forced.size;
+    for (const k of state.forced) if (!needed.has(k)) state.forced.delete(k);
+    if (state.forced.size !== before) applyLayerPrefs();
+  }
 
   // El aviso va antes del encuadre: en el móvil está abajo y el encuadre le deja hueco.
   const counts = {};
-  for (const { kind } of items) counts[kind] = (counts[kind] ?? 0) + 1;
+  for (const { kind, id } of items) {
+    const k = kind === 'vehicle' && findVehicle(id)?.mode === 'bus' ? 'bus' : kind;
+    counts[k] = (counts[k] ?? 0) + 1;
+  }
   const summary = Object.entries(counts).map(([k, n]) => `${n} ${KIND_LABEL[k][n === 1 ? 0 : 1]}`).join(', ');
   const banner = document.getElementById('focus-banner');
   banner.hidden = !items.length;
@@ -449,7 +462,7 @@ P.renderLayers(layersBody, prefs, {});
 // y pasa a ser una preferencia del usuario (ya no se apaga al quitar la selección).
 function layersChanged(inputs) {
   for (const input of inputs) {
-    state.forced.delete(input.dataset.mode ? `mode:${input.dataset.mode}` : `group:${input.dataset.group}`);
+    state.forced.delete(layerKey(input));
     if (input.dataset.mode) prefs.modes[input.dataset.mode] = input.checked;
     if (input.dataset.mode === 'bus') stream.setBuses(input.checked);
     if (input.dataset.group === 'obras') {
@@ -465,12 +478,15 @@ function layersChanged(inputs) {
   if (inputs.some((i) => i.dataset.mode) && state.tab === 'vehicles') renderVehiclesPanel();
 }
 layersBody.addEventListener('change', (ev) => layersChanged([ev.target]));
-// "Todas · Ninguna" de cada sección: cambia sólo las casillas que no estaban ya así.
+// "Todas · Ninguna" de cada sección: cambia las casillas que no estaban ya así y también las que
+// sólo estaban encendidas por lo seleccionado, para que queden guardadas como preferencia.
+const layerKey = (input) => (input.dataset.mode ? `mode:${input.dataset.mode}` : `group:${input.dataset.group}`);
 layersBody.addEventListener('click', (ev) => {
   const btn = ev.target.closest('[data-bulk]');
   if (!btn) return;
   const on = btn.dataset.on === '1';
-  const inputs = [...layersBody.querySelectorAll(`input[data-${btn.dataset.bulk}]`)].filter((i) => i.checked !== on);
+  const inputs = [...layersBody.querySelectorAll(`input[data-${btn.dataset.bulk}]`)]
+    .filter((i) => i.checked !== on || state.forced.has(layerKey(i)));
   for (const input of inputs) input.checked = on;
   if (inputs.length) layersChanged(inputs);
 });
