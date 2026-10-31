@@ -3,7 +3,7 @@
 // Operadora"): el GTFS-RT de gtfsrt.renfe.com y sus GTFS de horarios para saber el producto,
 // el origen y el destino de cada tren. Los endpoints internos de sus visores web no se usan:
 // no tienen licencia de reutilización.
-import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
+import { createPacer, csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
 import { RENFE_FILES } from '../stations/renfe-station-catalog.js';
 import { num } from './parse.js';
 
@@ -34,10 +34,12 @@ function createTimetables({ cache, stations, log }) {
     if (ld.size && Date.now() - loadedAt.ld < TIMETABLE_TTL_MS) return;
     loadedAt.ld = Date.now(); // aunque falle, no reintentar en cada lectura
     try {
-      const f = openGtfs(await cache.bytes(RENFE_FILES.largaDistancia, 'renfe-google_transit.zip', TIMETABLE_TTL_MS), ['routes.txt', 'trips.txt', 'stop_times.txt']);
+      const f = await openGtfs(await cache.bytes(RENFE_FILES.largaDistancia, 'renfe-google_transit.zip', TIMETABLE_TTL_MS), ['routes.txt', 'trips.txt', 'stop_times.txt']);
       const routes = new Map([...csvRows(f['routes.txt'])].map((r) => [r.route_id, r.route_short_name]));
       const ends = new Map(); // trip_id → [primera parada, última parada]
+      const pace = createPacer();
       for (const st of csvRows(f['stop_times.txt'])) {
+        if (pace.due()) await pace.pause();
         const seq = +st.stop_sequence;
         const e = ends.get(st.trip_id) ?? [[Infinity], [-Infinity]];
         if (seq < e[0][0]) e[0] = [seq, st.stop_id];
@@ -61,7 +63,7 @@ function createTimetables({ cache, stations, log }) {
     loadedAt.cerc = Date.now();
     try {
       // 16 MB: sólo se descomprimen rutas y viajes (el stop_times ocupa 290 MB).
-      const f = openGtfs(await cache.bytes(RENFE_FILES.cercanias, 'renfe-fomento_transit.zip', TIMETABLE_TTL_MS), ['routes.txt', 'trips.txt']);
+      const f = await openGtfs(await cache.bytes(RENFE_FILES.cercanias, 'renfe-fomento_transit.zip', TIMETABLE_TTL_MS), ['routes.txt', 'trips.txt']);
       const routes = new Map();
       for (const r of csvRows(f['routes.txt'])) {
         // route_long_name: "Principe Pio                            -Aeropuerto-T4"

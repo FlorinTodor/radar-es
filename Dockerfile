@@ -27,7 +27,8 @@ ENV HOST=0.0.0.0 PORT=8080
 EXPOSE 8080
 
 # Mientras arranca se comprueba cada 5 s (así un despliegue sabe pronto si ha ido bien); después, cada 30 s.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --start-interval=5s \
+# 10 s de margen: con muchas visitas y el servidor cargando horarios, 5 s daban por caído un servidor vivo.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --start-interval=5s \
   CMD wget -qO /dev/null http://127.0.0.1:8080/api/health || exit 1
 
 CMD ["node", "server/main.js"]

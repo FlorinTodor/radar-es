@@ -2,7 +2,7 @@
 // - Sin tiempo real (Ouigo, metros, tranvías, autobuses): se colocan donde dice el horario.
 // - Con trip updates GTFS-RT (Euskotren): sólo los viajes en curso, desplazados por su retraso real.
 // Las posiciones se marcan `estimated` (anillo hueco en el mapa) y no cuentan para alertas.
-import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
+import { createPacer, csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
 import { modeOf } from '../gtfs/gtfs-modes.js';
 import { decodeFeed } from './gtfs-rt.js';
 import { activeFrequencyOffsets, buildShape, gtfsTimeToSeconds, pointAlong, scheduledPosition, serviceRuns, stopsAlongShape } from '../../../domain/schedule.js';
@@ -39,8 +39,9 @@ const titleCase = (s) => (/[a-z]/.test(s) ? s : s.toLowerCase().replace(/(^|[\s(
  * @param {{ excludeAgency?: RegExp, excludeRoute?: RegExp }} [filter]  Agencias (por nombre) o rutas (por nombre corto)
  *   que ya llegan por otra fuente, para no pintar dos veces el mismo vehículo.
  */
-function parseSchedule(zip, forcedMode, days, { excludeAgency, excludeRoute } = {}) {
-  const f = openGtfs(zip, ['agency.txt', 'routes.txt', 'trips.txt', 'stops.txt', 'stop_times.txt', 'calendar.txt', 'calendar_dates.txt', 'frequencies.txt', 'shapes.txt']);
+async function parseSchedule(zip, forcedMode, days, { excludeAgency, excludeRoute } = {}) {
+  const pace = createPacer(); // horarios de millones de filas: sin bloquear el servidor mientras se leen
+  const f = await openGtfs(zip, ['agency.txt', 'routes.txt', 'trips.txt', 'stops.txt', 'stop_times.txt', 'calendar.txt', 'calendar_dates.txt', 'frequencies.txt', 'shapes.txt']);
 
   const agencies = new Map([...csvRows(f['agency.txt'])].map((a) => [a.agency_id, a.agency_name]));
   const routes = new Map();
@@ -63,6 +64,7 @@ function parseSchedule(zip, forcedMode, days, { excludeAgency, excludeRoute } = 
   const wanted = new Set([days.today.ymd, days.yesterday.ymd]);
   const exceptions = new Map();
   for (const d of csvRows(f['calendar_dates.txt'])) {
+    if (pace.due()) await pace.pause();
     if (!wanted.has(d.date)) continue;
     if (!exceptions.has(d.service_id)) exceptions.set(d.service_id, new Map());
     exceptions.get(d.service_id).set(d.date, +d.exception_type);
@@ -77,6 +79,7 @@ function parseSchedule(zip, forcedMode, days, { excludeAgency, excludeRoute } = 
   };
   const trips = new Map();
   for (const t of csvRows(f['trips.txt'])) {
+    if (pace.due()) await pace.pause();
     const route = routes.get(t.route_id);
     const [today, yesterday] = runs(t.service_id);
     if (route && (today || yesterday)) {
@@ -86,6 +89,7 @@ function parseSchedule(zip, forcedMode, days, { excludeAgency, excludeRoute } = 
   // Las paradas de todos los viajes van en un único array tipado (seq, índice de parada, llegada,
   // salida): como objetos, o con un array por viaje, ocuparían cientos de MB.
   for (const st of csvRows(f['stop_times.txt'])) {
+    if (pace.due()) await pace.pause();
     const trip = trips.get(st.trip_id);
     const si = trip && stopIndex.get(st.stop_id);
     if (si === undefined) continue;
@@ -102,6 +106,7 @@ function parseSchedule(zip, forcedMode, days, { excludeAgency, excludeRoute } = 
   const kept = [];
   let total = 0;
   for (const t of trips.values()) {
+    if (pace.due()) await pace.pause();
     const n = t.raw.length / 4;
     if (n < 2) continue;
     // De ayer sólo interesan los viajes que siguen circulando pasada la medianoche.
@@ -117,6 +122,7 @@ function parseSchedule(zip, forcedMode, days, { excludeAgency, excludeRoute } = 
   // ocuparía varias veces más mientras se carga (hay GTFS con 800.000 puntos).
   const shapePoints = new Map();
   for (const p of csvRows(f['shapes.txt'])) {
+    if (pace.due()) await pace.pause();
     if (!wantedShapes.has(p.shape_id)) continue;
     const lon = +p.shape_pt_lon;
     const lat = +p.shape_pt_lat;
@@ -127,6 +133,7 @@ function parseSchedule(zip, forcedMode, days, { excludeAgency, excludeRoute } = 
   const shapes = [];
   const shapeIndex = new Map();
   for (const [sid, raw] of shapePoints) {
+    if (pace.due()) await pace.pause();
     const n = raw.length / 3;
     if (n < 2) continue;
     let order = null; // casi siempre vienen ya en orden: sólo se ordena si hace falta
@@ -147,6 +154,7 @@ function parseSchedule(zip, forcedMode, days, { excludeAgency, excludeRoute } = 
   const compact = [];
   let offset = 0;
   for (const t of kept) {
+    if (pace.due()) await pace.pause();
     const n = t.raw.length / 4;
     const order = Array.from({ length: n }, (_, i) => i).sort((a, b) => t.raw[a * 4] - t.raw[b * 4]);
     order.forEach((src, i) => times.set(t.raw.slice(src * 4, src * 4 + 4), offset + i * 4));
