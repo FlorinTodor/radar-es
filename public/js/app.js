@@ -6,6 +6,7 @@ import * as P from './panels.js';
 // ---------- Estado ----------
 const state = {
   vehicles: new Map(), // sourceId → vehículos
+  counts: new Map(),   // sourceId → { modo: número }: incluye los autobuses aunque no se hayan pedido
   events: new Map(),   // sourceId → incidencias
   metrics: {},
   alerts: [],
@@ -112,8 +113,11 @@ function flush() {
     map.setVehicles(vehicles, alertIds);
     const selected = map.selectedVehicleId() && findVehicle(map.selectedVehicleId());
     if (selected) map.refreshVehicle(selected);
+    // El recuento lo da el servidor (cuenta los autobuses aunque no se hayan pedido); si no lo
+    // trae, se cuentan los vehículos recibidos.
     const counts = {};
-    for (const v of vehicles) counts[v.mode] = (counts[v.mode] ?? 0) + 1;
+    if (state.counts.size) for (const c of state.counts.values()) for (const [m, n] of Object.entries(c)) counts[m] = (counts[m] ?? 0) + n;
+    else for (const v of vehicles) counts[v.mode] = (counts[v.mode] ?? 0) + 1;
     P.updateModeCounts(document.getElementById('layers-body'), counts);
     if (state.tab === 'vehicles') renderVehiclesPanel(vehicles);
   }
@@ -150,6 +154,7 @@ const stream = connect({
   snapshot(snap) {
     state.vehicles.clear();
     state.events.clear();
+    state.counts = new Map(Object.entries(snap.counts ?? {}));
     for (const v of snap.vehicles) {
       if (!state.vehicles.has(v.source)) state.vehicles.set(v.source, []);
       state.vehicles.get(v.source).push({ ...v, cls: delayClass(v) });
@@ -164,6 +169,7 @@ const stream = connect({
   source(p) {
     if (p.kind === 'vehicles') {
       state.vehicles.set(p.id, withClass(p.items));
+      if (p.counts) state.counts.set(p.id, p.counts);
       if (state.selected.size) applyFocus(); // quita lo marcado que ya no existe
       render('vehicles');
     } else if (p.kind === 'events') {

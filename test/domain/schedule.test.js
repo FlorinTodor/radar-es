@@ -56,3 +56,43 @@ test('punto dentro de polígono con hueco', () => {
   assert.equal(pointInGeometry(5, 5, geometry), false); // en el hueco
   assert.equal(pointInGeometry(12, 5, geometry), false);
 });
+
+// ---------- Trazados ----------
+import { buildShape, pointAlong, stopsAlongShape } from '../../server/domain/schedule.js';
+
+// Calle en forma de L: 1 km hacia el este y luego 1 km hacia el norte (cerca de Madrid).
+const LAT0 = 40.4;
+const DLON_1KM = 1000 / (111_320 * Math.cos((LAT0 * Math.PI) / 180));
+const DLAT_1KM = 1000 / 110_540;
+const corner = [-3.7 + DLON_1KM, LAT0];
+const lShape = () => buildShape([-3.7, LAT0, ...corner, -3.7 + DLON_1KM, LAT0 + DLAT_1KM]);
+
+test('buildShape mide la distancia acumulada y quita puntos demasiado juntos', () => {
+  const s = buildShape([-3.7, LAT0, -3.70001, LAT0, ...corner, -3.7 + DLON_1KM, LAT0 + DLAT_1KM]); // el 2.º, a ~1 m
+  assert.equal(s.dist.length, 3);
+  assert.ok(Math.abs(s.dist[2] - 2000) < 5, `longitud ${s.dist[2]}`);
+});
+
+test('pointAlong sigue la esquina en vez de cortar en diagonal', () => {
+  const p = pointAlong(lShape(), 1000);
+  assert.ok(Math.abs(p.lon - corner[0]) < 1e-5 && Math.abs(p.lat - corner[1]) < 1e-5);
+  const q = pointAlong(lShape(), 1500); // medio km después de la esquina, subiendo
+  assert.ok(Math.abs(q.lon - corner[0]) < 1e-5 && q.lat > LAT0 + DLAT_1KM * 0.45 && q.lat < LAT0 + DLAT_1KM * 0.55);
+});
+
+test('stopsAlongShape coloca cada parada sobre el trazado, hacia delante', () => {
+  const stops = [{ lon: -3.7, lat: LAT0 }, { lon: corner[0], lat: LAT0 + 0.0005 }, { lon: -3.7 + DLON_1KM, lat: LAT0 + DLAT_1KM }];
+  const along = stopsAlongShape(stops, lShape());
+  assert.ok(Math.abs(along[0]) < 5 && Math.abs(along[1] - 1055) < 10 && Math.abs(along[2] - 2000) < 5, `${[...along]}`);
+});
+
+test('stopsAlongShape: en una línea circular la última parada no salta a la primera pasada', () => {
+  // Ida y vuelta por la misma calle: la última parada coincide con la primera.
+  const loop = buildShape([-3.7, LAT0, ...corner, -3.7, LAT0]);
+  const along = stopsAlongShape([{ lon: -3.7, lat: LAT0 }, { lon: corner[0], lat: LAT0 }, { lon: -3.7, lat: LAT0 }], loop);
+  assert.ok(along[2] > 1990, `última parada a ${along[2]} m`);
+});
+
+test('stopsAlongShape descarta un trazado que no pasa por las paradas', () => {
+  assert.equal(stopsAlongShape([{ lon: -3.7, lat: LAT0 }, { lon: -3.6, lat: LAT0 + 0.05 }], lShape()), null);
+});

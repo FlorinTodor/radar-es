@@ -9,6 +9,11 @@ export function makeQuerySituation({ situation, stations, network }) {
   const alerts = () => sortAlerts(situation.activeAlerts().values());
   // Los autobuses (miles en hora punta) sólo se envían a quien tiene activada su capa.
   const busFilter = (buses) => (buses ? (list) => list : (list) => list.filter((v) => v.mode !== 'bus'));
+  // Pero cuántos hay de cada tipo se envía siempre: el panel de capas lo muestra con la capa apagada.
+  const countByMode = (list, into = {}) => {
+    for (const v of list) into[v.mode] = (into[v.mode] ?? 0) + 1;
+    return into;
+  };
 
   return {
     vehicles({ mode, source, minDelay } = {}) {
@@ -48,27 +53,31 @@ export function makeQuerySituation({ situation, stations, network }) {
     },
 
     /**
-     * Datos de una sola fuente, para empujar cambios incrementales. Sin `buses`, null para las
-     * fuentes que sólo tienen autobuses (no hay nada que enviar).
+     * Datos de una sola fuente, para empujar cambios incrementales. Sin `buses`, una fuente que
+     * sólo tiene autobuses llega sin vehículos, pero con su recuento (`counts`).
      */
     sourcePayload(id, { buses = true } = {}) {
       const s = situation.source(id);
       if (!s?.data) return null;
       const all = s.data.vehicles ?? s.data.events ?? null;
       const items = s.data.vehicles ? busFilter(buses)(all) : all;
-      if (s.data.vehicles && all.length && !items.length) return null;
       return {
         id,
         kind: s.meta.kind,
         items: items?.map((x) => ({ ...x, source: id })) ?? null,
+        counts: s.data.vehicles ? countByMode(all) : null,
         metrics: s.data.metrics ?? null,
       };
     },
 
     snapshot({ buses = true } = {}) {
+      const vehicles = situation.vehicles();
+      const counts = {}; // fuente → { modo: número }
+      for (const v of vehicles) countByMode([v], counts[v.source] ??= {});
       return {
         generatedAt: Date.now(),
-        vehicles: busFilter(buses)(situation.vehicles()),
+        vehicles: busFilter(buses)(vehicles),
+        counts,
         events: situation.events(),
         metrics: situation.metrics(),
         alerts: alerts(),
