@@ -220,6 +220,18 @@ export function renderLayers(el, prefs, countsByMode) {
     <i style="border-radius:2px;background:linear-gradient(90deg,#e8261c 33%,#f39c12 33% 66%,#1f6fd1 66%)"></i><span>Área quemada (EFFIS): rojo, último día; naranja, 7 días; azul, 30 días. Púlsala para ver su ficha</span></div>`;
 }
 
+// Casilla de "Contexto" que enseña cada incidencia en el mapa.
+const EVENT_GROUP = { ferroviario: 'renfe-avisos', meteo: 'meteo', incendio: 'incendios', sismo: 'sismos', catastrofe: 'gdacs' };
+export const groupForEvent = (e) => (e.category === 'carretera' ? (e.type === 'roadMaintenance' ? 'obras' : 'dgt') : EVENT_GROUP[e.category]);
+
+/** Marca las casillas según lo que se ve en el mapa, sin volver a pintar el panel. */
+export function syncLayers(el, prefs) {
+  for (const input of el.querySelectorAll('input[data-mode]')) input.checked = modeOn(prefs, input.dataset.mode);
+  for (const input of el.querySelectorAll('input[data-group]')) {
+    input.checked = input.dataset.group === 'obras' ? prefs.obras : groupOn(prefs, input.dataset.group);
+  }
+}
+
 export function updateModeCounts(el, countsByMode) {
   for (const m of MODE_ITEMS) {
     const c = el.querySelector(`[data-count="${m}"]`);
