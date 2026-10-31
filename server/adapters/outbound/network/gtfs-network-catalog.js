@@ -2,7 +2,7 @@
 // Si el GTFS trae shapes.txt se usan; si no, la línea une sus estaciones en orden.
 // El resultado se cachea en disco un día: la licencia del NAP exige mostrar datos actualizados.
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
+import { createPacer, csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
 import { modeOf } from '../gtfs/gtfs-modes.js';
 
 const MAX_AGE_MS = 24 * 3600_000;
@@ -53,8 +53,9 @@ function simplify(points, tol) {
 
 const round = ([lon, lat]) => [Math.round(lon * 1e5) / 1e5, Math.round(lat * 1e5) / 1e5];
 
-function buildNetwork(zip, network) {
-  const files = openGtfs(zip, ['routes.txt', 'trips.txt', 'shapes.txt', 'stops.txt', 'stop_times.txt']);
+async function buildNetwork(zip, network) {
+  const pace = createPacer();
+  const files = await openGtfs(zip, ['routes.txt', 'trips.txt', 'shapes.txt', 'stops.txt', 'stop_times.txt']);
 
   const routes = new Map();
   for (const r of csvRows(files['routes.txt'])) {
@@ -75,6 +76,7 @@ function buildNetwork(zip, network) {
   if (files['shapes.txt'] && wantedShapes.size) {
     const shapes = new Map();
     for (const s of csvRows(files['shapes.txt'])) {
+      if (pace.due()) await pace.pause();
       if (!wantedShapes.has(s.shape_id)) continue;
       if (!shapes.has(s.shape_id)) shapes.set(s.shape_id, []);
       shapes.get(s.shape_id).push([+s.shape_pt_sequence, +s.shape_pt_lon, +s.shape_pt_lat]);
@@ -87,7 +89,10 @@ function buildNetwork(zip, network) {
   } else if (files['stop_times.txt']) {
     // Sin trazados: por cada ruta y sentido, el viaje con más paradas, uniendo estaciones.
     const counts = new Map();
-    for (const st of csvRows(files['stop_times.txt'])) if (trips.has(st.trip_id)) counts.set(st.trip_id, (counts.get(st.trip_id) ?? 0) + 1);
+    for (const st of csvRows(files['stop_times.txt'])) {
+      if (pace.due()) await pace.pause();
+      if (trips.has(st.trip_id)) counts.set(st.trip_id, (counts.get(st.trip_id) ?? 0) + 1);
+    }
     const best = new Map();
     for (const [tripId, n] of counts) {
       const { key } = trips.get(tripId);
@@ -98,6 +103,7 @@ function buildNetwork(zip, network) {
     for (const s of csvRows(files['stops.txt'])) stops.set(s.stop_id, [+s.stop_lon, +s.stop_lat]);
     const seqs = new Map();
     for (const st of csvRows(files['stop_times.txt'])) {
+      if (pace.due()) await pace.pause();
       if (!chosen.has(st.trip_id)) continue;
       if (!seqs.has(st.trip_id)) seqs.set(st.trip_id, []);
       seqs.get(st.trip_id).push([+st.stop_sequence, st.stop_id]);
@@ -172,7 +178,7 @@ export function createGtfsNetworkCatalog({ nap, cache, cacheDir, log }) {
       const features = [];
       for (const [ficheroId, name] of NETWORKS) {
         try {
-          const built = buildNetwork(await nap.gtfs(ficheroId, MAX_AGE_MS), name);
+          const built = await buildNetwork(await nap.gtfs(ficheroId, MAX_AGE_MS), name);
           features.push(...built);
         } catch (err) {
           log.warn(`[líneas] ${name}: ${err.message}`);
