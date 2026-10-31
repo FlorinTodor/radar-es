@@ -10,6 +10,7 @@ import { madridLocalToMs } from './parse.js';
 import { napDatasetPage } from '../nap/nap-client.js';
 
 const RELOAD_MS = 24 * 3600_000;
+const PATH_WINDOW_S = 45 * 60; // el mismo tramo que el recorrido de los vehículos con GPS
 const DAY_S = 86_400;
 
 // Los horarios se cargan de uno en uno en todo el servidor: al arrancar (o al cambiar de día) se
@@ -228,31 +229,40 @@ export function createGtfsScheduleSource({ nap, http, log }, options) {
   const loaded = new Map(); // índice del fichero → { schedule, updatedAt }
   let loadedAt = 0;
   let loadedDay = null; // día de servicio (Madrid) para el que se cargaron los horarios
+  // Tramo de trazado recorrido en los últimos 45 min por cada vehículo de la última lectura:
+  // id → { shape, from, to } (distancias en metros), o null si se queda en la última parada.
+  let paths = new Map();
 
-  function vehicle(fi, schedule, trip, day, t, delaySec, offset = 0) {
+  function vehicle(fi, schedule, trip, day, t, delaySec, offset = 0, nextPaths = paths) {
     const tt = t - offset;
     if (tt < trip.first || tt > trip.last) return null; // descarte barato antes de crear objetos
     const stops = tripStops(trip, schedule);
     const pos = scheduledPosition(stops, tt);
     if (!pos) return null;
+    const instance = offset ? `:${offset}` : '';
+    const vid = `${id}:${feeds.length > 1 ? `${fi}:` : ''}${trip.id}:${day.ymd}${instance}`;
     let { lat, lon } = pos;
     let atLastStop = false;
-    if (!pos.atStop) {
-      const along = alongShape(schedule, trip, stops);
-      if (along) {
-        // Por su recorrido: a la misma fracción del tramo entre paradas, pero medida sobre el trazado.
-        ({ lat, lon } = pointAlong(schedule.shapes[trip.shape], along[pos.i] + (along[pos.i + 1] - along[pos.i]) * pos.k));
-      } else if (trip.route.mode === 'bus') {
-        // Sin trazado, en línea recta un autobús interurbano cruzaría el campo: se deja en la última
-        // parada por la que ha pasado. Los trenes sí siguen la recta (las vías suelen ser bastante rectas).
-        ({ lat, lon } = pos.prev);
-        atLastStop = true;
-      }
+    const along = alongShape(schedule, trip, stops);
+    // Distancia sobre el trazado: a la misma fracción del tramo entre paradas, pero medida sobre él.
+    const alongAt = (p) => along[p.i] + ((along[p.i + 1] ?? along[p.i]) - along[p.i]) * p.k;
+    if (along) {
+      const shape = schedule.shapes[trip.shape];
+      if (!pos.atStop) ({ lat, lon } = pointAlong(shape, alongAt(pos)));
+      const before = scheduledPosition(stops, Math.max(tt - PATH_WINDOW_S, stops[0].dep));
+      nextPaths.set(vid, { shape, from: before ? alongAt(before) : 0, to: alongAt(pos) });
+    } else if (!pos.atStop && trip.route.mode === 'bus') {
+      // Sin trazado, en línea recta un autobús interurbano cruzaría el campo: se deja en la última
+      // parada por la que ha pasado. Los trenes sí siguen la recta (las vías suelen ser bastante rectas).
+      ({ lat, lon } = pos.prev);
+      atLastStop = true;
+      nextPaths.set(vid, null);
+    } else if (trip.route.mode === 'bus') {
+      nextPaths.set(vid, null);
     }
     const { operator } = feeds[fi];
-    const instance = offset ? `:${offset}` : '';
     return {
-      id: `${id}:${feeds.length > 1 ? `${fi}:` : ''}${trip.id}:${day.ymd}${instance}`,
+      id: vid,
       mode: trip.route.mode,
       operator,
       service: operator,
@@ -298,6 +308,22 @@ export function createGtfsScheduleSource({ nap, http, log }, options) {
     license: options.license
       ?? `Powered by MITRAMS (Punto de Acceso Nacional) · ${options.credit ?? [...new Set(feeds.map((f) => f.operator))].join(', ')} · `
         + 'Posición estimada a partir del horario (dato explotado, no GPS)',
+    /**
+     * Tramo de su trazado recorrido en los últimos 45 min, como [lon, lat], para dibujarlo por la calle
+     * y no uniendo con rectas las posiciones de cada lectura. null: autobús sin trazado (se queda en la
+     * última parada); undefined: no es un vehículo de esta fuente o su ruta no tiene trazado.
+     */
+    path(vehicleId) {
+      const p = paths.get(vehicleId);
+      if (!p) return p;
+      const { coords, dist } = p.shape;
+      const round = (x) => Math.round(x * 1e5) / 1e5;
+      const at = (d) => { const q = pointAlong(p.shape, d); return [round(q.lon), round(q.lat)]; };
+      const out = [at(p.from)];
+      for (let i = 0; i < dist.length; i++) if (dist[i] > p.from && dist[i] < p.to) out.push([round(coords[i * 2]), round(coords[i * 2 + 1])]);
+      out.push(at(p.to));
+      return out;
+    },
     async fetch() {
       // Se recarga cada día (sólo se guardan los viajes de hoy y los de ayer que pasan de medianoche).
       const today = madridServiceDay(Date.now(), 0).ymd;
@@ -306,6 +332,7 @@ export function createGtfsScheduleSource({ nap, http, log }, options) {
       const rt = tripUpdatesUrl && first ? delaysFromTripUpdates(decodeFeed(await http.bytes(tripUpdatesUrl)), first) : null;
       const now = Date.now();
       const vehicles = [];
+      const nextPaths = new Map();
       for (const [fi, { schedule }] of loaded) {
         // Un tren que salió antes de medianoche pertenece al día de servicio anterior.
         for (const dayOffset of [0, -1]) {
@@ -315,26 +342,27 @@ export function createGtfsScheduleSource({ nap, http, log }, options) {
             if (rt) {
               const live = rt.get(trip.id);
               if (!live || (live.ymd && live.ymd !== day.ymd)) continue;
-              const v = vehicle(fi, schedule, trip, day, t - live.delay, live.delay);
+              const v = vehicle(fi, schedule, trip, day, t - live.delay, live.delay, 0, nextPaths);
               if (v) vehicles.push(v);
               continue;
             }
             if (!serviceRuns(schedule.calendar.get(trip.serviceId), schedule.exceptions.get(trip.serviceId), day.ymd, day.weekday)) continue;
             if (!trip.freqs.length) {
-              const v = vehicle(fi, schedule, trip, day, t, null);
+              const v = vehicle(fi, schedule, trip, day, t, null, 0, nextPaths);
               if (v) vehicles.push(v);
               continue;
             }
             const duration = trip.last - trip.first;
             for (const fr of trip.freqs) {
               for (const off of activeFrequencyOffsets(fr, trip.first, duration, t)) {
-                const v = vehicle(fi, schedule, trip, day, t, null, off);
+                const v = vehicle(fi, schedule, trip, day, t, null, off, nextPaths);
                 if (v) vehicles.push(v);
               }
             }
           }
         }
       }
+      paths = nextPaths;
       // En los grupos, la fecha del horario más reciente y la del más antiguo.
       const dates = [...loaded.values()].map((l) => l.updatedAt).filter(Boolean);
       return {
