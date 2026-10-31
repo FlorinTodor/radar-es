@@ -1,5 +1,6 @@
 // Adaptador de entrada HTTP: API REST, stream SSE en tiempo real y ficheros estáticos.
-// Sólo habla con los casos de uso (query) y el bus de eventos; no conoce las fuentes.
+// Sólo habla con casos de uso (query, watchSituation, serveTiles): no conoce los puertos de salida
+// ni las fuentes.
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
@@ -23,11 +24,12 @@ const SSE_HEALTH_EVERY_MS = 15_000;
 
 /**
  * @param {{ query: ReturnType<typeof import('../../../application/use-cases/query-situation.js').makeQuerySituation>,
- *           bus: import('../../../application/ports.js').EventPublisherPort, log: import('../../../application/ports.js').LoggerPort,
- *           publicDir: string, vendorDirs: Record<string, string>, about?: object,
- *           serveTiles?: ReturnType<typeof import('../../../application/use-cases/serve-tiles.js').makeServeTiles> }} deps
+ *           watchSituation?: ReturnType<typeof import('../../../application/use-cases/watch-situation.js').makeWatchSituation>,
+ *           serveTiles?: ReturnType<typeof import('../../../application/use-cases/serve-tiles.js').makeServeTiles>,
+ *           log: import('../../../application/ports.js').LoggerPort,
+ *           publicDir: string, vendorDirs: Record<string, string>, about?: object }} deps
  */
-export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about = {}, serveTiles }) {
+export function createHttpServer({ query, watchSituation, serveTiles, log, publicDir, vendorDirs, about = {} }) {
   // Todas las respuestas JSON se calculan, comprimen y firman (ETag) como mucho una vez cada `ttl`,
   // así que pedirlas mil veces cuesta lo mismo que pedirlas una. Sin esto, /api/lines (1 MB)
   // saturaba un núcleo con unas 20 peticiones por segundo. `key` separa las variantes por parámetros.
@@ -167,20 +169,16 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
         emit('health', query.health());
       }, SSE_HEALTH_EVERY_MS);
     };
-    const unsubscribe = [
-      bus.subscribe('source.updated', ({ id }) => {
-        const payload = query.sourcePayload(id, { buses });
-        if (payload) emit('source', payload);
-        emitHealthSoon();
-      }),
-      bus.subscribe('source.failed', emitHealthSoon),
-      bus.subscribe('alerts.updated', ({ alerts, kpis }) => emit('alerts', { alerts, kpis, resolved: query.resolvedAlerts().slice(0, 30) })),
-    ];
+    const unwatch = watchSituation({ buses }, {
+      onSource: (payload) => emit('source', payload),
+      onHealthChange: emitHealthSoon,
+      onAlerts: (payload) => emit('alerts', payload),
+    });
     const heartbeat = setInterval(() => res.write(': ping\n\n'), SSE_HEARTBEAT_MS);
     req.on('close', () => {
       clearInterval(heartbeat);
       clearTimeout(healthTimer);
-      unsubscribe.forEach((off) => off());
+      unwatch();
       release();
     });
   }

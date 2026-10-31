@@ -1,5 +1,6 @@
 // Puertos: los contratos que la aplicación necesita del exterior. Los adaptadores
-// (adapters/outbound) los implementan y main.js los inyecta en los casos de uso.
+// (adapters/outbound) los implementan y main.js los inyecta en los casos de uso. Los adaptadores
+// de entrada (HTTP, planificador) no los usan: sólo hablan con casos de uso.
 // JavaScript no tiene interfaces, así que se documentan con JSDoc y se comprueban
 // en el arranque con `assertPort`.
 
@@ -65,7 +66,8 @@
  */
 
 /**
- * Bus de eventos de aplicación: lo usan los adaptadores de entrada (SSE) para empujar cambios.
+ * Bus de eventos de aplicación: ingest-source y detect-alerts publican los cambios y
+ * watch-situation se suscribe para que el directo (SSE) los empuje.
  * @typedef {object} EventPublisherPort
  * @property {(topic: string, payload?: object) => void} publish
  * @property {(topic: string, handler: (payload: any) => void) => () => void} subscribe

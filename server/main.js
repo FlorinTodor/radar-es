@@ -7,6 +7,7 @@ import { makeIngestSource } from './application/use-cases/ingest-source.js';
 import { makeDetectAlerts } from './application/use-cases/detect-alerts.js';
 import { makeQuerySituation } from './application/use-cases/query-situation.js';
 import { makeServeTiles } from './application/use-cases/serve-tiles.js';
+import { makeWatchSituation } from './application/use-cases/watch-situation.js';
 import { createHttpClient } from './adapters/outbound/http/http-client.js';
 import { createFileCache } from './adapters/outbound/http/file-cache.js';
 import { createConsoleLogger } from './adapters/outbound/logging/console-logger.js';
@@ -53,6 +54,7 @@ const ingestSource = makeIngestSource({ situation, publisher: bus, clock, log })
 const detectAlerts = makeDetectAlerts({ situation, stations, history, publisher: bus, clock });
 const query = makeQuerySituation({ situation, stations, network, clock, sources });
 const serveTiles = makeServeTiles({ tiles });
+const watchSituation = makeWatchSituation({ events: bus, query });
 
 // --- Adaptadores de entrada ------------------------------------------------
 await stations.load();
@@ -68,7 +70,7 @@ const scheduler = startPolling({ sources: enabledSources, ingestSource, detectAl
 
 const server = createHttpServer({
   query,
-  bus,
+  watchSituation,
   log,
   about: config.about,
   serveTiles,

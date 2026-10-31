@@ -55,7 +55,7 @@ before(async () => {
     trails: (min) => { calls.trails.push(min); return { type: 'FeatureCollection', features: [] }; },
   };
   server = createHttpServer({
-    query, bus: { subscribe: () => () => {} }, log: { error() {}, info() {}, warn() {} },
+    query, log: { error() {}, info() {}, warn() {} },
     publicDir: '/nonexistent', vendorDirs: {}, about: {},
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
