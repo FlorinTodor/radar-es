@@ -30,11 +30,12 @@ test('plausibleDelay descarta los retrasos imposibles que Renfe publica al cambi
 
 test('la ingesta guarda sin retraso los vehículos con un retraso imposible', async () => {
   let saved;
+  const vehicles = [{ id: 'a', delay: -1436, lat: 40, lon: -3 }, { id: 'b', delay: 4, lat: 40, lon: -3 }, { id: 'c', delay: null, lat: 40, lon: -3 }];
   const ingest = makeIngestSource({
+    sources: [{ id: 'renfe-cercanias', fetch: async () => ({ vehicles }) }],
     situation: { saveResult: (id, result) => { saved = result; }, tracks: () => new Map(), saveFailure() {} },
     publisher: { publish() {} }, clock: { now: () => 1000 }, log: { warn() {} },
   });
-  const vehicles = [{ id: 'a', delay: -1436, lat: 40, lon: -3 }, { id: 'b', delay: 4, lat: 40, lon: -3 }, { id: 'c', delay: null, lat: 40, lon: -3 }];
-  await ingest({ id: 'renfe-cercanias', fetch: async () => ({ vehicles }) });
+  await ingest('renfe-cercanias');
   assert.deepEqual(saved.vehicles.map((v) => v.delay), [null, 4, null]);
 });

@@ -1,5 +1,6 @@
 // Adaptador de entrada HTTP: API REST, stream SSE en tiempo real y ficheros estáticos.
-// Sólo habla con los casos de uso (query) y el bus de eventos; no conoce las fuentes.
+// Sólo habla con casos de uso (query, watchSituation, serveTiles): no conoce los puertos de salida
+// ni las fuentes.
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
@@ -23,11 +24,12 @@ const SSE_HEALTH_EVERY_MS = 15_000;
 
 /**
  * @param {{ query: ReturnType<typeof import('../../../application/use-cases/query-situation.js').makeQuerySituation>,
- *           bus: import('../../../application/ports.js').EventPublisherPort, log: import('../../../application/ports.js').LoggerPort,
- *           publicDir: string, vendorDirs: Record<string, string>, about?: object,
- *           tiles?: import('../../../application/ports.js').TileProviderPort }} deps
+ *           watchSituation?: ReturnType<typeof import('../../../application/use-cases/watch-situation.js').makeWatchSituation>,
+ *           serveTiles?: ReturnType<typeof import('../../../application/use-cases/serve-tiles.js').makeServeTiles>,
+ *           log: import('../../../application/ports.js').LoggerPort,
+ *           publicDir: string, vendorDirs: Record<string, string>, about?: object }} deps
  */
-export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about = {}, tiles }) {
+export function createHttpServer({ query, watchSituation, serveTiles, log, publicDir, vendorDirs, about = {} }) {
   // Todas las respuestas JSON se calculan, comprimen y firman (ETag) como mucho una vez cada `ttl`,
   // así que pedirlas mil veces cuesta lo mismo que pedirlas una. Sin esto, /api/lines (1 MB)
   // saturaba un núcleo con unas 20 peticiones por segundo. `key` separa las variantes por parámetros.
@@ -78,7 +80,9 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
       // El directo antiguo (SSE) se mantiene para las pestañas que se abrieron antes del cambio.
       if (url.pathname === '/api/stream') return stream(req, res, url.searchParams.get('buses') === '1');
       if (url.pathname.startsWith('/api/tracks/')) {
-        const track = query.track(decodeURIComponent(url.pathname.slice('/api/tracks/'.length)));
+        const id = decodeOrNull(url.pathname.slice('/api/tracks/'.length));
+        if (id === null) return send(res, 400, { error: 'Ruta inválida' });
+        const track = query.track(id);
         return track ? sendJson(req, res, 200, track) : send(res, 404, { error: 'Vehículo sin historial' });
       }
       if (url.pathname.startsWith('/api/')) return send(res, 404, { error: 'Ruta no encontrada' });
@@ -118,30 +122,28 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
   /** /tiles/<capa>/<z>/<x>/<y>.png → tesela de IGN o EFFIS (con copia en disco). */
   async function sendTile(res, path) {
     const m = /^\/tiles\/([a-z-]+)\/(\d{1,2})\/(\d{1,7})\/(\d{1,7})\.png$/.exec(path);
-    const [layer, z, x, y] = m ? [m[1], +m[2], +m[3], +m[4]] : [];
-    if (!m || !tiles?.layers.includes(layer) || z > 19 || x >= 2 ** z || y >= 2 ** z) return send(res, 404, { error: 'Tesela no válida' });
-    const png = await tiles.tile(layer, z, x, y);
-    if (!png) {
+    // El caso de uso decide qué teselas se sirven (sólo España y hasta el zoom de cada capa).
+    const tile = m && serveTiles ? await serveTiles.tile(m[1], +m[2], +m[3], +m[4]) : null;
+    if (!tile) return send(res, 404, { error: 'Tesela no válida' });
+    if (!tile.png) {
       res.setHeader('Cache-Control', 'no-store'); // Cloudflare puede seguir sirviendo su copia (stale-if-error)
       return send(res, 502, { error: 'Servicio de teselas no disponible' });
     }
-    res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': png.length, 'Cache-Control': tiles.cacheControl(layer) });
-    res.end(png);
+    res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': tile.png.length, 'Cache-Control': tile.cacheControl });
+    res.end(tile.png);
   }
 
   /** Áreas quemadas en una caja lon/lat pequeña (lo que hay bajo un clic en el mapa). */
   async function sendBurntAreas(res, bboxParam) {
-    const bbox = (bboxParam ?? '').split(',').map(Number);
-    const valid = bbox.length === 4 && bbox.every(Number.isFinite) && bbox[2] > bbox[0] && bbox[3] > bbox[1]
-      && bbox[2] - bbox[0] < 0.5 && bbox[3] - bbox[1] < 0.5;
-    if (!valid || !tiles) return send(res, 400, { error: 'Caja no válida' });
+    let geojson;
     try {
-      const geojson = await tiles.burntAreas(bbox);
-      res.setHeader('Cache-Control', 'public, max-age=600, s-maxage=1800');
-      return send(res, 200, geojson);
+      geojson = serveTiles ? await serveTiles.burntAreas((bboxParam ?? '').split(',').map(Number)) : null;
     } catch {
       return send(res, 502, { error: 'EFFIS no responde' });
     }
+    if (!geojson) return send(res, 400, { error: 'Caja no válida' });
+    res.setHeader('Cache-Control', 'public, max-age=600, s-maxage=1800');
+    return send(res, 200, geojson);
   }
 
   /** @param {boolean} buses  El cliente tiene activada la capa de autobuses. */
@@ -169,20 +171,16 @@ export function createHttpServer({ query, bus, log, publicDir, vendorDirs, about
         emit('health', query.health());
       }, SSE_HEALTH_EVERY_MS);
     };
-    const unsubscribe = [
-      bus.subscribe('source.updated', ({ id }) => {
-        const payload = query.sourcePayload(id, { buses });
-        if (payload) emit('source', payload);
-        emitHealthSoon();
-      }),
-      bus.subscribe('source.failed', emitHealthSoon),
-      bus.subscribe('alerts.updated', ({ alerts, kpis }) => emit('alerts', { alerts, kpis, resolved: query.resolvedAlerts().slice(0, 30) })),
-    ];
+    const unwatch = watchSituation({ buses }, {
+      onSource: (payload) => emit('source', payload),
+      onHealthChange: emitHealthSoon,
+      onAlerts: (payload) => emit('alerts', payload),
+    });
     const heartbeat = setInterval(() => res.write(': ping\n\n'), SSE_HEARTBEAT_MS);
     req.on('close', () => {
       clearInterval(heartbeat);
       clearTimeout(healthTimer);
-      unsubscribe.forEach((off) => off());
+      unwatch();
       release();
     });
   }
@@ -244,6 +242,15 @@ export function cleanPagePath(pathname) {
   trim(); // «/foo/.html» → «/foo/» → «/foo», en una sola redirección
   if (path === '/index' || path === '') path = '/';
   return path;
+}
+
+/** decodeURIComponent sin excepciones: null si la ruta trae un %-escape roto (p. ej. «%E0%A4%A»). */
+function decodeOrNull(text) {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return null;
+  }
 }
 
 function send(res, status, body) {

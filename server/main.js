@@ -6,6 +6,9 @@ import { assertPort, PORT_MEMBERS } from './application/ports.js';
 import { makeIngestSource } from './application/use-cases/ingest-source.js';
 import { makeDetectAlerts } from './application/use-cases/detect-alerts.js';
 import { makeQuerySituation } from './application/use-cases/query-situation.js';
+import { makeServeTiles } from './application/use-cases/serve-tiles.js';
+import { makeWatchSituation } from './application/use-cases/watch-situation.js';
+import { makeRefreshCatalogs } from './application/use-cases/refresh-catalogs.js';
 import { createHttpClient } from './adapters/outbound/http/http-client.js';
 import { createFileCache } from './adapters/outbound/http/file-cache.js';
 import { createConsoleLogger } from './adapters/outbound/logging/console-logger.js';
@@ -48,28 +51,25 @@ for (const s of sources) {
 }
 
 // --- Casos de uso ----------------------------------------------------------
-const ingestSource = makeIngestSource({ situation, publisher: bus, clock, log });
+const ingestSource = makeIngestSource({ sources: enabledSources, situation, publisher: bus, clock, log });
 const detectAlerts = makeDetectAlerts({ situation, stations, history, publisher: bus, clock });
-const query = makeQuerySituation({ situation, stations, network, sources });
+const query = makeQuerySituation({ situation, stations, network, clock, sources });
+const serveTiles = makeServeTiles({ tiles });
+const watchSituation = makeWatchSituation({ events: bus, query });
+const refreshCatalogs = makeRefreshCatalogs({ stations, network, log });
 
 // --- Adaptadores de entrada ------------------------------------------------
-await stations.load();
-// Los trazados tardan en construirse la primera vez (~40 MB de GTFS): no bloquean el arranque.
-const loadNetwork = () => network.load().catch((err) => log.warn(`[líneas] ${err.message}`));
-loadNetwork();
-const refreshStations = setInterval(() => {
-  stations.load();
-  loadNetwork();
-}, 6 * 3600_000);
+await refreshCatalogs(); // espera a las estaciones; los trazados siguen cargándose detrás
 
-const scheduler = startPolling({ sources: enabledSources, ingestSource, detectAlerts, log });
+const feeds = enabledSources.map(({ id, interval }) => ({ id, interval }));
+const scheduler = startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, log });
 
 const server = createHttpServer({
   query,
-  bus,
+  watchSituation,
   log,
   about: config.about,
-  tiles,
+  serveTiles,
   publicDir: fileURLToPath(new URL('../public/', import.meta.url)).replace(/\/$/, ''),
   vendorDirs: { '/vendor/maplibre/': fileURLToPath(new URL('../node_modules/maplibre-gl/dist/', import.meta.url)).replace(/\/$/, '') },
 });
@@ -81,7 +81,6 @@ server.listen(config.port, config.host, () => {
 function shutdown() {
   log.info('Cerrando…');
   scheduler.stop();
-  clearInterval(refreshStations);
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 3000).unref();
 }
