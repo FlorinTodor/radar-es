@@ -76,7 +76,8 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
   // Versión de lo que se calcula: si cambia, se recalcula aunque la caché sea de hoy; mientras, se
   // enseña la anterior. 4: fotos de Commons también para las estaciones que Wikidata no tiene.
   // 5: autor como pide cada foto (Attribution), sin fotos sólo GFDL ni sin autor si la licencia lo exige.
-  const CATALOG_VERSION = 5;
+  // 6: todas las fotos de Wikidata y candidatas en orden, sin derechos de imagen ni fotos repetidas dudosas.
+  const CATALOG_VERSION = 6;
   /** @type {Map<string, import('../../../domain/model.js').Station & { cercanias: boolean }>} */
   const stations = new Map();
 

@@ -7,7 +7,7 @@ import { withExtras } from '../../server/adapters/outbound/stations/renfe-statio
 
 const v = (value) => ({ value });
 
-test('Wikidata: código de 5 cifras, accesibilidad, foto, año, vías y Wikipedia; el primer valor gana', () => {
+test('Wikidata: código de 5 cifras, accesibilidad, fotos (todas), año, vías y Wikipedia; en lo demás, el primer valor gana', () => {
   const json = { results: { bindings: [
     { code: v('5100'), acc: v('http://www.wikidata.org/entity/Q24192069'), img: v('http://commons.wikimedia.org/wiki/Special:FilePath/Estaci%C3%B3n_de_Llanes.jpg'),
       open: v('1905-07-23T00:00:00Z'), tracks: v('3'), wp: v('https://es.wikipedia.org/wiki/Estaci%C3%B3n_de_Llanes') },
@@ -17,7 +17,7 @@ test('Wikidata: código de 5 cifras, accesibilidad, foto, año, vías y Wikipedi
   ] } };
   const out = parseWikidata(json);
   assert.deepEqual(out.get('05100'), {
-    accessible: false, image: 'Estación de Llanes.jpg', opened: 1905, tracks: 3, wikipedia: 'https://es.wikipedia.org/wiki/Estaci%C3%B3n_de_Llanes',
+    accessible: false, images: ['Estación de Llanes.jpg', 'Otra.jpg'], opened: 1905, tracks: 3, wikipedia: 'https://es.wikipedia.org/wiki/Estaci%C3%B3n_de_Llanes',
   });
   assert.deepEqual(out.get('60000'), { accessible: 'partial' }); // sólo la Wikipedia en español
   assert.equal(out.size, 2);
