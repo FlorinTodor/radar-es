@@ -69,6 +69,17 @@ const ATTRIBUTION = [
   'NASA FIRMS',
 ];
 
+// El estilo de OpenFreeMap rotula en inglés (name_en: «Spain», «Castile and León»). Sus teselas traen
+// el nombre en español (name:es); si un lugar no lo tiene, el nombre en alfabeto latino y, si no, el local.
+const NAME_ES = ['coalesce', ['get', 'name:es'], ['get', 'name:latin'], ['get', 'name']];
+
+export function spanishLabels(map) {
+  for (const layer of map.getStyle().layers) {
+    const field = layer.type === 'symbol' && layer.layout?.['text-field'];
+    if (field && JSON.stringify(field).includes('name_en')) map.setLayoutProperty(layer.id, 'text-field', NAME_ES);
+  }
+}
+
 export function createMap(container, { onVehicleClick, onEventClick }) {
   const map = new maplibregl.Map({
     container,
@@ -132,6 +143,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
 
   const ready = new Promise((resolve) => map.on('load', resolve)).then(() => {
     const firstSymbol = map.getStyle().layers.find((l) => l.type === 'symbol')?.id;
+    spanishLabels(map);
 
     // Red ferroviaria del IGN: se ve entera a cualquier zoom (las vías de OpenStreetMap del mapa
     // base sólo aparecen muy de cerca). Viene en gris oscuro: se invierte para que destaque.
