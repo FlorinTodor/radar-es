@@ -301,6 +301,9 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 **Licencias**
 - Sólo datos públicos cuya licencia permite reutilizarlos, con las atribuciones que exige cada
   fuente, aviso legal y página de privacidad.
+- Revisión de todas las fuentes, horarios, fotos y librerías: licencia vigente de cada conjunto,
+  fecha de actualización de cada horario, enlace a la licencia de cada librería y, en privacidad,
+  qué webs externas contacta el navegador y cuándo.
 
 ### Preparadas, pendientes de subir
 
@@ -327,6 +330,9 @@ Ninguna por ahora.
   - Fuentes revisadas: [`docs/accesibilidad-estaciones.md`](docs/accesibilidad-estaciones.md).
 - Fotos de [Flickr](https://www.flickr.com/creativecommons/) con licencia Creative Commons (con autor y
   enlace) para las estaciones que siguen sin foto en Wikimedia Commons; hace falta una clave gratuita.
+- Servir las fotos de las estaciones desde nuestro servidor, con caché, en lugar de enlazarlas en
+  Wikimedia Commons: Commons lo permite pero no lo recomienda, y así Wikimedia no recibiría la IP de
+  quien abre la ficha.
 - Guía para quien quiera proponer cambios.
 
 ## Licencia
