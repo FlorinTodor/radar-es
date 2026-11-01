@@ -193,6 +193,91 @@ después (con jq, DuckDB o pandas).
 - El catálogo de fuentes de Cowork está en `Radar ES · Catálogo de fuentes públicas — Resumen.md`.
 - SEO (páginas, sitemap, datos estructurados y lo que hay que hacer en Search Console): [`docs/seo.md`](docs/seo.md).
 
+## Mejoras realizadas
+
+Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por temas.
+
+**Datos en el mapa**
+- Trenes en tiempo real: Cercanías y Rodalies, Alta Velocidad, Larga y Media Distancia, FGC,
+  Euskotren y Metro Bilbao, con su retraso.
+- Posiciones estimadas a partir del horario donde no hay GPS (Ouigo, ALSA y una docena de redes de
+  metro y tranvía), con el retraso real cuando el operador lo publica. Se dibujan con la placa hueca.
+- Autobuses de varias ciudades y operadores.
+- Rodalies: trenes cancelados y avisos de servicio.
+- Contexto y emergencias: incidencias de tráfico y obras en carretera (capas separadas), avisos
+  meteorológicos, focos de calor por satélite, áreas quemadas con su ficha, terremotos, alertas
+  de catástrofes y demanda eléctrica.
+- Red ferroviaria, líneas de metro, tranvía y Cercanías, y estaciones.
+- Nombres del mapa base en español.
+- Se descartan los retrasos imposibles que a veces llegan en los datos.
+
+**Trenes**
+- Pictograma por tipo de vehículo y color según el retraso.
+- Ficha de cada tren, con la vía de la estación en la que para o a la que llega.
+- Recorrido de los últimos 45 minutos del tren seleccionado y, como capa opcional, la estela de
+  todos los trenes.
+- Lista y buscador con todos los trenes.
+
+**Alertas**
+- Motor de reglas que avisa de:
+  - trenes detenidos en plena vía y varios trenes parados en la misma zona;
+  - saltos bruscos de retraso y retrasos muy grandes;
+  - terremotos y posibles incendios cerca de trenes;
+  - avisos meteorológicos naranja o rojo;
+  - caídas de la demanda eléctrica y fuentes de datos caídas.
+- Al pulsar una alerta, el mapa muestra sólo lo suyo; se pueden combinar varias.
+- Las capas que enciende una alerta se marcan como temporales y se pueden apagar sin perder la
+  selección.
+
+**Interfaz**
+- Vista para el móvil, con el mapa a pantalla completa y un panel que sube desde abajo.
+- Panel de capas con «Todas · Ninguna» y preferencias guardadas en el navegador.
+- Aviso al entrar sobre los datos públicos que todavía faltan.
+- Páginas que explican cada parte del mapa y versión en inglés.
+
+**Rendimiento y fiabilidad**
+- Directo servido desde caché, preparado para picos de muchas visitas a la vez.
+- Respuestas de la API calculadas una sola vez y compartidas entre todas las visitas.
+- Arranque sin bloquear el servidor mientras carga los horarios de más de cien redes, y menos
+  memoria al leerlos.
+- Cálculos pesados en hilos aparte y reintentos rápidos de las fuentes que fallan.
+
+**Despliegue y seguridad**
+- La aplicación funciona aislada, en un contenedor con recursos limitados y cabeceras de
+  seguridad.
+- Cada cambio pasa los tests antes de publicarse y, si no arranca bien, la web vuelve sola a la
+  versión anterior.
+- Entorno de pruebas privado: cada cambio se prueba con datos reales antes de llegar a producción.
+- Pipeline en GitHub Actions (tests → pruebas → aprobación manual → producción), y producción sólo
+  publica la misma versión que se ha probado.
+- Limpieza automática del servidor.
+- Estadísticas de visitas sin cookies.
+
+**Licencias**
+- Sólo datos públicos cuya licencia permite reutilizarlos, con las atribuciones que exige cada
+  fuente, aviso legal y página de privacidad.
+
+### Preparadas, pendientes de subir
+
+- **Panel de capas para el móvil:** pastillas fáciles de pulsar, agrupadas por temas, y la leyenda
+  plegada.
+- **Recorrido pegado a la vía** en Cercanías, metro y tranvía. Sin rectas imposibles cuando el
+  operador pasa el número de un tren a otro convoy, que además daba alertas falsas de retraso.
+- **Más protección** frente a picos de tráfico y fallos de las fuentes.
+
+## Posibles mejoras
+
+- Recorrido pegado a la vía también en AVE, Larga y Media Distancia, con la red ferroviaria
+  vectorial del IGN.
+- Botón en el mapa para cambiar entre español e inglés.
+- Despliegues sin ningún corte, con dos contenedores que se relevan.
+- Más fuentes: TMB y EMT Madrid (con clave gratuita) y posiciones estimadas para las redes que
+  sólo publican tiempos de llegada (ver *Pendiente y conocido*).
+- Estadísticas de puntualidad por línea y franja horaria.
+- Pasos a nivel en el mapa.
+- Estado oficial de la red de Adif, si llega a publicarse con licencia de reutilización.
+- Guía para quien quiera proponer cambios.
+
 ## Licencia
 
 Todos los derechos reservados (ver [LICENSE](LICENSE)). El código se publica sólo para que se pueda
