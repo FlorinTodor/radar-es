@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Live train map of Spain: Renfe, AVE and Cercanías</title>
+  <meta name="description" content="See where every train in Spain is right now: Renfe high-speed (AVE), long and medium distance, Cercanías and Rodalies, FGC, Euskotren and Metro Bilbao, with live delays.">
+  <link rel="canonical" href="https://xn--radarespaa-19a.es/en/live-trains">
+  <link rel="alternate" hreflang="es" href="https://xn--radarespaa-19a.es/trenes-en-tiempo-real">
+  <link rel="alternate" hreflang="en" href="https://xn--radarespaa-19a.es/en/live-trains">
+  <link rel="alternate" hreflang="x-default" href="https://xn--radarespaa-19a.es/trenes-en-tiempo-real">
+  <meta name="author" content="Florin Emanuel Todor Gliga">
+  <meta name="theme-color" content="#1a1a19">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Radar España">
+  <meta property="og:locale" content="en_GB">
+  <meta property="og:locale:alternate" content="es_ES">
+  <meta property="og:title" content="Live trains in Spain · Radar España">
+  <meta property="og:description" content="Live map of Renfe, AVE, Cercanías, Rodalies, FGC, Euskotren and Metro Bilbao trains, with delays and notices.">
+  <meta property="og:url" content="https://xn--radarespaa-19a.es/en/live-trains">
+  <meta property="og:image" content="https://xn--radarespaa-19a.es/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/favicon.ico" sizes="48x48">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="stylesheet" href="/style.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Radar España", "item": "https://xn--radarespaa-19a.es/en" },
+      { "@type": "ListItem", "position": 2, "name": "Live trains", "item": "https://xn--radarespaa-19a.es/en/live-trains" }
+    ]
+  }
+  </script>
+</head>
+<body class="doc">
+  <header class="topbar">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="5.5" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".6"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>
+      <span>Radar España</span>
+    </a>
+    <a class="back" href="/">Open the live map →</a>
+  </header>
+
+  <main class="doc-body">
+    <nav class="crumbs" aria-label="You are here"><a href="/en">Radar España</a> › Live trains</nav>
+    <h1>Live trains in Spain</h1>
+    <p class="lead">On the <a href="/">Radar España map</a> you can see the trains running in Spain right now, with
+      their position, delay and service notices. It updates itself every few seconds, with no sign-up and nothing to
+      install. The interface is in Spanish: see the <a href="/en">quick glossary</a>.</p>
+
+    <h2>Which trains are shown</h2>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Trains</th><th>What you see</th></tr></thead>
+      <tbody>
+        <tr><td>Renfe high-speed (AVE), long and medium distance</td><td>GPS position, delay, last and next station, from Renfe's official data</td></tr>
+        <tr><td>Renfe Cercanías and Rodalies commuter trains (Madrid, Barcelona, Valencia, Seville, Málaga, Bilbao and the other networks)</td><td>GPS position, delay, cancelled trains and service notices</td></tr>
+        <tr><td>Rodalies de Catalunya</td><td>Service status of each line, as published by the Government of Catalonia</td></tr>
+        <tr><td>FGC (Ferrocarrils de la Generalitat de Catalunya)</td><td>Train positions</td></tr>
+        <tr><td>Metro Bilbao</td><td>Real-time position</td></tr>
+        <tr><td>Euskotren</td><td>Timetable-based position, corrected with the real delay it publishes</td></tr>
+        <tr><td>Ouigo</td><td>Timetable-based position, without delays (it publishes nothing more)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p><strong>Iryo</strong> and <strong>freight</strong> trains do not appear because that data is not published
+      openly: Iryo does not release the position of its trains, and Adif does not publish the movements of all
+      operators in a reusable format.</p>
+
+    <h2>How to read the map</h2>
+    <ul>
+      <li>Each train is a marker with its line or number. Its <strong>colour shows the delay</strong>, and the most
+        delayed trains are drawn on top.</li>
+      <li>A <strong>filled marker</strong> is a real GPS position. A <strong>hollow marker</strong> labelled «estimada»
+        is a position worked out from the timetable: it is not GPS.</li>
+      <li>Tap a train to open its card: origin and destination, delay, the last and next station with its time, the
+        platform when the operator publishes it and, on the map, its route over the last 45 minutes.</li>
+      <li>In the <strong>Trenes</strong> tab you can search by train number, line or station, with the list sorted by
+        delay.</li>
+      <li>The top bar sums up the moment: how many trains have GPS, how many are 5 minutes or more late, and the
+        median delay.</li>
+    </ul>
+
+    <h2>Train alerts</h2>
+    <p>Radar España watches the data and warns in the <strong>Alertas</strong> tab when:</p>
+    <ul>
+      <li>a train stops between stations, far from any station, or several trains stop in the same area;</li>
+      <li>a train's delay jumps suddenly;</li>
+      <li>there is an earthquake, a possible wildfire or a serious weather warning near running trains;</li>
+      <li>many trains vanish from the map in a short time, or a source stops sending data.</li>
+    </ul>
+    <p>Traffic incidents, weather and other emergencies are explained in
+      <a href="/en/incidents-and-emergencies">incidents and emergencies</a>.</p>
+
+    <h2>Before you use it</h2>
+    <p>Data arrives seconds to minutes late, and Radar España is not an official website of Renfe, Adif or any
+      operator. It tells you how the network is doing and roughly where your train is; for timetables, tickets and
+      official notices always check with the operator. Sources and licences are listed in the
+      <a href="/legal#fuentes">sources and licences page</a> (in Spanish).</p>
+
+    <p class="cta"><a class="btn" href="/">See the trains on the map</a></p>
+  </main>
+
+  <footer class="doc-foot">
+    <nav aria-label="More information">
+      <a href="/">Live map</a> · <a href="/en">What is Radar España</a> · <a href="/en/metro-tram-bus">Metro, tram and bus</a> · <a href="/en/incidents-and-emergencies">Incidents and emergencies</a> ·
+      <a href="/legal">Legal notice and sources (in Spanish)</a> · <a href="/trenes-en-tiempo-real" hreflang="es" lang="es">Versión en español</a>
+    </nav>
+    <p class="credit">Radar España is an independent project by <a href="https://florintodor.dev" rel="author">Florin Emanuel Todor Gliga</a>.</p>
+  </footer>
+
+  <script type="module" src="/js/analytics.js"></script>
+</body>
+</html>
