@@ -3,9 +3,10 @@ import { sortAlerts } from '../../domain/alerts/lifecycle.js';
 
 /**
  * @param {{ situation: import('../ports.js').SituationRepositoryPort, stations: import('../ports.js').StationCatalogPort,
- *           network: import('../ports.js').NetworkCatalogPort, sources?: import('../ports.js').DataSourcePort[] }} deps
+ *           network: import('../ports.js').NetworkCatalogPort, clock: import('../ports.js').ClockPort,
+ *           sources?: import('../ports.js').DataSourcePort[] }} deps
  */
-export function makeQuerySituation({ situation, stations, network, sources = [] }) {
+export function makeQuerySituation({ situation, stations, network, clock, sources = [] }) {
   const withPaths = sources.filter((s) => typeof s.path === 'function');
   const alerts = () => sortAlerts(situation.activeAlerts().values());
   // Los autobuses (miles en hora punta) sólo se envían a quien tiene activada su capa.
@@ -45,7 +46,7 @@ export function makeQuerySituation({ situation, stations, network, sources = [] 
 
     /** Estelas de todos los trenes (sin autobuses) en los últimos `minutes` minutos, como GeoJSON. */
     trails(minutes = 15) {
-      const since = Date.now() - minutes * 60_000;
+      const since = clock.now() - minutes * 60_000;
       const modes = new Map(situation.vehicles().map((v) => [v.id, v.mode]));
       const round = (x) => Math.round(x * 1e5) / 1e5;
       const features = [];
@@ -92,7 +93,7 @@ export function makeQuerySituation({ situation, stations, network, sources = [] 
       const counts = {};
       for (const v of vehicles) countByMode([v], counts[v.source] ??= {});
       return {
-        generatedAt: Date.now(),
+        generatedAt: clock.now(),
         vehicles: busFilter(false)(vehicles),
         counts,
         metrics: situation.metrics(),
@@ -101,15 +102,15 @@ export function makeQuerySituation({ situation, stations, network, sources = [] 
         kpis: situation.kpis(),
       };
     },
-    liveEvents: () => ({ generatedAt: Date.now(), events: situation.events() }),
-    liveBuses: () => ({ generatedAt: Date.now(), vehicles: situation.vehicles().filter((v) => v.mode === 'bus') }),
+    liveEvents: () => ({ generatedAt: clock.now(), events: situation.events() }),
+    liveBuses: () => ({ generatedAt: clock.now(), vehicles: situation.vehicles().filter((v) => v.mode === 'bus') }),
 
     snapshot({ buses = true } = {}) {
       const vehicles = situation.vehicles();
       const counts = {}; // fuente → { modo: número }
       for (const v of vehicles) countByMode([v], counts[v.source] ??= {});
       return {
-        generatedAt: Date.now(),
+        generatedAt: clock.now(),
         vehicles: busFilter(buses)(vehicles),
         counts,
         events: situation.events(),

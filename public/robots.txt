@@ -1,0 +1,14 @@
+# Radar España · https://radarespaña.es
+User-agent: *
+Allow: /
+# Datos en directo: cambian cada pocos segundos y no son páginas. /api/live y /api/health
+# no se bloquean porque el buscador los necesita para dibujar la portada.
+Disallow: /api/stream
+Disallow: /api/tracks/
+Disallow: /api/trails
+Disallow: /api/burnt-areas
+Disallow: /api/snapshot
+Disallow: /api/vehicles
+Disallow: /api/events
+
+Sitemap: https://xn--radarespaa-19a.es/sitemap.xml

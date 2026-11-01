@@ -1,8 +1,10 @@
-# Radar ES
+<p align="center"><img src="docs/img/logo-radar-espana.png" alt="Radar España" width="560"></p>
 
-Mapa en tiempo real de trenes, metros y tranvías de España, cruzado con incidencias de
-tráfico, terremotos, avisos meteorológicos y el estado de la red eléctrica. Todo a partir
-de **datos públicos**, sin claves de API.
+# Radar España
+
+**[radarespaña.es](https://radarespaña.es)** · Mapa en tiempo real de trenes, metros y tranvías de
+España, cruzado con incidencias de tráfico, terremotos, avisos meteorológicos y el estado de la red
+eléctrica. Todo a partir de **datos públicos**, sin claves de API.
 
 Un motor de reglas vigila situaciones que merecen atención humana: trenes detenidos en
 plena vía, varios trenes parados en la misma zona, saltos bruscos de retraso, terremotos
@@ -52,19 +54,23 @@ desde la rama `produccion`: ver [`docs/despliegue.md`](docs/despliegue.md).
 
 ```
                    ┌───────────────────── adapters/inbound ─────────────────────┐
-  navegador ──────▶│ http/http-server.js  (REST + SSE + estáticos)              │
-  reloj ──────────▶│ scheduler/polling-scheduler.js  (sondeo de fuentes)        │
+  navegador ──────▶│ http/http-server.js  (REST + SSE + teselas + estáticos)    │
+  reloj ──────────▶│ scheduler/polling-scheduler.js (sondeo, alertas, catálogos)│
                    └──────────────┬─────────────────────────────────────────────┘
-                                  ▼
+                                  ▼ sólo casos de uso
                    ┌──────────── application ─────────────┐
                    │ use-cases/ingest-source.js           │
-                   │ use-cases/detect-alerts.js           │──▶ ports.js (contratos)
-                   │ use-cases/query-situation.js         │
+                   │ use-cases/detect-alerts.js           │
+                   │ use-cases/query-situation.js         │──▶ ports.js (contratos)
+                   │ use-cases/watch-situation.js  (SSE)  │
+                   │ use-cases/serve-tiles.js             │
+                   │ use-cases/refresh-catalogs.js        │
                    └──────────────┬───────────────────────┘
                                   ▼
                    ┌──────────────── domain ──────────────┐
                    │ model.js · geo.js · tracking.js      │  puro: sin red, sin disco,
-                   │ kpis.js · alerts/{rules,lifecycle}   │  sin dependencias externas
+                   │ kpis.js · tiles.js                   │  sin dependencias externas
+                   │ alerts/{rules,lifecycle}             │
                    └──────────────────────────────────────┘
                                   ▲ implementan los puertos
                    ┌──────────── adapters/outbound ─────────────────────────────┐
@@ -73,6 +79,8 @@ desde la rama `produccion`: ver [`docs/despliegue.md`](docs/despliegue.md).
                    │ network/, gtfs/, nap/   trazados de líneas desde el NAP    │
                    │ persistence/     estado en memoria + histórico JSONL       │
                    │ events/          bus de eventos en proceso                 │
+                   │ tiles/           teselas de IGN y EFFIS con copia en disco │
+                   │ workers/         hilos para leer GTFS y XML (CPU)          │
                    │ http/, logging/                                            │
                    └────────────────────────────────────────────────────────────┘
 ```
@@ -81,7 +89,13 @@ desde la rama `produccion`: ver [`docs/despliegue.md`](docs/despliegue.md).
 - **`server/application/`**: casos de uso y **puertos**, los contratos que necesitan del exterior.
 - **`server/adapters/outbound/`**: implementaciones de esos puertos. Para cambiar la memoria
   por Redis o Postgres, o el JSONL por una base de datos, basta con escribir otro adaptador.
+- **`server/adapters/outbound/workers/`**: hilos (`worker_threads`) para el trabajo de CPU de los
+  adaptadores: leer los horarios GTFS, construir los trazados y analizar el XML de la DGT. Sólo
+  calculan; las descargas y el estado siguen en el hilo principal. **Desactivados por defecto**:
+  se activan con `WORKER_THREADS=2` en `.env` (arranque ~20 % más rápido, pero el pico de memoria
+  sube de ~350 a ~530 MB). Si un hilo falla, el trabajo se repite en el principal.
 - **`server/adapters/inbound/`**: quien dispara los casos de uso (la API HTTP y el planificador).
+  Sólo hablan con casos de uso, nunca con los puertos de salida.
 - **`server/main.js`**: raíz de composición; el único sitio donde se eligen las implementaciones.
 
 ### Añadir una fuente
@@ -92,6 +106,9 @@ desde la rama `produccion`: ver [`docs/despliegue.md`](docs/despliegue.md).
 2. Regístrala en `server/adapters/outbound/sources/index.js`.
 3. Si necesita clave, declara `requires: ['MI_CLAVE']`. Se activará sola cuando la variable
    exista en `.env`.
+4. Si la URL del dato no es una página para personas (un JSON, un .pb), añade `page` con la ficha
+   pública del conjunto de datos: es lo que enlaza el panel de Fuentes.
+5. Añade su fila de licencia y atribución en `public/legal.html`.
 
 ### Añadir una regla de alerta
 
@@ -104,7 +121,7 @@ Solo se usan fuentes con licencia de reutilización. Los endpoints internos de v
 (el visor web de Renfe, la API del tranvía de Tenerife, la API de la app de Rodalies…) se descartaron
 tras revisar sus avisos legales. Del tranvía de Tenerife solo se dibuja el trazado, que Metrotenerife
 publica con licencia CC BY en el portal del Cabildo. La licencia y la atribución de cada fuente están
-en `/legal.html`.
+en `/legal`.
 
 Todas son públicas. Solo las marcadas con 🔑 necesitan `NAP_API_KEY`, una clave gratuita del NAP.
 
@@ -172,6 +189,7 @@ después (con jq, DuckDB o pandas).
 - **Solo tiempos de llegada, sin posiciones**: Metro de Madrid, Metro Ligero, Metrovalencia,
   Granada y Zaragoza. Se pueden estimar posiciones a partir de su GTFS, igual que con Ouigo.
 - El catálogo de fuentes de Cowork está en `Radar ES · Catálogo de fuentes públicas — Resumen.md`.
+- SEO (páginas, sitemap, datos estructurados y lo que hay que hacer en Search Console): [`docs/seo.md`](docs/seo.md).
 
 ## Licencia
 
@@ -180,4 +198,4 @@ consultar: no se puede copiar, modificar, redistribuir, usar en otros proyectos 
 comercialmente sin permiso por escrito del autor.
 
 Los datos que muestra no son de este proyecto: cada fuente tiene su propia licencia y su
-atribución obligatoria (ver `/legal.html`).
+atribución obligatoria (ver `/legal`).

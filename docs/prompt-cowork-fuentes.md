@@ -21,6 +21,12 @@ tiempo real, que pueda conectar al proyecto.
 
 ## Fuentes ya integradas y verificadas (no hace falta volver a investigarlas)
 
+> **Aviso (2026-11-01): algunas fuentes de este documento ya NO se usan.** Por licencia se retiraron el visor de Renfe
+> (`flota.json`, `flotaLD.json`, `estaciones.geojson`, `trenesConEstacionesLD.json`), la API del
+> tranvía de Tenerife (`tranviaonline`), la API de la app de Rodalies (`serveisgrs`), adsb.lol e IODA.
+> Este documento recoge la exploración inicial; las fuentes vigentes y sus licencias están en
+> [radarespaña.es/legal](https://radarespaña.es/legal).
+
 | Fuente | URL | Formato | Clave |
 |---|---|---|---|
 | Renfe Cercanías/Rodalies, posiciones | https://tiempo-real.renfe.com/renfe-visor/flota.json | JSON propio | no |

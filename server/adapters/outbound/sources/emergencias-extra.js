@@ -1,5 +1,5 @@
 // Alertas de catástrofes de GDACS (Naciones Unidas y Comisión Europea). Públicas y sin clave.
-import { arr, num, text, xmlParser } from './parse.js';
+import { arr, lookup, num, text, xmlParser } from './parse.js';
 
 // Zona de interés: España peninsular, Baleares, Canarias y su entorno inmediato.
 const inZone = (lat, lon) => lat >= 26 && lat <= 44.5 && lon >= -19.5 && lon <= 5;
@@ -25,11 +25,11 @@ export function createGdacsSource({ http }) {
         const lat = num(text(it.Point?.lat));
         const lon = num(text(it.Point?.long));
         if (lat === null || lon === null || !inZone(lat, lon)) continue;
-        const level = GDACS_LEVEL[text(it.alertlevel)] ?? 'verde';
+        const level = lookup(GDACS_LEVEL, text(it.alertlevel)) ?? 'verde';
         events.push({
           id: `gdacs:${text(it.eventtype)}:${text(it.eventid)}`,
           category: 'catastrofe',
-          type: GDACS_TYPE[text(it.eventtype)] ?? text(it.eventtype),
+          type: lookup(GDACS_TYPE, text(it.eventtype)) ?? text(it.eventtype),
           level,
           severity: level === 'rojo' ? 'muy alta' : level === 'naranja' ? 'alta' : 'baja',
           title: text(it.title) ?? 'Alerta GDACS',

@@ -39,7 +39,7 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
     const gtfsStops = new Map();
     for (const [url, cercanias] of [[RENFE_FILES.largaDistancia, false], [RENFE_FILES.cercanias, true]]) {
       try {
-        const files = openGtfs(await cache.bytes(url, `renfe-${url.split('/').at(-1)}`, REFRESH_MS), ['stops.txt']);
+        const files = await openGtfs(await cache.bytes(url, `renfe-${url.split('/').at(-1)}`, REFRESH_MS), ['stops.txt']);
         for (const s of csvRows(files['stops.txt'])) {
           const code = padCode(s.stop_id);
           if (!gtfsStops.has(code)) gtfsStops.set(code, { name: s.stop_name, lat: Number(s.stop_lat), lon: Number(s.stop_lon), cercanias });

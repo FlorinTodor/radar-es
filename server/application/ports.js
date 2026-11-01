@@ -1,5 +1,6 @@
 // Puertos: los contratos que la aplicación necesita del exterior. Los adaptadores
-// (adapters/outbound) los implementan y main.js los inyecta en los casos de uso.
+// (adapters/outbound) los implementan y main.js los inyecta en los casos de uso. Los adaptadores
+// de entrada (HTTP, planificador) no los usan: sólo hablan con casos de uso.
 // JavaScript no tiene interfaces, así que se documentan con JSDoc y se comprueban
 // en el arranque con `assertPort`.
 
@@ -12,6 +13,7 @@
  * @property {number} interval                 ms entre lecturas.
  * @property {string} [license]
  * @property {string} [url]
+ * @property {string} [page]                   Ficha pública del conjunto de datos, para enlazarla en vez de `url`.
  * @property {string[]} [requires]             Variables de entorno necesarias (claves de API).
  * @property {() => Promise<import('../domain/model.js').SourceResult>} fetch
  * @property {(vehicleId: string) => number[][]|null|undefined} [path]  Sólo fuentes de posiciones
@@ -64,7 +66,8 @@
  */
 
 /**
- * Bus de eventos de aplicación: lo usan los adaptadores de entrada (SSE) para empujar cambios.
+ * Bus de eventos de aplicación: ingest-source y detect-alerts publican los cambios y
+ * watch-situation se suscribe para que el directo (SSE) los empuje.
  * @typedef {object} EventPublisherPort
  * @property {(topic: string, payload?: object) => void} publish
  * @property {(topic: string, handler: (payload: any) => void) => () => void} subscribe
@@ -72,7 +75,8 @@
 
 /**
  * Teselas y consultas de capas externas (IGN, EFFIS) servidas desde nuestro dominio para que
- * Cloudflare las guarde: lo usa el adaptador HTTP.
+ * Cloudflare las guarde. Lo usa el caso de uso serve-tiles, que antes decide qué teselas se
+ * pueden pedir (domain/tiles.js): el proveedor descarga y guarda en disco todo lo que se le pide.
  * @typedef {object} TileProviderPort
  * @property {string[]} layers
  * @property {(layer: string) => string} cacheControl

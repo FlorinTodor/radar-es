@@ -38,6 +38,9 @@ export const LAYER_GROUPS = {
 
 // Las teselas de IGN y EFFIS salen de nuestro servidor (/tiles), que las guarda y deja que Cloudflare
 // las sirva: con mucha gente, sus servicios reciben cada tesela una vez y no una por visitante.
+// El servidor sólo sirve las que tocan España y hasta un zoom por capa (server/domain/tiles.js):
+// con los mismos `bounds` y `maxzoom` el mapa no pide otras y, más cerca, amplía la última.
+const TILES_BOUNDS = [-18.5, 27.4, 4.6, 44.0];
 const RAIL_TILES = `${location.origin}/tiles/ign-rail/{z}/{x}/{y}.png`;
 // Al invertir sus colores la capa es obra derivada: fórmula de la licencia del IGN con el producto y
 // año de la tabla de productos del SCNE (scne.es/tablaProductos.php).
@@ -52,9 +55,9 @@ const LEVEL_COLOR = ['match', ['get', 'level'], 'rojo', STATUS.critical, 'naranj
 const LEVEL_ORDER = { amarillo: 0, naranja: 1, rojo: 2 };
 
 const today = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', dateStyle: 'short' }).format(new Date());
-// Textos que exigen las licencias (el resto de atribuciones están en /legal.html#fuentes).
+// Textos que exigen las licencias (el resto de atribuciones están en /legal#fuentes).
 const ATTRIBUTION = [
-  '<a href="/legal.html#fuentes">Fuentes y licencias</a>',
+  '<a href="/legal#fuentes">Fuentes y licencias</a>',
   'Powered by <a href="https://www.transportes.gob.es/" target="_blank" rel="noopener">MITRAMS</a>',
   'Powered by <a href="https://www.crtm.es/" target="_blank" rel="noopener">CRTM</a>',
   'Powered by <a href="https://www.tram.cat/" target="_blank" rel="noopener">TRAM Barcelona</a>',
@@ -76,7 +79,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     maxPitch: 0,
     // Desplegada en pantallas anchas. En el móvil (≤ 640 px) MapLibre la muestra al cargar y la
     // pliega en un botón (i) al mover el mapa, como permiten las normas de atribución de OSM;
-    // además todas las atribuciones están en /legal.html.
+    // además todas las atribuciones están en /legal.
     attributionControl: { customAttribution: ATTRIBUTION },
   });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
@@ -93,8 +96,8 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
   let showObras = false;
   let focus = null; // { vehicleIds, eventIds } mientras hay alertas seleccionadas
 
-  // Filtro base de cada capa de trenes y de sucesos. El modo foco le añade "y sólo estos ids"
-  // y hace visibles las capas, aunque el usuario las tuviera apagadas.
+  // Filtro base de cada capa de trenes y de sucesos. El modo foco le añade "y sólo estos ids";
+  // qué capas se ven lo siguen decidiendo las casillas del panel.
   const category = (c) => ['==', ['get', 'category'], c];
   const VEHICLE_FILTERS = {
     'veh-halo': ['==', ['get', 'alert'], 1],
@@ -119,12 +122,11 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     if (!loaded) return;
     const only = (ids, base) => ['all', base ?? true, ['in', ['get', 'id'], ['literal', ids]]];
     for (const [id, base] of Object.entries(VEHICLE_FILTERS)) {
-      map.setFilter(id, focus ? only(focus.vehicleIds, base) : vehicleFilter(base));
+      map.setFilter(id, focus ? only(focus.vehicleIds, vehicleFilter(base)) : vehicleFilter(base));
     }
     for (const [id, entry] of Object.entries(EVENT_FILTERS)) {
       const base = typeof entry === 'function' ? entry() : entry;
       map.setFilter(id, focus ? only(focus.eventIds, base) : base);
-      if (focus) map.setLayoutProperty(id, 'visibility', 'visible');
     }
   }
 
@@ -133,7 +135,9 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
 
     // Red ferroviaria del IGN: se ve entera a cualquier zoom (las vías de OpenStreetMap del mapa
     // base sólo aparecen muy de cerca). Viene en gris oscuro: se invierte para que destaque.
-    map.addSource('rail-ign', { type: 'raster', tiles: [RAIL_TILES], tileSize: 256, attribution: RAIL_ATTRIBUTION });
+    map.addSource('rail-ign', {
+      type: 'raster', tiles: [RAIL_TILES], tileSize: 256, bounds: TILES_BOUNDS, minzoom: 4, maxzoom: 14, attribution: RAIL_ATTRIBUTION,
+    });
     map.addLayer({
       id: 'rail-network', type: 'raster', source: 'rail-ign',
       paint: {
@@ -157,7 +161,9 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
         'line-opacity': ['interpolate', ['linear'], ['zoom'], 5, 0.6, 11, 0.75],
       },
     });
-    map.addSource('effis', { type: 'raster', tiles: [EFFIS_TILES], tileSize: 256, attribution: EFFIS_ATTRIBUTION });
+    map.addSource('effis', {
+      type: 'raster', tiles: [EFFIS_TILES], tileSize: 256, bounds: TILES_BOUNDS, minzoom: 4, maxzoom: 12, attribution: EFFIS_ATTRIBUTION,
+    });
     map.addLayer({ id: 'effis-burnt', type: 'raster', source: 'effis', layout: { visibility: 'none' }, paint: { 'raster-opacity': 0.75 } });
     // Contorno del área quemada que se ha pulsado (la capa de EFFIS es una imagen y no se puede resaltar).
     map.addSource('burnt-sel', { type: 'geojson', data: EMPTY });
@@ -296,7 +302,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       clicks++;
       const f = map.queryRenderedFeatures(e.point, { layers: clickable })[0];
       if (!f) {
-        clearSelection(); // clic en una zona vacía: se quita la selección…
+        clearSelection(); // clic en una zona vacía: se quitan el anillo, el recorrido y la ficha…
         // …pero las áreas quemadas son una imagen (WMS): se pregunta a EFFIS si hay una en ese punto.
         if (map.getLayoutProperty('effis-burnt', 'visibility') === 'visible') showBurntAreaAt(e.point);
         return;
@@ -478,9 +484,9 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     },
 
     /**
-     * Muestra sólo los trenes y sucesos indicados (alertas seleccionadas), aunque sus capas
-     * estuvieran apagadas. Con null se vuelve a los filtros normales; quien llama debe
-     * restaurar después la visibilidad de las capas según las preferencias del usuario.
+     * Muestra sólo los trenes y sucesos indicados (alertas seleccionadas) de las capas que estén
+     * encendidas; quien llama enciende antes las que hagan falta. Con null se vuelve a los
+     * filtros normales.
      * @param {{ vehicleIds: string[], eventIds: string[] } | null} f
      */
     setFocus(f) {
@@ -600,7 +606,7 @@ function vehicleDetail(v) {
   ].filter(Boolean);
   const note = !v.estimated
     ? 'La <strong>línea azul discontinua</strong> es el recorrido de este tren en los últimos 45 min (desde que el radar lo sigue). '
-      + 'La × sólo cierra esta ficha; pulsa en una zona vacía del mapa para quitar la selección.'
+      + 'La × sólo cierra esta ficha; pulsa en una zona vacía del mapa para quitar el recorrido y «Ver todo» para volver a verlo todo.'
     : (v.delay !== null && v.delay !== undefined
       ? '<strong>Posición estimada</strong> a partir del horario y del retraso real que publica el operador: no es GPS. '
       : '<strong>Posición estimada</strong> a partir del horario publicado: no es GPS y no refleja retrasos. ')

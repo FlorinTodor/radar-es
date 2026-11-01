@@ -17,6 +17,7 @@ const state = {
   search: '',
   selected: new Map(), // 'tipo|id' → { kind, id }: alertas, incidencias y trenes marcados; el mapa muestra sólo eso
   multi: false,         // interruptor "Varias a la vez"
+  forced: new Set(),    // 'mode:x' / 'group:y': capas que ha encendido lo marcado; se apagan al quitar la selección
 };
 
 const PREFS_KEY = 'radar-es:prefs';
@@ -73,11 +74,25 @@ async function loadLines(attempt = 0) {
   if (attempt < 10) setTimeout(() => loadLines(attempt + 1), 15_000);
 }
 
+// Capas que se ven: las del usuario más las que ha encendido lo marcado.
+function layerState() {
+  const s = { ...prefs, modes: { ...prefs.modes }, groups: { ...prefs.groups } };
+  for (const key of state.forced) {
+    const [type, name] = key.split(':');
+    if (type === 'mode') s.modes[name] = true;
+    else if (name === 'obras') s.obras = true;
+    else s.groups[name] = true;
+  }
+  return s;
+}
+
 function applyLayerPrefs() {
-  map.setModes(P.MODE_ITEMS.filter((m) => P.modeOn(prefs, m)));
-  for (const [g] of P.GROUP_ITEMS) if (g !== 'obras') map.setGroupVisible(g, P.groupOn(prefs, g));
-  map.setObras(prefs.obras);
-  watchTrails(P.groupOn(prefs, 'trails'));
+  const s = layerState();
+  map.setModes(P.MODE_ITEMS.filter((m) => P.modeOn(s, m)));
+  for (const [g] of P.GROUP_ITEMS) if (g !== 'obras') map.setGroupVisible(g, P.groupOn(s, g));
+  map.setObras(s.obras);
+  watchTrails(P.groupOn(s, 'trails'));
+  P.syncLayers(document.getElementById('layers-body'), s, state.forced);
 }
 
 // Estelas de todos los trenes: sólo se piden mientras la capa está activa.
@@ -136,7 +151,7 @@ function flush() {
 }
 
 // La lista y el buscador no dependen de las capas activas: se puede buscar cualquier tren y, al
-// pulsarlo, el mapa lo muestra aunque su capa esté apagada. Los autobuses, sólo con su capa activa.
+// pulsarlo, el mapa lo muestra y enciende su capa si estaba apagada. Los autobuses, sólo con su capa activa.
 function renderVehiclesPanel(all = allVehicles()) {
   const vehicles = all.filter((v) => v.mode !== 'bus' || P.modeOn(prefs, 'bus'));
   P.renderVehicles(document.getElementById('vehicles-list'), P.filterVehicles(vehicles, state.search), vehicles.length, selection('vehicle'));
@@ -209,10 +224,11 @@ function selectEvent(id) {
 }
 
 // ---------- Selección (Alertas, Incidencias y Trenes) ----------
-// Clic en un elemento de cualquier lista: el mapa muestra sólo eso, aunque su capa estuviera
-// apagada; clic en otro lo sustituye y en el mismo vuelve a tus capas. Con "Varias a la vez"
-// cada clic suma o quita, y se pueden mezclar alertas, incidencias y trenes. Todo con clics.
-const KIND_LABEL = { alert: ['alerta', 'alertas'], event: ['incidencia', 'incidencias'], vehicle: ['tren', 'trenes'] };
+// Clic en un elemento de cualquier lista: el mapa muestra sólo eso y enciende (y marca en Capas)
+// las capas que necesita; clic en otro lo sustituye y en el mismo vuelve a tus capas. Lo que se
+// cambie en Capas mientras tanto se aplica sin perder la selección y se guarda. Con "Varias a la
+// vez" cada clic suma o quita, y se pueden mezclar alertas, incidencias y trenes. Todo con clics.
+const KIND_LABEL = { alert: ['alerta', 'alertas'], event: ['incidencia', 'incidencias'], vehicle: ['tren', 'trenes'], bus: ['autobús', 'autobuses'] };
 
 function selection(kind) {
   const ids = new Set([...state.selected.values()].filter((x) => x.kind === kind).map((x) => x.id));
@@ -230,7 +246,54 @@ function selectItem(kind, id) {
   } else {
     state.selected = new Map([[key, { kind, id }]]);
   }
+  // Se encienden las capas de lo recién marcado; las que sólo hacían falta para lo que se ha
+  // quitado vuelven a como estaban. Si el usuario ha apagado una, no se le vuelve a encender.
+  const alertsById = new Map(state.alerts.map((a) => [a.id, a]));
+  const needed = layersFor(focusIds([...state.selected.values()], alertsById));
+  for (const k of state.forced) if (!needed.has(k)) state.forced.delete(k);
+  // Sólo cuentan como temporales las que estaban apagadas: las que ya tenías encendidas siguen igual.
+  if (state.selected.has(key)) {
+    for (const k of layersFor(focusIds([{ kind, id }], alertsById))) if (!onInPrefs(k)) state.forced.add(k);
+  }
+  applyLayerPrefs();
   applyFocus({ fit: true });
+}
+
+/** ¿Está encendida en tus preferencias la casilla «mode:x» o «group:x»? */
+function onInPrefs(key) {
+  const [type, name] = key.split(':');
+  return type === 'mode' ? P.modeOn(prefs, name) : name === 'obras' ? prefs.obras : P.groupOn(prefs, name);
+}
+
+// Trenes e incidencias que muestra lo marcado (una alerta trae los suyos).
+function focusIds(items, alertsById) {
+  const vehicleIds = new Set();
+  const eventIds = new Set();
+  for (const { kind, id } of items) {
+    if (kind === 'vehicle') vehicleIds.add(id);
+    else if (kind === 'event') eventIds.add(id);
+    else {
+      const a = alertsById.get(id);
+      if (!a) continue;
+      [a.vehicleId, ...(a.vehicleIds ?? [])].filter(Boolean).forEach((v) => vehicleIds.add(v));
+      (a.eventIds ?? []).forEach((e) => eventIds.add(e));
+    }
+  }
+  return { vehicleIds, eventIds };
+}
+
+// Casillas de Capas que hacen falta para verlos.
+function layersFor({ vehicleIds, eventIds }) {
+  const keys = new Set();
+  for (const id of vehicleIds) {
+    const v = findVehicle(id);
+    if (v && P.MODE_ITEMS.includes(v.mode)) keys.add(`mode:${v.mode}`);
+  }
+  for (const id of eventIds) {
+    const group = findEvent(id) && P.groupForEvent(findEvent(id));
+    if (group) keys.add(`group:${group}`);
+  }
+  return keys;
 }
 
 function clearFocus() {
@@ -241,32 +304,36 @@ function clearFocus() {
 function applyFocus({ fit = false } = {}) {
   const alertsById = new Map(state.alerts.map((a) => [a.id, a]));
   const exists = { alert: (id) => alertsById.has(id), event: (id) => !!findEvent(id), vehicle: (id) => !!findVehicle(id) };
-  for (const [key, { kind, id }] of state.selected) if (!exists[kind](id)) state.selected.delete(key); // ya no existe
+  let gone = false;
+  for (const [key, { kind, id }] of state.selected) {
+    if (!exists[kind](id)) { state.selected.delete(key); gone = true; } // ya no existe
+  }
   const items = [...state.selected.values()];
+  // Si algo marcado ha desaparecido, las capas que sólo encendía él vuelven a como estaban.
+  if (gone && items.length) {
+    const needed = layersFor(focusIds(items, alertsById));
+    const before = state.forced.size;
+    for (const k of state.forced) if (!needed.has(k)) state.forced.delete(k);
+    if (state.forced.size !== before) applyLayerPrefs();
+  }
 
   // El aviso va antes del encuadre: en el móvil está abajo y el encuadre le deja hueco.
   const counts = {};
-  for (const { kind } of items) counts[kind] = (counts[kind] ?? 0) + 1;
+  for (const { kind, id } of items) {
+    const k = kind === 'vehicle' && findVehicle(id)?.mode === 'bus' ? 'bus' : kind;
+    counts[k] = (counts[k] ?? 0) + 1;
+  }
   const summary = Object.entries(counts).map(([k, n]) => `${n} ${KIND_LABEL[k][n === 1 ? 0 : 1]}`).join(', ');
   const banner = document.getElementById('focus-banner');
   banner.hidden = !items.length;
   banner.querySelector('.txt').textContent = `Mostrando sólo: ${summary}`;
 
   if (!items.length) {
+    state.forced.clear();
     map.setFocus(null);
     applyLayerPrefs();
   } else {
-    const vehicleIds = new Set();
-    const eventIds = new Set();
-    for (const { kind, id } of items) {
-      if (kind === 'vehicle') vehicleIds.add(id);
-      else if (kind === 'event') eventIds.add(id);
-      else {
-        const a = alertsById.get(id);
-        [a.vehicleId, ...(a.vehicleIds ?? [])].filter(Boolean).forEach((v) => vehicleIds.add(v));
-        (a.eventIds ?? []).forEach((e) => eventIds.add(e));
-      }
-    }
+    const { vehicleIds, eventIds } = focusIds(items, alertsById);
     map.setFocus({ vehicleIds: [...vehicleIds], eventIds: [...eventIds] });
     if (fit) fitSelection(items, alertsById, vehicleIds, eventIds);
   }
@@ -388,9 +455,8 @@ filtersEl.addEventListener('click', (ev) => {
   const cat = chip.dataset.cat;
   if (cat === 'obras') {
     prefs.obras = !prefs.obras;
-    map.setObras(prefs.obras);
-    const box = document.querySelector('[data-group="obras"]');
-    if (box) box.checked = prefs.obras;
+    state.forced.delete('group:obras');
+    applyLayerPrefs();
   } else {
     prefs.eventCats = prefs.eventCats.includes(cat) ? prefs.eventCats.filter((c) => c !== cat) : [...prefs.eventCats, cat];
   }
@@ -401,26 +467,37 @@ filtersEl.addEventListener('click', (ev) => {
 
 const layersBody = document.getElementById('layers-body');
 P.renderLayers(layersBody, prefs, {});
-layersBody.addEventListener('change', (ev) => {
-  const input = ev.target;
-  if (state.selected.size) {
-    state.selected.clear();
-    map.setFocus(null);
-    document.getElementById('focus-banner').hidden = true;
-    render('alerts', 'events', 'vehicles');
-  }
-  if (input.dataset.mode) prefs.modes[input.dataset.mode] = input.checked;
-  if (input.dataset.mode === 'bus') stream.setBuses(input.checked);
-  if (input.dataset.group === 'obras') {
-    prefs.obras = input.checked;
-    P.renderEventFilters(filtersEl, prefs);
-    render('events');
-  } else if (input.dataset.group) {
-    prefs.groups[input.dataset.group] = input.checked;
+// Lo marcado en Alertas, Incidencias o Trenes se mantiene: la casilla decide si se ve su capa,
+// y pasa a ser una preferencia del usuario (ya no se apaga al quitar la selección).
+function layersChanged(inputs) {
+  for (const input of inputs) {
+    state.forced.delete(layerKey(input));
+    if (input.dataset.mode) prefs.modes[input.dataset.mode] = input.checked;
+    if (input.dataset.mode === 'bus') stream.setBuses(input.checked);
+    if (input.dataset.group === 'obras') {
+      prefs.obras = input.checked;
+      P.renderEventFilters(filtersEl, prefs);
+      render('events');
+    } else if (input.dataset.group) {
+      prefs.groups[input.dataset.group] = input.checked;
+    }
   }
   savePrefs();
   applyLayerPrefs();
-  if (input.dataset.mode && state.tab === 'vehicles') renderVehiclesPanel();
+  if (inputs.some((i) => i.dataset.mode) && state.tab === 'vehicles') renderVehiclesPanel();
+}
+layersBody.addEventListener('change', (ev) => layersChanged([ev.target]));
+// "Todas · Ninguna" de cada sección: cambia las casillas que no estaban ya así y también las que
+// sólo estaban encendidas por lo seleccionado, para que queden guardadas como preferencia.
+const layerKey = (input) => (input.dataset.mode ? `mode:${input.dataset.mode}` : `group:${input.dataset.group}`);
+layersBody.addEventListener('click', (ev) => {
+  const btn = ev.target.closest('[data-bulk]');
+  if (!btn) return;
+  const on = btn.dataset.on === '1';
+  const inputs = [...layersBody.querySelectorAll(`input[data-${btn.dataset.bulk}]`)]
+    .filter((i) => i.checked !== on || state.forced.has(layerKey(i)));
+  for (const input of inputs) input.checked = on;
+  if (inputs.length) layersChanged(inputs);
 });
 
 const layersToggle = document.getElementById('layers-toggle');

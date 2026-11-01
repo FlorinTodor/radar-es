@@ -6,6 +6,9 @@ import { assertPort, PORT_MEMBERS } from './application/ports.js';
 import { makeIngestSource } from './application/use-cases/ingest-source.js';
 import { makeDetectAlerts } from './application/use-cases/detect-alerts.js';
 import { makeQuerySituation } from './application/use-cases/query-situation.js';
+import { makeServeTiles } from './application/use-cases/serve-tiles.js';
+import { makeWatchSituation } from './application/use-cases/watch-situation.js';
+import { makeRefreshCatalogs } from './application/use-cases/refresh-catalogs.js';
 import { createHttpClient } from './adapters/outbound/http/http-client.js';
 import { createFileCache } from './adapters/outbound/http/file-cache.js';
 import { createConsoleLogger } from './adapters/outbound/logging/console-logger.js';
@@ -19,6 +22,7 @@ import { createSources } from './adapters/outbound/sources/index.js';
 import { startPolling } from './adapters/inbound/scheduler/polling-scheduler.js';
 import { createHttpServer } from './adapters/inbound/http/http-server.js';
 import { createWmsTiles } from './adapters/outbound/tiles/wms-tiles.js';
+import { createCpuPool, parseThreads } from './adapters/outbound/workers/cpu-pool.js';
 
 const config = loadConfig();
 const log = createConsoleLogger();
@@ -26,17 +30,20 @@ const clock = { now: () => Date.now() };
 const http = createHttpClient({ userAgent: config.userAgent });
 
 // --- Adaptadores de salida -------------------------------------------------
+// Hilos para el trabajo de CPU (horarios GTFS, trazados, XML de la DGT): desactivados salvo que
+// WORKER_THREADS diga cuántos (ver parseThreads: falta medir su pico de memoria en el peor caso).
+const pool = createCpuPool({ threads: parseThreads(config.env.WORKER_THREADS), log });
 const cacheDir = new URL('cache/', config.dataDir);
 const cache = createFileCache({ http, dir: cacheDir, log });
 const nap = createNapClient({ cache, apiKey: config.env.NAP_API_KEY });
 const stations = assertPort('StationCatalog', createRenfeStationCatalog({ cache, cacheDir, log }), PORT_MEMBERS.StationCatalog);
-const network = assertPort('NetworkCatalog', createGtfsNetworkCatalog({ nap, cache, cacheDir, log }), PORT_MEMBERS.NetworkCatalog);
+const network = assertPort('NetworkCatalog', createGtfsNetworkCatalog({ nap, cache, cacheDir, log, pool }), PORT_MEMBERS.NetworkCatalog);
 const situation = assertPort('SituationRepository', createInMemorySituation(), PORT_MEMBERS.SituationRepository);
 const history = assertPort('History', createJsonlHistory({ dir: new URL('history/', config.dataDir), log }), PORT_MEMBERS.History);
 const bus = assertPort('EventPublisher', createInProcessEventBus(), PORT_MEMBERS.EventPublisher);
 const tiles = assertPort('TileProvider', createWmsTiles({ http, dir: fileURLToPath(new URL('tiles/', config.dataDir)), log }), PORT_MEMBERS.TileProvider);
 
-const sources = createSources({ http, cache, stations, nap, log, env: config.env })
+const sources = createSources({ http, cache, stations, nap, log, env: config.env, pool })
   .map((s) => assertPort(`DataSource(${s.id})`, s, PORT_MEMBERS.DataSource));
 
 const enabledSources = [];
@@ -48,40 +55,38 @@ for (const s of sources) {
 }
 
 // --- Casos de uso ----------------------------------------------------------
-const ingestSource = makeIngestSource({ situation, publisher: bus, clock, log });
+const ingestSource = makeIngestSource({ sources: enabledSources, situation, publisher: bus, clock, log });
 const detectAlerts = makeDetectAlerts({ situation, stations, history, publisher: bus, clock });
-const query = makeQuerySituation({ situation, stations, network, sources });
+const query = makeQuerySituation({ situation, stations, network, clock, sources });
+const serveTiles = makeServeTiles({ tiles });
+const watchSituation = makeWatchSituation({ events: bus, query });
+const refreshCatalogs = makeRefreshCatalogs({ stations, network, log });
 
 // --- Adaptadores de entrada ------------------------------------------------
-await stations.load();
-// Los trazados tardan en construirse la primera vez (~40 MB de GTFS): no bloquean el arranque.
-const loadNetwork = () => network.load().catch((err) => log.warn(`[líneas] ${err.message}`));
-loadNetwork();
-const refreshStations = setInterval(() => {
-  stations.load();
-  loadNetwork();
-}, 6 * 3600_000);
+await refreshCatalogs(); // espera a las estaciones; los trazados siguen cargándose detrás
 
-const scheduler = startPolling({ sources: enabledSources, ingestSource, detectAlerts, log });
+const feeds = enabledSources.map(({ id, interval }) => ({ id, interval }));
+const scheduler = startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, log });
 
 const server = createHttpServer({
   query,
-  bus,
+  watchSituation,
   log,
   about: config.about,
-  tiles,
+  serveTiles,
   publicDir: fileURLToPath(new URL('../public/', import.meta.url)).replace(/\/$/, ''),
   vendorDirs: { '/vendor/maplibre/': fileURLToPath(new URL('../node_modules/maplibre-gl/dist/', import.meta.url)).replace(/\/$/, '') },
 });
 
 server.listen(config.port, config.host, () => {
-  log.info(`Radar ES escuchando en http://${config.host}:${config.port} · ${enabledSources.length}/${sources.length} fuentes activas`);
+  log.info(`Radar España escuchando en http://${config.host}:${config.port} · ${enabledSources.length}/${sources.length} fuentes activas`
+    + ` · ${pool.threads() || 'sin'} hilo(s) de cálculo`);
 });
 
 function shutdown() {
   log.info('Cerrando…');
   scheduler.stop();
-  clearInterval(refreshStations);
+  pool.close();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 3000).unref();
 }

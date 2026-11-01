@@ -9,7 +9,7 @@ Las condiciones de servicio de GitHub permiten a sus usuarios ver este repositor
 (fork) dentro de GitHub; eso no da derecho a ningún otro uso del código.
 
 Los datos que muestra Radar ES no forman parte de este código: pertenecen a sus fuentes y se rigen
-por sus propias licencias (ver /legal.html). Las bibliotecas de terceros que se instalan como
+por sus propias licencias (ver /legal). Las bibliotecas de terceros que se instalan como
 dependencias conservan sus licencias.
 
 ---

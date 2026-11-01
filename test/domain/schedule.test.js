@@ -14,6 +14,16 @@ test('horas GTFS de más de 24 h', () => {
   assert.equal(gtfsTimeToSeconds('basura'), null);
 });
 
+test('horas GTFS: el camino rápido da lo mismo que la expresión regular', () => {
+  const re = (s) => {
+    const m = /^\s*(\d+):(\d{2}):(\d{2})\s*$/.exec(s ?? '');
+    return m ? +m[1] * 3600 + +m[2] * 60 + +m[3] : null;
+  };
+  const cases = ['00:00:00', '8:05:09', '08:05:09', '123:59:59', ' 08:00:00 ', '\t7:00:00', '24:00:00 ', '', ':00:00', '8:5:09',
+    '8:05:9', '08-05-09', '08:05:09:00', 'a8:05:09', '08:05:0a', '08:0x:00', '1234567', '١٢:٠٠:٠٠', undefined, null, 0];
+  for (const c of cases) assert.equal(gtfsTimeToSeconds(c), re(c), JSON.stringify(c));
+});
+
 test('posición interpolada entre dos estaciones', () => {
   const p = scheduledPosition(stops, 38700); // a mitad de camino Madrid → Zaragoza
   assert.equal(p.atStop, false);

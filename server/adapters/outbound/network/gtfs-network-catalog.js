@@ -2,7 +2,7 @@
 // Si el GTFS trae shapes.txt se usan; si no, la línea une sus estaciones en orden.
 // El resultado se cachea en disco un día: la licencia del NAP exige mostrar datos actualizados.
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
+import { createPacer, csvColumns, csvRows, openGtfs, own } from '../gtfs/gtfs-reader.js';
 import { modeOf } from '../gtfs/gtfs-modes.js';
 
 const MAX_AGE_MS = 24 * 3600_000;
@@ -53,8 +53,11 @@ function simplify(points, tol) {
 
 const round = ([lon, lat]) => [Math.round(lon * 1e5) / 1e5, Math.round(lat * 1e5) / 1e5];
 
-function buildNetwork(zip, network) {
-  const files = openGtfs(zip, ['routes.txt', 'trips.txt', 'shapes.txt', 'stops.txt', 'stop_times.txt']);
+/** Trazados de una red a partir de su GTFS. Trabajo de CPU puro: se puede hacer en un hilo de cálculo. */
+export async function buildNetwork(zip, network) {
+  const pace = createPacer();
+  // stop_times.txt sólo hace falta si no hay trazados, y es enorme (290 MB en Cercanías): primero lo demás.
+  const files = await openGtfs(zip, ['routes.txt', 'trips.txt', 'shapes.txt']);
 
   const routes = new Map();
   for (const r of csvRows(files['routes.txt'])) {
@@ -66,18 +69,23 @@ function buildNetwork(zip, network) {
 
   const trips = new Map(); // trip_id → { route, shape, key }
   for (const t of csvRows(files['trips.txt'])) {
+    if (pace.due()) await pace.pause(); // 140.000 viajes en Cercanías: ~1 s sin ceder el hilo
     if (routes.has(t.route_id)) trips.set(t.trip_id, { route: t.route_id, shape: t.shape_id || null, key: `${t.route_id}|${t.direction_id || 0}` });
   }
 
   const paths = []; // { route, coords }
   const wantedShapes = new Set([...trips.values()].map((t) => t.shape).filter(Boolean));
 
-  if (files['shapes.txt'] && wantedShapes.size) {
+  const fromShapes = Boolean(files['shapes.txt'] && wantedShapes.size);
+  if (!fromShapes) Object.assign(files, await openGtfs(zip, ['stops.txt', 'stop_times.txt']));
+
+  if (fromShapes) {
     const shapes = new Map();
-    for (const s of csvRows(files['shapes.txt'])) {
-      if (!wantedShapes.has(s.shape_id)) continue;
-      if (!shapes.has(s.shape_id)) shapes.set(s.shape_id, []);
-      shapes.get(s.shape_id).push([+s.shape_pt_sequence, +s.shape_pt_lon, +s.shape_pt_lat]);
+    for (const [shapeId, seq, lon, lat] of csvColumns(files['shapes.txt'], ['shape_id', 'shape_pt_sequence', 'shape_pt_lon', 'shape_pt_lat'])) {
+      if (pace.due()) await pace.pause();
+      if (!wantedShapes.has(shapeId)) continue;
+      if (!shapes.has(shapeId)) shapes.set(own(shapeId), []);
+      shapes.get(shapeId).push([+seq, +lon, +lat]);
     }
     const shapeRoute = new Map([...trips.values()].filter((t) => t.shape).map((t) => [t.shape, t.route]));
     for (const [id, pts] of shapes) {
@@ -87,7 +95,12 @@ function buildNetwork(zip, network) {
   } else if (files['stop_times.txt']) {
     // Sin trazados: por cada ruta y sentido, el viaje con más paradas, uniendo estaciones.
     const counts = new Map();
-    for (const st of csvRows(files['stop_times.txt'])) if (trips.has(st.trip_id)) counts.set(st.trip_id, (counts.get(st.trip_id) ?? 0) + 1);
+    for (const [tripId] of csvColumns(files['stop_times.txt'], ['trip_id'])) {
+      if (pace.due()) await pace.pause();
+      if (!trips.has(tripId)) continue;
+      const n = counts.get(tripId);
+      counts.set(n === undefined ? own(tripId) : tripId, (n ?? 0) + 1); // la clave guardada, copia propia
+    }
     const best = new Map();
     for (const [tripId, n] of counts) {
       const { key } = trips.get(tripId);
@@ -97,10 +110,11 @@ function buildNetwork(zip, network) {
     const stops = new Map();
     for (const s of csvRows(files['stops.txt'])) stops.set(s.stop_id, [+s.stop_lon, +s.stop_lat]);
     const seqs = new Map();
-    for (const st of csvRows(files['stop_times.txt'])) {
-      if (!chosen.has(st.trip_id)) continue;
-      if (!seqs.has(st.trip_id)) seqs.set(st.trip_id, []);
-      seqs.get(st.trip_id).push([+st.stop_sequence, st.stop_id]);
+    for (const [tripId, seq, stopId] of csvColumns(files['stop_times.txt'], ['trip_id', 'stop_sequence', 'stop_id'])) {
+      if (pace.due()) await pace.pause();
+      if (!chosen.has(tripId)) continue;
+      if (!seqs.has(tripId)) seqs.set(own(tripId), []);
+      seqs.get(tripId).push([+seq, own(stopId)]);
     }
     for (const [tripId, seq] of seqs) {
       seq.sort((a, b) => a[0] - b[0]);
@@ -148,10 +162,11 @@ function buildTenerife(bytes) {
 /**
  * @param {{ nap: ReturnType<typeof import('../nap/nap-client.js').createNapClient>,
  *           cache: ReturnType<typeof import('../http/file-cache.js').createFileCache>, cacheDir: URL,
- *           log: import('../../../application/ports.js').LoggerPort }} deps
+ *           log: import('../../../application/ports.js').LoggerPort, pool?: import('../workers/cpu-pool.js').CpuPool }} deps
+ *   pool: hilos de cálculo para leer los GTFS; sin él, en el hilo principal.
  * @returns {import('../../../application/ports.js').NetworkCatalogPort}
  */
-export function createGtfsNetworkCatalog({ nap, cache, cacheDir, log }) {
+export function createGtfsNetworkCatalog({ nap, cache, cacheDir, log, pool }) {
   // Nombre nuevo para no reutilizar la caché que aún incluía Metro de Madrid y el GTFS caducado de Tenerife.
   const cacheFile = new URL('trazados-red.json', cacheDir);
   let collection = { type: 'FeatureCollection', features: [] };
@@ -172,7 +187,8 @@ export function createGtfsNetworkCatalog({ nap, cache, cacheDir, log }) {
       const features = [];
       for (const [ficheroId, name] of NETWORKS) {
         try {
-          const built = buildNetwork(await nap.gtfs(ficheroId, MAX_AGE_MS), name);
+          const zip = await nap.gtfs(ficheroId, MAX_AGE_MS);
+          const built = pool ? await pool.run('network', [zip, name]) : await buildNetwork(zip, name);
           features.push(...built);
         } catch (err) {
           log.warn(`[líneas] ${name}: ${err.message}`);

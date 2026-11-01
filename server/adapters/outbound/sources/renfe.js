@@ -3,7 +3,7 @@
 // Operadora"): el GTFS-RT de gtfsrt.renfe.com y sus GTFS de horarios para saber el producto,
 // el origen y el destino de cada tren. Los endpoints internos de sus visores web no se usan:
 // no tienen licencia de reutilización.
-import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
+import { createPacer, csvColumns, csvRows, openGtfs, own } from '../gtfs/gtfs-reader.js';
 import { RENFE_FILES } from '../stations/renfe-station-catalog.js';
 import { num } from './parse.js';
 
@@ -29,23 +29,33 @@ function createTimetables({ cache, stations, log }) {
   let ld = new Map();   // trip_id → { service, mode, origin, destination }
   let cerc = new Map(); // trip_id → { line, origin, destination }
   const loadedAt = { ld: 0, cerc: 0 };
+  // Las dos fuentes de Renfe piden los horarios a la vez al arrancar: mientras una carga está en
+  // marcha, las demás llamadas esperan a esa misma en vez de leer otra vez el GTFS en paralelo.
+  const loading = {};
+  const once = (name, load) => (loading[name] ??= load().finally(() => { loading[name] = null; }));
 
-  async function loadLd() {
+  const loadLd = () => once('ld', loadLdNow);
+  const loadCercanias = () => once('cerc', loadCercaniasNow);
+
+  async function loadLdNow() {
     if (ld.size && Date.now() - loadedAt.ld < TIMETABLE_TTL_MS) return;
     loadedAt.ld = Date.now(); // aunque falle, no reintentar en cada lectura
     try {
-      const f = openGtfs(await cache.bytes(RENFE_FILES.largaDistancia, 'renfe-google_transit.zip', TIMETABLE_TTL_MS), ['routes.txt', 'trips.txt', 'stop_times.txt']);
+      const f = await openGtfs(await cache.bytes(RENFE_FILES.largaDistancia, 'renfe-google_transit.zip', TIMETABLE_TTL_MS), ['routes.txt', 'trips.txt', 'stop_times.txt']);
       const routes = new Map([...csvRows(f['routes.txt'])].map((r) => [r.route_id, r.route_short_name]));
       const ends = new Map(); // trip_id → [primera parada, última parada]
-      for (const st of csvRows(f['stop_times.txt'])) {
-        const seq = +st.stop_sequence;
-        const e = ends.get(st.trip_id) ?? [[Infinity], [-Infinity]];
-        if (seq < e[0][0]) e[0] = [seq, st.stop_id];
-        if (seq > e[1][0]) e[1] = [seq, st.stop_id];
-        ends.set(st.trip_id, e);
+      const pace = createPacer();
+      for (const [tripId, stopId, stopSequence] of csvColumns(f['stop_times.txt'], ['trip_id', 'stop_id', 'stop_sequence'])) {
+        if (pace.due()) await pace.pause();
+        const seq = +stopSequence;
+        let e = ends.get(tripId);
+        if (!e) ends.set(own(tripId), (e = [[Infinity], [-Infinity]]));
+        if (seq < e[0][0]) e[0] = [seq, own(stopId)];
+        if (seq > e[1][0]) e[1] = [seq, own(stopId)];
       }
       const next = new Map();
       for (const t of csvRows(f['trips.txt'])) {
+        if (pace.due()) await pace.pause();
         const [service, mode] = product(routes.get(t.route_id));
         const e = ends.get(t.trip_id);
         next.set(t.trip_id, { service, mode, origin: e ? stations.name(e[0][1]) : null, destination: e ? stations.name(e[1][1]) : null });
@@ -56,12 +66,12 @@ function createTimetables({ cache, stations, log }) {
     }
   }
 
-  async function loadCercanias() {
+  async function loadCercaniasNow() {
     if (cerc.size && Date.now() - loadedAt.cerc < TIMETABLE_TTL_MS) return;
     loadedAt.cerc = Date.now();
     try {
       // 16 MB: sólo se descomprimen rutas y viajes (el stop_times ocupa 290 MB).
-      const f = openGtfs(await cache.bytes(RENFE_FILES.cercanias, 'renfe-fomento_transit.zip', TIMETABLE_TTL_MS), ['routes.txt', 'trips.txt']);
+      const f = await openGtfs(await cache.bytes(RENFE_FILES.cercanias, 'renfe-fomento_transit.zip', TIMETABLE_TTL_MS), ['routes.txt', 'trips.txt']);
       const routes = new Map();
       for (const r of csvRows(f['routes.txt'])) {
         // route_long_name: "Principe Pio                            -Aeropuerto-T4"
@@ -69,9 +79,11 @@ function createTimetables({ cache, stations, log }) {
         routes.set(r.route_id, { line: r.route_short_name || null, origin: origin || null, destination: destination || null });
       }
       const next = new Map();
-      for (const t of csvRows(f['trips.txt'])) {
-        const route = routes.get(t.route_id);
-        if (route) next.set(t.trip_id, route);
+      const pace = createPacer();
+      for (const [tripId, routeId] of csvColumns(f['trips.txt'], ['trip_id', 'route_id'])) { // 140.000 viajes
+        if (pace.due()) await pace.pause();
+        const route = routes.get(routeId);
+        if (route) next.set(own(tripId), route);
       }
       cerc = next;
     } catch (err) {
@@ -138,6 +150,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
     kind: 'vehicles',
     interval: 20_000,
     url: `${GTFSRT}/vehicle_positions.json`,
+    page: 'https://data.renfe.com/dataset/ubicacion-vehiculos',
     license: ATTRIBUTION,
     async fetch() {
       await timetables.loadCercanias();
@@ -176,6 +189,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
     kind: 'vehicles',
     interval: 20_000,
     url: `${GTFSRT}/vehicle_positions_LD.json`,
+    page: 'https://data.renfe.com/dataset/posicion-vehiculos-av-ld-md',
     license: ATTRIBUTION,
     async fetch() {
       await timetables.loadLd();
@@ -239,6 +253,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
     kind: 'events',
     interval: 120_000,
     url: `${GTFSRT}/alerts.json`,
+    page: 'https://data.renfe.com/dataset/incidencias-avisos',
     license: ATTRIBUTION,
     async fetch() {
       await timetables.loadCercanias();

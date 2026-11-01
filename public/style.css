@@ -31,7 +31,7 @@ button { font: inherit; color: inherit; }
   display: flex; align-items: center; gap: 20px; min-height: var(--topbar);
   padding: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--border);
 }
-.brand { display: flex; align-items: center; gap: 8px; font-weight: 650; font-size: 16px; color: var(--ink); white-space: nowrap; }
+.brand { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 650; font-size: 16px; color: var(--ink); white-space: nowrap; }
 .brand svg { color: var(--accent); }
 
 .live { display: flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: 12px; white-space: nowrap; }
@@ -72,6 +72,10 @@ button { font: inherit; color: inherit; }
 .panel[hidden] { display: none; }
 
 .disclaimer { padding: 10px 12px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); line-height: 1.4; }
+.disclaimer .site-links { margin-top: 4px; }
+.disclaimer .site-links a { color: var(--ink-2); }
+.noscript { position: absolute; inset: 0; margin: 0; padding: 24px; color: var(--ink-2); line-height: 1.5; }
+.noscript a { color: var(--accent); }
 
 /* ---------- Listas ---------- */
 .section-title { margin: 14px 2px 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
@@ -166,8 +170,14 @@ button { font: inherit; color: inherit; }
 .layers-body { padding: 0 12px 10px; }
 .layers-body[hidden] { display: none; }
 .layers h4 { margin: 8px 0 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.layers-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.layers .bulk { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.layers .bulk .link { color: var(--muted); }
+.layers .bulk .link:hover, .layers .bulk .link:focus-visible { color: var(--ink); }
 .layers label { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; color: var(--ink-2); }
 .layers label .count { margin-left: auto; color: var(--muted); font-size: 11.5px; }
+.layers label.temporal { font-style: italic; }
+.layers label.temporal input { outline: 1px dashed var(--accent); outline-offset: 2px; }
 .legend { display: grid; grid-template-columns: 18px 1fr; gap: 4px 8px; align-items: center; color: var(--ink-2); font-size: 12px; }
 .legend i { width: 10px; height: 10px; border-radius: 50%; justify-self: center; }
 .legend svg { justify-self: center; }
@@ -231,12 +241,21 @@ body.doc { overflow: auto; display: block; }
 .doc-body a { color: var(--accent); }
 .doc-body .muted { color: var(--muted); font-size: 13px; }
 .doc-body .toc { font-size: 13px; }
+.doc-body h3 { color: var(--ink); font-size: 15px; margin: 20px 0 4px; }
+.doc-body li { margin: 4px 0; }
+.doc-body .crumbs { font-size: 13px; color: var(--muted); }
+.doc-body .lead { font-size: 16px; color: var(--ink); }
+.doc-body .cta { margin: 28px 0 8px; }
+.doc-body a.btn { display: inline-block; color: #0d0d0d; text-decoration: none; }
+.doc-foot { max-width: 980px; margin: 0 auto; padding: 16px 16px 40px; border-top: 1px solid var(--border); font-size: 13px; line-height: 1.8; color: var(--muted); }
+.doc-foot a { color: var(--ink-2); }
+.doc-foot .credit { margin: 6px 0 0; }
 .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
 .doc-body table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .doc-body th, .doc-body td { padding: 8px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
 .doc-body th { color: var(--ink); background: var(--surface); font-weight: 600; }
 .doc-body tr:last-child td { border-bottom: 0; }
-/* En el móvil las tablas pasan a fichas apiladas (legal.html pone data-label en cada celda). */
+/* En el móvil las tablas pasan a fichas apiladas (la página legal pone data-label en cada celda). */
 @media (max-width: 640px) {
   .doc-body thead { display: none; }
   .doc-body tr { display: block; padding: 10px 12px; border-bottom: 1px solid var(--border); }
