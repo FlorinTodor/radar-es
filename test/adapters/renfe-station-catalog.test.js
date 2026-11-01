@@ -2,7 +2,7 @@
 // ancho métrico; los GTFS, los nombres bien escritos y si la estación es accesible.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -56,4 +56,27 @@ test('se quitan las estaciones repetidas sin horarios, pero no las distintas que
   ];
   const scheduled = new Set(['18000', '15211', '13200']);
   assert.deepEqual(withoutDuplicates(list, scheduled).map((s) => s.code), ['18000', '15211', '13200', '05451']);
+});
+
+test('una caché de hoy hecha con una versión anterior se recalcula; la de la versión actual, no', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'estaciones-'));
+  try {
+    const file = join(dir, 'renfe-stations-v3.json');
+    await writeFile(file, JSON.stringify({ savedAt: Date.now(), stations: [{ code: '15211', name: 'De la caché vieja' }] }));
+    let downloads = 0;
+    const files = { [RENFE_FILES.stations]: CSV, [RENFE_FILES.cercanias]: gtfs(['15211,Oviedo,43.3663577,-5.8548380,1']), [RENFE_FILES.largaDistancia]: gtfs([]) };
+    const make = () => createRenfeStationCatalog({
+      cache: { bytes: async (url) => { if (url === RENFE_FILES.stations) downloads++; return files[url]; } },
+      cacheDir: pathToFileURL(`${dir}/`),
+      log: { info() {}, warn() {} },
+    });
+    const first = make();
+    await first.load();
+    assert.equal(first.get('15211').name, 'Oviedo', 'recalculada');
+    assert.equal(JSON.parse(await readFile(file, 'utf8')).version, 4);
+    await make().load();
+    assert.equal(downloads, 1, 'la caché de la versión actual se reutiliza');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

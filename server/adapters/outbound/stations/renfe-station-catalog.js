@@ -73,6 +73,9 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
   // v3: con dirección, provincia, ancho métrico, accesibilidad y los datos de Wikidata y Commons
   // (las cachés anteriores no los tienen).
   const cacheFile = new URL('renfe-stations-v3.json', cacheDir);
+  // Versión de lo que se calcula: si cambia (4: fotos de Commons también para las estaciones que
+  // Wikidata no tiene), se recalcula aunque la caché sea de hoy; mientras, se enseña la anterior.
+  const CATALOG_VERSION = 4;
   /** @type {Map<string, import('../../../domain/model.js').Station & { cercanias: boolean }>} */
   const stations = new Map();
 
@@ -129,7 +132,7 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
         cached = JSON.parse(await readFile(cacheFile, 'utf8'));
         for (const s of cached.stations) stations.set(s.code, s);
       } catch { /* todavía no hay caché */ }
-      if (cached && Date.now() - cached.savedAt < REFRESH_MS) return stations.size;
+      if (cached?.version === CATALOG_VERSION && Date.now() - cached.savedAt < REFRESH_MS) return stations.size;
 
       try {
         const list = await download();
@@ -137,7 +140,7 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
         stations.clear();
         for (const s of list) stations.set(s.code, s);
         await mkdir(cacheDir, { recursive: true });
-        await writeFile(cacheFile, JSON.stringify({ savedAt: Date.now(), stations: list }));
+        await writeFile(cacheFile, JSON.stringify({ version: CATALOG_VERSION, savedAt: Date.now(), stations: list }));
         log.info(`[estaciones] ${stations.size} estaciones de Renfe (lista oficial + paradas GTFS)`);
       } catch (err) {
         log.warn(`[estaciones] no se pudo descargar el catálogo (${err.message}); ${stations.size} en caché`);
