@@ -36,19 +36,20 @@ no se carga ningún contador y la página de privacidad lo indica.
 | Rama | Para qué |
 |---|---|
 | `produccion` | Lo que ejecuta el VPS. Solo recibe fusiones desde `dev`. |
-| `dev` | Integración: aquí se fusionan las mejoras y se prueban juntas. |
+| `dev` | Integración: aquí se fusionan las mejoras, y el VPS las prueba juntas en un entorno de pruebas. |
 | `feature/<nombre>` | Una rama por mejora, creada desde `dev`. |
 
 ```bash
 git switch dev && git pull
 git switch -c feature/mi-mejora     # trabajar y hacer commits
 git switch dev && git merge --no-ff feature/mi-mejora && git push
-# cuando dev esté probado:
+# cuando el entorno de pruebas lo haya verificado y revisado:
 git switch produccion && git merge --no-ff dev && git push
 ```
 
-En producción corre con Docker en un VPS detrás de un túnel de Cloudflare, y se actualiza solo
-desde la rama `produccion`: ver [`docs/despliegue.md`](docs/despliegue.md).
+En producción corre con Docker en un VPS detrás de un túnel de Cloudflare. Cada cambio en `dev`
+pasa antes por un entorno de pruebas en el mismo VPS, y producción sólo despliega lo que ya ha
+superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`](docs/despliegue.md).
 
 ## Arquitectura hexagonal
 

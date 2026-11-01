@@ -1,7 +1,9 @@
 services:
   radar:
     build: .
-    image: radar-es
+    # El entorno de pruebas (/opt/radar-pruebas) pone en su .env otra imagen y otro puerto, para no
+    # pisar los de producción. Ver deploy/preparar-pruebas.sh.
+    image: ${RADAR_IMAGEN:-radar-es}
     restart: unless-stopped
     env_file:
       - path: .env
@@ -11,7 +13,7 @@ services:
       PORT: 8080
     # Solo en local: desde fuera se entra por el túnel de Cloudflare, no por este puerto.
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${RADAR_PUERTO:-8080}:8080"
     volumes:
       - ./data:/app/data
     # Endurecido: sistema de ficheros de sólo lectura (sólo se escribe en data/ y en /tmp en memoria),
