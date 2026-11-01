@@ -17,8 +17,9 @@ const events = {
     return () => { listeners--; off(); };
   },
 };
+const counts = { snapshot: 0 };
 const query = {
-  snapshot: ({ buses }) => ({ generatedAt: 1, buses }),
+  snapshot: ({ buses }) => { counts.snapshot++; return { generatedAt: 1, buses }; },
   sourcePayload: (id, { buses }) => ({ id, buses }),
   resolvedAlerts: () => [],
   health: () => [],
@@ -105,4 +106,18 @@ test('sin ?buses=1 la fuente llega sin autobuses, y al cerrar se deja de escucha
     stream.close();
   }
   assert.ok(await until(() => listeners === 0), 'al cerrar se deja de escuchar');
+});
+
+test('varias conexiones seguidas comparten la foto inicial: no se serializa una por conexión', async () => {
+  const before = counts.snapshot;
+  const streams = await Promise.all([1, 2, 3, 4].map(() => openStream('/api/stream?buses=1')));
+  try {
+    for (const s of streams) assert.deepEqual(await s.next(), { event: 'snapshot', data: { generatedAt: 1, buses: true } });
+    assert.ok(counts.snapshot - before <= 1, `foto calculada ${counts.snapshot - before} veces para 4 conexiones`);
+    bus.publish('source.updated', { id: 'renfe' });
+    for (const s of streams) assert.deepEqual(await s.next(), { event: 'source', data: { id: 'renfe', buses: true } });
+  } finally {
+    streams.forEach((s) => s.close());
+  }
+  assert.ok(await until(() => listeners === 0), 'al cerrar todas se deja de escuchar');
 });

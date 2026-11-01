@@ -65,7 +65,10 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
   const budgets = new Map(Object.keys(routes).filter((path) => routes[path].key).map((path) => [path, createBudget()]));
 
   const security = Object.entries(securityHeaders(about));
-  const streams = createConnectionLimiter();
+  // El directo SSE sólo lo usan ya las pestañas abiertas antes del cambio a consultas periódicas:
+  // con 300 hay de sobra, y cada conexión abierta es trabajo en cada actualización.
+  const streams = createConnectionLimiter({ maxTotal: 300 });
+  const frames = new WeakMap(); // datos → mensaje SSE ya serializado (todos reciben el mismo objeto)
   // Dominio canónico (PUBLIC_URL): www.<dominio> redirige a él para que los buscadores no vean dos
   // webs iguales. Sólo esa variante: localhost, la IP y el chequeo de salud siguen igual.
   const canonical = about.publicUrl ? new URL(about.publicUrl) : null;
@@ -182,14 +185,25 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
     });
-    const emit = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-    emit('snapshot', query.snapshot({ buses }));
+    const emit = (event, data) => {
+      let frame = frames.get(data);
+      if (!frame) frames.set(data, (frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+      res.write(frame);
+    };
+    // La foto inicial (~700 KB) y el estado de las fuentes salen del memo: abrir muchas conexiones
+    // seguidas no los vuelve a serializar cada vez.
+    const emitJson = (event, { json }) => {
+      res.write(`event: ${event}\ndata: `);
+      res.write(json);
+      res.write('\n\n');
+    };
+    emitJson('snapshot', memo(`stream:snapshot:${buses}`, 5_000, () => query.snapshot({ buses })));
 
     let healthTimer = null;
     const emitHealthSoon = () => {
       healthTimer ??= setTimeout(() => {
         healthTimer = null;
-        emit('health', query.health());
+        emitJson('health', memo('stream:health', 5_000, () => query.health()));
       }, SSE_HEALTH_EVERY_MS);
     };
     const unwatch = watchSituation({ buses }, {
