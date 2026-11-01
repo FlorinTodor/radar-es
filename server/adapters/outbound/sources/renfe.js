@@ -167,7 +167,7 @@ export function routeEnds(longName) {
   return { origin: origin?.trim() || null, destination: destination?.trim() || null };
 }
 
-const STOPS_CACHE = 'renfe-cercanias-paradas.json';
+const STOPS_CACHE = 'renfe-cercanias-paradas.v8';
 
 /**
  * Las paradas de cada viaje, guardadas en disco con la huella del GTFS del que salen: leer el
@@ -176,7 +176,7 @@ const STOPS_CACHE = 'renfe-cercanias-paradas.json';
  */
 async function cachedTripStops(cache, zip, pace) {
   const key = `${zip.byteLength}|${zipLocalDate(zip)}`;
-  const saved = await cache.readJson?.(STOPS_CACHE);
+  const saved = await cache.readValue?.(STOPS_CACHE);
   if (saved?.key === key) {
     const patterns = saved.patterns.map((stops, id) => Object.assign(stops, { id }));
     const byTrip = new Map();
@@ -190,7 +190,7 @@ async function cachedTripStops(cache, zip, pace) {
     patterns[stops.id] ??= [...stops];
     trips.push(tripId, stops.id);
   }
-  await cache.writeJson?.(STOPS_CACHE, { key, patterns, trips });
+  await cache.writeValue?.(STOPS_CACHE, { key, patterns, trips });
   return byTrip;
 }
 

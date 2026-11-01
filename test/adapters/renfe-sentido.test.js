@@ -155,9 +155,9 @@ test('un autobús de Renfe (route_type 3) va con los autobuses, no como tren de 
 test('Cercanías: las paradas de cada viaje se guardan en disco y, con el mismo GTFS, se leen de ahí', async () => {
   const zip = cercaniasZip();
   const store = new Map();
-  const cache = { ...cacheWith({ 'renfe-fomento_transit.zip': zip }), readJson: async (n) => store.get(n) ?? null, writeJson: async (n, v) => store.set(n, JSON.parse(JSON.stringify(v))) };
+  const cache = { ...cacheWith({ 'renfe-fomento_transit.zip': zip }), readValue: async (n) => store.get(n) ?? null, writeValue: async (n, v) => store.set(n, structuredClone(v)) };
   await createTimetables({ cache, stations, log }).loadCercanias();
-  const saved = store.get('renfe-cercanias-paradas.json');
+  const saved = store.get('renfe-cercanias-paradas.v8');
   assert.ok(saved.key.startsWith(`${zip.byteLength}|`));
   // Se cambia lo guardado: si el segundo arranque lo usa (y no relee el stop_times), el viaje acaba en Massanassa.
   saved.patterns[saved.trips[saved.trips.indexOf('SUBE') + 1]] = ['64200', '64103'];

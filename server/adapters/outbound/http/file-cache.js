@@ -1,6 +1,8 @@
 // Descargas cacheadas en disco (GTFS, catálogos…): se reutiliza la copia mientras sea
 // reciente y, si la fuente falla, mejor una copia vieja que nada.
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { deserialize, serialize } from 'node:v8';
 
 /**
  * @param {{ http: import('./http-client.js').HttpClient, dir: URL, log: import('../../../application/ports.js').LoggerPort }} deps
@@ -35,20 +37,28 @@ export function createFileCache({ http, dir, log }) {
       }
     },
 
-    /** Un resultado calculado guardado junto a las descargas (JSON), o null si no está o no se lee. */
-    async readJson(name) {
+    /**
+     * Un resultado calculado guardado junto a las descargas, o null si no está o no se lee. Se guarda
+     * con el formato de Node (v8): admite Map, Set y arrays tipados, y se lee mucho más rápido que JSON.
+     */
+    async readValue(name) {
       try {
-        return JSON.parse(await readFile(new URL(name, dir), 'utf8'));
+        return deserialize(await readFile(new URL(name, dir)));
       } catch {
         return null;
       }
     },
 
-    async writeJson(name, value) {
+    /** Se escribe aparte y se cambia de nombre: durante un relevo hay dos servidores con la misma
+     * carpeta, y ninguno debe leer un fichero a medio escribir por el otro. */
+    async writeValue(name, value) {
+      const tmp = new URL(`${name}.${randomUUID()}.tmp`, dir);
       try {
         await mkdir(dir, { recursive: true });
-        await writeFile(new URL(name, dir), JSON.stringify(value));
+        await writeFile(tmp, serialize(value));
+        await rename(tmp, new URL(name, dir));
       } catch (err) {
+        await rm(tmp, { force: true }).catch(() => {});
         log.warn(`[caché] ${name}: no se pudo guardar (${err.message})`);
       }
     },
