@@ -40,7 +40,7 @@ for (const file of pages) {
     const title = html.match(/<title>([^<]+)<\/title>/)?.[1];
     const description = html.match(/<meta name="description" content="([^"]+)">/)?.[1];
     assert.ok(title && title.length <= 65, `título de hasta 65 caracteres (${title?.length})`);
-    assert.ok(description && description.length >= 70 && description.length <= 200, `descripción de 70 a 200 caracteres (${description?.length})`);
+    assert.ok(description && description.length >= 70 && description.length <= 160, `descripción de 70 a 160 caracteres (Google corta las más largas) (${description?.length})`);
     assert.ok(html.includes(`<html lang="${file.startsWith('en') ? 'en' : 'es'}">`), 'idioma de la página');
     assert.ok(html.includes(`<link rel="canonical" href="${urlOf(file)}">`), 'canonical con la URL limpia');
     assert.ok(html.includes(`<meta property="og:url" content="${urlOf(file)}">`), 'og:url igual que la canonical');
@@ -56,6 +56,15 @@ test('el sitemap sólo enlaza páginas que existen y robots.txt lo anuncia', () 
   const locs = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
   assert.deepEqual(locs.toSorted(), pages.map(urlOf).toSorted());
   assert.match(robots, new RegExp(`^Sitemap: ${SITE}/sitemap\\.xml$`, 'm'));
+});
+
+test('cada URL del sitemap lleva su fecha de última modificación, y no es futura', () => {
+  const urls = [...sitemap.matchAll(/<url>([\s\S]*?)<\/url>/g)].map((m) => m[1]);
+  for (const url of urls) {
+    const lastmod = url.match(/<lastmod>(\d{4}-\d{2}-\d{2})<\/lastmod>/)?.[1];
+    assert.ok(lastmod, `lastmod en ${url.match(/<loc>([^<]+)/)?.[1]}`);
+    assert.ok(new Date(lastmod) <= new Date(), `lastmod ${lastmod} no es futura`);
+  }
 });
 
 test('la portada declara el nombre del sitio para los buscadores', async () => {
