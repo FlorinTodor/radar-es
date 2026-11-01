@@ -14,7 +14,8 @@ export function createFileCache({ http, dir, log }) {
         if (Date.now() - (await stat(file)).mtimeMs < maxAgeMs) return new Uint8Array(await readFile(file));
       } catch { /* sin caché */ }
       try {
-        const bytes = await http.bytes(url, { timeout: 180_000, ...opts });
+        // Los GTFS más grandes rondan los 20 MB: 256 MB es un tope muy holgado, pero un tope.
+        const bytes = await http.bytes(url, { timeout: 180_000, maxBytes: 256 * 1024 * 1024, ...opts });
         await mkdir(dir, { recursive: true });
         await writeFile(file, bytes);
         return bytes;

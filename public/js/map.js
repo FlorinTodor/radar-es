@@ -1,6 +1,7 @@
 import * as maplibregl from '/vendor/maplibre/maplibre-gl.mjs';
 import { DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, STATUS, esc, fmtDateTime, fmtDelay, fmtLocalHour, safeUrl, timeAgo, vehicleTitle } from './format.js';
 import { PICTOS, pictoFor, vehicleImage } from './icons.js';
+import { matchTrack } from './track-match.js';
 
 const STYLE = 'https://tiles.openfreemap.org/styles/dark';
 const FONT = ['Noto Sans Regular'];
@@ -101,6 +102,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
   let selectedId = null;  // tren seleccionado: lleva anillo y su recorrido reciente
   let clicks = 0;         // contador de clics en el mapa, para descartar respuestas tardías de EFFIS
   let trackFetchedAt = 0;
+  let lineFeatures = [];  // trazados de las líneas: el recorrido del tren seleccionado se pega a la suya
   const card = createDetailCard(map.getContainer().parentElement);
   let loaded = false;
   let modeFilter = null;
@@ -397,14 +399,15 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     card.hide();
   }
 
-  function loadTrack(id) {
+  function loadTrack(v) {
     trackFetchedAt = Date.now();
-    fetch(`/api/tracks/${encodeURIComponent(id)}`)
+    fetch(`/api/tracks/${encodeURIComponent(v.id)}`)
       .then((r) => (r.ok ? r.json() : []))
       .then((track) => {
-        if (selectedId !== id) return;
-        map.getSource('track').setData(track.length < 2 ? EMPTY
-          : { type: 'Feature', geometry: { type: 'LineString', coordinates: track.map((p) => [p.lon, p.lat]) }, properties: {} });
+        if (selectedId !== v.id) return;
+        const own = v.line ? lineFeatures.filter((f) => f.properties.line === v.line && f.properties.mode === v.mode) : [];
+        const parts = matchTrack(trackParts(track), own).filter((part) => part.length > 1);
+        map.getSource('track').setData(parts.length ? { type: 'Feature', geometry: { type: 'MultiLineString', coordinates: parts }, properties: {} } : EMPTY);
       })
       .catch(() => {});
   }
@@ -479,6 +482,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     },
 
     setLines(collection) {
+      lineFeatures = collection.features ?? [];
       if (loaded) map.getSource('lines').setData(collection);
     },
 
@@ -534,14 +538,14 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     showVehicle(v) {
       setSelected(v.id);
       card.show(vehicleDetail(v));
-      loadTrack(v.id);
+      loadTrack(v);
     },
 
     /** Actualiza la ficha y, cada 15 s, el recorrido del tren seleccionado cuando llegan datos. */
     refreshVehicle(v) {
       if (selectedId !== v.id) return;
       if (card.open) card.show(vehicleDetail(v));
-      if (Date.now() - trackFetchedAt > 15_000) loadTrack(v.id);
+      if (Date.now() - trackFetchedAt > 15_000) loadTrack(v);
     },
 
     selectedVehicleId: () => selectedId,
@@ -555,6 +559,30 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       if (loaded) map.getSource('trails').setData(collection ?? EMPTY);
     },
   };
+}
+
+// Más de esto entre dos posiciones seguidas es un rato largo sin datos: el camino real no se conoce
+// y una recta cruzaría el mapa por donde no hay vía. Los huecos más cortos se unen: suelen ser
+// túneles (el más largo de España, Guadarrama, tiene 28 km), y por dentro la recta se parece a la vía.
+const TRACK_GAP_KM = 30;
+
+/** Recorrido [{lat, lon}] → tramos [[lon, lat], …] partidos donde faltan datos. */
+export function trackParts(track) {
+  const parts = [];
+  let part = [];
+  for (const [i, p] of track.entries()) {
+    const prev = track[i - 1];
+    if (prev) {
+      const km = Math.hypot((p.lat - prev.lat) * 111.2, (p.lon - prev.lon) * 111.2 * Math.cos((p.lat * Math.PI) / 180));
+      if (km > TRACK_GAP_KM) {
+        parts.push(part);
+        part = [];
+      }
+    }
+    part.push([p.lon, p.lat]);
+  }
+  if (part.length) parts.push(part);
+  return parts;
 }
 
 /** Icono rasterizado para MapLibre (rombo, cuadrado o triángulo de 14 px a doble resolución). */
