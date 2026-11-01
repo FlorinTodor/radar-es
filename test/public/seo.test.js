@@ -60,8 +60,11 @@ test('el sitemap sólo enlaza páginas que existen y robots.txt lo anuncia', () 
 
 test('la portada declara el nombre del sitio para los buscadores', async () => {
   const html = await readFile(`${PUBLIC}/index.html`, 'utf8');
-  const site = JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]);
-  assert.equal(site['@type'], 'WebSite');
+  const graph = JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1])['@graph'];
+  const site = graph.find((n) => n['@type'] === 'WebSite');
+  const person = graph.find((n) => n['@type'] === 'Person');
+  assert.equal(person['@id'], 'https://florintodor.dev/#persona', 'mismo identificador que el portafolio');
+  assert.equal(site.creator['@id'], person['@id']);
   assert.equal(site.name, 'Radar España');
   assert.ok(site.alternateName.includes('radarespaña.es'));
   assert.equal(site.url, `${SITE}/`);
