@@ -4,6 +4,7 @@
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
+import { pipeline } from 'node:stream';
 import { extname, join, resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
@@ -84,8 +85,10 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
       if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/tiles/')) res.setHeader('X-Robots-Tag', 'noindex');
 
       if (routes[url.pathname]) return sendRoute(req, res, url.pathname, url.searchParams);
-      if (url.pathname.startsWith('/tiles/')) return sendTile(res, url.pathname);
-      if (url.pathname === '/api/burnt-areas') return sendBurntAreas(res, url.searchParams.get('bbox'));
+      // `return await`: sin el await, un fallo de las funciones asíncronas se saltaría este try y,
+      // sin nadie que lo recoja, Node cerraría el proceso entero.
+      if (url.pathname.startsWith('/tiles/')) return await sendTile(res, url.pathname);
+      if (url.pathname === '/api/burnt-areas') return await sendBurntAreas(res, url.searchParams.get('bbox'));
       // El directo antiguo (SSE) se mantiene para las pestañas que se abrieron antes del cambio.
       if (url.pathname === '/api/stream') return stream(req, res, url.searchParams.get('buses') === '1');
       if (url.pathname.startsWith('/api/tracks/')) {
@@ -97,7 +100,7 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
       if (url.pathname.startsWith('/api/')) return send(res, 404, { error: 'Ruta no encontrada' });
 
       for (const [prefix, dir] of Object.entries(vendorDirs)) {
-        if (url.pathname.startsWith(prefix)) return serveFile(req, res, dir, url.pathname.slice(prefix.length), VENDOR_CACHE);
+        if (url.pathname.startsWith(prefix)) return await serveFile(req, res, dir, url.pathname.slice(prefix.length), VENDOR_CACHE);
       }
       // Páginas con URL limpia y una sola dirección por página: /legal sirve legal.html, y /legal.html,
       // /legal/ e /index.html redirigen a /legal y a /.
@@ -106,7 +109,7 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
       const isPage = !extname(url.pathname);
       // /404 no es una página propia: sirve la de error con su estado 404.
       const file = url.pathname === '/' ? 'index.html' : isPage && url.pathname !== '/404' ? `${url.pathname}.html` : url.pathname;
-      return serveFile(req, res, publicDir, file, OWN_CACHE, isPage ? join(publicDir, '404.html') : null);
+      return await serveFile(req, res, publicDir, file, OWN_CACHE, isPage ? join(publicDir, '404.html') : null);
     } catch (err) {
       log.error(`[http] ${err.stack ?? err.message}`);
       if (!res.headersSent) send(res, 500, { error: 'Error interno' });
@@ -382,6 +385,17 @@ export function fileEtag(info) {
   return `W/"${info.size.toString(16)}-${Math.floor(info.mtimeMs).toString(16)}"`;
 }
 
+/**
+ * Envía un fichero ya anunciado en las cabeceras. Con `.pipe()`, un error al leerlo (fichero que
+ * desaparece, sin permiso, demasiados abiertos) no lo recogía nadie y cerraba el proceso; así
+ * sólo se corta esa respuesta.
+ */
+function sendStream(res, file) {
+  pipeline(createReadStream(file), res, (err) => {
+    if (err && !res.destroyed) res.destroy(err);
+  });
+}
+
 /** @param {string|null} [notFoundPage]  Página HTML que se sirve con 404 si el fichero no existe. */
 async function serveFile(req, res, root, pathname, cacheControl, notFoundPage = null) {
   let rel;
@@ -402,13 +416,13 @@ async function serveFile(req, res, root, pathname, cacheControl, notFoundPage = 
       return res.end();
     }
     res.writeHead(200, { ...headers, 'Content-Type': MIME[extname(file)] ?? 'application/octet-stream', 'Content-Length': info.size });
-    createReadStream(file).pipe(res);
+    sendStream(res, file);
   } catch {
     if (!notFoundPage) return send(res, 404, { error: 'No encontrado' });
     try {
       const info = await stat(notFoundPage);
       res.writeHead(404, { 'Content-Type': MIME['.html'], 'Content-Length': info.size, 'Cache-Control': 'no-cache' });
-      createReadStream(notFoundPage).pipe(res);
+      sendStream(res, notFoundPage);
     } catch {
       send(res, 404, { error: 'No encontrado' });
     }
