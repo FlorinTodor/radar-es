@@ -43,9 +43,10 @@ no se carga ningún contador y la página de privacidad lo indica.
 git switch dev && git pull
 git switch -c feature/mi-mejora     # trabajar y hacer commits
 git switch dev && git merge --no-ff feature/mi-mejora && git push
-# cuando el entorno de pruebas lo haya verificado y revisado:
-git switch produccion && git merge --no-ff dev && git push
 ```
+
+Cada push a `dev` arranca el pipeline de GitHub Actions: tests, pruebas en el VPS y, cuando están
+en verde, una aprobación manual que hace el merge de `dev` en `produccion`.
 
 En producción corre con Docker en un VPS detrás de un túnel de Cloudflare. Cada cambio en `dev`
 pasa antes por un entorno de pruebas en el mismo VPS, y producción sólo despliega lo que ya ha

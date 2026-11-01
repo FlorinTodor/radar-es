@@ -1,0 +1,110 @@
+# Del push a dev hasta producción, en un solo panel (Actions → pipeline):
+#
+#   Tests → Pruebas en el VPS → Subir a producción (⏸ aprobación manual) → despliegue
+#
+# La pausa es el entorno «produccion» de GitHub (Settings → Environments): sólo arranca cuando el
+# dueño del repo pulsa «Review deployments» → Approve. Entonces hace el merge de este commit de dev
+# en produccion. Las pruebas y el despliegue los hace el VPS (deploy/actualizar.sh), que marca el
+# commit con los checks «Pruebas VPS» y «Producción»; aquí sólo se esperan.
+name: pipeline
+
+on:
+  push:
+    branches: [dev]
+
+# Un push nuevo a dev sustituye al anterior, también si estaba esperando la aprobación: sólo se
+# puede subir lo último.
+concurrency:
+  group: pipeline-dev
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  statuses: read
+
+jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Sintaxis del navegador y de los scripts de despliegue
+        run: |
+          for f in public/js/*.js; do node --check "$f"; done
+          for f in deploy/*.sh; do bash -n "$f"; done
+          node --check deploy/comprobar.mjs
+
+  pruebas:
+    name: Pruebas en el VPS
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Esperar a que el VPS lo verifique
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # El VPS lo recoge en 2 min como mucho; construir, cargar todas las fuentes y comprobarlas
+          # lleva otros 10-25.
+          for i in $(seq 1 90); do
+            check=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/statuses" \
+              --jq 'map(select(.context == "Pruebas VPS")) | first // empty | "\(.state): \(.description)"')
+            echo "$(date +%H:%M) ${check:-el VPS todavía no lo ha recogido}"
+            case $check in
+              success*) exit 0 ;;
+              failure* | error*) echo "::error::Pruebas en el VPS: ${check#*: }"; exit 1 ;;
+            esac
+            sleep 30
+          done
+          echo "::error::El VPS no ha terminado en 45 min (journalctl -u radar-pruebas)"
+          exit 1
+
+  produccion:
+    name: Subir a producción
+    needs: pruebas
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: produccion
+    permissions:
+      contents: write
+      statuses: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: produccion
+          fetch-depth: 0
+      - name: Merge de dev en produccion
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "${GITHUB_ACTOR_ID}+${GITHUB_ACTOR}@users.noreply.github.com"
+          git merge --no-ff "$GITHUB_SHA" -m "Merge dev en produccion"
+          # Producción sólo despliega el árbol que ha verificado pruebas: si produccion tuviera
+          # algo que dev no, el merge sería otro código y se quedaría esperando.
+          if [ "$(git rev-parse 'HEAD^{tree}')" != "$(git rev-parse "$GITHUB_SHA^{tree}")" ]; then
+            echo "::error::produccion tiene cambios que no están en dev: el merge no es lo que se ha probado"
+            exit 1
+          fi
+          git push origin produccion
+          echo "MERGE=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Esperar a que el VPS lo despliegue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for i in $(seq 1 30); do
+            check=$(gh api "repos/$GITHUB_REPOSITORY/commits/$MERGE/statuses" \
+              --jq 'map(select(.context == "Producción")) | first // empty | "\(.state): \(.description)"')
+            echo "$(date +%H:%M) ${check:-el VPS todavía no lo ha recogido}"
+            case $check in
+              success*) exit 0 ;;
+              failure* | error*) echo "::error::Producción: ${check#*: }"; exit 1 ;;
+            esac
+            sleep 30
+          done
+          echo "::warning::El VPS no ha confirmado el despliegue en 15 min: míralo en journalctl -u radar-actualizar"

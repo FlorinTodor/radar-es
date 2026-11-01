@@ -19,13 +19,22 @@ navegador ──HTTPS──▶ Cloudflare ──túnel──▶ cloudflared (VPS
 ## Del commit a producción
 
 ```
-push a dev ──▶ 1. tests en GitHub Actions
-           └─▶ 2. pruebas en el VPS (rama dev, 127.0.0.1:8081, pruebas.radarespaña.es)
+push a dev ──▶ GitHub → Actions → pipeline
+               1. Tests
+               2. Pruebas en el VPS (rama dev, 127.0.0.1:8081, pruebas.radarespaña.es)
                   imagen con los tests dentro → arranque → deploy/comprobar.mjs
                   → imagen verificada para ese árbol de ficheros
-               3. ⏸ revisar pruebas.radarespaña.es y, si está bien, merge de dev a produccion
-               4. producción usa la imagen verificada, sin recompilar
+               3. ⏸ Subir a producción: revisar pruebas.radarespaña.es y aprobar
+                  («Review deployments» → produccion → Approve) → merge de dev en produccion
+               4. Producción usa la imagen verificada, sin recompilar
 ```
+
+El panel es `.github/workflows/pipeline.yml`. La aprobación es el entorno `produccion` de GitHub
+(Settings → Environments): pide la del dueño del repo y sólo admite la rama `dev`. Un push nuevo
+a `dev` sustituye al pipeline que estuviera esperando. El VPS marca cada commit con los checks
+«Pruebas VPS» (en `dev`) y «Producción» (en el merge), que son los que espera el pipeline; para
+eso necesita un token en `.github-token` (ver abajo). El merge a mano en la terminal sigue
+funcionando igual: producción tampoco lo despliega si no está verificado.
 
 Dos temporizadores lanzan `deploy/actualizar.sh` cada 2 minutos, uno por entorno. El VPS clona
 el repo con una deploy key de solo lectura (`/root/.ssh/deploy_radar-es`).
@@ -85,10 +94,21 @@ cd /opt/radar && docker compose logs -f     # logs de la aplicación
 
 Si cambia el `.env` de producción, se borra `/opt/radar-pruebas/.env` y se relanza el paso 1.
 
+### Token para marcar los commits
+
+GitHub → Settings → Developer settings → Fine-grained tokens → Generate new token: sólo el
+repositorio `radar-es` y un único permiso, *Commit statuses: Read and write*. Se guarda en los dos
+entornos (en ningún caso en el `.env`, que también llega al contenedor):
+
+```bash
+ssh -t root@IP_DEL_VPS 'umask 077; read -rsp "Token: " t; echo; for d in /opt/radar /opt/radar-pruebas; do printf %s "$t" > $d/.github-token; done'
+```
+
 ## Datos y secretos
 
 - `/opt/radar/.env`: `NAP_API_KEY`, titular, contacto, `GOATCOUNTER_URL`. No está en git; se copia a mano con `scp`.
 - `/opt/radar-pruebas/.env`: copia del de producción para pruebas (ver arriba).
+- `/opt/radar/.github-token` y `/opt/radar-pruebas/.github-token`: token que sólo marca commits.
 - `/opt/radar/data/`: cachés de GTFS e histórico JSONL. Sobrevive a los redespliegues y, si se
   pierde, se regenera solo.
 - `/etc/cloudflared/config.yml` y `<id>.json`: credenciales del túnel.
