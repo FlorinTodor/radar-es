@@ -1,9 +1,11 @@
 # Pasa los tests y comprueba la sintaxis en cada push. GitHub avisa por email si falla, antes de
 # que llegue a produccion (el VPS también los pasa al construir la imagen y no despliega si fallan).
+# En dev los pasa el primer paso de pipeline.yml.
 name: tests
 
 on:
   push:
+    branches-ignore: [dev]
   pull_request:
 
 permissions:
@@ -25,3 +27,4 @@ jobs:
         run: |
           for f in public/js/*.js; do node --check "$f"; done
           for f in deploy/*.sh; do bash -n "$f"; done
+          node --check deploy/comprobar.mjs

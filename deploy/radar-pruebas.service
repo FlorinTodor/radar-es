@@ -1,0 +1,12 @@
+[Unit]
+Description=Radar ES: probar la rama dev en el entorno de pruebas si ha cambiado en GitHub
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/radar-pruebas/deploy/actualizar.sh --pruebas
+# Cargar todas las fuentes y comprobarlas lleva hasta media hora. El temporizador no lanza otra
+# vuelta mientras ésta siga en marcha.
+TimeoutStartSec=45min

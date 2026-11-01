@@ -2,6 +2,11 @@ node_modules/
 data/
 .env
 *.log
+# Estado de deploy/actualizar.sh en el VPS
 .desplegado
+.fallido
+.esperando
+.estado
+.github-token
 # Notas que no deben ser públicas (comprobaciones de seguridad del VPS…)
 docs/privado/

@@ -1,19 +1,39 @@
 #!/usr/bin/env bash
-# Lo lanza radar-actualizar.timer en el VPS cada 2 minutos. Hace dos cosas:
+# Lo lanzan dos temporizadores del VPS cada 2 minutos, uno por entorno:
 #
-# 1. Vigilar: si el contenedor está "unhealthy" (colgado: el proceso vive pero no responde), lo
-#    reinicia. Docker sólo reinicia solo los contenedores que terminan, no los colgados.
-# 2. Desplegar: si la rama produccion ha cambiado en GitHub, construye la imagen nueva (con los
-#    tests dentro: si fallan no hay imagen y no se toca nada), cambia el contenedor y espera a que
-#    responda. Si no llega a estar sano, vuelve a la imagen y al código anteriores y apunta el
-#    commit en .fallido para no reintentarlo cada 2 minutos (se reintenta al llegar otro commit).
+#   /opt/radar-pruebas/deploy/actualizar.sh --pruebas   radar-pruebas.timer, rama dev, puerto 8081
+#   /opt/radar/deploy/actualizar.sh                     radar-actualizar.timer, rama produccion
 #
-# `--forzar` redespliega aunque el commit ya esté desplegado o marcado como fallido.
-# El registro queda en: journalctl -u radar-actualizar
+# Pruebas: si dev ha cambiado, construye la imagen (con los tests dentro), la arranca y pasa
+# deploy/comprobar.mjs: todas las fuentes cargadas, el directo, las páginas, la memoria y ningún
+# reinicio. Si todo va bien, etiqueta la imagen como verificada para ese árbol de ficheros. Cuando
+# producción ya funciona con esa misma imagen, para el contenedor de pruebas hasta el próximo cambio.
+#
+# Producción: si produccion ha cambiado, sólo la despliega si ese mismo código (el mismo árbol,
+# que es lo que deja un merge de dev sin más cambios) está verificado en pruebas, y usa esa misma
+# imagen sin recompilar: sale exactamente lo que se ha probado. Si no lo está, no toca nada y lo
+# dice en el registro; se despliega sola en cuanto pruebas la verifique.
+#
+# En los dos, tras cambiar el contenedor espera a que responda. Si no, vuelve a la imagen y al
+# código anteriores y apunta el commit en .fallido para no reintentarlo cada 2 minutos (se
+# reintenta al llegar otro commit). Y si el contenedor está "unhealthy" (colgado: el proceso vive
+# pero no responde), lo reinicia: Docker sólo reinicia solo los contenedores que terminan.
+#
+# `--forzar` redespliega aunque el commit ya esté desplegado o marcado como fallido. En producción,
+# además, sin pasar por pruebas si hace falta (construye aquí la imagen, con los tests): sólo para
+# urgencias.
+#
+# Si hay token (.github-token, de solo «Commit statuses»), cada paso marca el commit en GitHub con
+# el check «Pruebas VPS» o «Producción»: es lo que espera el pipeline de .github/workflows/pipeline.yml.
+# El registro queda en: journalctl -u radar-actualizar (producción) o -u radar-pruebas
 set -euo pipefail
 
-readonly RAMA=produccion
-readonly ESPERA_MAX=180 # segundos hasta dar por fallido un arranque
+readonly REPO=FlorinTodor/radar-es
+readonly DIR_PRUEBAS=/opt/radar-pruebas
+readonly IMAGEN_PRODUCCION=radar-es
+readonly VERIFICADA=radar-es-verificado # radar-es-verificado:<árbol> = imagen que ha pasado pruebas
+readonly ESPERA_MAX=180                 # segundos hasta dar por fallido un arranque
+readonly MEMORIA_MAX=$((900 * 1024 * 1024)) # pico al cargar todo; el límite del contenedor es 1 GB
 
 contenedor() { docker compose ps -q radar 2>/dev/null || true; }
 
@@ -45,16 +65,90 @@ vigilar() {
   fi
 }
 
+# estado <probando|verificado|desplegado|fallido> <commit> <texto>
+# En pruebas queda en .estado, que lee producción para explicar por qué espera.
+estado() {
+  local fase=$1 commit=$2 texto=$3
+  if [[ $ENTORNO == pruebas ]]; then echo "$fase ${commit:0:7}: $texto" | tee .estado; fi
+  avisar_github "$fase" "$commit" "$texto"
+}
+
+# Un fallo al avisar a GitHub no para el despliegue: sólo se apunta en el registro.
+avisar_github() {
+  local token estado contexto
+  token=$(cat .github-token 2>/dev/null) || return 0
+  case $1 in
+    probando) estado=pending ;;
+    verificado | desplegado) estado=success ;;
+    *) estado=failure ;;
+  esac
+  contexto=$([[ $ENTORNO == pruebas ]] && echo 'Pruebas VPS' || echo 'Producción')
+  curl -fsS -o /dev/null --max-time 15 -X POST "https://api.github.com/repos/$REPO/statuses/$2" \
+    -H "Authorization: Bearer $token" -H 'Accept: application/vnd.github+json' \
+    -d "{\"state\": \"$estado\", \"context\": \"$contexto\", \"description\": \"${3:0:140}\"}" ||
+    echo "Aviso: no se ha podido marcar ${2:0:7} en GitHub"
+}
+
+# La salida de la construcción va a un fichero: si falla, al registro van los tests que fallan
+# y el final de la construcción; si va bien, no ensucia el registro.
+construir() {
+  local registro
+  registro=$(mktemp)
+  if docker compose --progress plain build >"$registro" 2>&1; then
+    rm -f "$registro"
+    return 0
+  fi
+  grep -E -A 20 ' not ok ' "$registro" | grep -vE 'duration_ms|type: .test' | head -n 80 || true
+  tail -n 15 "$registro"
+  rm -f "$registro"
+  return 1
+}
+
+# Con el contenedor de pruebas ya sano: deploy/comprobar.mjs con el node de la misma imagen y la
+# red del host (para ver también producción), y después la memoria y los reinicios.
+comprobar() {
+  local imagen=$1 id pico reinicios
+  docker run --rm -i --network host --read-only --cap-drop ALL --security-opt no-new-privileges \
+    -e PRUEBAS="http://$(docker compose port radar 8080)" -e PRODUCCION=http://127.0.0.1:8080 \
+    "$imagen" node --input-type=module - <deploy/comprobar.mjs || return 1
+  id=$(contenedor)
+  pico=$(docker exec "$id" cat /sys/fs/cgroup/memory.peak 2>/dev/null || echo 0)
+  reinicios=$(docker inspect -f '{{.RestartCount}}' "$id")
+  echo "memoria: pico de $((pico / 1024 / 1024)) MB; reinicios: $reinicios"
+  if ((pico > MEMORIA_MAX)); then echo "  ✗ el pico de memoria pasa de $((MEMORIA_MAX / 1024 / 1024)) MB"; return 1; fi
+  if ((reinicios > 0)); then echo "  ✗ el contenedor se ha reiniciado"; return 1; fi
+}
+
+# Se guardan las 5 últimas verificadas: producción puede tardar en recibir el merge.
+limpiar_verificadas() {
+  docker image ls "$VERIFICADA" --format '{{.Tag}}' | tail -n +6 | while read -r etiqueta; do
+    docker image rm "$VERIFICADA:$etiqueta" >/dev/null || true
+  done
+}
+
 desplegar() {
-  local forzar=$1 imagen nuevo desplegado anterior registro
+  local forzar=$1 imagen nuevo arbol desplegado anterior
   git fetch --quiet origin "$RAMA"
   nuevo=$(git rev-parse FETCH_HEAD)
+  arbol=$(git rev-parse "$nuevo^{tree}")
   desplegado=$(cat .desplegado 2>/dev/null || true)
   if [[ $forzar != 1 ]]; then
     [[ $nuevo == "$desplegado" ]] && return 0
     [[ $nuevo == "$(cat .fallido 2>/dev/null || true)" ]] && return 0
   fi
 
+  if [[ $ENTORNO == produccion && $forzar != 1 ]] && ! docker image inspect "$VERIFICADA:$arbol" >/dev/null 2>&1; then
+    # Se avisa una vez por commit, no cada 2 minutos.
+    if [[ $(cat .esperando 2>/dev/null || true) != "$nuevo" ]]; then
+      echo "${nuevo:0:7} no está verificado en pruebas: no se despliega todavía. Pruebas: $(cat "$DIR_PRUEBAS/.estado" 2>/dev/null || echo 'sin estado')"
+      avisar_github probando "$nuevo" 'esperando a que pruebas verifique este código'
+      echo "$nuevo" > .esperando
+    fi
+    return 0
+  fi
+  rm -f .esperando
+
+  estado probando "$nuevo" "$([[ $ENTORNO == pruebas ]] && echo construyendo || echo desplegando)"
   echo "Desplegando $RAMA: ${desplegado:0:7} → ${nuevo:0:7}"
   anterior=$(git rev-parse HEAD)
   imagen=$(docker compose config --images | head -n1)
@@ -62,43 +156,78 @@ desplegar() {
   if docker image inspect "$imagen" >/dev/null 2>&1; then docker image tag "$imagen" "$imagen:anterior"; fi
   git checkout --quiet --force -B "$RAMA" FETCH_HEAD
 
-  # La salida de la construcción va a un fichero: si falla, al registro van los tests que fallan
-  # y el final de la construcción; si va bien, no ensucia el registro.
-  registro=$(mktemp)
-  if ! docker compose --progress plain build >"$registro" 2>&1; then
+  if [[ $ENTORNO == produccion ]] && docker image inspect "$VERIFICADA:$arbol" >/dev/null 2>&1; then
+    echo "Con la imagen verificada en pruebas, sin recompilar"
+    docker image tag "$VERIFICADA:$arbol" "$imagen"
+  elif ! construir; then
+    estado fallido "$nuevo" 'no se puede construir o no pasa los tests'
     echo "ERROR: ${nuevo:0:7} no se puede construir o no pasa los tests. Sigue funcionando ${desplegado:0:7}."
-    grep -E -A 20 ' not ok ' "$registro" | grep -vE 'duration_ms|type: .test' | head -n 80 || true
-    tail -n 15 "$registro"
-    rm -f "$registro"
     git checkout --quiet --force -B "$RAMA" "$anterior"
     echo "$nuevo" > .fallido
     return 1
   fi
-  rm -f "$registro"
 
   if docker compose up -d --remove-orphans && esperar_sano; then
     echo "$nuevo" > .desplegado
     rm -f .fallido
-    docker image prune -f >/dev/null
     echo "Desplegado ${nuevo:0:7}: el contenedor responde"
-    return 0
+  else
+    estado fallido "$nuevo" "no arranca: vuelve a ${desplegado:0:7}"
+    echo "ERROR: ${nuevo:0:7} no arranca bien ($(salud)). Últimas líneas:"
+    docker compose logs --no-color --tail 30 radar || true
+    echo "Volviendo a ${desplegado:0:7}"
+    git checkout --quiet --force -B "$RAMA" "$anterior"
+    if docker image inspect "$imagen:anterior" >/dev/null 2>&1; then docker image tag "$imagen:anterior" "$imagen"; fi
+    docker compose up -d --remove-orphans
+    echo "$nuevo" > .fallido
+    if esperar_sano; then echo "Vuelta atrás hecha: funciona ${desplegado:0:7}"; else echo "ERROR: la versión anterior tampoco arranca"; fi
+    return 1
   fi
 
-  echo "ERROR: ${nuevo:0:7} no arranca bien ($(salud)). Últimas líneas:"
-  docker compose logs --no-color --tail 30 radar || true
-  echo "Volviendo a ${desplegado:0:7}"
-  git checkout --quiet --force -B "$RAMA" "$anterior"
-  if docker image inspect "$imagen:anterior" >/dev/null 2>&1; then docker image tag "$imagen:anterior" "$imagen"; fi
-  docker compose up -d --remove-orphans
-  echo "$nuevo" > .fallido
-  if esperar_sano; then echo "Vuelta atrás hecha: funciona ${desplegado:0:7}"; else echo "ERROR: la versión anterior tampoco arranca"; fi
-  return 1
+  if [[ $ENTORNO == pruebas ]]; then
+    # El contenedor se queda funcionando aunque falle, para poder mirar qué le pasa.
+    estado probando "$nuevo" 'cargando las fuentes y comprobando'
+    if ! comprobar "$imagen"; then
+      estado fallido "$nuevo" 'no pasa la comprobación (journalctl -u radar-pruebas)'
+      echo "$nuevo" > .fallido
+      return 1
+    fi
+    docker image tag "$imagen" "$VERIFICADA:$arbol"
+    limpiar_verificadas
+    estado verificado "$nuevo" 'listo para subir a producción'
+  else
+    estado desplegado "$nuevo" 'funcionando en producción'
+  fi
+  docker image prune -f >/dev/null
+}
+
+# Producción ya funciona con la imagen verificada de lo que hay en pruebas: no hay nada que ver
+# y se deja de pedir los datos dos veces. Arranca otra vez con el próximo cambio en dev.
+parar_pruebas_si_sobra() {
+  local desplegado probada
+  desplegado=$(cat .desplegado 2>/dev/null) || return 0
+  [[ $(salud) == healthy ]] || return 0
+  probada=$(docker image inspect -f '{{.Id}}' "$VERIFICADA:$(git rev-parse "$desplegado^{tree}")" 2>/dev/null) || return 0
+  [[ $probada == "$(docker image inspect -f '{{.Id}}' "$IMAGEN_PRODUCCION" 2>/dev/null)" ]] || return 0
+  echo "Producción ya funciona con ${desplegado:0:7}: se para pruebas hasta el próximo cambio en dev"
+  docker compose stop radar
 }
 
 main() {
+  local forzar=0 arg
+  ENTORNO=produccion
+  for arg in "$@"; do
+    case $arg in
+      --pruebas) ENTORNO=pruebas ;;
+      --forzar) forzar=1 ;;
+      *) echo "Uso: $0 [--pruebas] [--forzar]" >&2; return 2 ;;
+    esac
+  done
+  RAMA=$([[ $ENTORNO == pruebas ]] && echo dev || echo produccion)
   cd "$(dirname "$0")/.."
   vigilar
-  desplegar "$([[ ${1:-} == --forzar ]] && echo 1 || echo 0)"
+  desplegar "$forzar"
+  if [[ $ENTORNO == pruebas ]]; then parar_pruebas_si_sobra; fi
 }
 
 # En la misma línea que la llamada: el checkout puede reescribir este fichero mientras bash lo
