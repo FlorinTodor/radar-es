@@ -239,6 +239,9 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   «Todas · Ninguna», la leyenda plegada y las preferencias guardadas en el navegador.
 - Aviso al entrar sobre los datos públicos que todavía faltan.
 - Páginas que explican cada parte del mapa y versión en inglés.
+- Se puede instalar en el móvil como una app, desde Chrome o Safari («Añadir a pantalla de inicio»).
+- Preparada para los buscadores: título y descripción a medida en cada página (sin que Google las
+  corte), sitemap con la fecha de cada cambio y datos estructurados del sitio y de su autor.
 
 **Rendimiento y fiabilidad**
 - Directo servido desde caché, preparado para picos de muchas visitas a la vez.
