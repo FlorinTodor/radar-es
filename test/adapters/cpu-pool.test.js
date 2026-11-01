@@ -37,6 +37,7 @@ test('hilos por defecto y WORKER_THREADS', () => {
   assert.equal(parseThreads('', 2), 2);
   assert.equal(parseThreads(' 0 ', 2), 0);
   assert.equal(parseThreads('3', 2), 3);
+  assert.equal(parseThreads(undefined), 0, 'sin WORKER_THREADS: sin hilos, hasta medir su memoria en el peor caso');
   assert.equal(parseThreads('-1', 2), 2);
   assert.equal(parseThreads('dos', 2), 2);
   assert.equal(parseThreads('1.5', 2), 2);

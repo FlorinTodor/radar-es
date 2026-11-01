@@ -30,8 +30,8 @@ const clock = { now: () => Date.now() };
 const http = createHttpClient({ userAgent: config.userAgent });
 
 // --- Adaptadores de salida -------------------------------------------------
-// Hilos para el trabajo de CPU (horarios GTFS, trazados, XML de la DGT): por defecto uno por CPU del
-// contenedor; WORKER_THREADS=0 lo hace todo en el hilo principal.
+// Hilos para el trabajo de CPU (horarios GTFS, trazados, XML de la DGT): desactivados salvo que
+// WORKER_THREADS diga cuántos (ver parseThreads: falta medir su pico de memoria en el peor caso).
 const pool = createCpuPool({ threads: parseThreads(config.env.WORKER_THREADS), log });
 const cacheDir = new URL('cache/', config.dataDir);
 const cache = createFileCache({ http, dir: cacheDir, log });

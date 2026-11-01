@@ -48,8 +48,13 @@ export function defaultThreads(cpus = effectiveCpus()) {
   return cpus >= 2 ? Math.min(cpus, 4) : 0;
 }
 
-/** WORKER_THREADS de .env: número de hilos (0 = ninguno); vacío o no válido = por defecto. */
-export function parseThreads(value, fallback = defaultThreads()) {
+/**
+ * WORKER_THREADS de .env: número de hilos (0 = ninguno). Vacío o no válido = ninguno, de momento:
+ * con 2 hilos el pico de memoria al cargar los horarios subió de ~350 a ~530 MB en el contenedor (y a
+ * 850 MB con glibc), y aún falta medir el peor caso (arranque en frío y cambio de día) con el límite
+ * de 1 GB. Para activarlos: WORKER_THREADS=2 (o el valor de defaultThreads()) y vigilar la memoria.
+ */
+export function parseThreads(value, fallback = 0) {
   if (value === undefined || value === null || String(value).trim() === '') return fallback;
   const n = Number(value);
   return Number.isInteger(n) && n >= 0 ? Math.min(n, 16) : fallback;

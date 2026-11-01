@@ -89,9 +89,9 @@ desde la rama `produccion`: ver [`docs/despliegue.md`](docs/despliegue.md).
   por Redis o Postgres, o el JSONL por una base de datos, basta con escribir otro adaptador.
 - **`server/adapters/outbound/workers/`**: hilos (`worker_threads`) para el trabajo de CPU de los
   adaptadores: leer los horarios GTFS, construir los trazados y analizar el XML de la DGT. Sólo
-  calculan; las descargas y el estado siguen en el hilo principal. `WORKER_THREADS` en `.env`
-  (por defecto, uno por CPU del contenedor; `0` = todo en el hilo principal). Si un hilo falla,
-  el trabajo se repite en el principal.
+  calculan; las descargas y el estado siguen en el hilo principal. **Desactivados por defecto**:
+  se activan con `WORKER_THREADS=2` en `.env` (arranque ~20 % más rápido, pero el pico de memoria
+  sube de ~350 a ~530 MB). Si un hilo falla, el trabajo se repite en el principal.
 - **`server/adapters/inbound/`**: quien dispara los casos de uso (la API HTTP y el planificador).
   Sólo hablan con casos de uso, nunca con los puertos de salida.
 - **`server/main.js`**: raíz de composición; el único sitio donde se eligen las implementaciones.
