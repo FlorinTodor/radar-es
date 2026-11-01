@@ -30,6 +30,13 @@ Por tipo de estación:
 | Consorcio Regional de Transportes de Madrid | Accesibilidad de accesos, vestíbulos y andenes | Su licencia permite reutilizar citando la fuente («Powered by CRTM», que ya se muestra). Sólo cubre Madrid y, según un análisis publicado, los datos de las estaciones están incompletos. Hay que revisarlo antes de usarlo. |
 | OpenStreetMap | Etiqueta `wheelchair` en 337 de 1.122 estaciones de tren (288 sí, 25 limitada, 24 no) | No como fuente principal: cubre el 30 %, casi todo estaciones grandes. Además, la ODbL obliga a publicar con esa licencia los datos que se mezclen. |
 
+### Fuentes europeas (revisadas el 2026-11-01)
+
+| Fuente | Qué tiene | ¿Se puede usar? |
+|---|---|---|
+| ERA, RINF (registro de infraestructura) | Andenes, vías, longitudes y alturas por punto operacional, en toda la UE | No por ahora: su SPARQL pide credenciales y el volcado de Zenodo pesa 9 GB (toda Europa), con licencia EUPL-1.2, que es de software y tiene condiciones de copia. |
+| ERA, ERSAD (accesibilidad de estaciones) | Accesibilidad según la TSI PRM | No: es una aplicación web sin licencia publicada ni API o descarga documentadas. Se puede preguntar a la ERA (ERSAD@era.europa.eu). |
+
 En 2022 Adif contestó al Gobierno que 863 de 1.495 estaciones tenían itinerario accesible, más que
 las que marca hoy el GTFS de Renfe. Esa cifra no se publica estación por estación, así que no se
 puede usar en el mapa. Por eso la ficha dice «según Renfe».
