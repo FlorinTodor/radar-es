@@ -1,6 +1,7 @@
 import * as maplibregl from '/vendor/maplibre/maplibre-gl.mjs';
 import { DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, STATUS, esc, fmtDateTime, fmtDelay, fmtLocalHour, safeUrl, timeAgo, vehicleTitle } from './format.js';
 import { PICTOS, pictoFor, vehicleImage } from './icons.js';
+import { matchTrack } from './track-match.js';
 
 const STYLE = 'https://tiles.openfreemap.org/styles/dark';
 const FONT = ['Noto Sans Regular'];
@@ -101,6 +102,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
   let selectedId = null;  // tren seleccionado: lleva anillo y su recorrido reciente
   let clicks = 0;         // contador de clics en el mapa, para descartar respuestas tardías de EFFIS
   let trackFetchedAt = 0;
+  let lineFeatures = [];  // trazados de las líneas: el recorrido del tren seleccionado se pega a la suya
   const card = createDetailCard(map.getContainer().parentElement);
   let loaded = false;
   let modeFilter = null;
@@ -397,13 +399,14 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     card.hide();
   }
 
-  function loadTrack(id) {
+  function loadTrack(v) {
     trackFetchedAt = Date.now();
-    fetch(`/api/tracks/${encodeURIComponent(id)}`)
+    fetch(`/api/tracks/${encodeURIComponent(v.id)}`)
       .then((r) => (r.ok ? r.json() : []))
       .then((track) => {
-        if (selectedId !== id) return;
-        const parts = trackParts(track).filter((part) => part.length > 1);
+        if (selectedId !== v.id) return;
+        const own = v.line ? lineFeatures.filter((f) => f.properties.line === v.line && f.properties.mode === v.mode) : [];
+        const parts = matchTrack(trackParts(track), own).filter((part) => part.length > 1);
         map.getSource('track').setData(parts.length ? { type: 'Feature', geometry: { type: 'MultiLineString', coordinates: parts }, properties: {} } : EMPTY);
       })
       .catch(() => {});
@@ -479,6 +482,7 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     },
 
     setLines(collection) {
+      lineFeatures = collection.features ?? [];
       if (loaded) map.getSource('lines').setData(collection);
     },
 
@@ -534,14 +538,14 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
     showVehicle(v) {
       setSelected(v.id);
       card.show(vehicleDetail(v));
-      loadTrack(v.id);
+      loadTrack(v);
     },
 
     /** Actualiza la ficha y, cada 15 s, el recorrido del tren seleccionado cuando llegan datos. */
     refreshVehicle(v) {
       if (selectedId !== v.id) return;
       if (card.open) card.show(vehicleDetail(v));
-      if (Date.now() - trackFetchedAt > 15_000) loadTrack(v.id);
+      if (Date.now() - trackFetchedAt > 15_000) loadTrack(v);
     },
 
     selectedVehicleId: () => selectedId,
