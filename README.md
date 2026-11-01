@@ -212,8 +212,9 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Red ferroviaria, líneas de metro, tranvía y Cercanías, y estaciones.
 - Nombres del mapa base en español.
 - Se descartan los retrasos imposibles que a veces llegan en los datos.
-- Se descartan también las posiciones que la fuente repite o que saltan de forma imposible: los
-  trenes ya no van y vienen en el mapa.
+- En los trenes de Renfe se descartan también las posiciones que su fuente repite o que saltan de
+  forma imposible: ya no van y vienen en el mapa. Las fuentes cuya licencia pide no alterar los
+  datos se muestran tal cual.
 - Los autobuses que Renfe pone en algunas líneas de Cercanías se muestran como autobuses y no
   cuentan en los retrasos ni en las alertas de los trenes.
 - Colores de línea legibles sobre el mapa oscuro, aunque el operador publique uno muy oscuro.

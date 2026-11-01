@@ -2,7 +2,8 @@
 // Sirve para cualquier operador que publique el estándar: basta con registrar una
 // instancia más en sources/index.js con su URL y su modo.
 import { createRequire } from 'node:module';
-import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
+import { csvRows, openGtfs, zipLocalDate } from '../gtfs/gtfs-reader.js';
+import { madridLocalToMs } from './parse.js';
 
 const require = createRequire(import.meta.url);
 const { transit_realtime: rt } = require('gtfs-realtime-bindings');
@@ -80,12 +81,15 @@ export function staticGtfs(files) {
  */
 export function createGtfsRtVehicleSource({ http, cache, log }, { id, name, url, mode, operator, license, interval = 30_000, line, describe, staticUrl }) {
   let gtfs;
+  let gtfsUpdated = null; // fecha de su última actualización: la licencia de Open Data Euskadi pide mencionarla
   let loadedAt = 0;
   async function loadStatic() {
     if (!staticUrl || Date.now() - loadedAt < STATIC_TTL_MS) return;
     loadedAt = Date.now(); // aunque falle, no reintentar en cada lectura
     try {
-      gtfs = staticGtfs(await openGtfs(await cache.bytes(staticUrl, `${id}-gtfs.zip`, STATIC_TTL_MS), ['stops.txt', 'trips.txt']));
+      const zip = await cache.bytes(staticUrl, `${id}-gtfs.zip`, STATIC_TTL_MS);
+      gtfs = staticGtfs(await openGtfs(zip, ['stops.txt', 'trips.txt']));
+      gtfsUpdated = madridLocalToMs(zipLocalDate(zip));
     } catch (err) {
       log?.warn(`[${id}] horario estático: ${err.message}`);
     }
@@ -102,6 +106,7 @@ export function createGtfsRtVehicleSource({ http, cache, log }, { id, name, url,
       const feed = decodeFeed(await http.bytes(url));
       return {
         vehicles: vehiclesFromFeed(feed, { id, mode, operator, line, describe, gtfs }),
+        ...(gtfsUpdated ? { datasetUpdated: gtfsUpdated } : {}),
         sourceTime: feed.header?.timestamp ? feed.header.timestamp * 1000 : null,
       };
     },

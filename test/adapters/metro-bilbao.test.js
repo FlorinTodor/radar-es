@@ -40,3 +40,17 @@ test('sin horario estático (o un viaje que no está en él) se queda con lo que
   assert.equal(otro.origin, null);
   assert.equal(otro.shape, null);
 });
+
+test('la fuente da la fecha de su horario estático, como pide la licencia de Open Data Euskadi', async () => {
+  const { createGtfsRtVehicleSource } = await import('../../server/adapters/outbound/sources/gtfs-rt.js');
+  const { transit_realtime: rt } = (await import('node:module')).createRequire(import.meta.url)('gtfs-realtime-bindings');
+  const conFecha = zipSync({
+    'stops.txt': [strToU8('stop_id,stop_code,stop_name,stop_lat,stop_lon\n2.0,ETX,Etxebarri,43.24386,-2.89771\n'), { mtime: new Date(2026, 9, 31, 3, 0, 52) }],
+    'trips.txt': [strToU8('trip_id,route_id,service_id,trip_headsign,direction_id,shape_id\n'), { mtime: new Date(2026, 9, 31, 3, 0, 52) }],
+  });
+  const pb = rt.FeedMessage.encode(rt.FeedMessage.fromObject({ header: { gtfsRealtimeVersion: '2.0', timestamp: 1 }, entity: [] })).finish();
+  const source = createGtfsRtVehicleSource({ http: { bytes: async () => pb }, cache: { bytes: async () => conFecha } },
+    { id: 'metro-bilbao', name: 'Metro Bilbao', url: 'x', mode: 'metro', operator: 'Metro Bilbao', staticUrl: 'y' });
+  const result = await source.fetch();
+  assert.equal(new Date(result.datasetUpdated).toISOString(), '2026-10-31T02:00:52.000Z', 'las 03:00:52 de Madrid (hora de invierno)');
+});

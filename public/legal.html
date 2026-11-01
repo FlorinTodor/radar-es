@@ -68,7 +68,7 @@
       <table>
         <thead><tr><th>Fuente</th><th>Licencia</th><th>Atribución</th><th>Uso</th></tr></thead>
         <tbody>
-          <tr><td>Renfe: GTFS-RT (posiciones, retrasos, cancelaciones y avisos), horarios y lista de estaciones</td><td><a href="https://data.renfe.com/legal" target="_blank" rel="noopener">CC BY 4.0 y condiciones de data.renfe.com</a></td><td>Origen de los datos: Renfe Operadora</td><td>Formato adaptado y combinado con sus horarios; se muestra la hora de cada dato</td></tr>
+          <tr><td>Renfe: GTFS-RT (posiciones, retrasos, cancelaciones y avisos), horarios y lista de estaciones</td><td><a href="https://data.renfe.com/legal" target="_blank" rel="noopener">CC BY 4.0 y condiciones de data.renfe.com</a></td><td>Origen de los datos: Renfe Operadora</td><td>Formato adaptado y combinado con sus horarios; se descartan las posiciones repetidas o imposibles; se muestra la hora de cada dato</td></tr>
           <tr><td>Punto de Acceso Nacional (NAP): horarios de Ouigo, ALSA, metros, tranvías y autobuses de unas 70 empresas y administraciones; trazados de Cercanías, metros y tranvías; EMT Fuenlabrada y Autobuses La Unión</td><td><a href="https://nap.transportes.gob.es/licencia-datos" target="_blank" rel="noopener">Licencia de datos abiertos del MITRAMS (NAP)</a></td><td>Powered by <a href="https://www.transportes.gob.es/" target="_blank" rel="noopener">MITRAMS</a> · cada operador</td><td>Posiciones estimadas y trazados: dato explotado. EMT Fuenlabrada y La Unión: dato en bruto. Se muestra la fecha de actualización de cada horario</td></tr>
           <tr><td>Metro y autobuses de Barcelona (TMB), vía NAP</td><td><a href="https://nap.transportes.gob.es/licencia-datos" target="_blank" rel="noopener">Licencia de datos abiertos del MITRAMS (NAP)</a> y <a href="https://developer.tmb.cat/docs/terms-conditions" target="_blank" rel="noopener">licencia de reutilización de TMB</a></td><td>Fuente: TMB</td><td>Posiciones estimadas a partir del horario, sin alterarlo; con fecha de actualización</td></tr>
           <tr><td>TRAM Baix y TRAM Besòs, vía NAP</td><td><a href="https://nap.transportes.gob.es/licencia-datos" target="_blank" rel="noopener">Licencia de datos abiertos del MITRAMS (NAP)</a> y <a href="https://opendata.tram.cat/" target="_blank" rel="noopener">condiciones de TRAM Open Data</a></td><td>Powered by <a href="https://www.tram.cat/" target="_blank" rel="noopener">TRAM Barcelona</a></td><td>Posiciones estimadas a partir del horario, sin alterarlo; con fecha de actualización</td></tr>
@@ -101,8 +101,11 @@
       </div>
       <p class="muted">El código de Radar España se puede consultar en
         <a href="https://github.com/FlorinTodor/radar-es" target="_blank" rel="noopener">GitHub</a>; todos los derechos reservados, no
-        se permite reutilizarlo. Software de terceros usado: MapLibre GL JS (BSD-3-Clause), fast-xml-parser (MIT), fflate (MIT) y
-        gtfs-realtime-bindings (Apache-2.0).</p>
+        se permite reutilizarlo. Software de terceros usado, con sus licencias:
+        <a href="https://github.com/maplibre/maplibre-gl-js/blob/main/LICENSE.txt" target="_blank" rel="noopener">MapLibre GL JS (BSD-3-Clause)</a>,
+        <a href="https://github.com/NaturalIntelligence/fast-xml-parser/blob/master/LICENSE" target="_blank" rel="noopener">fast-xml-parser (MIT)</a>,
+        <a href="https://github.com/101arrowz/fflate/blob/master/LICENSE" target="_blank" rel="noopener">fflate (MIT)</a> y
+        <a href="https://github.com/MobilityData/gtfs-realtime-bindings/blob/master/LICENSE" target="_blank" rel="noopener">gtfs-realtime-bindings (Apache-2.0)</a>.</p>
     </section>
 
     <section id="estado">
