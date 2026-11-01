@@ -50,13 +50,19 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
     '/api/trails': { fn: (p) => query.trails(trailMinutes(p)), key: trailMinutes, ttl: 15_000, cache: REVALIDATE },
     '/api/snapshot': { fn: () => query.snapshot(), ttl: 5_000, cache: REVALIDATE },
     '/api/vehicles': { fn: (p) => query.vehicles(vehicleFilter(p)), key: (p) => JSON.stringify(vehicleFilter(p)), ttl: 5_000, cache: REVALIDATE },
-    '/api/events': { fn: (p) => query.events({ category: p.get('category') ?? undefined }), key: (p) => p.get('category') ?? '', ttl: 15_000, cache: REVALIDATE },
+    '/api/events': { fn: (p) => query.events({ category: idParam(p, 'category') }), key: (p) => idParam(p, 'category') ?? '', ttl: 15_000, cache: REVALIDATE },
     '/api/alerts': { fn: () => ({ active: query.alerts(), resolved: query.resolvedAlerts() }), ttl: 5_000, cache: REVALIDATE },
     '/api/kpis': { fn: () => query.kpis(), ttl: 5_000, cache: REVALIDATE },
     '/api/metrics': { fn: () => query.metrics(), ttl: 5_000, cache: REVALIDATE },
     '/api/about': { fn: () => about, ttl: 60_000, cache: REVALIDATE },
   };
   const memo = createJsonMemo();
+  // Las rutas con parámetros tienen memo y presupuesto propios: quien pide variantes sin fin no
+  // expulsa del memo a /api/lines ni a /api/live, y no puede forzar más de unos pocos cálculos
+  // por segundo (sin esto, /api/vehicles?minDelay=<cada vez otro> costaba ~36 ms de CPU por
+  // petición: un núcleo saturado con 28 peticiones por segundo).
+  const memoParams = createJsonMemo({ max: 100 });
+  const budgets = new Map(Object.keys(routes).filter((path) => routes[path].key).map((path) => [path, createBudget()]));
 
   const security = Object.entries(securityHeaders(about));
   const streams = createConnectionLimiter();
@@ -107,8 +113,23 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
 
   function sendRoute(req, res, path, params) {
     const route = routes[path];
-    const key = route.key ? `${path}?${route.key(params)}` : path;
-    const { json, gz, etag } = memo(key, route.ttl, () => route.fn(params), route);
+    let entry;
+    if (!route.key) entry = memo(path, route.ttl, () => route.fn(params), route);
+    else {
+      const compute = () => {
+        if (!budgets.get(path).take()) throw new Busy();
+        return route.fn(params);
+      };
+      try {
+        entry = memoParams(`${path}?${route.key(params)}`, route.ttl, compute, route);
+      } catch (err) {
+        if (!(err instanceof Busy)) throw err;
+        res.setHeader('Retry-After', '2');
+        res.setHeader('Cache-Control', 'no-store');
+        return send(res, 503, { error: 'Demasiadas consultas distintas a la vez; prueba dentro de un momento' });
+      }
+    }
+    const { json, gz, etag } = entry;
     const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': route.cache, ETag: etag, Vary: 'Accept-Encoding' };
     if (req.headers['if-none-match'] === etag) {
       res.writeHead(304, headers);
@@ -194,11 +215,45 @@ const CATALOG_CACHE = 'public, max-age=600, s-maxage=3600';
 const liveCache = (edge) => `public, max-age=0, s-maxage=${edge}, stale-while-revalidate=${edge * 3}, stale-if-error=900`;
 /** Minutos de estela pedidos (1-45; 15 por defecto). Entero, para que no haya infinitas variantes. */
 const trailMinutes = (p) => Math.max(1, Math.min(Math.round(Number(p.get('min'))) || 15, 45));
-const vehicleFilter = (p) => ({
-  mode: p.get('mode') ?? undefined,
-  source: p.get('source') ?? undefined,
-  minDelay: p.has('minDelay') ? Number(p.get('minDelay')) : undefined,
+/**
+ * Filtros de /api/vehicles y /api/events, acotados para que no haya infinitas variantes caras:
+ * el retraso mínimo, entero entre -1 (todos) y 1440 minutos; los identificadores (tipo, fuente,
+ * categoría), con la forma de los nuestros. Uno con otra forma no coincidiría con nada: se cambia
+ * por «-», que tampoco, y así todos los raros comparten variante.
+ */
+export const vehicleFilter = (p) => ({
+  mode: idParam(p, 'mode'),
+  source: idParam(p, 'source'),
+  minDelay: p.has('minDelay') && Number.isFinite(Number(p.get('minDelay')))
+    ? Math.max(-1, Math.min(Math.round(Number(p.get('minDelay'))), 1440)) : undefined,
 });
+const idParam = (p, name) => {
+  const value = p.get(name);
+  if (value === null || value === '') return undefined;
+  return /^[a-z0-9-]{1,40}$/.test(value) ? value : '-';
+};
+
+/** Lo lanza el cálculo de una variante nueva cuando se ha gastado el presupuesto: 503. */
+class Busy extends Error {}
+
+/**
+ * Presupuesto de cálculos (cubo de fichas): `perSecond` de media y ráfagas de hasta `burst`.
+ * `take()` gasta una ficha y dice si había.
+ */
+export function createBudget({ perSecond = 5, burst = 10, now = Date.now } = {}) {
+  let tokens = burst;
+  let last = now();
+  return {
+    take() {
+      const t = now();
+      tokens = Math.min(burst, tokens + ((t - last) / 1000) * perSecond);
+      last = t;
+      if (tokens < 1) return false;
+      tokens--;
+      return true;
+    },
+  };
+}
 
 /**
  * Memo de respuestas JSON ya serializadas, comprimidas y firmadas: `get(clave, ttl, calcular)`
