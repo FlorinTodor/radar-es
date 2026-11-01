@@ -22,9 +22,13 @@
 # `--forzar` redespliega aunque el commit ya esté desplegado o marcado como fallido. En producción,
 # además, sin pasar por pruebas si hace falta (construye aquí la imagen, con los tests): sólo para
 # urgencias.
+#
+# Si hay token (.github-token, de solo «Commit statuses»), cada paso marca el commit en GitHub con
+# el check «Pruebas VPS» o «Producción»: es lo que espera el pipeline de .github/workflows/pipeline.yml.
 # El registro queda en: journalctl -u radar-actualizar (producción) o -u radar-pruebas
 set -euo pipefail
 
+readonly REPO=FlorinTodor/radar-es
 readonly DIR_PRUEBAS=/opt/radar-pruebas
 readonly IMAGEN_PRODUCCION=radar-es
 readonly VERIFICADA=radar-es-verificado # radar-es-verificado:<árbol> = imagen que ha pasado pruebas
@@ -61,10 +65,28 @@ vigilar() {
   fi
 }
 
-# Lo que lee producción para explicar por qué espera. Sólo lo escribe pruebas.
+# estado <probando|verificado|desplegado|fallido> <commit> <texto>
+# En pruebas queda en .estado, que lee producción para explicar por qué espera.
 estado() {
-  [[ $ENTORNO == pruebas ]] || return 0
-  echo "$*" | tee .estado
+  local fase=$1 commit=$2 texto=$3
+  if [[ $ENTORNO == pruebas ]]; then echo "$fase ${commit:0:7}: $texto" | tee .estado; fi
+  avisar_github "$fase" "$commit" "$texto"
+}
+
+# Un fallo al avisar a GitHub no para el despliegue: sólo se apunta en el registro.
+avisar_github() {
+  local token estado contexto
+  token=$(cat .github-token 2>/dev/null) || return 0
+  case $1 in
+    probando) estado=pending ;;
+    verificado | desplegado) estado=success ;;
+    *) estado=failure ;;
+  esac
+  contexto=$([[ $ENTORNO == pruebas ]] && echo 'Pruebas VPS' || echo 'Producción')
+  curl -fsS -o /dev/null --max-time 15 -X POST "https://api.github.com/repos/$REPO/statuses/$2" \
+    -H "Authorization: Bearer $token" -H 'Accept: application/vnd.github+json' \
+    -d "{\"state\": \"$estado\", \"context\": \"$contexto\", \"description\": \"${3:0:140}\"}" ||
+    echo "Aviso: no se ha podido marcar ${2:0:7} en GitHub"
 }
 
 # La salida de la construcción va a un fichero: si falla, al registro van los tests que fallan
@@ -119,13 +141,14 @@ desplegar() {
     # Se avisa una vez por commit, no cada 2 minutos.
     if [[ $(cat .esperando 2>/dev/null || true) != "$nuevo" ]]; then
       echo "${nuevo:0:7} no está verificado en pruebas: no se despliega todavía. Pruebas: $(cat "$DIR_PRUEBAS/.estado" 2>/dev/null || echo 'sin estado')"
+      avisar_github probando "$nuevo" 'esperando a que pruebas verifique este código'
       echo "$nuevo" > .esperando
     fi
     return 0
   fi
   rm -f .esperando
 
-  estado "probando ${nuevo:0:7}: construyendo"
+  estado probando "$nuevo" "$([[ $ENTORNO == pruebas ]] && echo construyendo || echo desplegando)"
   echo "Desplegando $RAMA: ${desplegado:0:7} → ${nuevo:0:7}"
   anterior=$(git rev-parse HEAD)
   imagen=$(docker compose config --images | head -n1)
@@ -137,7 +160,7 @@ desplegar() {
     echo "Con la imagen verificada en pruebas, sin recompilar"
     docker image tag "$VERIFICADA:$arbol" "$imagen"
   elif ! construir; then
-    estado "fallido ${nuevo:0:7}: no se puede construir o no pasa los tests"
+    estado fallido "$nuevo" 'no se puede construir o no pasa los tests'
     echo "ERROR: ${nuevo:0:7} no se puede construir o no pasa los tests. Sigue funcionando ${desplegado:0:7}."
     git checkout --quiet --force -B "$RAMA" "$anterior"
     echo "$nuevo" > .fallido
@@ -149,7 +172,7 @@ desplegar() {
     rm -f .fallido
     echo "Desplegado ${nuevo:0:7}: el contenedor responde"
   else
-    estado "fallido ${nuevo:0:7}: no arranca"
+    estado fallido "$nuevo" "no arranca: vuelve a ${desplegado:0:7}"
     echo "ERROR: ${nuevo:0:7} no arranca bien ($(salud)). Últimas líneas:"
     docker compose logs --no-color --tail 30 radar || true
     echo "Volviendo a ${desplegado:0:7}"
@@ -163,15 +186,17 @@ desplegar() {
 
   if [[ $ENTORNO == pruebas ]]; then
     # El contenedor se queda funcionando aunque falle, para poder mirar qué le pasa.
-    estado "probando ${nuevo:0:7}: cargando las fuentes y comprobando"
+    estado probando "$nuevo" 'cargando las fuentes y comprobando'
     if ! comprobar "$imagen"; then
-      estado "fallido ${nuevo:0:7}: no pasa la comprobación (journalctl -u radar-pruebas)"
+      estado fallido "$nuevo" 'no pasa la comprobación (journalctl -u radar-pruebas)'
       echo "$nuevo" > .fallido
       return 1
     fi
     docker image tag "$imagen" "$VERIFICADA:$arbol"
     limpiar_verificadas
-    estado "verificado ${nuevo:0:7}: listo para subir a producción"
+    estado verificado "$nuevo" 'listo para subir a producción'
+  else
+    estado desplegado "$nuevo" 'funcionando en producción'
   fi
   docker image prune -f >/dev/null
 }
