@@ -249,6 +249,7 @@ body.doc { overflow: auto; display: block; }
 .doc-body a.btn { display: inline-block; color: #0d0d0d; text-decoration: none; }
 .doc-foot { max-width: 980px; margin: 0 auto; padding: 16px 16px 40px; border-top: 1px solid var(--border); font-size: 13px; line-height: 1.8; color: var(--muted); }
 .doc-foot a { color: var(--ink-2); }
+.doc-foot .credit { margin: 6px 0 0; }
 .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
 .doc-body table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .doc-body th, .doc-body td { padding: 8px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
