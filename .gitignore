@@ -8,5 +8,6 @@ data/
 .esperando
 .estado
 .github-token
+.limpieza
 # Notas que no deben ser públicas (comprobaciones de seguridad del VPS…)
 docs/privado/
