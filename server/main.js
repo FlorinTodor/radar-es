@@ -22,6 +22,7 @@ import { createSources } from './adapters/outbound/sources/index.js';
 import { startPolling } from './adapters/inbound/scheduler/polling-scheduler.js';
 import { createHttpServer } from './adapters/inbound/http/http-server.js';
 import { createWmsTiles } from './adapters/outbound/tiles/wms-tiles.js';
+import { createCpuPool, parseThreads } from './adapters/outbound/workers/cpu-pool.js';
 
 const config = loadConfig();
 const log = createConsoleLogger();
@@ -29,17 +30,20 @@ const clock = { now: () => Date.now() };
 const http = createHttpClient({ userAgent: config.userAgent });
 
 // --- Adaptadores de salida -------------------------------------------------
+// Hilos para el trabajo de CPU (horarios GTFS, trazados, XML de la DGT): desactivados salvo que
+// WORKER_THREADS diga cuántos (ver parseThreads: falta medir su pico de memoria en el peor caso).
+const pool = createCpuPool({ threads: parseThreads(config.env.WORKER_THREADS), log });
 const cacheDir = new URL('cache/', config.dataDir);
 const cache = createFileCache({ http, dir: cacheDir, log });
 const nap = createNapClient({ cache, apiKey: config.env.NAP_API_KEY });
 const stations = assertPort('StationCatalog', createRenfeStationCatalog({ cache, cacheDir, log }), PORT_MEMBERS.StationCatalog);
-const network = assertPort('NetworkCatalog', createGtfsNetworkCatalog({ nap, cache, cacheDir, log }), PORT_MEMBERS.NetworkCatalog);
+const network = assertPort('NetworkCatalog', createGtfsNetworkCatalog({ nap, cache, cacheDir, log, pool }), PORT_MEMBERS.NetworkCatalog);
 const situation = assertPort('SituationRepository', createInMemorySituation(), PORT_MEMBERS.SituationRepository);
 const history = assertPort('History', createJsonlHistory({ dir: new URL('history/', config.dataDir), log }), PORT_MEMBERS.History);
 const bus = assertPort('EventPublisher', createInProcessEventBus(), PORT_MEMBERS.EventPublisher);
 const tiles = assertPort('TileProvider', createWmsTiles({ http, dir: fileURLToPath(new URL('tiles/', config.dataDir)), log }), PORT_MEMBERS.TileProvider);
 
-const sources = createSources({ http, cache, stations, nap, log, env: config.env })
+const sources = createSources({ http, cache, stations, nap, log, env: config.env, pool })
   .map((s) => assertPort(`DataSource(${s.id})`, s, PORT_MEMBERS.DataSource));
 
 const enabledSources = [];
@@ -75,12 +79,14 @@ const server = createHttpServer({
 });
 
 server.listen(config.port, config.host, () => {
-  log.info(`Radar España escuchando en http://${config.host}:${config.port} · ${enabledSources.length}/${sources.length} fuentes activas`);
+  log.info(`Radar España escuchando en http://${config.host}:${config.port} · ${enabledSources.length}/${sources.length} fuentes activas`
+    + ` · ${pool.threads() || 'sin'} hilo(s) de cálculo`);
 });
 
 function shutdown() {
   log.info('Cerrando…');
   scheduler.stop();
+  pool.close();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 3000).unref();
 }

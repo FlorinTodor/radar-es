@@ -16,7 +16,9 @@ services:
       - ./data:/app/data
     # Endurecido: sistema de ficheros de sólo lectura (sólo se escribe en data/ y en /tmp en memoria),
     # sin capacidades de Linux ni forma de ganar privilegios, y con techo de recursos para que un
-    # fallo no se coma el VPS, que comparte con otros proyectos. Pico medido al cargar los GTFS: ~470 MB.
+    # fallo no se coma el VPS, que comparte con otros proyectos. Pico medido al cargar los GTFS
+    # (memory.peak del contenedor, arranque con la caché de trazados): ~350 MB en un hilo y ~530 MB
+    # con los 2 hilos de cálculo (WORKER_THREADS; 0 = un solo hilo si la memoria aprieta).
     read_only: true
     tmpfs:
       - /tmp:size=64m

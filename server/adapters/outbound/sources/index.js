@@ -45,7 +45,8 @@ const ESTIMATED_BY_SCHEDULE = [
 /**
  * @param {{ http: import('../http/http-client.js').HttpClient, stations: import('../../../application/ports.js').StationCatalogPort,
  *           nap: ReturnType<typeof import('../nap/nap-client.js').createNapClient>,
- *           log: import('../../../application/ports.js').LoggerPort, env: Record<string, string|undefined> }} deps
+ *           log: import('../../../application/ports.js').LoggerPort, env: Record<string, string|undefined>,
+ *           pool?: import('../workers/cpu-pool.js').CpuPool }} deps  pool: hilos de cálculo (horarios, XML de la DGT).
  * @returns {import('../../../application/ports.js').DataSourcePort[]}
  */
 export function createSources(deps) {
