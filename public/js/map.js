@@ -193,17 +193,18 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     }
 
     // Estaciones: punto blanco con borde oscuro, como en los planos de transporte, más grande al
-    // acercar. Debajo, un círculo invisible más grande para poder pulsarlas con el dedo.
+    // acercar. Debajo, un círculo invisible más grande para poder pulsarlas con el dedo; de lejos,
+    // más pequeño, para no tapar lo que hay alrededor.
     map.addLayer({
-      id: 'stations-hit', type: 'circle', source: 'stations', minzoom: 9,
-      paint: { 'circle-radius': 14, 'circle-color': 'rgba(0, 0, 0, 0)' },
+      id: 'stations-hit', type: 'circle', source: 'stations', minzoom: 6.5,
+      paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 6.5, 7, 9, 12, 12, 14], 'circle-color': 'rgba(0, 0, 0, 0)' },
     });
     map.addLayer({
-      id: 'stations-dots', type: 'circle', source: 'stations', minzoom: 6.5,
+      id: 'stations-dots', type: 'circle', source: 'stations', minzoom: 5.5,
       paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 6.5, 1.8, 9, 3, 12, 5, 15, 7],
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 5.5, 1.5, 7, 2.3, 9, 3.2, 12, 5, 15, 7],
         'circle-color': '#f0efec', 'circle-stroke-color': '#0d0d0d',
-        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 6.5, 0.5, 9, 1.2, 13, 2],
+        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 5.5, 0.5, 9, 1.2, 13, 2],
       },
     });
     map.addLayer({
@@ -214,9 +215,10 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
       },
     });
     map.addLayer({
-      id: 'stations-labels', type: 'symbol', source: 'stations', minzoom: 10,
+      // Desde 8,5 el mapa sólo pone los nombres que caben sin montarse; al acercar salen todos.
+      id: 'stations-labels', type: 'symbol', source: 'stations', minzoom: 8.5,
       layout: {
-        'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': ['interpolate', ['linear'], ['zoom'], 10, 11, 15, 13],
+        'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': ['interpolate', ['linear'], ['zoom'], 8.5, 10, 15, 13],
         'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-optional': true,
       },
       paint: { 'text-color': '#c3c2b7', 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.4 },
@@ -698,7 +700,10 @@ function stationDetail(st, { stopped, arriving, notices, lines, connections = []
   // La foto viene de Wikimedia Commons: su licencia pide citar autor y licencia junto a ella.
   const photo = st.photo && safeUrl(st.photo.url) ? `<figure class="st-photo"><img src="${esc(safeUrl(st.photo.url))}" alt="Estación de ${esc(st.name)}" loading="lazy">
     <figcaption>Foto: ${esc(st.photo.author)} · ${st.photo.licenseUrl ? link(st.photo.licenseUrl, st.photo.license) : esc(st.photo.license)} · ${link(st.photo.page, 'Wikimedia Commons')}</figcaption></figure>` : '';
+  // Sólo enlaces: no se carga nada de esas webs hasta que se pulsan. El de Google Maps usa su
+  // formato público de enlaces (Maps URLs): en el móvil abre la app con la ruta hasta la estación.
   const links = [
+    link(`https://www.google.com/maps/dir/?api=1&destination=${st.lat},${st.lon}`, 'Cómo llegar (Google Maps)'),
     link(st.wikipedia, 'Wikipedia'),
     link(st.sheet, 'Ficha técnica de Renfe (PDF, 2019)'),
     link(`https://www.openstreetmap.org/?mlat=${st.lat}&mlon=${st.lon}#map=17/${st.lat}/${st.lon}`, 'OpenStreetMap'),
