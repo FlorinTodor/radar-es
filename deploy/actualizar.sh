@@ -14,10 +14,13 @@
 # imagen sin recompilar: sale exactamente lo que se ha probado. Si no lo está, no toca nada y lo
 # dice en el registro; se despliega sola en cuanto pruebas la verifique.
 #
-# En los dos, tras cambiar el contenedor espera a que responda. Si no, vuelve a la imagen y al
-# código anteriores y apunta el commit en .fallido para no reintentarlo cada 2 minutos (se
-# reintenta al llegar otro commit). Y si el contenedor está "unhealthy" (colgado: el proceso vive
-# pero no responde), lo reinicia: Docker sólo reinicia solo los contenedores que terminan.
+# En los dos, sin cortes: la web va en dos contenedores que se relevan (radar y radar-b) detrás de
+# nginx (compose.yaml). La versión nueva arranca en el que está parado; cuando responde y ha cargado
+# los datos, nginx pasa a él sin cortar ninguna conexión y se para el otro. Si no arranca, se para
+# y sigue funcionando el de antes: se vuelve al código anterior y se apunta el commit en .fallido
+# para no reintentarlo cada 2 minutos (se reintenta al llegar otro commit). Y si el contenedor en
+# servicio está "unhealthy" (colgado: el proceso vive pero no responde), lo reinicia: Docker sólo
+# reinicia solo los contenedores que terminan.
 #
 # `--forzar` redespliega aunque el commit ya esté desplegado o marcado como fallido. En producción,
 # además, sin pasar por pruebas si hace falta (construye aquí la imagen, con los tests): sólo para
@@ -36,13 +39,22 @@ readonly DIR_PRUEBAS=/opt/radar-pruebas
 readonly IMAGEN_PRODUCCION=radar-es
 readonly VERIFICADA=radar-es-verificado # radar-es-verificado:<árbol> = imagen que ha pasado pruebas
 readonly ESPERA_MAX=180                 # segundos hasta dar por fallido un arranque
+readonly ESPERA_DATOS=600               # segundos, como mucho, esperando a que cargue los datos
 readonly MEMORIA_MAX=$((900 * 1024 * 1024)) # pico al cargar todo; el límite del contenedor es 1 GB
+readonly ACTIVO=data/proxy/activo.conf # cuál de los dos atiende: lo lee nginx
 
-contenedor() { docker compose ps -q radar 2>/dev/null || true; }
+# docker compose con el contenedor de relevo (radar-b, en el perfil «relevo») incluido.
+dc() { docker compose --profile relevo "$@"; }
+
+# El servicio que atiende las visitas y el otro. Sin activo.conf (la primera vez), radar.
+activo() { if grep -q 'radar-b;' "$ACTIVO" 2>/dev/null; then echo radar-b; else echo radar; fi; }
+otro() { if [[ $(activo) == radar ]]; then echo radar-b; else echo radar; fi; }
+
+contenedor() { dc ps -q "${1:-$(activo)}" 2>/dev/null || true; }
 
 salud() {
   local id
-  id=$(contenedor)
+  id=$(contenedor "${1:-}")
   [[ -n $id ]] || { echo ausente; return; }
   # running → estado del healthcheck (starting, healthy, unhealthy); si no, restarting, exited…
   docker inspect -f '{{if ne .State.Status "running"}}{{.State.Status}}{{else if .State.Health}}{{.State.Health.Status}}{{else}}running{{end}}' "$id" 2>/dev/null || echo ausente
@@ -51,7 +63,7 @@ salud() {
 esperar_sano() {
   local fin=$((SECONDS + ESPERA_MAX)) estado
   while ((SECONDS < fin)); do
-    estado=$(salud)
+    estado=$(salud "${1:-}")
     case $estado in
       healthy) return 0 ;;
       unhealthy | restarting | exited | dead) return 1 ;; # se ha caído al arrancar
@@ -61,10 +73,56 @@ esperar_sano() {
   return 1
 }
 
+# Fuentes que todavía no han terminado su primera lectura en el servicio $1, o -1 si no responde.
+# Se pregunta desde dentro del contenedor (node está en la imagen; en el VPS no hace falta).
+fuentes_pendientes() {
+  dc exec -T "$1" node -e "fetch('http://127.0.0.1:8080/api/health').then((r) => r.json())
+    .then((h) => console.log((Array.isArray(h) ? h : h.sources).filter((s) => s.enabled && s.ok === null).length))
+    .catch(() => console.log(-1))" 2>/dev/null || echo -1
+}
+
+# Antes de pasarle las visitas, que haya leído cada fuente al menos una vez: si no, quien entrara
+# vería el mapa a medio llenar. Si alguna tarda demasiado, se sigue igualmente.
+esperar_datos() {
+  local fin=$((SECONDS + ESPERA_DATOS)) pendientes=-1
+  while ((SECONDS < fin)); do
+    pendientes=$(fuentes_pendientes "$1")
+    ((pendientes == 0)) && return 0
+    sleep 5
+  done
+  echo "Aviso: $1 tiene $pendientes fuentes sin su primera lectura tras $ESPERA_DATOS s; se cambia igualmente"
+}
+
+# nginx en marcha y con la configuración de este commit (comprobada antes de recargarla).
+proxy_al_dia() {
+  mkdir -p "$(dirname "$ACTIVO")"
+  dc up -d --no-deps proxy
+  dc exec -T proxy nginx -t -q && dc exec -T proxy nginx -s reload
+}
+
+# nginx pasa a $1: las peticiones en curso terminan con el anterior. Cada paso se comprueba (dentro
+# de un `if`, bash no para en los errores) y, al final, se pregunta a nginx quién atiende: sólo si es
+# $1 se puede parar el otro. La cabecera X-Radar-Activo sólo sale si se pide (X-Radar-Relevo: 1).
+cambiar_a() {
+  local destino=$1 atiende=
+  printf 'set $radar_activo %s;\n' "$destino" > "$ACTIVO.nuevo" || return 1
+  mv -f "$ACTIVO.nuevo" "$ACTIVO" || return 1
+  dc exec -T proxy nginx -t -q || return 1
+  dc exec -T proxy nginx -s reload || return 1
+  for _ in {1..15}; do
+    atiende=$(curl -fsS -o /dev/null -D - --max-time 5 -H 'X-Radar-Relevo: 1' \
+      "http://$(dc port proxy 8080)/api/health" 2>/dev/null | tr -d '\r' | sed -n 's/^x-radar-activo: //Ip')
+    [[ $atiende == "$destino" ]] && return 0
+    sleep 1
+  done
+  echo "nginx no atiende con $destino (atiende: ${atiende:-nadie})"
+  return 1
+}
+
 vigilar() {
   if [[ $(salud) == unhealthy ]]; then
-    echo "El contenedor no responde (unhealthy): reiniciándolo"
-    docker compose restart radar
+    echo "El contenedor en servicio ($(activo)) no responde (unhealthy): reiniciándolo"
+    dc restart "$(activo)"
   fi
 }
 
@@ -112,7 +170,7 @@ construir() {
 comprobar() {
   local imagen=$1 id pico reinicios
   docker run --rm -i --network host --read-only --cap-drop ALL --security-opt no-new-privileges \
-    -e PRUEBAS="http://$(docker compose port radar 8080)" -e PRODUCCION=http://127.0.0.1:8080 \
+    -e PRUEBAS="http://$(dc port "$(activo)" 8080)" -e PRODUCCION=http://127.0.0.1:8080 \
     "$imagen" node --input-type=module - <deploy/comprobar.mjs || return 1
   id=$(contenedor)
   pico=$(docker exec "$id" cat /sys/fs/cgroup/memory.peak 2>/dev/null || echo 0)
@@ -130,7 +188,7 @@ limpiar_verificadas() {
 }
 
 desplegar() {
-  local forzar=$1 imagen nuevo arbol desplegado anterior
+  local forzar=$1 imagen nuevo arbol desplegado anterior viejo relevo
   git fetch --quiet origin "$RAMA"
   nuevo=$(git rev-parse FETCH_HEAD)
   arbol=$(git rev-parse "$nuevo^{tree}")
@@ -154,7 +212,7 @@ desplegar() {
   estado probando "$nuevo" "$([[ $ENTORNO == pruebas ]] && echo construyendo || echo desplegando)"
   echo "Desplegando $RAMA: ${desplegado:0:7} → ${nuevo:0:7}"
   anterior=$(git rev-parse HEAD)
-  imagen=$(docker compose config --images | head -n1)
+  imagen=$(docker compose config --images radar) # la de la web (la de nginx va fijada en compose.yaml)
   # Se guarda la imagen que está funcionando para poder volver a ella.
   if docker image inspect "$imagen" >/dev/null 2>&1; then docker image tag "$imagen" "$imagen:anterior"; fi
   git checkout --quiet --force -B "$RAMA" FETCH_HEAD
@@ -170,22 +228,39 @@ desplegar() {
     return 1
   fi
 
-  if docker compose up -d --remove-orphans && esperar_sano; then
-    echo "$nuevo" > .desplegado
-    rm -f .fallido
-    echo "Desplegado ${nuevo:0:7}: el contenedor responde"
+  # Relevo: la versión nueva arranca en el contenedor parado mientras el otro sigue atendiendo.
+  viejo=$(activo)
+  relevo=$(otro)
+  if [[ -z $(contenedor "$viejo") || $(salud "$viejo") == exited ]]; then relevo=$viejo; fi # no hay nada en marcha
+  if proxy_al_dia && dc up -d --no-deps --force-recreate "$relevo" && esperar_sano "$relevo"; then
+    esperar_datos "$relevo"
   else
-    estado fallido "$nuevo" "no arranca: vuelve a ${desplegado:0:7}"
-    echo "ERROR: ${nuevo:0:7} no arranca bien ($(salud)). Últimas líneas:"
-    docker compose logs --no-color --tail 30 radar || true
-    echo "Volviendo a ${desplegado:0:7}"
+    estado fallido "$nuevo" "no arranca: sigue ${desplegado:0:7}"
+    echo "ERROR: ${nuevo:0:7} no arranca bien ($(salud "$relevo")). Últimas líneas:"
+    dc logs --no-color --tail 30 "$relevo" || true
+    [[ $relevo != "$viejo" ]] && dc stop "$relevo"
+    echo "Sigue funcionando ${desplegado:0:7}"
     git checkout --quiet --force -B "$RAMA" "$anterior"
     if docker image inspect "$imagen:anterior" >/dev/null 2>&1; then docker image tag "$imagen:anterior" "$imagen"; fi
-    docker compose up -d --remove-orphans
     echo "$nuevo" > .fallido
-    if esperar_sano; then echo "Vuelta atrás hecha: funciona ${desplegado:0:7}"; else echo "ERROR: la versión anterior tampoco arranca"; fi
     return 1
   fi
+  if ! cambiar_a "$relevo"; then
+    estado fallido "$nuevo" "nginx no pasa al nuevo: sigue ${desplegado:0:7}"
+    echo "ERROR: nginx no responde con $relevo; se queda $viejo"
+    cambiar_a "$viejo" || true
+    [[ $relevo != "$viejo" ]] && dc stop "$relevo"
+    git checkout --quiet --force -B "$RAMA" "$anterior"
+    if docker image inspect "$imagen:anterior" >/dev/null 2>&1; then docker image tag "$imagen:anterior" "$imagen"; fi
+    echo "$nuevo" > .fallido
+    return 1
+  fi
+  # Se para el que sobra (normalmente el de antes; también si quedaba otro en marcha de antes).
+  dc stop "$([[ $relevo == radar ]] && echo radar-b || echo radar)"
+  echo "$nuevo" > .desplegado
+  rm -f .fallido
+  echo "Desplegado ${nuevo:0:7} en $relevo, sin corte: responde y ha cargado los datos"
+
 
   if [[ $ENTORNO == pruebas ]]; then
     # El contenedor se queda funcionando aunque falle, para poder mirar qué le pasa.
@@ -226,7 +301,7 @@ parar_pruebas_si_sobra() {
   probada=$(docker image inspect -f '{{.Id}}' "$VERIFICADA:$(git rev-parse "$desplegado^{tree}")" 2>/dev/null) || return 0
   [[ $probada == "$(docker image inspect -f '{{.Id}}' "$IMAGEN_PRODUCCION" 2>/dev/null)" ]] || return 0
   echo "Producción ya funciona con ${desplegado:0:7}: se para pruebas hasta el próximo cambio en dev"
-  docker compose stop radar
+  dc stop radar radar-b
 }
 
 # Sin nada nuevo en GitHub y con la última vuelta completa hace menos de 2 minutos, no hay que hacer
