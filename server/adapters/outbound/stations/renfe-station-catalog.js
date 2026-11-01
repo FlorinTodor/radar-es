@@ -5,7 +5,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { distanceKm } from '../../../domain/geo.js';
 import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
-import { loadStationExtras } from './station-extras.js';
+import { RETIRED_PHOTOS_VERSION, loadStationExtras } from './station-extras.js';
 
 const REFRESH_MS = 24 * 3600_000;
 export const RENFE_FILES = {
@@ -77,7 +77,8 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
   // enseña la anterior. 4: fotos de Commons también para las estaciones que Wikidata no tiene.
   // 5: autor como pide cada foto (Attribution), sin fotos sólo GFDL ni sin autor si la licencia lo exige.
   // 6: todas las fotos de Wikidata y candidatas en orden, sin derechos de imagen ni fotos repetidas dudosas.
-  const CATALOG_VERSION = 6;
+  // 7: lista de fotos retiradas; su huella va detrás, así que retirar una foto también recalcula.
+  const CATALOG_VERSION = `7-${RETIRED_PHOTOS_VERSION}`;
   /** @type {Map<string, import('../../../domain/model.js').Station & { cercanias: boolean }>} */
   const stations = new Map();
 

@@ -6,7 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { categoryCandidates, choosePhotos, loadStationExtras, matchesStation, nameKey, nearbyCandidates, pageImages, parseCommons } from '../../server/adapters/outbound/stations/station-extras.js';
+import { categoryCandidates, choosePhotos, loadStationExtras, matchesStation, nameKey, nearbyCandidates, pageImages, parseCommons, withoutRetired } from '../../server/adapters/outbound/stations/station-extras.js';
 import { createFileCache } from '../../server/adapters/outbound/http/file-cache.js';
 
 const silent = { warn() {}, info() {} };
@@ -178,4 +178,24 @@ test('licencias: sin autor sólo valen CC0 y dominio público; las fotos sólo G
   assert.deepEqual([...out.keys()], ['b.jpg', 'c.jpg', 'e.jpg'], 'tampoco las de personas reconocibles con aviso de derechos de imagen');
   assert.equal(out.get('b.jpg').author, 'Autor desconocido');
   assert.equal(out.get('e.jpg').author, 'Willtron');
+});
+
+test('fotos retiradas: no se usan y la ficha pasa a la siguiente candidata', () => {
+  const photos = new Map([['Retrato en el andén.jpg', {}], ['Estación de Bravo.jpg', {}]]);
+  withoutRetired(photos, new Set(['Retrato en el andén.jpg']));
+  assert.deepEqual([...photos.keys()], ['Estación de Bravo.jpg']);
+  const names = new Map([['1', 'Bravo']]);
+  const out = choosePhotos(new Map([['1', [{ file: 'Retrato en el andén.jpg', dist: 0 }, { file: 'Estación de Bravo.jpg', dist: 30 }]]]), photos, names);
+  assert.deepEqual([...out], [['1', 'Estación de Bravo.jpg']]);
+});
+
+test('la lista de fotos retiradas es válida: cada una con fichero, motivo y fecha', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const list = JSON.parse(await readFile(new URL('../../server/adapters/outbound/stations/fotos-retiradas.json', import.meta.url), 'utf8'));
+  assert.ok(Array.isArray(list.fotos));
+  for (const p of list.fotos) {
+    assert.ok(p.fichero && !p.fichero.startsWith('File:'), `fichero sin «File:»: ${p.fichero}`);
+    assert.ok(p.motivo, `motivo de ${p.fichero}`);
+    assert.match(p.fecha, /^\d{4}-\d{2}-\d{2}$/, `fecha de ${p.fichero}`);
+  }
 });
