@@ -5,6 +5,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { distanceKm } from '../../../domain/geo.js';
 import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
+import { loadStationExtras } from './station-extras.js';
 
 const REFRESH_MS = 24 * 3600_000;
 export const RENFE_FILES = {
@@ -35,6 +36,24 @@ export function withoutDuplicates(stations, scheduled) {
   return stations.filter((s) => scheduled.has(s.code) || !duplicate(s));
 }
 
+/**
+ * Añade a cada estación lo que haya de otras fuentes (station-extras.js). La accesibilidad de Renfe
+ * manda; la de Wikidata sólo cubre las estaciones de las que Renfe no dice nada. Cada dato lleva su
+ * fuente.
+ */
+export function withExtras(stations, extras) {
+  return stations.map((s) => {
+    const { accessible, ...more } = extras.get(s.code) ?? {};
+    const fromWikidata = s.accessible === null && accessible !== undefined;
+    return {
+      ...s,
+      accessible: fromWikidata ? accessible : s.accessible,
+      accessibleSource: fromWikidata ? 'Wikidata' : s.accessible === null ? null : 'Renfe',
+      ...more,
+    };
+  });
+}
+
 /** wheelchair_boarding del GTFS: 1 accesible, 2 no accesible; vacío o 0, sin datos. */
 const wheelchair = (v) => (v === '1' ? true : v === '2' ? false : null);
 
@@ -51,8 +70,9 @@ function* semicolonRows(bytes) {
  * @returns {import('../../../application/ports.js').StationCatalogPort}
  */
 export function createRenfeStationCatalog({ cache, cacheDir, log }) {
-  // v2: con dirección, provincia, ancho métrico y accesibilidad (la caché anterior no los tiene).
-  const cacheFile = new URL('renfe-stations-v2.json', cacheDir);
+  // v3: con dirección, provincia, ancho métrico, accesibilidad y los datos de Wikidata y Commons
+  // (las cachés anteriores no los tienen).
+  const cacheFile = new URL('renfe-stations-v3.json', cacheDir);
   /** @type {Map<string, import('../../../domain/model.js').Station & { cercanias: boolean }>} */
   const stations = new Map();
 
@@ -98,7 +118,7 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
         list.set(code, { code, name: s.name, place: null, province: null, address: null, postalCode: null, lat: s.lat, lon: s.lon, cercanias: s.cercanias, metricGauge: false, accessible: s.accessible });
       }
     }
-    return withoutDuplicates([...list.values()], new Set(gtfsStops.keys()));
+    return withExtras(withoutDuplicates([...list.values()], new Set(gtfsStops.keys())), await loadStationExtras({ cache, log, maxAgeMs: REFRESH_MS }));
   }
 
   return {

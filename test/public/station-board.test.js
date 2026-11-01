@@ -36,6 +36,13 @@ test('las líneas que pasan por la estación, una vez cada una y en orden', () =
   assert.deepEqual(stationBoard(OVIEDO, { vehicles: [], events: [], lines }).lines.map((l) => l.line), ['C1', 'C3']);
 });
 
+test('metro y tranvía a menos de 300 m salen como conexiones, no como líneas de la estación', () => {
+  const metro = (line, lat) => ({ properties: { line, network: 'Metro', color: '#00f', mode: 'metro' }, geometry: { type: 'LineString', coordinates: [[-5.87, lat], [-5.84, lat]] } });
+  const b = stationBoard(OVIEDO, { vehicles: [], events: [], lines: [metro('L1', 43.3664), metro('L2', 43.3680), metro('L9', 43.3720)] }); // ~0, ~180 y ~630 m
+  assert.deepEqual(b.connections.map((l) => l.line), ['L1', 'L2']);
+  assert.equal(b.lines.length, 0);
+});
+
 test('el buscador de estaciones no distingue tildes ni mayúsculas y pone primero las que empiezan así', async () => {
   const { filterStations } = await import('../../public/js/panels.js');
   const st = [
@@ -46,4 +53,5 @@ test('el buscador de estaciones no distingue tildes ni mayúsculas y pone primer
   assert.deepEqual(filterStations(st, 'castellon').map((s) => s.code), ['1', '3']);
   assert.deepEqual(filterStations(st, 'CABAN').map((s) => s.code), ['3', '2']);
   assert.equal(filterStations(st, '  ').length, 0);
+  assert.deepEqual(filterStations([{ code: '60000', name: 'Madrid-Puerta de Atocha-Almudena Grandes', place: 'Madrid' }], 'atocha almudena').map((s) => s.code), ['60000']);
 });

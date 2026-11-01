@@ -33,7 +33,7 @@ test('cada estación lleva dirección, provincia, ancho métrico y accesibilidad
     await catalog.load();
     assert.deepEqual(catalog.get('15211'), {
       code: '15211', name: 'Oviedo', place: 'Oviedo', province: 'Asturias', address: 'Calle Uría S/N', postalCode: '33012',
-      lat: 43.3663577, lon: -5.854838, cercanias: true, metricGauge: false, accessible: true,
+      lat: 43.3663577, lon: -5.854838, cercanias: true, metricGauge: false, accessible: true, accessibleSource: 'Renfe',
     });
     assert.equal(catalog.get('05100').metricGauge, true);
     assert.equal(catalog.get('05100').accessible, null);

@@ -125,12 +125,16 @@ export function filterVehicles(vehicles, query) {
 // Sin tildes ni mayúsculas: «castellon» encuentra Castellón.
 const plain = (s) => String(s ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 
-/** Estaciones cuyo nombre o población contiene la búsqueda; primero las que empiezan por ella. */
+/**
+ * Estaciones cuyo nombre o población tiene todas las palabras buscadas, en cualquier orden
+ * («atocha almudena» encuentra Madrid-Puerta de Atocha-Almudena Grandes); primero las que empiezan así.
+ */
 export function filterStations(stations, query) {
   const q = plain(query.trim());
-  if (!q) return [];
+  const words = q.split(/[\s-]+/).filter(Boolean);
+  if (!words.length) return [];
   const rank = (s) => (plain(s.name).startsWith(q) ? 0 : plain(s.name).includes(q) ? 1 : 2);
-  return stations.filter((s) => plain(s.name).includes(q) || plain(s.place).includes(q))
+  return stations.filter((s) => { const text = `${plain(s.name)} ${plain(s.place)}`; return words.every((w) => text.includes(w)); })
     .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name, 'es'));
 }
 

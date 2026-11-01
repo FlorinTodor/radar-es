@@ -215,8 +215,8 @@ button { font: inherit; color: inherit; }
 }
 .detail[hidden] { display: none; }
 .detail-close {
-  position: absolute; top: 4px; right: 6px; padding: 4px 8px; border: 0; background: none;
-  color: var(--ink-2); font-size: 22px; line-height: 1; cursor: pointer;
+  position: absolute; top: 4px; right: 6px; z-index: 1; padding: 4px 8px; border: 0; border-radius: 6px;
+  background: rgba(13, 13, 13, 0.6); color: var(--ink-2); font-size: 22px; line-height: 1; cursor: pointer;
 }
 .detail-close:hover { color: var(--ink); }
 .pop h3 { margin: 0 28px 6px 0; font-size: 15px; }
@@ -242,6 +242,10 @@ button { font: inherit; color: inherit; }
 .st-empty { margin: 0; color: var(--muted); font-size: 12px; }
 .pop h4 + .st-list, .pop h4 + .st-empty { margin-bottom: 2px; }
 .pop dl { margin-top: 10px; }
+.st-photo { margin: -2px 0 10px; }
+.st-photo img { display: block; width: 100%; max-height: 180px; object-fit: cover; border-radius: 6px; background: var(--surface-2); }
+.st-photo figcaption { margin-top: 3px; color: var(--muted); font-size: 10.5px; line-height: 1.35; }
+.st-links { margin: 8px 0 0; font-size: 12px; }
 
 .maplibregl-ctrl-attrib { background: rgba(13, 13, 13, 0.7) !important; color: var(--muted); }
 .maplibregl-ctrl-attrib a { color: var(--ink-2); }
@@ -355,6 +359,7 @@ body.doc { overflow: auto; display: block; }
   .layers.collapsed { width: auto; }
   .focus-banner { top: auto; bottom: 10px; left: 10px; right: 10px; transform: none; justify-content: space-between; }
   .detail { top: auto; bottom: 10px; left: 8px; right: 8px; width: auto; max-height: 45%; }
+  .st-photo img { max-height: 120px; }
   /* Con el aviso de selección abajo, la ficha y los controles del mapa suben por encima. */
   .map-wrap:has(> .focus-banner:not([hidden])) .detail { bottom: 64px; }
   .map-wrap:has(> .focus-banner:not([hidden])) .maplibregl-ctrl-bottom-left,

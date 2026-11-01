@@ -139,7 +139,8 @@ function flush() {
     map.setVehicles(vehicles, alertIds);
     const selected = map.selectedVehicleId() && findVehicle(map.selectedVehicleId());
     if (selected) map.refreshVehicle(selected);
-    const station = state.stations.get(map.selectedStationCode());
+    const code = map.selectedStationCode();
+    const station = stationDetails.get(code) ?? state.stations.get(code);
     if (station) map.refreshStation(station, boardFor(station));
     // El recuento lo da el servidor (cuenta los autobuses aunque no se hayan pedido); si no lo
     // trae, se cuentan los vehículos recibidos.
@@ -175,12 +176,23 @@ function renderStationsPanel() {
   P.renderStations(document.getElementById('stations-list'), P.filterStations([...state.stations.values()], query), query, trainsByName);
 }
 
-/** Abre la ficha de una estación; desde la lista, además lleva el mapa hasta ella. */
-function openStation(code, fly = false) {
+/**
+ * Abre la ficha de una estación; desde la lista, además lleva el mapa hasta ella. La lista sólo trae
+ * lo básico: la ficha completa (foto, enlaces…) se pide al abrirla y se repinta cuando llega.
+ */
+const stationDetails = new Map();
+async function openStation(code, fly = false) {
   const st = state.stations.get(code);
   if (!st) return;
-  map.showStation(st, boardFor(st));
+  map.showStation(stationDetails.get(code) ?? st, boardFor(st));
   if (fly) map.flyTo(st.lon, st.lat, 14);
+  if (stationDetails.has(code)) return;
+  try {
+    const res = await fetch(`/api/stations/${code}`);
+    if (!res.ok) return;
+    stationDetails.set(code, await res.json());
+    map.refreshStation(stationDetails.get(code), boardFor(st));
+  } catch { /* sin detalle: se queda la ficha básica */ }
 }
 
 // La lista y el buscador no dependen de las capas activas: se puede buscar cualquier tren y, al

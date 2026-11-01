@@ -676,29 +676,43 @@ function createDetailCard(host, onVehicle) {
   };
 }
 
-function stationDetail(st, { stopped, arriving, notices, lines }) {
+function stationDetail(st, { stopped, arriving, notices, lines, connections = [] }) {
   const train = (v, when) => `<li><button type="button" class="link" data-vehicle="${esc(v.id)}">${esc(vehicleTitle(v))}</button>
     ${v.destination ? ` → ${esc(v.destination)}` : ''}${v.platform ? ` · vía ${esc(v.platform)}` : ''}${when ? ` · ${esc(when)}` : ''}
     <span class="st-delay">${esc(fmtDelay(v))}</span></li>`;
   const when = (v) => (v.nextEta ? fmtLocalHour(v.nextEta) : Number.isFinite(v.nextInMinutes) ? `en ${v.nextInMinutes} min` : '');
   const list = (items, empty) => (items.length ? `<ul class="st-list">${items.join('')}</ul>` : `<p class="st-empty">${empty}</p>`);
+  const chips = (ls) => `<div class="st-lines">${ls.map((l) => `<span class="st-line" style="--line:${esc(l.color ?? '#898781')}" title="${esc(l.network ?? '')}">${esc(l.line)}</span>`).join('')}</div>`;
+  const link = (url, label) => (safeUrl(url) ? `<a href="${esc(safeUrl(url))}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>` : '');
   const meta = [st.place, st.province && st.province !== st.place ? st.province : null, st.cercanias ? 'Cercanías / Rodalies' : null].filter(Boolean);
   const address = [st.address, [st.postalCode, st.place].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  const accessible = { true: 'Sí', false: 'No', partial: 'En parte' }[st.accessible] ?? 'Sin datos';
   const rows = [
     address && ['Dirección', address],
-    ['Accesible en silla de ruedas (según Renfe)', st.accessible === true ? 'Sí' : st.accessible === false ? 'No' : 'Sin datos'],
+    ['Accesible en silla de ruedas', st.accessibleSource ? `${accessible} (según ${st.accessibleSource})` : accessible],
+    st.opened && ['Inaugurada', String(st.opened)],
+    st.tracks && ['Vías', String(st.tracks)],
     st.metricGauge && ['Ancho de vía', 'Métrico (antigua FEVE)'],
     ['Código', st.code],
   ].filter(Boolean);
-  const map = `https://www.openstreetmap.org/?mlat=${st.lat}&mlon=${st.lon}#map=17/${st.lat}/${st.lon}`;
-  return `<div class="pop"><h3>${esc(st.name)}</h3>${meta.length ? `<p class="st-meta">${esc(meta.join(' · '))}</p>` : ''}
-    ${lines.length ? `<div class="st-lines">${lines.map((l) => `<span class="st-line" style="--line:${esc(l.color ?? '#898781')}" title="${esc(l.network ?? '')}">${esc(l.line)}</span>`).join('')}</div>` : ''}
+  // La foto viene de Wikimedia Commons: su licencia pide citar autor y licencia junto a ella.
+  const photo = st.photo && safeUrl(st.photo.url) ? `<figure class="st-photo"><img src="${esc(safeUrl(st.photo.url))}" alt="Estación de ${esc(st.name)}" loading="lazy">
+    <figcaption>Foto: ${esc(st.photo.author)} · ${st.photo.licenseUrl ? link(st.photo.licenseUrl, st.photo.license) : esc(st.photo.license)} · ${link(st.photo.page, 'Wikimedia Commons')}</figcaption></figure>` : '';
+  const links = [
+    link(st.wikipedia, 'Wikipedia'),
+    link(st.sheet, 'Ficha técnica de Renfe (PDF, 2019)'),
+    link(`https://www.openstreetmap.org/?mlat=${st.lat}&mlon=${st.lon}#map=17/${st.lat}/${st.lon}`, 'OpenStreetMap'),
+  ].filter(Boolean);
+  return `<div class="pop">${photo}<h3>${esc(st.name)}</h3>${meta.length ? `<p class="st-meta">${esc(meta.join(' · '))}</p>` : ''}
+    ${lines.length ? chips(lines) : ''}
     <h4>En la estación ahora</h4>${list(stopped.map((v) => train(v)), 'Ningún tren parado ahora mismo.')}
     <h4>Próximos trenes</h4>${list(arriving.map((v) => train(v, when(v))), 'Ningún tren en camino con datos en directo.')}
     ${notices.length ? `<h4>Avisos de Renfe</h4><ul class="st-list">${notices.map((e) => `<li>${esc(e.description ?? e.title)}</li>`).join('')}</ul>` : ''}
+    ${connections.length ? `<h4>Conexiones a pie</h4>${chips(connections)}` : ''}
     <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>
+    <p class="st-links">${links.join(' · ')}</p>
     <div class="note">Sólo salen los trenes que publican su posición en directo; los horarios completos están en la web del operador.
-      Pulsa un tren para ver su ficha. <a href="${esc(map)}" target="_blank" rel="noopener noreferrer">Ver en OpenStreetMap</a></div></div>`;
+      Pulsa un tren para ver su ficha.</div></div>`;
 }
 
 function vehicleDetail(v) {
