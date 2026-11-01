@@ -8,6 +8,25 @@
 // - Renfe (CC BY 4.0): las fichas en PDF que enlazan sus listados de estaciones de Cercanías y FEVE.
 // Cada fuente va por su lado: si una falla, las demás siguen y la estación se queda sin ese dato.
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+
+// Fotos retiradas a mano (fotos-retiradas.json): personas protagonistas y las que pidan retirar su
+// autor o quien sale en ellas. Su huella va en la versión del catálogo, que se recalcula al cambiar.
+const RETIRED_JSON = readFileSync(new URL('./fotos-retiradas.json', import.meta.url), 'utf8');
+const RETIRED = new Set(JSON.parse(RETIRED_JSON).fotos.map((p) => commonsName(p.fichero)));
+export const RETIRED_PHOTOS_VERSION = createHash('sha1').update(RETIRED_JSON).digest('hex').slice(0, 8);
+
+/** Nombre de fichero de Commons comparable: sin «File:», con espacios y la primera letra en mayúscula. */
+function commonsName(name) {
+  const n = String(name).replace(/^File:/, '').replace(/_/g, ' ').trim();
+  return n.charAt(0).toUpperCase() + n.slice(1);
+}
+
+/** Quita de un mapa fichero → foto las que están retiradas. */
+export function withoutRetired(photos, retired = RETIRED) {
+  for (const file of [...photos.keys()]) if (retired.has(commonsName(file))) photos.delete(file);
+  return photos;
+}
 
 const WIKIDATA_QUERY = `SELECT ?code ?acc ?img ?cat ?open ?tracks ?wp WHERE {
   ?st wdt:P296 ?code; wdt:P17 wd:Q29; wdt:P31/wdt:P279* wd:Q55488.
@@ -50,7 +69,7 @@ export async function loadStationExtras({ cache, log, maxAgeMs, stations = [], n
   try {
     wikidata = parseWikidata(JSON.parse(text(await cache.bytes(WIKIDATA_URL, 'wikidata-estaciones-v2.json', maxAgeMs))));
     // Todas las fotos que Wikidata da a cada estación; vale la primera cuya licencia se puede cumplir.
-    const photos = await commonsPhotos(cache, [...new Set([...wikidata.values()].flatMap((s) => s.images ?? []))], maxAgeMs, log);
+    const photos = withoutRetired(await commonsPhotos(cache, [...new Set([...wikidata.values()].flatMap((s) => s.images ?? []))], maxAgeMs, log));
     for (const [code, { images = [], category, ...rest }] of wikidata) {
       const file = images.find((f) => photos.has(f));
       add(code, { ...rest, ...(file ? { photo: photos.get(file) } : {}) });
@@ -63,7 +82,7 @@ export async function loadStationExtras({ cache, log, maxAgeMs, stations = [], n
     const missing = stations.filter((s) => !extras.get(s.code)?.photo)
       .map((s) => ({ ...s, category: wikidata.get(s.code)?.category, wikipedia: wikidata.get(s.code)?.wikipedia }));
     const candidates = await findMorePhotos({ cache, log, missing, budgetMs: nearbyBudgetMs });
-    const photos = await commonsPhotos(cache, [...new Set([...candidates.values()].flat().map((c) => c.file))], SEARCH_MAX_AGE_MS, log);
+    const photos = withoutRetired(await commonsPhotos(cache, [...new Set([...candidates.values()].flat().map((c) => c.file))], SEARCH_MAX_AGE_MS, log));
     for (const [code, file] of choosePhotos(candidates, photos, names, taken)) add(code, { photo: photos.get(file) });
   } catch (err) {
     log.warn(`[estaciones] más fotos: ${err.message}`);

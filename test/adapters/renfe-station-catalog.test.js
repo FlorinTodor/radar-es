@@ -73,7 +73,7 @@ test('una caché de hoy hecha con una versión anterior se recalcula; la de la v
     const first = make();
     await first.load();
     assert.equal(first.get('15211').name, 'Oviedo', 'recalculada');
-    assert.equal(JSON.parse(await readFile(file, 'utf8')).version, 6);
+    assert.match(JSON.parse(await readFile(file, 'utf8')).version, /^7-[0-9a-f]{8}$/);
     await make().load();
     assert.equal(downloads, 1, 'la caché de la versión actual se reutiliza');
   } finally {
