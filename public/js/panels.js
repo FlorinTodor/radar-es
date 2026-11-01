@@ -172,27 +172,34 @@ export const MODES_OFF_BY_DEFAULT = ['bus'];
 export const modeOn = (prefs, m) => prefs.modes[m] ?? !MODES_OFF_BY_DEFAULT.includes(m);
 export const GROUPS_OFF_BY_DEFAULT = ['effis', 'trails'];
 export const groupOn = (prefs, g) => prefs.groups[g] ?? !GROUPS_OFF_BY_DEFAULT.includes(g);
+// [capa, nombre corto en la casilla, descripción completa (title y lectores de pantalla), apartado].
+// Los nombres van cortos para que las casillas quepan de dos en dos en el móvil.
 export const GROUP_ITEMS = [
-  ['rail', 'Red ferroviaria'],
-  ['lines', 'Líneas de metro, tranvía y Cercanías'],
-  ['trails', 'Estelas de todos los trenes (15 min)'],
-  ['stations', 'Estaciones Renfe (al acercar)'],
-  ['renfe-avisos', 'Avisos ferroviarios (Renfe, Rodalies)'],
-  ['meteo', 'Avisos meteorológicos (AEMET)'],
-  ['incendios', 'Focos de calor (satélite)'],
-  ['effis', 'Áreas quemadas, 30 días (EFFIS)'],
-  ['dgt', 'Incidencias de tráfico (leves, al acercar)'],
-  ['obras', 'Obras en carretera'],
-  ['sismos', 'Terremotos'],
-  ['gdacs', 'Alertas de catástrofes (GDACS)'],
+  ['rail', 'Red ferroviaria', 'Red ferroviaria', 'Ferrocarril'],
+  ['lines', 'Líneas urbanas', 'Líneas de metro, tranvía y Cercanías', 'Ferrocarril'],
+  ['stations', 'Estaciones', 'Estaciones Renfe (aparecen al acercar el mapa)', 'Ferrocarril'],
+  ['renfe-avisos', 'Avisos Renfe', 'Avisos ferroviarios de Renfe y Rodalies', 'Ferrocarril'],
+  ['trails', 'Estelas', 'Estelas de todos los trenes (últimos 15 min)', 'Ferrocarril'],
+  ['meteo', 'Meteo (AEMET)', 'Avisos meteorológicos de AEMET', 'Emergencias'],
+  ['incendios', 'Focos de calor', 'Focos de calor detectados por satélite', 'Emergencias'],
+  ['effis', 'Áreas quemadas', 'Áreas quemadas en los últimos 30 días (EFFIS)', 'Emergencias'],
+  ['sismos', 'Terremotos', 'Terremotos', 'Emergencias'],
+  ['gdacs', 'Catástrofes', 'Alertas de catástrofes (GDACS)', 'Emergencias'],
+  ['dgt', 'Tráfico', 'Incidencias de tráfico (las leves aparecen al acercar el mapa)', 'Carreteras'],
+  ['obras', 'Obras', 'Obras en carretera', 'Carreteras'],
 ];
 
 export function renderLayers(el, prefs, countsByMode) {
-  const modes = MODE_ITEMS.map((m) => `
-    <label><input type="checkbox" data-mode="${m}" ${modeOn(prefs, m) ? 'checked' : ''}>
-      ${esc(MODE_LABEL[m])}<span class="count" data-count="${m}">${fmtNum(countsByMode[m] ?? 0)}</span></label>`).join('');
-  const groups = GROUP_ITEMS.map(([g, label]) => `
-    <label><input type="checkbox" data-group="${g}" ${(g === 'obras' ? prefs.obras : groupOn(prefs, g)) ? 'checked' : ''}> ${esc(label)}</label>`).join('');
+  // Cada casilla es una «pastilla» que se puede pulsar con el dedo; el input sigue ahí (oculto)
+  // para que app.js y el teclado funcionen igual.
+  const chip = (attr, label, title, on, extra = '') => `
+    <label class="chip" title="${esc(title)}"><input type="checkbox" ${attr} ${on ? 'checked' : ''} aria-label="${esc(title)}">
+      <span>${esc(label)}</span>${extra}</label>`;
+  const modes = MODE_ITEMS.map((m) => chip(`data-mode="${m}"`, MODE_LABEL[m], MODE_LABEL[m], modeOn(prefs, m),
+    `<span class="count" data-count="${m}">${fmtNum(countsByMode[m] ?? 0)}</span>`)).join('');
+  const sections = [...new Set(GROUP_ITEMS.map((i) => i[3]))].map((section) => `<h5>${section}</h5><div class="chips">${
+    GROUP_ITEMS.filter((i) => i[3] === section)
+      .map(([g, label, title]) => chip(`data-group="${g}"`, label, title, g === 'obras' ? prefs.obras : groupOn(prefs, g))).join('')}</div>`).join('');
   const plate = (picto, color, estimated) => `<img class="plate" src="${vehicleIconUrl(picto, color, estimated)}" alt="">`;
   const legend = DELAY_CLASSES.slice(1).concat([DELAY_CLASSES[0]]).map(([color, label]) => `${plate('tren', color)}<span>${esc(label)}</span>`).join('');
   const types = [['av', 'Alta velocidad'], ['tren', 'Larga y media distancia, Cercanías'], ['metro', 'Metro'], ['tranvia', 'Tranvía'], ['bus', 'Autobús']]
@@ -202,7 +209,11 @@ export function renderLayers(el, prefs, countsByMode) {
   const head = (title, kind) => `<div class="layers-head"><h4>${title}</h4><span class="bulk">
     <button type="button" class="link" data-bulk="${kind}" data-on="1" aria-label="Todas: activar todas las capas de ${title}">Todas</button> ·
     <button type="button" class="link" data-bulk="${kind}" data-on="0" aria-label="Ninguna: desactivar todas las capas de ${title}">Ninguna</button></span></div>`;
-  el.innerHTML = `${head('Trenes', 'mode')}${modes}${head('Contexto', 'group')}${groups}<h4>Tipo de vehículo</h4><div class="legend">${types}</div>
+  // La leyenda va plegada: es para consultarla, no para tenerla delante tapando el mapa.
+  el.innerHTML = `${head('Trenes', 'mode')}<div class="chips">${modes}</div>${head('Mapa y avisos', 'group')}${sections}
+    <p class="layers-note">Las estaciones y el tráfico leve aparecen al acercar el mapa.</p>
+    <details class="legend-box"><summary>Qué significa cada símbolo</summary>
+    <h4>Tipo de vehículo</h4><div class="legend">${types}</div>
     <h4>Retraso (color de la placa)</h4><div class="legend">${legend}
     ${plate('tren', '#fab219', true)}<span>Posición <strong>estimada</strong> a partir del horario, no GPS (Ouigo, ALSA y los metros y tranvías sin GPS): placa hueca; el color indica el retraso si se conoce</span>
     <i style="background:transparent;border:2px solid #d03b3b"></i><span>Tren con alerta activa</span>
@@ -217,10 +228,11 @@ export function renderLayers(el, prefs, countsByMode) {
     <i style="background:radial-gradient(circle,#ffd27a 25%,#ff5a1f 60%,transparent 75%)"></i><span>Foco de calor por satélite</span>
     <i style="background:rgba(180,140,255,.25);border:1.5px solid #b48cff"></i><span>Terremoto (tamaño = magnitud)</span>
     <i style="background:transparent;border:2.5px solid #ec835a"></i><span>Alerta GDACS (naranja o roja)</span>
-    <i style="border-radius:2px;background:linear-gradient(90deg,#e8261c 33%,#f39c12 33% 66%,#1f6fd1 66%)"></i><span>Área quemada (EFFIS): rojo, último día; naranja, 7 días; azul, 30 días. Púlsala para ver su ficha</span></div>`;
+    <i style="border-radius:2px;background:linear-gradient(90deg,#e8261c 33%,#f39c12 33% 66%,#1f6fd1 66%)"></i><span>Área quemada (EFFIS): rojo, último día; naranja, 7 días; azul, 30 días. Púlsala para ver su ficha</span></div>
+    </details>`;
 }
 
-// Casilla de "Contexto" que enseña cada incidencia en el mapa.
+// Casilla de «Mapa y avisos» que enseña cada incidencia en el mapa.
 const EVENT_GROUP = { ferroviario: 'renfe-avisos', meteo: 'meteo', incendio: 'incendios', sismo: 'sismos', catastrofe: 'gdacs' };
 export const groupForEvent = (e) => (e.category === 'carretera' ? (e.type === 'roadMaintenance' ? 'obras' : 'dgt') : EVENT_GROUP[e.category]);
 
@@ -235,8 +247,7 @@ export function syncLayers(el, prefs, forced = new Set()) {
     const temporal = forced.has(mode ? `mode:${mode}` : `group:${group}`);
     const label = input.closest('label');
     label?.classList.toggle('temporal', temporal);
-    if (temporal) label?.setAttribute('title', 'Encendida por lo que tienes seleccionado; se apagará al quitar la selección');
-    else label?.removeAttribute('title');
+    label?.setAttribute('title', temporal ? 'Encendida por lo que tienes seleccionado; se apagará al quitar la selección' : input.getAttribute('aria-label'));
   }
 }
 
