@@ -225,9 +225,10 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Recorrido de los últimos 45 minutos del tren seleccionado y, como capa opcional, la estela de
   todos los trenes.
 - En Cercanías, metro y tranvía, el recorrido va pegado a la vía de su línea, con sus curvas.
-- Lo que le queda a cada tren hasta su destino, dibujado por su vía: en Cercanías y Metro Bilbao
-  con el trazado de su viaje, en FGC con el de su línea, y en metros y tranvías estimados con su
-  horario.
+- Lo que le queda a cada tren hasta su destino, dibujado por su vía: en Cercanías pasando por las
+  paradas que le quedan (el trazado que publica Renfe no siempre es el de su viaje: donde se aparta,
+  el dibujo se corta en vez de ir por donde no pasa el tren), en Metro Bilbao con el trazado de su
+  viaje, en FGC con el de su línea, y en metros y tranvías estimados con su horario.
 - Flecha de hacia dónde va cada vehículo al acercar el mapa, por su vía cuando se conoce su
   recorrido.
 - En Cercanías, el origen, el destino y la próxima parada salen de las paradas de cada viaje: ni el

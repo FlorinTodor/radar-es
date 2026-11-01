@@ -474,13 +474,14 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
   }
 
   /**
-   * Recorrido que le queda hasta el final de su viaje. Cercanías y Metro Bilbao: el trazado de su viaje
-   * entre donde está y donde acaba, aquí mismo. Posiciones estimadas (metro, tranvía…): lo calcula el
-   * servidor con su horario.
+   * Recorrido que le queda hasta el final de su viaje. Metro Bilbao y FGC: el trazado de su viaje o de
+   * su línea entre donde está y donde acaba, aquí mismo. Cercanías de Renfe (pasando por sus paradas,
+   * porque su trazado no siempre es el de su viaje) y posiciones estimadas (con su horario): lo
+   * calcula el servidor.
    */
   const setRoute = (coords) => map.getSource('route')?.setData(coords?.length > 1 ? { type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} } : EMPTY);
   function drawRoute(v) {
-    if (v.estimated) return; // llega con loadTrack
+    if (v.estimated || v.ahead) return; // lo calcula el servidor: llega con loadTrack
     setRoute(routeAhead(v));
   }
 
@@ -541,7 +542,8 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
         const to = [v.lon, v.lat];
         const prev = anims.get(v.id);
         // Con su trazado, la flecha va por la vía hacia donde acaba; si no, la del servidor (su movimiento).
-        const shape = routeShapeOf(v);
+        // Si lo que le queda lo calcula el servidor (Cercanías, con sus paradas), su flecha también.
+        const shape = v.ahead ? null : routeShapeOf(v);
         const heading = (shape && headingAlong(shape.geometry.coordinates, to, v.end)) ?? v.heading;
         const props = {
           id: v.id, mode: v.mode, cls: v.cls, line: v.line ?? '', alert: alertIds.has(v.id) ? 1 : 0, est: v.estimated ? 1 : 0, picto: pictoFor(v.mode),

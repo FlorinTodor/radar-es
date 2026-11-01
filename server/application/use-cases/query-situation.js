@@ -1,6 +1,7 @@
 // Casos de uso de consulta: lo que los adaptadores de entrada (API, SSE...) pueden preguntar.
 import { sortAlerts } from '../../domain/alerts/lifecycle.js';
 import { headingOf } from '../../domain/tracking.js';
+import { headingOfPath, pathThroughStops } from '../../domain/route-ahead.js';
 
 /**
  * @param {{ situation: import('../ports.js').SituationRepositoryPort, stations: import('../ports.js').StationCatalogPort,
@@ -9,6 +10,34 @@ import { headingOf } from '../../domain/tracking.js';
  */
 export function makeQuerySituation({ situation, stations, network, clock, sources = [] }) {
   const withPaths = sources.filter((s) => typeof s.path === 'function');
+  // Fuentes que dicen las paradas que le quedan a cada tren (Cercanías de Renfe): lo que le queda se
+  // dibuja por el trazado de su viaje, pero sólo entre esas paradas (ver domain/route-ahead.js).
+  const withStops = new Map(sources.filter((s) => typeof s.stopsAhead === 'function').map((s) => [s.id, s]));
+  let shapesOf = null; // colección de líneas → «red|shape_id» → coordenadas
+  let shapes = new Map();
+  const shapeCoords = (net, id) => {
+    const lines = network.lines();
+    if (lines !== shapesOf) {
+      shapesOf = lines;
+      shapes = new Map();
+      for (const f of lines?.features ?? []) for (const sid of f.properties?.shapes ?? []) shapes.set(`${f.properties.network}|${sid}`, f.geometry?.coordinates);
+    }
+    return shapes.get(`${net}|${id}`);
+  };
+  const aheadMemo = new Map(); // id → { key, path }: se recalcula cuando cambia la posición o las paradas
+  const stopsPath = (v) => {
+    const s = withStops.get(v.source);
+    const stops = s && v.shape ? s.stopsAhead(v.id) : null;
+    if (!stops) return null;
+    const key = `${v.lon},${v.lat},${stops.length},${stops[0]}`;
+    const memo = aheadMemo.get(v.id);
+    if (memo?.key === key) return memo.path;
+    const coords = shapeCoords(s.shapeNetwork, v.shape);
+    const path = coords ? pathThroughStops(coords, [v.lon, v.lat], stops) : null;
+    if (aheadMemo.size > 5000) aheadMemo.clear();
+    aheadMemo.set(v.id, { key, path });
+    return path;
+  };
   const alerts = () => sortAlerts(situation.activeAlerts().values());
   // Los autobuses (miles en hora punta) sólo se envían a quien tiene activada su capa.
   const busFilter = (buses) => (buses ? (list) => list : (list) => list.filter((v) => v.mode !== 'bus'));
@@ -23,6 +52,9 @@ export function makeQuerySituation({ situation, stations, network, clock, source
     const tracks = situation.tracks();
     return list.map((v) => {
       if (Number.isFinite(v.heading)) return v; // la fuente sabe por dónde va (su recorrido): mejor que el rastro
+      // Por su vía hacia su próxima parada: mejor que el rastro (Renfe va a veces adelante y atrás).
+      const along = withStops.has(v.source) ? headingOfPath(stopsPath(v)) : null;
+      if (along !== null) return { ...v, heading: along };
       const heading = headingOf(tracks.get(v.id));
       return heading === null ? v : { ...v, heading };
     });
@@ -59,15 +91,17 @@ export function makeQuerySituation({ situation, stations, network, clock, source
       return situation.tracks().get(id) ?? null;
     },
     /**
-     * Lo que le queda a un vehículo de posición estimada hasta el final de su viaje, por su trazado.
-     * Los de GPS (Cercanías) lo calcula el mapa con el trazado de su viaje; null si no se sabe.
+     * Lo que le queda a un vehículo hasta el final de su viaje, por su trazado: los de posición
+     * estimada, con su horario; los de Cercanías, pasando por sus paradas. null si no se sabe.
      */
     ahead(id) {
       for (const s of withPaths) {
         const path = s.ahead?.(id);
         if (path !== undefined) return path && path.length > 1 ? path : null;
       }
-      return null;
+      const v = withStops.size ? situation.vehicles().find((x) => x.id === id) : null;
+      const path = v ? stopsPath(v) : null;
+      return path && path.length > 1 ? path.map(([lon, lat]) => [Math.round(lon * 1e5) / 1e5, Math.round(lat * 1e5) / 1e5]) : null;
     },
 
     /** Estelas de todos los trenes (sin autobuses) en los últimos `minutes` minutos, como GeoJSON. */

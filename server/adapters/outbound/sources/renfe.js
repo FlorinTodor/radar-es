@@ -214,6 +214,18 @@ export function cercaniasNext(status, stopId, stops) {
   return i >= 0 ? stops[i + 1] ?? null : null;
 }
 
+/**
+ * Paradas que le quedan a un tren de Cercanías (códigos, en orden). En camino (IN_TRANSIT_TO), stopId es
+ * la última que ha dejado; parado, en la que está; llegando (INCOMING_AT), a la que llega, que le queda.
+ * null si stopId no está en su viaje o ya no le queda ninguna.
+ */
+export function stopsLeft(status, stopId, stops) {
+  const i = stops?.indexOf(stopId) ?? -1;
+  if (i < 0) return null;
+  const rest = stops.slice(status === 'IN_TRANSIT_TO' || status === 'STOPPED_AT' ? i + 1 : i);
+  return rest.length ? rest : null;
+}
+
 /** tripId → { delay (s), arrivals: stopId → epoch s } a partir de un feed de trip updates. */
 function tripUpdates(feed) {
   const out = new Map();
@@ -269,6 +281,10 @@ export function createRenfeSources({ http, cache, stations, log }) {
     return ts ? ts * 1000 : null;
   };
 
+  // Paradas que le quedan a cada tren de Cercanías (códigos, en orden), de la última lectura: con ellas
+  // se dibuja lo que le queda sin salirse de su viaje (ver domain/route-ahead.js).
+  let remaining = new Map();
+
   const cercanias = {
     id: 'renfe-cercanias',
     name: 'Renfe Cercanías / Rodalies (GTFS-RT)',
@@ -279,12 +295,22 @@ export function createRenfeSources({ http, cache, stations, log }) {
     license: ATTRIBUTION,
     // CC BY 4.0 permite modificar indicándolo: a veces repite posiciones viejas o da saltos imposibles.
     cleanPositions: true,
+    // Red de /api/lines cuyos trazados (shape_id) usan sus viajes.
+    shapeNetwork: 'Cercanías Renfe',
+    /** Coordenadas ([lon, lat]) de las paradas que le quedan a un tren, en orden; null si no se saben. */
+    stopsAhead(vehicleId) {
+      const codes = remaining.get(vehicleId);
+      if (!codes) return null;
+      const at = codes.map((c) => stations.get(c)).filter((st) => Number.isFinite(st?.lat) && Number.isFinite(st?.lon)).map((st) => [st.lon, st.lat]);
+      return at.length ? at : null;
+    },
     async fetch() {
       await timetables.loadCercanias();
       const [positions, updates] = await Promise.allSettled([http.json(this.url), http.json(`${GTFSRT}/trip_updates.json`)]);
       if (positions.status === 'rejected') throw positions.reason;
       const delays = tripUpdates(updates.status === 'fulfilled' ? updates.value : null);
       const vehicles = [];
+      const left = new Map();
       for (const e of positions.value.entity ?? []) {
         const v = e.vehicle;
         if (!hasPosition(v)) continue;
@@ -293,6 +319,8 @@ export function createRenfeSources({ http, cache, stations, log }) {
         // (en la que está parado o a la que llega). Renfe no publica por qué vía va en el trayecto.
         const [, line, number, platform] = /^([A-Za-z]+\d*[a-z]?)-(\d+)(?:-PLATF\.\((\w+)\))?/.exec(v.vehicle?.label ?? '') ?? [];
         const route = timetables.cercanias(tripId);
+        const ahead = stopsLeft(v.currentStatus, v.stopId, route?.stops);
+        if (ahead && route?.shape && !route.bus) left.set(`renfe-c:${tripId}`, ahead);
         vehicles.push({
           id: `renfe-c:${tripId}`,
           // Un autobús de Renfe no es un tren: va con los autobuses y no cuenta en los retrasos ni en las alertas de tren.
@@ -307,9 +335,12 @@ export function createRenfeSources({ http, cache, stations, log }) {
           platform: v.currentStatus === 'IN_TRANSIT_TO' ? null : platform ?? null,
           shape: route?.shape ?? null,
           end: route?.end ?? null,
+          // Lo que le queda lo calcula el servidor con sus paradas (/api/ahead/<id>).
+          ...(left.has(`renfe-c:${tripId}`) ? { ahead: true } : {}),
           ...base(v, delays.get(tripId), cercaniasNext(v.currentStatus, v.stopId, route?.stops)),
         });
       }
+      remaining = left;
       return { vehicles, sourceTime: freshest(positions.value, updates.status === 'fulfilled' ? updates.value : null) };
     },
   };

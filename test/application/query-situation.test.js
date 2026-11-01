@@ -37,3 +37,21 @@ test('las estelas cortan la ventana de minutos con el reloj inyectado', () => {
   assert.deepEqual(trail.geometry.coordinates.map(([lon]) => lon), [-3.7, -3.6], 'sólo los puntos de los últimos 15 min');
   assert.equal(query.trails(45).features[0].geometry.coordinates.length, 4);
 });
+
+test('Cercanías: lo que le queda y la flecha salen de sus paradas, no sólo del trazado de Renfe', () => {
+  // Trazado en «U» por el norte; el tren va de W a E. Con sus paradas sobre el trazado, se dibuja; si su
+  // próxima parada no está en él (va por el sur), no se dibuja nada en vez de dar la vuelta.
+  const U = [[-3.70, 40.40], [-3.70, 40.45], [-3.65, 40.45], [-3.65, 40.40]];
+  const network = { lines: () => ({ type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: U }, properties: { network: 'Cercanías Renfe', shapes: ['10_C7'] } }] }) };
+  const stops = { 'renfe-c:A': [[-3.70, 40.43], [-3.65, 40.45], [-3.65, 40.40]], 'renfe-c:B': [[-3.675, 40.40], [-3.65, 40.40]] };
+  const source = { id: 'renfe-cercanias', shapeNetwork: 'Cercanías Renfe', stopsAhead: (id) => stops[id] ?? null };
+  const v = (id) => ({ id, source: 'renfe-cercanias', mode: 'cercanias', shape: '10_C7', ahead: true, lon: -3.70, lat: 40.40 });
+  const situation = fakeSituation({ vehicles: [v('renfe-c:A'), v('renfe-c:B')] });
+  const query = makeQuerySituation({ situation, stations: {}, network, clock: { now: () => T0 }, sources: [source] });
+  const a = query.ahead('renfe-c:A');
+  assert.deepEqual(a.at(-1), [-3.65, 40.4]);
+  assert.equal(query.ahead('renfe-c:B'), null);
+  const live = Object.fromEntries(query.live().vehicles.map((x) => [x.id, x]));
+  assert.equal(live['renfe-c:A'].heading, 0, 'hacia el norte, por su vía');
+  assert.equal(live['renfe-c:B'].heading, undefined, 'sin camino ni rastro, sin flecha');
+});
