@@ -102,7 +102,11 @@ export function largeDelays(ctx) {
     }));
 }
 
-/** Subida brusca del retraso: suele indicar una incidencia en ruta. */
+/**
+ * Subida brusca del retraso: suele indicar una incidencia en ruta. Ir adelantado cuenta como ir en
+ * hora: un tren que espera en su estación de origen antes de su hora sale con retraso negativo (en
+ * Renfe, -23 o -36 min) y pasar de ahí a 0 al llegar su hora no es un retraso.
+ */
 export function delayJumps(ctx) {
   const th = ctx.thresholds;
   const windowStart = ctx.now - th.delayJumpWindowMin * 60_000;
@@ -110,11 +114,14 @@ export function delayJumps(ctx) {
   for (const v of ctx.vehicles) {
     if (v.delay === null || v.delay === undefined) continue;
     const before = (ctx.tracks.get(v.id) ?? []).find((p) => p.t >= windowStart && p.delay !== null && p.delay !== undefined);
-    if (!before || v.delay - before.delay < th.delayJumpMinutes) continue;
+    if (!before) continue;
+    const from = Math.max(0, before.delay);
+    const rise = v.delay - from;
+    if (rise < th.delayJumpMinutes) continue;
     alerts.push({
       id: `salto-retraso:${v.id}`, type: 'salto-retraso', vehicleId: v.id, lat: v.lat, lon: v.lon, severity: 'alta',
-      title: `${vehicleLabel(v)}: el retraso sube ${v.delay - before.delay} min de golpe`,
-      description: `De ${before.delay} a ${v.delay} min en menos de ${th.delayJumpWindowMin} min.`,
+      title: `${vehicleLabel(v)}: el retraso sube ${rise} min de golpe`,
+      description: `De ${from} a ${v.delay} min en menos de ${th.delayJumpWindowMin} min.`,
     });
   }
   return alerts;

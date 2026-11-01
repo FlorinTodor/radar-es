@@ -42,3 +42,29 @@ test('una respuesta que no es imagen (error del WMS en XML) no se guarda', async
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('con la cola llena, las teselas nuevas se responden al momento sin descargar ni esperar', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'teselas-'));
+  const pending = [];
+  let calls = 0;
+  const http = { bytes: () => { calls++; return new Promise((resolve) => pending.push(() => resolve(PNG))); } };
+  const tiles = createWmsTiles({ http, dir });
+  try {
+    // 4 descargando + 64 esperando turno: las 10 siguientes ya no caben.
+    const all = Array.from({ length: 78 }, (_, i) => tiles.tile('ign-rail', 14, 8000 + i, 6000));
+    const extra = await Promise.all(all.slice(68));
+    assert.deepEqual(extra, Array(10).fill(null));
+    assert.equal(calls, 4, 'sólo 4 descargas a la vez');
+    while (pending.length) pending.shift()();
+    await new Promise((r) => setTimeout(r, 0));
+    while (calls < 68 || pending.length) {
+      while (pending.length) pending.shift()();
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    const done = await Promise.all(all.slice(0, 68));
+    assert.ok(done.every((png) => png && png.length === PNG.length), 'las que cupieron en la cola se sirven');
+    assert.equal(calls, 68);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

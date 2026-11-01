@@ -4,6 +4,7 @@
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
+import { pipeline } from 'node:stream';
 import { extname, join, resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
@@ -50,16 +51,25 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
     '/api/trails': { fn: (p) => query.trails(trailMinutes(p)), key: trailMinutes, ttl: 15_000, cache: REVALIDATE },
     '/api/snapshot': { fn: () => query.snapshot(), ttl: 5_000, cache: REVALIDATE },
     '/api/vehicles': { fn: (p) => query.vehicles(vehicleFilter(p)), key: (p) => JSON.stringify(vehicleFilter(p)), ttl: 5_000, cache: REVALIDATE },
-    '/api/events': { fn: (p) => query.events({ category: p.get('category') ?? undefined }), key: (p) => p.get('category') ?? '', ttl: 15_000, cache: REVALIDATE },
+    '/api/events': { fn: (p) => query.events({ category: idParam(p, 'category') }), key: (p) => idParam(p, 'category') ?? '', ttl: 15_000, cache: REVALIDATE },
     '/api/alerts': { fn: () => ({ active: query.alerts(), resolved: query.resolvedAlerts() }), ttl: 5_000, cache: REVALIDATE },
     '/api/kpis': { fn: () => query.kpis(), ttl: 5_000, cache: REVALIDATE },
     '/api/metrics': { fn: () => query.metrics(), ttl: 5_000, cache: REVALIDATE },
     '/api/about': { fn: () => about, ttl: 60_000, cache: REVALIDATE },
   };
   const memo = createJsonMemo();
+  // Las rutas con parámetros tienen memo y presupuesto propios: quien pide variantes sin fin no
+  // expulsa del memo a /api/lines ni a /api/live, y no puede forzar más de unos pocos cálculos
+  // por segundo (sin esto, /api/vehicles?minDelay=<cada vez otro> costaba ~36 ms de CPU por
+  // petición: un núcleo saturado con 28 peticiones por segundo).
+  const memoParams = createJsonMemo({ max: 100 });
+  const budgets = new Map(Object.keys(routes).filter((path) => routes[path].key).map((path) => [path, createBudget()]));
 
   const security = Object.entries(securityHeaders(about));
-  const streams = createConnectionLimiter();
+  // El directo SSE sólo lo usan ya las pestañas abiertas antes del cambio a consultas periódicas:
+  // con 300 hay de sobra, y cada conexión abierta es trabajo en cada actualización.
+  const streams = createConnectionLimiter({ maxTotal: 300 });
+  const frames = new WeakMap(); // datos → mensaje SSE ya serializado (todos reciben el mismo objeto)
   // Dominio canónico (PUBLIC_URL): www.<dominio> redirige a él para que los buscadores no vean dos
   // webs iguales. Sólo esa variante: localhost, la IP y el chequeo de salud siguen igual.
   const canonical = about.publicUrl ? new URL(about.publicUrl) : null;
@@ -75,8 +85,10 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
       if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/tiles/')) res.setHeader('X-Robots-Tag', 'noindex');
 
       if (routes[url.pathname]) return sendRoute(req, res, url.pathname, url.searchParams);
-      if (url.pathname.startsWith('/tiles/')) return sendTile(res, url.pathname);
-      if (url.pathname === '/api/burnt-areas') return sendBurntAreas(res, url.searchParams.get('bbox'));
+      // `return await`: sin el await, un fallo de las funciones asíncronas se saltaría este try y,
+      // sin nadie que lo recoja, Node cerraría el proceso entero.
+      if (url.pathname.startsWith('/tiles/')) return await sendTile(res, url.pathname);
+      if (url.pathname === '/api/burnt-areas') return await sendBurntAreas(res, url.searchParams.get('bbox'));
       // El directo antiguo (SSE) se mantiene para las pestañas que se abrieron antes del cambio.
       if (url.pathname === '/api/stream') return stream(req, res, url.searchParams.get('buses') === '1');
       if (url.pathname.startsWith('/api/tracks/')) {
@@ -88,7 +100,7 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
       if (url.pathname.startsWith('/api/')) return send(res, 404, { error: 'Ruta no encontrada' });
 
       for (const [prefix, dir] of Object.entries(vendorDirs)) {
-        if (url.pathname.startsWith(prefix)) return serveFile(req, res, dir, url.pathname.slice(prefix.length), VENDOR_CACHE);
+        if (url.pathname.startsWith(prefix)) return await serveFile(req, res, dir, url.pathname.slice(prefix.length), VENDOR_CACHE);
       }
       // Páginas con URL limpia y una sola dirección por página: /legal sirve legal.html, y /legal.html,
       // /legal/ e /index.html redirigen a /legal y a /.
@@ -97,7 +109,7 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
       const isPage = !extname(url.pathname);
       // /404 no es una página propia: sirve la de error con su estado 404.
       const file = url.pathname === '/' ? 'index.html' : isPage && url.pathname !== '/404' ? `${url.pathname}.html` : url.pathname;
-      return serveFile(req, res, publicDir, file, OWN_CACHE, isPage ? join(publicDir, '404.html') : null);
+      return await serveFile(req, res, publicDir, file, OWN_CACHE, isPage ? join(publicDir, '404.html') : null);
     } catch (err) {
       log.error(`[http] ${err.stack ?? err.message}`);
       if (!res.headersSent) send(res, 500, { error: 'Error interno' });
@@ -107,8 +119,23 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
 
   function sendRoute(req, res, path, params) {
     const route = routes[path];
-    const key = route.key ? `${path}?${route.key(params)}` : path;
-    const { json, gz, etag } = memo(key, route.ttl, () => route.fn(params), route);
+    let entry;
+    if (!route.key) entry = memo(path, route.ttl, () => route.fn(params), route);
+    else {
+      const compute = () => {
+        if (!budgets.get(path).take()) throw new Busy();
+        return route.fn(params);
+      };
+      try {
+        entry = memoParams(`${path}?${route.key(params)}`, route.ttl, compute, route);
+      } catch (err) {
+        if (!(err instanceof Busy)) throw err;
+        res.setHeader('Retry-After', '2');
+        res.setHeader('Cache-Control', 'no-store');
+        return send(res, 503, { error: 'Demasiadas consultas distintas a la vez; prueba dentro de un momento' });
+      }
+    }
+    const { json, gz, etag } = entry;
     const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': route.cache, ETag: etag, Vary: 'Accept-Encoding' };
     if (req.headers['if-none-match'] === etag) {
       res.writeHead(304, headers);
@@ -161,14 +188,25 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
     });
-    const emit = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-    emit('snapshot', query.snapshot({ buses }));
+    const emit = (event, data) => {
+      let frame = frames.get(data);
+      if (!frame) frames.set(data, (frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+      res.write(frame);
+    };
+    // La foto inicial (~700 KB) y el estado de las fuentes salen del memo: abrir muchas conexiones
+    // seguidas no los vuelve a serializar cada vez.
+    const emitJson = (event, { json }) => {
+      res.write(`event: ${event}\ndata: `);
+      res.write(json);
+      res.write('\n\n');
+    };
+    emitJson('snapshot', memo(`stream:snapshot:${buses}`, 5_000, () => query.snapshot({ buses })));
 
     let healthTimer = null;
     const emitHealthSoon = () => {
       healthTimer ??= setTimeout(() => {
         healthTimer = null;
-        emit('health', query.health());
+        emitJson('health', memo('stream:health', 5_000, () => query.health()));
       }, SSE_HEALTH_EVERY_MS);
     };
     const unwatch = watchSituation({ buses }, {
@@ -194,11 +232,45 @@ const CATALOG_CACHE = 'public, max-age=600, s-maxage=3600';
 const liveCache = (edge) => `public, max-age=0, s-maxage=${edge}, stale-while-revalidate=${edge * 3}, stale-if-error=900`;
 /** Minutos de estela pedidos (1-45; 15 por defecto). Entero, para que no haya infinitas variantes. */
 const trailMinutes = (p) => Math.max(1, Math.min(Math.round(Number(p.get('min'))) || 15, 45));
-const vehicleFilter = (p) => ({
-  mode: p.get('mode') ?? undefined,
-  source: p.get('source') ?? undefined,
-  minDelay: p.has('minDelay') ? Number(p.get('minDelay')) : undefined,
+/**
+ * Filtros de /api/vehicles y /api/events, acotados para que no haya infinitas variantes caras:
+ * el retraso mínimo, entero entre -1 (todos) y 1440 minutos; los identificadores (tipo, fuente,
+ * categoría), con la forma de los nuestros. Uno con otra forma no coincidiría con nada: se cambia
+ * por «-», que tampoco, y así todos los raros comparten variante.
+ */
+export const vehicleFilter = (p) => ({
+  mode: idParam(p, 'mode'),
+  source: idParam(p, 'source'),
+  minDelay: p.has('minDelay') && Number.isFinite(Number(p.get('minDelay')))
+    ? Math.max(-1, Math.min(Math.round(Number(p.get('minDelay'))), 1440)) : undefined,
 });
+const idParam = (p, name) => {
+  const value = p.get(name);
+  if (value === null || value === '') return undefined;
+  return /^[a-z0-9-]{1,40}$/.test(value) ? value : '-';
+};
+
+/** Lo lanza el cálculo de una variante nueva cuando se ha gastado el presupuesto: 503. */
+class Busy extends Error {}
+
+/**
+ * Presupuesto de cálculos (cubo de fichas): `perSecond` de media y ráfagas de hasta `burst`.
+ * `take()` gasta una ficha y dice si había.
+ */
+export function createBudget({ perSecond = 5, burst = 10, now = Date.now } = {}) {
+  let tokens = burst;
+  let last = now();
+  return {
+    take() {
+      const t = now();
+      tokens = Math.min(burst, tokens + ((t - last) / 1000) * perSecond);
+      last = t;
+      if (tokens < 1) return false;
+      tokens--;
+      return true;
+    },
+  };
+}
 
 /**
  * Memo de respuestas JSON ya serializadas, comprimidas y firmadas: `get(clave, ttl, calcular)`
@@ -313,6 +385,17 @@ export function fileEtag(info) {
   return `W/"${info.size.toString(16)}-${Math.floor(info.mtimeMs).toString(16)}"`;
 }
 
+/**
+ * Envía un fichero ya anunciado en las cabeceras. Con `.pipe()`, un error al leerlo (fichero que
+ * desaparece, sin permiso, demasiados abiertos) no lo recogía nadie y cerraba el proceso; así
+ * sólo se corta esa respuesta.
+ */
+function sendStream(res, file) {
+  pipeline(createReadStream(file), res, (err) => {
+    if (err && !res.destroyed) res.destroy(err);
+  });
+}
+
 /** @param {string|null} [notFoundPage]  Página HTML que se sirve con 404 si el fichero no existe. */
 async function serveFile(req, res, root, pathname, cacheControl, notFoundPage = null) {
   let rel;
@@ -333,13 +416,13 @@ async function serveFile(req, res, root, pathname, cacheControl, notFoundPage = 
       return res.end();
     }
     res.writeHead(200, { ...headers, 'Content-Type': MIME[extname(file)] ?? 'application/octet-stream', 'Content-Length': info.size });
-    createReadStream(file).pipe(res);
+    sendStream(res, file);
   } catch {
     if (!notFoundPage) return send(res, 404, { error: 'No encontrado' });
     try {
       const info = await stat(notFoundPage);
       res.writeHead(404, { 'Content-Type': MIME['.html'], 'Content-Length': info.size, 'Cache-Control': 'no-cache' });
-      createReadStream(notFoundPage).pipe(res);
+      sendStream(res, notFoundPage);
     } catch {
       send(res, 404, { error: 'No encontrado' });
     }

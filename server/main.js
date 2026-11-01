@@ -92,3 +92,6 @@ function shutdown() {
 }
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+// Una promesa rechazada que nadie recoge (un fallo en algún adaptador) se apunta y el servidor
+// sigue: por defecto Node cerraría el proceso, y volver a arrancar son minutos sin datos.
+process.on('unhandledRejection', (err) => log.error(`[sin recoger] ${err?.stack ?? err}`));
