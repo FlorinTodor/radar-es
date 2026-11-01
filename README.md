@@ -216,6 +216,10 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Ficha de cada tren, con la vía de la estación en la que para o a la que llega.
 - Recorrido de los últimos 45 minutos del tren seleccionado y, como capa opcional, la estela de
   todos los trenes.
+- En Cercanías, metro y tranvía, el recorrido va pegado a la vía de su línea, con sus curvas.
+- Cuando el operador pasa el número de un tren a otro convoy, lo anterior cuenta como otro viaje:
+  ni se une con una recta en el mapa ni da alertas de retraso falsas. Los túneles no cuentan como
+  salto.
 - Lista y buscador con todos los trenes.
 
 **Alertas**
@@ -231,7 +235,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 
 **Interfaz**
 - Vista para el móvil, con el mapa a pantalla completa y un panel que sube desde abajo.
-- Panel de capas con «Todas · Ninguna» y preferencias guardadas en el navegador.
+- Panel de capas pensado para el móvil: pastillas fáciles de pulsar, agrupadas por temas, con
+  «Todas · Ninguna», la leyenda plegada y las preferencias guardadas en el navegador.
 - Aviso al entrar sobre los datos públicos que todavía faltan.
 - Páginas que explican cada parte del mapa y versión en inglés.
 
@@ -241,6 +246,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Arranque sin bloquear el servidor mientras carga los horarios de más de cien redes, y menos
   memoria al leerlos.
 - Cálculos pesados en hilos aparte y reintentos rápidos de las fuentes que fallan.
+- Protección frente a sobrecarga: peticiones costosas acotadas, colas con tope y fallos aislados,
+  para que ni un pico de tráfico ni una fuente que responda mal tumben el servidor.
 
 **Despliegue y seguridad**
 - La aplicación funciona aislada, en un contenedor con recursos limitados y cabeceras de
@@ -259,11 +266,7 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 
 ### Preparadas, pendientes de subir
 
-- **Panel de capas para el móvil:** pastillas fáciles de pulsar, agrupadas por temas, y la leyenda
-  plegada.
-- **Recorrido pegado a la vía** en Cercanías, metro y tranvía. Sin rectas imposibles cuando el
-  operador pasa el número de un tren a otro convoy, que además daba alertas falsas de retraso.
-- **Más protección** frente a picos de tráfico y fallos de las fuentes.
+Ninguna por ahora.
 
 ## Posibles mejoras
 
