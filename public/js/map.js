@@ -65,6 +65,7 @@ const ATTRIBUTION = [
   'Powered by <a href="https://www.crtm.es/" target="_blank" rel="noopener">CRTM</a>',
   'Powered by <a href="https://www.tram.cat/" target="_blank" rel="noopener">TRAM Barcelona</a>',
   'Origen de los datos: Renfe Operadora',
+  '© Administrador de infraestructuras ferroviarias',
   `Obra derivada de Catálogo de terremotos IGN ${today} · CC-BY 4.0 <a href="https://www.ign.es" target="_blank" rel="noopener">ign.es</a>`,
   '© AEMET',
   'Fuente: DGT',

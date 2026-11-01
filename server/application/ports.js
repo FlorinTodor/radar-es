@@ -17,6 +17,9 @@
  * @property {string[]} [requires]             Variables de entorno necesarias (claves de API).
  * @property {boolean} [cleanPositions]        Su licencia permite modificar los datos: se descartan sus posiciones
  *                                              repetidas o imposibles. Si no, se muestran tal cual.
+ * @property {boolean} [onRailNetwork]         Sus trenes (ids `<id de la fuente>:…`) circulan por la red ferroviaria
+ *                                              general y sus posiciones caen sobre ella: su recorrido reciente se
+ *                                              dibuja por la vía (RailNetworkPort) y no con rectas.
  * @property {() => Promise<import('../domain/model.js').SourceResult>} fetch
  * @property {(vehicleId: string) => number[][]|null|undefined} [path]  Sólo fuentes de posiciones
  *   estimadas: tramo de trazado ([lon, lat]) que el vehículo ha recorrido según su horario, para
@@ -38,6 +41,15 @@
  * @typedef {object} NetworkCatalogPort
  * @property {() => Promise<number>} load
  * @property {() => { type: 'FeatureCollection', features: object[] }} lines
+ */
+
+/**
+ * Red ferroviaria general (tramos de vía en servicio), para dibujar por la vía el recorrido de los
+ * trenes de las fuentes con `onRailNetwork`. Se carga detrás, sin bloquear el arranque: mientras no
+ * está (o si no se pudo descargar), `network()` da null y los recorridos se unen con rectas.
+ * @typedef {object} RailNetworkPort
+ * @property {() => Promise<number>} load  Lee la red (de disco o descargándola) y la prepara; devuelve cuántos tramos tiene.
+ * @property {() => import('../domain/rail-match.js').RailNetwork | null} network
  */
 
 /**
@@ -107,6 +119,7 @@ export const PORT_MEMBERS = {
   DataSource: ['id', 'name', 'kind', 'interval', 'fetch'],
   StationCatalog: ['load', 'get', 'name', 'nearest', 'all'],
   NetworkCatalog: ['load', 'lines'],
+  RailNetwork: ['load', 'network'],
   SituationRepository: ['registerSource', 'saveResult', 'saveFailure', 'source', 'vehicles', 'events', 'metrics', 'health',
     'tracks', 'activeAlerts', 'addResolved', 'resolvedAlerts', 'setKpis', 'kpis', 'pushKpiSample', 'kpiHistory'],
   History: ['append'],

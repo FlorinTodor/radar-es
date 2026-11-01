@@ -1,14 +1,49 @@
 // Casos de uso de consulta: lo que los adaptadores de entrada (API, SSE...) pueden preguntar.
 import { sortAlerts } from '../../domain/alerts/lifecycle.js';
 import { headingOf } from '../../domain/tracking.js';
+import { matchToRail } from '../../domain/rail-match.js';
+
+// Recorridos ya pegados a la vía que se guardan (uno por tren pedido, ~30 KB cada uno): el mapa pide
+// el del tren seleccionado cada 15 s, y sólo cambia cuando el tren da una posición nueva.
+const RAIL_MEMO_MAX = 200;
+const round5 = (x) => Math.round(x * 1e5) / 1e5;
 
 /**
  * @param {{ situation: import('../ports.js').SituationRepositoryPort, stations: import('../ports.js').StationCatalogPort,
  *           network: import('../ports.js').NetworkCatalogPort, clock: import('../ports.js').ClockPort,
- *           sources?: import('../ports.js').DataSourcePort[] }} deps
+ *           sources?: import('../ports.js').DataSourcePort[], railNetwork?: import('../ports.js').RailNetworkPort }} deps
+ *   railNetwork: sin él, los recorridos de todas las fuentes se unen con rectas.
  */
-export function makeQuerySituation({ situation, stations, network, clock, sources = [] }) {
+export function makeQuerySituation({ situation, stations, network, clock, sources = [], railNetwork }) {
   const withPaths = sources.filter((s) => typeof s.path === 'function');
+  const railPrefixes = sources.filter((s) => s.onRailNetwork).map((s) => `${s.id}:`);
+  const onRails = (id) => railPrefixes.some((prefix) => id.startsWith(prefix));
+  const railMemo = new Map(); // id → { key, path }, calculados con la red memoNet
+  let memoNet = null;
+
+  /**
+   * Recorrido de un tren por la vía, como lista de { lon, lat } (lo mismo que dibuja el mapa con las
+   * posiciones crudas: donde faltan datos se parte igual). null si no hay red cargada.
+   */
+  const railTrack = (id, track) => {
+    const net = railNetwork?.network();
+    if (!net || track.length < 2) return null;
+    if (net !== memoNet) { // red nueva (la recarga mensual): lo calculado con la anterior no vale
+      railMemo.clear();
+      memoNet = net;
+    }
+    // Cambia al llegar una posición nueva o al salir de la ventana de 45 min la más antigua.
+    const key = `${track.length}:${track[0].t}:${track.at(-1).t}`;
+    const memo = railMemo.get(id);
+    if (memo?.key === key) return memo.path;
+    const path = matchToRail(net, track).flat().map(([lon, lat]) => ({ lon: round5(lon), lat: round5(lat) }));
+    // Fuera los trenes que ya no tienen recorrido y, si aun así son muchos, los calculados hace más.
+    const live = situation.tracks();
+    railMemo.delete(id);
+    for (const old of railMemo.keys()) if (!live.has(old) || railMemo.size >= RAIL_MEMO_MAX) railMemo.delete(old);
+    railMemo.set(id, { key, path });
+    return path;
+  };
   const alerts = () => sortAlerts(situation.activeAlerts().values());
   // Los autobuses (miles en hora punta) sólo se envían a quien tiene activada su capa.
   const busFilter = (buses) => (buses ? (list) => list : (list) => list.filter((v) => v.mode !== 'bus'));
@@ -49,14 +84,17 @@ export function makeQuerySituation({ situation, stations, network, clock, source
     lines: () => network.lines(),
     /**
      * Recorrido reciente de un vehículo. Los de posición estimada usan su trazado (las posiciones de
-     * cada lectura, unidas con rectas, cruzarían manzanas); los que no tienen trazado, ninguno.
+     * cada lectura, unidas con rectas, cruzarían manzanas); los que no tienen trazado, ninguno. Los
+     * trenes de la red ferroviaria general (AVE, Larga y Media Distancia), por la vía entre posición y
+     * posición; el resto, sus posiciones tal cual.
      */
     track(id) {
       for (const s of withPaths) {
         const path = s.path(id);
         if (path !== undefined) return path ? path.map(([lon, lat]) => ({ lon, lat })) : [];
       }
-      return situation.tracks().get(id) ?? null;
+      const track = situation.tracks().get(id) ?? null;
+      return (track && onRails(id) && railTrack(id, track)) || track;
     },
     /**
      * Lo que le queda a un vehículo de posición estimada hasta el final de su viaje, por su trazado.

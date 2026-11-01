@@ -25,3 +25,18 @@ test('un fallo de los trazados se registra y no rompe la recarga', async () => {
   await flush();
   assert.deepEqual(warnings, ['[líneas] NAP caído']);
 });
+
+test('la red ferroviaria también se carga detrás, y si falla sólo se registra', async () => {
+  const warnings = [];
+  let loading = 0;
+  const refresh = makeRefreshCatalogs({
+    stations: { load: async () => 900 },
+    network: { load: async () => 120 },
+    railNetwork: { load: async () => { loading++; throw new Error('Adif no responde'); } },
+    log: { warn: (msg) => warnings.push(msg) },
+  });
+  await refresh();
+  await flush();
+  assert.equal(loading, 1);
+  assert.deepEqual(warnings, ['[red ferroviaria] Adif no responde']);
+});

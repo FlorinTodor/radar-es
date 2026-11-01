@@ -15,6 +15,7 @@ import { createConsoleLogger } from './adapters/outbound/logging/console-logger.
 import { createRenfeStationCatalog } from './adapters/outbound/stations/renfe-station-catalog.js';
 import { createNapClient } from './adapters/outbound/nap/nap-client.js';
 import { createGtfsNetworkCatalog } from './adapters/outbound/network/gtfs-network-catalog.js';
+import { createAdifRailNetwork } from './adapters/outbound/network/adif-rail-network.js';
 import { createInMemorySituation } from './adapters/outbound/persistence/in-memory-situation.js';
 import { createJsonlHistory } from './adapters/outbound/persistence/jsonl-history.js';
 import { createInProcessEventBus } from './adapters/outbound/events/in-process-event-bus.js';
@@ -38,6 +39,7 @@ const cache = createFileCache({ http, dir: cacheDir, log });
 const nap = createNapClient({ cache, apiKey: config.env.NAP_API_KEY });
 const stations = assertPort('StationCatalog', createRenfeStationCatalog({ cache, cacheDir, log }), PORT_MEMBERS.StationCatalog);
 const network = assertPort('NetworkCatalog', createGtfsNetworkCatalog({ nap, cache, cacheDir, log, pool }), PORT_MEMBERS.NetworkCatalog);
+const railNetwork = assertPort('RailNetwork', createAdifRailNetwork({ cache, log }), PORT_MEMBERS.RailNetwork);
 const situation = assertPort('SituationRepository', createInMemorySituation(), PORT_MEMBERS.SituationRepository);
 const history = assertPort('History', createJsonlHistory({ dir: new URL('history/', config.dataDir), log }), PORT_MEMBERS.History);
 const bus = assertPort('EventPublisher', createInProcessEventBus(), PORT_MEMBERS.EventPublisher);
@@ -57,13 +59,13 @@ for (const s of sources) {
 // --- Casos de uso ----------------------------------------------------------
 const ingestSource = makeIngestSource({ sources: enabledSources, situation, publisher: bus, clock, log });
 const detectAlerts = makeDetectAlerts({ situation, stations, history, publisher: bus, clock });
-const query = makeQuerySituation({ situation, stations, network, clock, sources });
+const query = makeQuerySituation({ situation, stations, network, clock, sources, railNetwork });
 const serveTiles = makeServeTiles({ tiles });
 const watchSituation = makeWatchSituation({ events: bus, query });
-const refreshCatalogs = makeRefreshCatalogs({ stations, network, log });
+const refreshCatalogs = makeRefreshCatalogs({ stations, network, railNetwork, log });
 
 // --- Adaptadores de entrada ------------------------------------------------
-await refreshCatalogs(); // espera a las estaciones; los trazados siguen cargándose detrás
+await refreshCatalogs(); // espera a las estaciones; los trazados y la red ferroviaria siguen cargándose detrás
 
 const feeds = enabledSources.map(({ id, interval }) => ({ id, interval }));
 const scheduler = startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, log });

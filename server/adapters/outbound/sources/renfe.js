@@ -314,6 +314,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
     page: 'https://data.renfe.com/dataset/posicion-vehiculos-av-ld-md',
     license: ATTRIBUTION,
     cleanPositions: true,
+    onRailNetwork: true, // sus posiciones caen sobre los tramos de Adif: el recorrido se dibuja por la vía
     async fetch() {
       await timetables.loadLd();
       const [positions, updates] = await Promise.allSettled([http.json(this.url), http.json(`${GTFSRT}/trip_updates_LD.json`)]);
