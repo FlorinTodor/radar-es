@@ -6,7 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { loadStationExtras, matchesStation, nameKey, pageImages, pickCategoryFile, pickNearby } from '../../server/adapters/outbound/stations/station-extras.js';
+import { loadStationExtras, matchesStation, nameKey, pageImages, parseCommons, pickCategoryFile, pickNearby } from '../../server/adapters/outbound/stations/station-extras.js';
 import { createFileCache } from '../../server/adapters/outbound/http/file-cache.js';
 
 const silent = { warn() {}, info() {} };
@@ -109,4 +109,40 @@ test('caché: una respuesta que no valida (error dentro de un 200) no se guarda 
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('autor: el texto de atribución que pide el autor; si no, su nombre, sin avisos ni tablas', async () => {
+  const { commonsAuthor } = await import('../../server/adapters/outbound/stations/station-extras.js');
+  const v = (value) => ({ value });
+  assert.equal(commonsAuthor({ Artist: v('pere prlpz'), Attribution: v('Pere López') }), 'Pere López');
+  assert.equal(commonsAuthor({ Artist: v('Enrique Íñiguez Rodríguez (<a href="//commons.wikimedia.org/wiki/User:Qoan">Qoan</a>)'),
+    Attribution: v('Enrique Íñiguez Rodríguez') }), 'Enrique Íñiguez Rodríguez');
+  assert.equal(commonsAuthor({ Artist: v('Héctor S. Marqueño'), Attribution: v('<a href="//commons.wikimedia.org/wiki/User:Espanish_AlB">Espanish AlB</a>') }), 'Espanish AlB');
+  assert.equal(commonsAuthor({ Artist: v('No machine-readable author provided. Chixoy assumed (based on copyright claims).') }), 'Chixoy');
+  const table = '<table><tr><td><a href="//commons.wikimedia.org/wiki/File:Flag.gif"><img src="x"></a></td><td><a href="//commons.wikimedia.org/wiki/User:Kolforn">Kolforn</a> (Kolforn) '
+    + "I'd appreciate if you could mail me (Kolforn@gmail.com) if you want to use this picture out of the Wikimedia project scope.</td></tr></table>";
+  assert.equal(commonsAuthor({ Artist: v(table) }), 'Kolforn', 'ni el correo ni el aviso');
+  assert.equal(commonsAuthor({ Artist: v('Mdiagom'), Attribution: v('I, Mdiagom') }), 'Mdiagom');
+  assert.equal(commonsAuthor({ Artist: v('Luis Miguel Bugallo Sánchez http://commons.wikimedia.org/wiki/User:Lmbuga'),
+    Attribution: v('http://commons.wikimedia.org/wiki/User:Lmbuga') }), 'Luis Miguel Bugallo Sánchez http://commons.wikimedia.org/wiki/User:Lmbuga');
+  assert.equal(commonsAuthor({ Attribution: v('\u200bWikipedia user PepedoCouto') }), 'Wikipedia user PepedoCouto');
+  const lmbuga = '<p>Luis Miguel Bugallo Sánchez\n</p>\n<dl><dd><a class="external free" href="https://commons.wikimedia.org/wiki/User:Lmbuga">'
+    + 'http://commons.wikimedia.org/wiki/User:Lmbuga</a></dd>\n<dd><a class="external free" href="https://gl.wikipedia.org/wiki/Usuario:Lmbuga">http://gl.wikipedia.org/wiki/Usuario:Lmbuga</a></dd></dl>';
+  assert.equal(commonsAuthor({ Artist: v(lmbuga) }), 'Luis Miguel Bugallo Sánchez');
+  assert.equal(commonsAuthor({}), '');
+});
+
+test('licencias: sin autor sólo valen CC0 y dominio público; las fotos sólo GFDL no se usan', () => {
+  const v = (value) => ({ value });
+  const page = (title, extmetadata) => ({ title: `File:${title}`, imageinfo: [{ thumburl: `https://upload.wikimedia.org/${title}`, descriptionurl: `https://commons.wikimedia.org/wiki/File:${title}`, extmetadata }] });
+  const out = parseCommons({ query: { pages: [
+    page('a.jpg', { LicenseShortName: v('CC BY-SA 3.0') }),
+    page('b.jpg', { LicenseShortName: v('CC0') }),
+    page('c.jpg', { LicenseShortName: v('Public domain') }),
+    page('d.jpg', { LicenseShortName: v('GFDL'), Artist: v('Ana') }),
+    page('e.jpg', { LicenseShortName: v('CC BY-SA 3.0'), Attribution: v('Willtron') }),
+  ] } });
+  assert.deepEqual([...out.keys()], ['b.jpg', 'c.jpg', 'e.jpg']);
+  assert.equal(out.get('b.jpg').author, 'Autor desconocido');
+  assert.equal(out.get('e.jpg').author, 'Willtron');
 });
