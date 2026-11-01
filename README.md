@@ -279,6 +279,14 @@ Ninguna por ahora.
 - Estadísticas de puntualidad por línea y franja horaria.
 - Pasos a nivel en el mapa.
 - Estado oficial de la red de Adif, si llega a publicarse con licencia de reutilización.
+- Accesibilidad de las estaciones con más detalle:
+  - en Madrid, qué accesos y andenes son accesibles, con los datos abiertos del
+    [Consorcio de Transportes](https://www.crtm.es/licencia-de-uso/), cuando se revise su calidad;
+  - en toda España, pedir a Adif que publique como datos abiertos las estaciones accesibles y las
+    que tienen asistencia [Adif Acerca](https://www.spain.info/es/descubrir-espana/accesibilidad-trenes/).
+  - Fuentes revisadas: [`docs/accesibilidad-estaciones.md`](docs/accesibilidad-estaciones.md).
+- Enlace a la ficha oficial en PDF de las estaciones que la tienen, sacada de los listados de
+  Cercanías de Renfe por núcleo.
 - Guía para quien quiera proponer cambios.
 
 ## Licencia
