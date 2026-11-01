@@ -225,7 +225,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 **Alertas**
 - Motor de reglas que avisa de:
   - trenes detenidos en plena vía y varios trenes parados en la misma zona;
-  - saltos bruscos de retraso y retrasos muy grandes;
+  - saltos bruscos de retraso y retrasos muy grandes (ir adelantado cuenta como ir en hora: un tren
+    que espera en su origen antes de su hora no da un aviso falso al salir);
   - terremotos y posibles incendios cerca de trenes;
   - avisos meteorológicos naranja o rojo;
   - caídas de la demanda eléctrica y fuentes de datos caídas.
