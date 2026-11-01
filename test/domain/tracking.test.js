@@ -1,5 +1,5 @@
 // Historial de posiciones: un salto imposible (el operador pasa el número de tren a otro convoy)
-// empieza un viaje nuevo; el ruido del GPS y los ratos sin datos no.
+// empieza un viaje nuevo; el ruido del GPS, los ratos sin datos y los túneles no.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { isTeleport, recordPositions } from '../../server/domain/tracking.js';
@@ -34,4 +34,24 @@ test('un rato sin datos a velocidad posible (40 km en 30 min) sigue siendo el mi
   const a = { t: T0 - 30 * MIN, ...OVIEDO };
   assert.equal(isTeleport(a, { t: T0, ...INFIESTO }), false);
   assert.equal(isTeleport({ ...a, seen: T0 - 20 * SEC }, { t: T0, ...INFIESTO }), true);
+});
+
+test('al salir de un túnel largo no es un salto aunque la fuente repitiera la última posición', () => {
+  // AVE por el túnel de Guadarrama (28 km): la fuente repite la posición de la boca sur con su
+  // hora de GPS de entonces durante 7 min; al salir llega la posición nueva con GPS nuevo.
+  const ave = (pos, fixTime) => ({ id: 'renfe-ld:AVE-04071', mode: 'av', delay: 3, fixTime, ...pos });
+  const sur = { lat: 40.8, lon: -4.02 };
+  const norte = { lat: 41.04, lon: -3.86 };
+  const tracks = new Map();
+  recordPositions(tracks, [ave(sur, T0 - 7 * MIN)], T0 - 7 * MIN);
+  for (let s = 6 * 60; s > 0; s -= 20) recordPositions(tracks, [ave(sur, T0 - 7 * MIN)], T0 - s * SEC);
+  recordPositions(tracks, [ave(norte, T0)], T0);
+  assert.equal(tracks.get('renfe-ld:AVE-04071').length, 2);
+});
+
+test('si el GPS es nuevo, 40 km en 20 s sigue siendo un salto', () => {
+  const tracks = new Map();
+  recordPositions(tracks, [{ ...c6(OVIEDO, 1), fixTime: T0 - 20 * SEC }], T0 - 20 * SEC);
+  recordPositions(tracks, [{ ...c6(INFIESTO, 87), fixTime: T0 }], T0);
+  assert.equal(tracks.get('renfe-c:2004D70856C6').length, 1);
 });

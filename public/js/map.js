@@ -557,9 +557,10 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
   };
 }
 
-// Más de esto entre dos posiciones seguidas (llegan cada 20-60 s) es un rato sin datos: el camino
-// real no se conoce y una recta cruzaría el mapa por donde no hay vía.
-const TRACK_GAP_KM = 5;
+// Más de esto entre dos posiciones seguidas es un rato largo sin datos: el camino real no se conoce
+// y una recta cruzaría el mapa por donde no hay vía. Los huecos más cortos se unen: suelen ser
+// túneles (el más largo de España, Guadarrama, tiene 28 km), y por dentro la recta se parece a la vía.
+const TRACK_GAP_KM = 30;
 
 /** Recorrido [{lat, lon}] → tramos [[lon, lat], …] partidos donde faltan datos. */
 export function trackParts(track) {
