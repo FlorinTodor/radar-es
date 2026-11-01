@@ -54,8 +54,9 @@ services:
     ports:
       - "127.0.0.1:${RADAR_PUERTO:-8080}:8080"
     volumes:
-      - ./deploy/nginx/radar.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./deploy/nginx/actualizando.html:/usr/share/nginx/html/actualizando.html:ro
+      # La carpeta y no cada fichero: git cambia los ficheros por otros nuevos al actualizar, y un
+      # fichero montado suelto seguiría siendo el viejo dentro del contenedor.
+      - ./deploy/nginx:/etc/nginx/conf.d:ro
       # activo.conf: cuál de los dos está en servicio. Lo escribe deploy/actualizar.sh.
       - ./data/proxy:/etc/nginx/activo:ro
     # La primera vez que se despliega este fichero lo hace el actualizar.sh anterior, que sólo
