@@ -96,3 +96,66 @@ function slice(s, from, to) {
   const path = [pointAt(s, lo), ...inner, pointAt(s, hi)];
   return from <= to ? path : path.reverse();
 }
+
+/**
+ * Lo que le queda por recorrer a un tren: su trazado entre su posición y el final de su viaje, en ese
+ * sentido aunque el trazado esté dibujado al revés (los de Renfe van al contrario en la mitad de los
+ * viajes) y aunque el viaje acabe antes que el trazado. Si el tren está a más de `maxM` del trazado, o
+ * el final a más de `maxEndM` sin estar más allá de un extremo (el viaje no es el que dice, o el trazado
+ * no coincide), no se dibuja nada.
+ * @param {Array<[number, number]>} coords trazado ([lon, lat])
+ * @param {[number, number]} at posición del tren ([lon, lat])
+ * @param {[number, number]} end donde acaba su viaje ([lon, lat])
+ * @returns {Array<[number, number]>|null}
+ */
+export function pathBetween(coords, at, end, maxM = 500, maxEndM = 1500) {
+  if (!coords?.length || coords.length < 2 || !end) return null;
+  const a = project(coords, at);
+  const b = project(coords, end);
+  // Un final lejos pero más allá de un extremo del trazado: el viaje sigue donde Renfe no lo ha
+  // trazado (Santander → Unquera); se dibuja hasta donde llega.
+  const pastEnd = (b.i === 1 && b.t === 0) || (b.i === coords.length - 1 && b.t === 1);
+  if (a.d > maxM || (b.d > maxEndM && !pastEnd)) return null;
+  const forward = a.i < b.i || (a.i === b.i && a.t <= b.t);
+  const middle = forward ? coords.slice(a.i, b.i) : coords.slice(b.i, a.i).reverse();
+  return [a.p, ...middle, b.p];
+}
+
+/**
+ * Hacia dónde va un tren según su viaje: la dirección de su trazado, en su posición y hacia donde acaba
+ * (grados desde el norte, de 5 en 5), mirando 100 m por delante para no quedarse con una esquina.
+ * Las posiciones de Renfe van a veces adelante y atrás cientos de metros: por su movimiento, la flecha
+ * se daría la vuelta. null si no está en el trazado o ya ha llegado.
+ */
+export function headingAlong(coords, at, end) {
+  const path = pathBetween(coords, at, end);
+  if (!path) return null;
+  const [x0, y0] = path[0];
+  const kx = 111_320 * Math.cos((y0 * Math.PI) / 180);
+  const ky = 110_540;
+  const far = path.find(([x, y]) => Math.hypot((x - x0) * kx, (y - y0) * ky) > 100)
+    ?? (Math.hypot((path.at(-1)[0] - x0) * kx, (path.at(-1)[1] - y0) * ky) > 20 ? path.at(-1) : null);
+  if (!far) return null;
+  const deg = (Math.atan2((far[0] - x0) * kx, (far[1] - y0) * ky) * 180) / Math.PI;
+  return (Math.round(((deg + 360) % 360) / 5) * 5) % 360;
+}
+
+/** Punto del trazado más cercano a `at`: tramo `i` (de coords[i - 1] a coords[i]), fracción `t`, distancia `d` en metros. */
+function project(coords, at) {
+  const kx = 111_320 * Math.cos((at[1] * Math.PI) / 180);
+  const ky = 110_540;
+  const xy = ([lon, lat]) => [(lon - at[0]) * kx, (lat - at[1]) * ky];
+  let best = null;
+  for (let i = 1; i < coords.length; i++) {
+    const [ax, ay] = xy(coords[i - 1]);
+    const [bx, by] = xy(coords[i]);
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
+    const d = Math.hypot(ax + t * dx, ay + t * dy);
+    if (!best || d < best.d) best = { d, i, t };
+  }
+  const [a, b] = [coords[best.i - 1], coords[best.i]];
+  return { ...best, p: [a[0] + best.t * (b[0] - a[0]), a[1] + best.t * (b[1] - a[1])] };
+}

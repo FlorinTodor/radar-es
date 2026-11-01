@@ -44,3 +44,47 @@ test('elige el trazado de la ciudad del tren entre líneas con el mismo nombre',
   const [out] = matchTrack([[[-5.81, 43.3601], [-5.8001, 43.37]]], [otraCiudad, L]);
   assert.ok(out.some(([lon, lat]) => lon === ESQUINA[0] && lat === ESQUINA[1]));
 });
+
+test('lo que le queda a un tren: el trazado desde su posición hasta donde acaba su viaje', async () => {
+  const { pathBetween } = await import('../../public/js/track-match.js');
+  const trazado = [[-3.00, 43.20], [-2.98, 43.20], [-2.96, 43.21], [-2.94, 43.21]];
+  const ahead = pathBetween(trazado, [-2.97, 43.2052], [-2.94, 43.21]); // entre el 2.º y el 3.er punto, sobre la vía
+  assert.ok(Math.abs(ahead[0][0] + 2.97) < 0.002, 'empieza donde está el tren');
+  assert.deepEqual(ahead.slice(1), [[-2.96, 43.21], [-2.94, 43.21]]);
+  assert.equal(pathBetween(trazado, [-2.97, 43.25], [-2.94, 43.21]), null, 'a 5 km del trazado no es su viaje');
+  assert.equal(pathBetween(trazado, [-2.97, 43.2052], [-2.97, 43.30]), null, 'su final no está en el trazado');
+  assert.equal(pathBetween(trazado, [-2.97, 43.2052], null), null, 'sin final no se sabe hacia dónde va');
+  assert.equal(pathBetween([], [-2.97, 43.2], [-2.94, 43.21]), null);
+});
+
+test('con el trazado dibujado al revés, lo que le queda va hacia su final igualmente', async () => {
+  const { pathBetween } = await import('../../public/js/track-match.js');
+  const trazado = [[-3.00, 43.20], [-2.98, 43.20], [-2.96, 43.21], [-2.94, 43.21]];
+  const back = pathBetween(trazado, [-2.97, 43.2052], [-3.00, 43.20]); // va hacia el primer punto
+  assert.ok(Math.abs(back[0][0] + 2.97) < 0.002, 'empieza donde está el tren');
+  assert.deepEqual(back.slice(1), [[-2.98, 43.20], [-3.00, 43.20]]);
+});
+
+test('un viaje que acaba antes que su trazado se dibuja sólo hasta su final', async () => {
+  const { pathBetween } = await import('../../public/js/track-match.js');
+  const trazado = [[-3.00, 43.20], [-2.98, 43.20], [-2.96, 43.21], [-2.94, 43.21]];
+  const corto = pathBetween(trazado, [-2.99, 43.2001], [-2.96, 43.21]);
+  assert.deepEqual(corto.slice(1), [[-2.98, 43.20], [-2.96, 43.21]], 'no sigue hasta el último punto del trazado');
+});
+
+test('la flecha va por la vía hacia donde acaba su viaje, aunque el trazado esté al revés', async () => {
+  const { headingAlong } = await import('../../public/js/track-match.js');
+  const trazado = [[-3.00, 43.20], [-2.98, 43.20], [-2.96, 43.20]]; // de oeste a este
+  assert.equal(headingAlong(trazado, [-2.99, 43.2001], [-2.96, 43.20]), 90, 'hacia el este');
+  assert.equal(headingAlong(trazado, [-2.99, 43.2001], [-3.00, 43.20]), 270, 'hacia el oeste');
+  assert.equal(headingAlong(trazado, [-2.96, 43.2], [-2.96, 43.20]), null, 'ya ha llegado');
+  assert.equal(headingAlong(trazado, [-2.99, 43.25], [-2.96, 43.20]), null, 'lejos de su vía');
+});
+
+test('si el viaje sigue más allá del trazado, se dibuja hasta donde llega el trazado', async () => {
+  const { pathBetween } = await import('../../public/js/track-match.js');
+  const trazado = [[-3.00, 43.20], [-2.98, 43.20], [-2.96, 43.20]];
+  const hasta = pathBetween(trazado, [-2.99, 43.2001], [-2.70, 43.25]); // su final, 25 km más allá del extremo este
+  assert.deepEqual(hasta.slice(1), [[-2.98, 43.20], [-2.96, 43.20]]);
+  assert.equal(pathBetween(trazado, [-2.99, 43.2001], [-2.98, 43.30]), null, 'un final lejos a un lado del trazado no es su viaje');
+});

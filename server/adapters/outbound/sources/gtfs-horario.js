@@ -5,11 +5,14 @@
 import { decodeFeed } from './gtfs-rt.js';
 import { activeFrequencyOffsets, pointAlong, scheduledPosition, serviceRuns, stopsAlongShape } from '../../../domain/schedule.js';
 import { madridLocalToMs } from './parse.js';
+import { bearingDeg } from '../../../domain/geo.js';
 import { napDatasetPage } from '../nap/nap-client.js';
 import { createCpuPool } from '../workers/cpu-pool.js';
 
 const RELOAD_MS = 24 * 3600_000;
 const PATH_WINDOW_S = 45 * 60; // el mismo tramo que el recorrido de los vehículos con GPS
+// Sin trazado, lo que le queda se dibuja uniendo paradas sólo en estos modos (paradas cercanas).
+const STRAIGHT_AHEAD = new Set(['metro', 'tranvia', 'cercanias']);
 // Sin pool inyectado (tests, herramientas), los horarios se leen en el hilo principal de uno en uno.
 const inlinePool = createCpuPool({ threads: 0 });
 
@@ -67,6 +70,17 @@ function delaysFromTripUpdates(feed, schedule) {
   return out;
 }
 
+/** Trozo de un trazado entre dos distancias (m), como [lon, lat] redondeados. */
+function stretch(shape, from, to) {
+  const { coords, dist } = shape;
+  const round = (x) => Math.round(x * 1e5) / 1e5;
+  const at = (d) => { const q = pointAlong(shape, d); return [round(q.lon), round(q.lat)]; };
+  const out = [at(from)];
+  for (let i = 0; i < dist.length; i++) if (dist[i] > from && dist[i] < to) out.push([round(coords[i * 2]), round(coords[i * 2 + 1])]);
+  out.push(at(to));
+  return out;
+}
+
 /**
  * @param {{ nap: ReturnType<typeof import('../nap/nap-client.js').createNapClient>, http: import('../http/http-client.js').HttpClient,
  *           log?: import('../../../application/ports.js').LoggerPort, pool?: import('../workers/cpu-pool.js').CpuPool }} deps
@@ -87,8 +101,9 @@ export function createGtfsScheduleSource({ nap, http, log, pool = inlinePool }, 
   const loaded = new Map(); // índice del fichero → { schedule, updatedAt }
   let loadedAt = 0;
   let loadedDay = null; // día de servicio (Madrid) para el que se cargaron los horarios
-  // Tramo de trazado recorrido en los últimos 45 min por cada vehículo de la última lectura:
-  // id → { shape, from, to } (distancias en metros), o null si se queda en la última parada.
+  // Tramo de trazado recorrido en los últimos 45 min por cada vehículo de la última lectura y hasta
+  // dónde llega su viaje: id → { shape, from, to, end } (distancias en metros), o null si se queda
+  // en la última parada.
   let paths = new Map();
 
   function vehicle(fi, schedule, trip, day, t, delaySec, offset = 0, nextPaths = paths) {
@@ -108,7 +123,7 @@ export function createGtfsScheduleSource({ nap, http, log, pool = inlinePool }, 
       const shape = schedule.shapes[trip.shape];
       if (!pos.atStop) ({ lat, lon } = pointAlong(shape, alongAt(pos)));
       const before = scheduledPosition(stops, Math.max(tt - PATH_WINDOW_S, stops[0].dep));
-      nextPaths.set(vid, { shape, from: before ? alongAt(before) : 0, to: alongAt(pos) });
+      nextPaths.set(vid, { shape, from: before ? alongAt(before) : 0, to: alongAt(pos), end: along.at(-1) });
     } else if (!pos.atStop && trip.route.mode === 'bus') {
       // Sin trazado, en línea recta un autobús interurbano cruzaría el campo: se deja en la última
       // parada por la que ha pasado. Los trenes sí siguen la recta (las vías suelen ser bastante rectas).
@@ -117,6 +132,20 @@ export function createGtfsScheduleSource({ nap, http, log, pool = inlinePool }, 
       nextPaths.set(vid, null);
     } else if (trip.route.mode === 'bus') {
       nextPaths.set(vid, null);
+    } else if (STRAIGHT_AHEAD.has(trip.route.mode)) {
+      // Metro o tranvía sin trazado: va en línea recta entre paradas, como el mapa dibuja su red, y
+      // lo que le queda también. Un tren de larga distancia no: entre ciudades la recta se sale de la vía.
+      nextPaths.set(vid, { at: [lon, lat], stops: stops.slice(pos.i + 1).map((s) => [s.lon, s.lat]) });
+    }
+    const p = nextPaths.get(vid);
+    const ahead = p ? (p.stops ? p.stops.length > 0 : p.to < p.end) : false;
+    // Hacia dónde va: por su recorrido, 100 m más allá. Con el rastro, cada cambio de retraso
+    // (la posición retrocede o salta) giraría la flecha.
+    let heading = null;
+    if (p?.stops?.length) heading = bearingDeg(lat, lon, p.stops[0][1], p.stops[0][0]);
+    else if (p && p.end - p.to > 20) {
+      const q = pointAlong(p.shape, Math.min(p.to + 100, p.end));
+      heading = bearingDeg(lat, lon, q.lat, q.lon);
     }
     const { operator } = feeds[fi];
     return {
@@ -130,6 +159,8 @@ export function createGtfsScheduleSource({ nap, http, log, pool = inlinePool }, 
       lon,
       delay: delaySec === null ? null : Math.round(delaySec / 60),
       estimated: true,
+      ...(ahead ? { ahead: true } : {}),
+      ...(heading !== null ? { heading } : {}),
       atLastStop,
       origin: stops[0].name,
       destination: stops.at(-1).name,
@@ -173,14 +204,15 @@ export function createGtfsScheduleSource({ nap, http, log, pool = inlinePool }, 
      */
     path(vehicleId) {
       const p = paths.get(vehicleId);
-      if (!p) return p;
-      const { coords, dist } = p.shape;
-      const round = (x) => Math.round(x * 1e5) / 1e5;
-      const at = (d) => { const q = pointAlong(p.shape, d); return [round(q.lon), round(q.lat)]; };
-      const out = [at(p.from)];
-      for (let i = 0; i < dist.length; i++) if (dist[i] > p.from && dist[i] < p.to) out.push([round(coords[i * 2]), round(coords[i * 2 + 1])]);
-      out.push(at(p.to));
-      return out;
+      if (p?.stops) return undefined; // sin trazado: sus posiciones ya van en línea recta entre paradas
+      return p ? stretch(p.shape, p.from, p.to) : p;
+    },
+    /** Lo que le queda hasta la última parada de su viaje, por su trazado o, si no tiene, uniendo sus
+     * paradas (null o undefined como en path). */
+    ahead(vehicleId) {
+      const p = paths.get(vehicleId);
+      if (p?.stops) return [p.at, ...p.stops].map(([lon, lat]) => [Math.round(lon * 1e5) / 1e5, Math.round(lat * 1e5) / 1e5]);
+      return p ? stretch(p.shape, p.to, p.end) : p;
     },
     async fetch() {
       // Se recarga cada día (sólo se guardan los viajes de hoy y los de ayer que pasan de medianoche).

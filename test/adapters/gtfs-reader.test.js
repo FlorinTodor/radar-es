@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { zipSync, strToU8 } from 'fflate';
-import { createPacer, csvColumns, csvRows, openGtfs, own } from '../../server/adapters/outbound/gtfs/gtfs-reader.js';
+import { createPacer, csvColumns, csvColumnsStreamed, csvRows, openGtfs, own, zipLocalDate } from '../../server/adapters/outbound/gtfs/gtfs-reader.js';
 
 const text = (bytes) => new TextDecoder().decode(bytes);
 
@@ -108,4 +108,32 @@ test('own devuelve una cadena igual', () => {
   assert.equal(own(cell), cell);
   assert.equal(own(''), '');
   assert.equal(own(undefined), undefined);
+});
+
+test('por trozos: las mismas filas que leyendo el fichero entero, comprimido o no', async () => {
+  // ~1,5 MB: varios trozos de 256 KB, con filas y letras de dos bytes partidas entre ellos.
+  const rows = Array.from({ length: 40_000 }, (_, i) => `T${i >> 4},Estación ${i % 97},"${i}, ñ",${i}`);
+  const csv = `\ufefftrip_id,stop_name,nota,stop_sequence\r\n${rows.join('\r\n')}`;
+  for (const level of [9, 0]) {
+    const zip = zipSync({ 'stop_times.txt': [strToU8(csv), { level }] });
+    const fields = ['stop_sequence', 'trip_id', 'nota', 'no_existe'];
+    const got = [];
+    for await (const row of csvColumnsStreamed(zip, 'stop_times.txt', fields)) got.push(row);
+    assert.deepEqual(got, [...csvColumns(strToU8(csv), fields)]);
+    assert.equal(got.length, 40_000);
+    assert.deepEqual(got[39_999], ['39999', 'T2499', '39999, ñ', undefined]);
+  }
+});
+
+test('por trozos: un fichero que no está en el ZIP es un error', async () => {
+  const zip = zipSync({ 'stops.txt': strToU8('stop_id\nS1\n') });
+  await assert.rejects(async () => { for await (const _ of csvColumnsStreamed(zip, 'stop_times.txt', ['trip_id'])); }, /no está en el ZIP/);
+});
+
+test('fecha de un GTFS sin fecha: la del fichero más reciente del ZIP', () => {
+  const zip = zipSync({
+    'stops.txt': [strToU8('a'), { mtime: new Date(2026, 9, 30, 4, 0, 0) }],
+    'trips.txt': [strToU8('b'), { mtime: new Date(2026, 9, 31, 3, 0, 52) }],
+  });
+  assert.equal(zipLocalDate(zip), '2026-10-31T03:00:52');
 });

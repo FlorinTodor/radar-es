@@ -1,0 +1,41 @@
+{
+  "_qué": "Fotos de Commons que la ficha de estación no usa: personas protagonistas (derecho a la propia imagen) y las que su autor o quien sale en ellas pida retirar. Basta con añadir el nombre del fichero en Commons; la ficha pasa a la siguiente foto candidata o se queda sin foto.",
+  "fotos": [
+    {
+      "fichero": "Estacio alcoi.jpg",
+      "estacion": "Alcoi",
+      "motivo": "Personas reconocibles en primer plano (derecho a la propia imagen); revisión de todas las fotos",
+      "fecha": "2026-11-01"
+    },
+    {
+      "fichero": "Estación de tren de Casatejada.jpg",
+      "estacion": "Casatejada",
+      "motivo": "Personas reconocibles en primer plano (derecho a la propia imagen); revisión de todas las fotos",
+      "fecha": "2026-11-01"
+    },
+    {
+      "fichero": "Estación de Tren de Pitis.jpg",
+      "estacion": "Pitis",
+      "motivo": "Personas reconocibles en primer plano (derecho a la propia imagen); revisión de todas las fotos",
+      "fecha": "2026-11-01"
+    },
+    {
+      "fichero": "Metropasseigdegracial4.jpg",
+      "estacion": "Barcelona-Passeig de Gràcia",
+      "motivo": "Personas reconocibles en primer plano (derecho a la propia imagen); revisión de todas las fotos",
+      "fecha": "2026-11-01"
+    },
+    {
+      "fichero": "San Esteban de Pravia station.JPG",
+      "estacion": "San Esteban",
+      "motivo": "Personas reconocibles en primer plano (derecho a la propia imagen); revisión de todas las fotos",
+      "fecha": "2026-11-01"
+    },
+    {
+      "fichero": "Estació de Gavà.jpg",
+      "estacion": "Gavà",
+      "motivo": "Personas reconocibles en primer plano (derecho a la propia imagen); revisión de todas las fotos",
+      "fecha": "2026-11-01"
+    }
+  ]
+}

@@ -46,8 +46,9 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
     '/api/live/buses': { fn: () => query.liveBuses(), ttl: 8_000, cache: liveCache(15), stableEtag: true },
     '/api/health': { fn: () => query.health(), ttl: 15_000, cache: liveCache(30), stableEtag: true },
     // Catálogos: cambian unas pocas veces al día.
-    '/api/stations': { fn: () => query.stations(), ttl: 600_000, cache: CATALOG_CACHE },
-    '/api/lines': { fn: () => query.lines(), ttl: 600_000, cache: CATALOG_CACHE },
+    // Vacíos mientras el servidor los carga al arrancar: entonces no se guardan (ver isEmpty).
+    '/api/stations': { fn: () => query.stations(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.length },
+    '/api/lines': { fn: () => query.lines(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.features?.length },
     '/api/trails': { fn: (p) => query.trails(trailMinutes(p)), key: trailMinutes, ttl: 15_000, cache: REVALIDATE },
     '/api/snapshot': { fn: () => query.snapshot(), ttl: 5_000, cache: REVALIDATE },
     '/api/vehicles': { fn: (p) => query.vehicles(vehicleFilter(p)), key: (p) => JSON.stringify(vehicleFilter(p)), ttl: 5_000, cache: REVALIDATE },
@@ -91,6 +92,18 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
       if (url.pathname === '/api/burnt-areas') return await sendBurntAreas(res, url.searchParams.get('bbox'));
       // El directo antiguo (SSE) se mantiene para las pestañas que se abrieron antes del cambio.
       if (url.pathname === '/api/stream') return stream(req, res, url.searchParams.get('buses') === '1');
+      // Ficha completa de una estación: una búsqueda en memoria, sin cálculo que acotar.
+      if (url.pathname.startsWith('/api/stations/')) {
+        const code = url.pathname.slice('/api/stations/'.length);
+        const station = /^\d{5}$/.test(code) ? query.station(code) : null;
+        return station ? sendJson(req, res, 200, station, CATALOG_CACHE) : send(res, 404, { error: 'Estación no encontrada' });
+      }
+      if (url.pathname.startsWith('/api/ahead/')) {
+        const id = decodeOrNull(url.pathname.slice('/api/ahead/'.length));
+        if (id === null) return send(res, 400, { error: 'Ruta inválida' });
+        const ahead = query.ahead?.(id);
+        return ahead ? sendJson(req, res, 200, ahead) : send(res, 404, { error: 'Sin recorrido previsto' });
+      }
       if (url.pathname.startsWith('/api/tracks/')) {
         const id = decodeOrNull(url.pathname.slice('/api/tracks/'.length));
         if (id === null) return send(res, 400, { error: 'Ruta inválida' });
@@ -135,8 +148,11 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
         return send(res, 503, { error: 'Demasiadas consultas distintas a la vez; prueba dentro de un momento' });
       }
     }
-    const { json, gz, etag } = entry;
-    const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': route.cache, ETag: etag, Vary: 'Accept-Encoding' };
+    const { json, gz, etag, empty } = entry;
+    // Un catálogo vacío (aún cargando) no lo guardan ni el navegador ni Cloudflare: si no, quien
+    // entrase en los primeros segundos tras una subida dejaría a todos sin líneas durante una hora.
+    const cache = empty ? 'no-store' : route.cache;
+    const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': cache, ETag: etag, Vary: 'Accept-Encoding' };
     if (req.headers['if-none-match'] === etag) {
       res.writeHead(304, headers);
       return res.end();
@@ -278,15 +294,18 @@ export function createBudget({ perSecond = 5, burst = 10, now = Date.now } = {})
  * parámetros (y con ellos las claves), guarda como mucho `max` variantes: al pasar del tope se
  * descarta la más antigua. Con `stableEtag`, la firma no cuenta el campo `generatedAt`.
  */
-export function createJsonMemo({ max = 200, now = Date.now } = {}) {
+export function createJsonMemo({ max = 200, now = Date.now, emptyTtl = 2_000 } = {}) {
   const entries = new Map();
-  return function get(key, ttl, compute, { stableEtag = false } = {}) {
+  return function get(key, ttl, compute, { stableEtag = false, isEmpty } = {}) {
     const hit = entries.get(key);
-    if (hit && now() - hit.at < ttl) return hit;
+    if (hit && now() - hit.at < (hit.empty ? emptyTtl : ttl)) return hit;
     const body = compute();
     const json = Buffer.from(JSON.stringify(body));
     const signed = stableEtag && body?.generatedAt !== undefined ? JSON.stringify({ ...body, generatedAt: undefined }) : json;
-    const entry = { at: now(), json, gz: gzipSync(json), etag: `"${createHash('sha1').update(signed).digest('base64url').slice(0, 20)}"` };
+    const entry = {
+      at: now(), json, gz: gzipSync(json), etag: `"${createHash('sha1').update(signed).digest('base64url').slice(0, 20)}"`,
+      empty: Boolean(isEmpty?.(body)),
+    };
     entries.delete(key);
     entries.set(key, entry);
     if (entries.size > max) entries.delete(entries.keys().next().value);
@@ -330,9 +349,9 @@ function send(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-function sendJson(req, res, status, body) {
+function sendJson(req, res, status, body, cache = 'no-store') {
   const json = Buffer.from(JSON.stringify(body));
-  const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
+  const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': cache };
   if (json.length > 1024 && /\bgzip\b/.test(req.headers['accept-encoding'] ?? '')) {
     res.writeHead(status, { ...headers, 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' });
     return res.end(gzipSync(json));
@@ -343,8 +362,8 @@ function sendJson(req, res, status, body) {
 
 /**
  * Cabeceras de seguridad de todas las respuestas. La CSP enumera lo único que la página carga de
- * fuera: teselas y fuentes de OpenFreeMap (las de IGN y EFFIS ya salen de /tiles) y, si está configurado, el
- * contador de GoatCounter. Ningún script en línea; los estilos en línea sí (la leyenda los usa).
+ * fuera: teselas y fuentes de OpenFreeMap (las de IGN y EFFIS ya salen de /tiles), las fotos de las
+ * estaciones (Wikimedia Commons) y, si está configurado, el contador de GoatCounter. Ningún script en línea; los estilos en línea sí (la leyenda los usa).
  * Sin upgrade-insecure-requests para no romper el servidor local por http.
  * @param {{ goatcounter?: string | null }} about
  */
@@ -354,7 +373,8 @@ export function securityHeaders({ goatcounter } = {}) {
     "default-src 'self'",
     `script-src 'self'${goatcounter ? ' https://gc.zgo.at' : ''}`,
     "style-src 'self' 'unsafe-inline'",
-    `img-src 'self' data: blob:${counter}`,
+    // Las fotos de las estaciones vienen de Wikimedia Commons, con su autor y licencia al lado.
+    `img-src 'self' data: blob: https://upload.wikimedia.org https://thumb.wikimedia.org${counter}`,
     `connect-src 'self' https://tiles.openfreemap.org${counter}`,
     "worker-src 'self' blob:",
     "font-src 'self'",

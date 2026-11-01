@@ -24,6 +24,20 @@ const TENERIFE_LINES = 'https://datos.tenerife.es/ckan/dataset/64182a24-3418-42d
 
 const DEFAULT_COLOR = { metro: '#8a7fd1', tranvia: '#4fb3a9', cercanias: '#c45a5a', otros: '#8b8b85' };
 
+/**
+ * El color de cada línea es el que publica el operador, pero el mapa es oscuro: el gris del TG2 de
+ * Vitoria (#737277) apenas se ve y el negro de la línea 41 no se ve nada. Los muy oscuros pasan al
+ * color de su modo; los oscuros se aclaran mezclándolos con blanco hasta que se distinguen.
+ */
+export function readableColor(hex, mode) {
+  const rgb = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const lum = (c) => c.map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)).reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0);
+  if (lum(rgb) < 0.02) return DEFAULT_COLOR[mode] ?? DEFAULT_COLOR.otros;
+  let c = rgb;
+  for (let k = 0; k < 10 && lum(c) < 0.2; k++) c = c.map((v) => v + (1 - v) * 0.15);
+  return `#${c.map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('')}`;
+}
+
 /** Douglas-Peucker sobre [lon, lat] en grados. */
 function simplify(points, tol) {
   if (points.length < 3) return points;
@@ -63,7 +77,7 @@ export async function buildNetwork(zip, network) {
   for (const r of csvRows(files['routes.txt'])) {
     const mode = modeOf(r.route_type);
     if (!mode) continue;
-    const color = /^[0-9a-f]{6}$/i.test(r.route_color) ? `#${r.route_color}` : DEFAULT_COLOR[mode];
+    const color = /^[0-9a-f]{6}$/i.test(r.route_color) ? readableColor(`#${r.route_color}`, mode) : DEFAULT_COLOR[mode];
     routes.set(r.route_id, { mode, color, name: r.route_short_name || r.route_long_name || r.route_id });
   }
 
@@ -90,7 +104,7 @@ export async function buildNetwork(zip, network) {
     const shapeRoute = new Map([...trips.values()].filter((t) => t.shape).map((t) => [t.shape, t.route]));
     for (const [id, pts] of shapes) {
       pts.sort((a, b) => a[0] - b[0]);
-      paths.push({ route: shapeRoute.get(id), coords: pts.map(([, lon, lat]) => [lon, lat]) });
+      paths.push({ route: shapeRoute.get(id), coords: pts.map(([, lon, lat]) => [lon, lat]), shape: id });
     }
   } else if (files['stop_times.txt']) {
     // Sin trazados: por cada ruta y sentido, el viaje con más paradas, uniendo estaciones.
@@ -123,21 +137,27 @@ export async function buildNetwork(zip, network) {
     }
   }
 
-  const seen = new Set();
+  // Trazados iguales se pintan una sola vez; el elemento guarda los shape_id de todos ellos, para
+  // que el mapa encuentre el del viaje de cada tren (su recorrido hasta el destino).
+  const seen = new Map();
   const features = [];
-  for (const { route, coords } of paths) {
+  for (const { route, coords, shape } of paths) {
     const r = routes.get(route);
     const clean = coords.filter(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat) && (lon || lat));
     if (!r || clean.length < 2) continue;
     const line = simplify(clean, TOLERANCE_DEG).map(round);
     const sig = `${route}:${line.length}:${line[0]}:${line.at(-1)}`;
-    if (seen.has(sig)) continue;
-    seen.add(sig);
-    features.push({
+    if (seen.has(sig)) {
+      if (shape) (seen.get(sig).properties.shapes ??= []).push(shape);
+      continue;
+    }
+    const feature = {
       type: 'Feature',
       geometry: { type: 'LineString', coordinates: line },
-      properties: { network, line: r.name, color: r.color, mode: r.mode },
-    });
+      properties: { network, line: r.name, color: r.color, mode: r.mode, ...(shape ? { shapes: [shape] } : {}) },
+    };
+    seen.set(sig, feature);
+    features.push(feature);
   }
   return features;
 }
@@ -167,8 +187,8 @@ function buildTenerife(bytes) {
  * @returns {import('../../../application/ports.js').NetworkCatalogPort}
  */
 export function createGtfsNetworkCatalog({ nap, cache, cacheDir, log, pool }) {
-  // Nombre nuevo para no reutilizar la caché que aún incluía Metro de Madrid y el GTFS caducado de Tenerife.
-  const cacheFile = new URL('trazados-red.json', cacheDir);
+  // Nombre nuevo para no reutilizar una caché sin los shape_id de cada trazado ni los colores aclarados.
+  const cacheFile = new URL('trazados-red-v3.json', cacheDir);
   let collection = { type: 'FeatureCollection', features: [] };
 
   return {
