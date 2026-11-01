@@ -485,7 +485,10 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
       .then((r) => (r.ok ? r.json() : []))
       .then((track) => {
         if (selectedId !== v.id) return;
+        // Los trazados de su línea y el de su propio viaje: Metro Bilbao no dice su línea, pero sí su viaje.
         const own = v.line ? lineFeatures.filter((f) => f.properties.line === v.line && f.properties.mode === v.mode) : [];
+        const trip = shapeOf(v);
+        if (trip && !own.includes(trip)) own.push(trip);
         const parts = matchTrack(trackParts(track), own).filter((part) => part.length > 1);
         map.getSource('track').setData(parts.length ? { type: 'Feature', geometry: { type: 'MultiLineString', coordinates: parts }, properties: {} } : EMPTY);
       })
@@ -791,6 +794,8 @@ function vehicleDetail(v) {
     (v.origin || v.destination) && ['Recorrido', `${v.origin ?? '?'} → ${v.destination ?? '?'}`],
     ['Retraso', fmtDelay(v)],
     v.current && [v.stopped ? 'Parado en' : v.mode === 'bus' ? 'Última parada' : 'Última estación', `${v.current}${v.stopped ? via : ''}`],
+    // El operador lo da parado en una estación lejos de su posición: la del mapa no está al día.
+    v.farFromStop && v.current && ['Posición', `${v.source?.startsWith('renfe') ? 'Renfe' : 'El operador'} la da a ${v.farFromStop.toLocaleString('es-ES', { maximumFractionDigits: 1 })} km de ${v.current}: puede que no esté al día`],
     v.next && ['Próxima', `${v.next}${v.nextEta ? ` (${fmtLocalHour(v.nextEta)})` : v.nextInMinutes !== undefined && v.nextInMinutes !== null ? ` (en ${v.nextInMinutes} min)` : ''}${v.stopped ? '' : via}`],
     v.area && ['Núcleo', v.area],
     v.rollingStock && ['Material', v.rollingStock],

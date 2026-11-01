@@ -6,8 +6,13 @@
 import { createPacer, csvColumns, csvColumnsStreamed, csvRows, openGtfs, own } from '../gtfs/gtfs-reader.js';
 import { RENFE_FILES } from '../stations/renfe-station-catalog.js';
 import { num } from './parse.js';
+import { distanceKm } from '../../../domain/geo.js';
 
 const GTFSRT = 'https://gtfsrt.renfe.com';
+// Una estación con andenes largos no pasa de unos cientos de metros: parado más lejos que esto de
+// la estación que dice Renfe, su posición no es la del tren (medido: 2,2 km en un C1 de Madrid con
+// la posición de T4 y «parado en Valdebebas»; 9,4 km en un Media Distancia «parado en Ferrol»).
+const FAR_FROM_STOP_KM = 1.5;
 const ATTRIBUTION = 'Origen de los datos: Renfe Operadora (CC BY 4.0; datos modificados: normalizados, depurados y combinados con sus horarios)';
 const TIMETABLE_TTL_MS = 24 * 3600_000;
 // Renfe vuelve a publicar el GTFS de AV/LD/MD cada día y el id de viaje lleva la fecha de su periodo
@@ -238,7 +243,11 @@ export function createRenfeSources({ http, cache, stations, log }) {
     // Algunas horas de los trip updates son de paradas ya pasadas: sólo vale si es futura.
     const eta = update?.arrivals.get(nextId);
     const futureEta = eta && eta * 1000 > Date.now() - 60_000 ? eta : null;
+    // Parado en una estación lejos de la posición que da: la posición no está al día o es de relleno.
+    const stop = stopped ? stations.get(v.stopId) : null;
+    const far = stop ? distanceKm(v.position.latitude, v.position.longitude, stop.lat, stop.lon) : 0;
     return {
+      ...(far > FAR_FROM_STOP_KM ? { farFromStop: Math.round(far * 10) / 10 } : {}),
       lat: v.position.latitude,
       lon: v.position.longitude,
       delay: update?.delay === null || update?.delay === undefined ? null : Math.round(update.delay / 60),

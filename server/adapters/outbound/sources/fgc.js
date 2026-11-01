@@ -1,17 +1,51 @@
 // Ferrocarrils de la Generalitat de Catalunya: posición de los trenes en servicio.
 // Portal de datos abiertos de FGC (Opendatasoft), sin clave.
-const BASE = 'https://dadesobertes.fgc.cat/api/explore/v2.1/catalog/datasets/posicionament-dels-trens/records?limit=100';
+import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
 
-/** @param {{ http: import('../http/http-client.js').HttpClient }} deps */
-export function createFgcSource({ http }) {
+const BASE = 'https://dadesobertes.fgc.cat/api/explore/v2.1/catalog/datasets/posicionament-dels-trens/records?limit=100';
+// Horario GTFS de FGC en el Punto de Acceso Nacional: el mismo fichero del que salen los trazados de
+// sus líneas. Sus stop_id son los códigos que da la posición de cada tren ("PE", "AL"…).
+const FGC_GTFS = 1571;
+const DAY_MS = 24 * 3600_000;
+// La copia en disco la renueva cada semana el catálogo de líneas: aquí sólo se lee y, si falta, se descarga.
+const GTFS_MAX_AGE_MS = 30 * DAY_MS;
+
+/** Códigos de estación de FGC → nombre, del stops.txt de su GTFS. */
+export function fgcStationNames(stopsTxt) {
+  const names = new Map();
+  for (const s of csvRows(stopsTxt)) if (s.stop_id && s.stop_name && !s.parent_station) names.set(s.stop_id, s.stop_name.trim());
+  return names;
+}
+
+/**
+ * @param {{ http: import('../http/http-client.js').HttpClient, nap?: { enabled: boolean, gtfs: (id: number, maxAgeMs?: number) => Promise<Uint8Array> },
+ *           log?: import('../../../application/ports.js').LoggerPort }} deps
+ */
+export function createFgcSource({ http, nap, log }) {
+  // La API de posiciones sólo da códigos de estación: sin el GTFS (falta la clave del NAP o no
+  // responde), se muestran los códigos.
+  let names = null;
+  let namesAt = 0;
+  async function loadNames() {
+    if (!nap?.enabled || Date.now() - namesAt < DAY_MS) return;
+    namesAt = Date.now(); // aunque falle, no reintentar en cada lectura
+    try {
+      names = fgcStationNames((await openGtfs(await nap.gtfs(FGC_GTFS, GTFS_MAX_AGE_MS), ['stops.txt']))['stops.txt']);
+    } catch (err) {
+      log?.warn(`[fgc] nombres de estación: ${err.message}`);
+    }
+  }
+  const name = (code) => (code ? names?.get(code) ?? code : null);
+
   return {
     id: 'fgc',
     name: 'FGC (Ferrocarrils de la Generalitat de Catalunya)',
     kind: 'vehicles',
     interval: 30_000,
     url: BASE,
-    license: 'Ferrocarrils de la Generalitat de Catalunya (CC BY 4.0). Formato adaptado',
+    license: 'Ferrocarrils de la Generalitat de Catalunya (CC BY 4.0), con los nombres de estación de su horario GTFS. Formato adaptado',
     async fetch() {
+      await loadNames();
       const vehicles = [];
       // La API pagina de 100 en 100; FGC rara vez pasa de 100 trenes, pero por si acaso.
       for (let offset = 0; offset < 500; offset += 100) {
@@ -31,10 +65,10 @@ export function createFgcSource({ http }) {
             lon: p.lon,
             delay: null,
             late: r.en_hora === 'False' ? true : r.en_hora === 'True' ? false : null,
-            origin: r.origen,
-            destination: r.desti,
-            current: r.estacionat_a || null,
-            next: (r.properes_parades ?? '').match(/"parada":\s*"([^"]+)"/)?.[1] ?? null,
+            origin: name(r.origen),
+            destination: name(r.desti),
+            current: name(r.estacionat_a),
+            next: name((r.properes_parades ?? '').match(/"parada":\s*"([^"]+)"/)?.[1]),
             rollingStock: r.tipus_unitat ? `Serie ${r.tipus_unitat}` : null,
           });
         }

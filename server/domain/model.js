@@ -30,6 +30,7 @@
  * @property {string|null} [shape]    Trazado (shape_id del GTFS de Cercanías o de Metro Bilbao) que sigue su viaje.
  * @property {[number, number]|null} [end]  Donde acaba su viaje ([lon, lat]): lo que le queda se dibuja hasta ahí.
  * @property {number|null} [fixTime]  Epoch ms del último GPS, si la fuente lo da.
+ * @property {number} [farFromStop] Km entre la posición y la estación en la que la fuente dice que está parado, si pasa de 1,5: la posición no está al día.
  * @property {boolean} [estimated]    Posición calculada a partir del horario, no GPS. No cuenta para alertas ni KPIs.
  * @property {boolean} [ahead]        Posición estimada con recorrido hasta su final (/api/ahead/<id>).
  */
