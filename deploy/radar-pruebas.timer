@@ -1,0 +1,9 @@
+[Unit]
+Description=Radar ES: comprobar cada 2 minutos si hay cambios en dev para el entorno de pruebas
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=2min
+
+[Install]
+WantedBy=timers.target

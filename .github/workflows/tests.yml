@@ -25,3 +25,4 @@ jobs:
         run: |
           for f in public/js/*.js; do node --check "$f"; done
           for f in deploy/*.sh; do bash -n "$f"; done
+          node --check deploy/comprobar.mjs
