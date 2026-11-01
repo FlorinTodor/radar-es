@@ -25,7 +25,8 @@ const SEARCH_MAX_AGE_MS = 30 * 24 * 3600_000;
 const NEARBY_RADIUS_M = 200;
 const NEARBY_BUDGET_MS = 90_000;
 const NEARBY_CONCURRENCY = 2;
-const RENFE_LISTS = ['madrid', 'valencia', 'sevilla', 'malaga', 'zaragoza', 'murcia-alicante', 'san-sebastian', 'bilbao', 'asturias', 'cantabria', 'cadiz']
+// Nombres de los conjuntos en data.renfe.com (el de Cantabria es «santander»).
+const RENFE_LISTS = ['madrid', 'valencia', 'sevilla', 'malaga', 'zaragoza', 'murcia-alicante', 'san-sebastian', 'bilbao', 'asturias', 'santander', 'cadiz']
   .map((n) => `estaciones-cercanias-${n}`).concat(['estaciones-rodalies-barcelona', 'listado-estaciones-feve']);
 const SHEET_URL = (code) => `https://data.renfe.com/files/estaciones/FichaEstacion${code}.pdf`;
 
@@ -95,9 +96,10 @@ async function commonsPhotos(cache, files, maxAgeMs, log) {
   for (let i = 0; i < files.length; i += COMMONS_BATCH) {
     const titles = files.slice(i, i + COMMONS_BATCH).map((f) => `File:${f}`).join('|');
     const url = 'https://commons.wikimedia.org/w/api.php?action=query&format=json&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=640'
-      + `&iiextmetadatafilter=Artist|LicenseShortName|LicenseUrl&titles=${encodeURIComponent(titles)}`;
+      + `&iiextmetadatafilter=Artist|Attribution|LicenseShortName|LicenseUrl&titles=${encodeURIComponent(titles)}`;
     // El nombre depende de las fotos pedidas: si la lista cambia, no se reutiliza otra respuesta.
-    const name = `commons-${createHash('sha1').update(titles).digest('hex').slice(0, 12)}.json`;
+    // «v2»: con el campo Attribution (las respuestas guardadas antes no lo tienen).
+    const name = `commons-v2-${createHash('sha1').update(titles).digest('hex').slice(0, 12)}.json`;
     try {
       for (const [file, photo] of parseCommons(await apiJson(cache, url, name, maxAgeMs))) photos.set(file, photo);
     } catch (err) {
@@ -225,7 +227,17 @@ export function pickNearby(json, stationName) {
   return hit ? hit.title.replace(/^File:/, '') : null;
 }
 
-/** Respuesta de Commons → nombre del fichero → { url, page, author, license, licenseUrl }. Sin licencia, no hay foto. */
+// Licencias que no piden citar al autor. Con cualquier otra, sin autor no se puede cumplir la
+// licencia y la foto no se usa.
+const NO_ATTRIBUTION = /^(cc0|public domain|pdm|dominio público)/i;
+// La GFDL pide acompañar la obra del texto entero de la licencia, que no cabe en una ficha: sólo se
+// usan las fotos que, además de la GFDL, tienen otra licencia (Commons da entonces la otra).
+const UNUSABLE = /^gfdl/i;
+
+/**
+ * Respuesta de Commons → nombre del fichero → { url, page, author, license, licenseUrl }.
+ * Sin licencia, o con una que no se puede cumplir en la ficha, no hay foto.
+ */
 export function parseCommons(json) {
   const out = new Map();
   const renamed = new Map((json.query?.normalized ?? []).map((n) => [n.to, n.from]));
@@ -233,12 +245,14 @@ export function parseCommons(json) {
     const info = page.imageinfo?.[0];
     const meta = info?.extmetadata ?? {};
     const license = plain(meta.LicenseShortName?.value);
-    if (!info?.thumburl || !license) continue;
+    if (!info?.thumburl || !license || UNUSABLE.test(license)) continue;
+    const author = commonsAuthor(meta);
+    if (!author && !NO_ATTRIBUTION.test(license)) continue;
     const title = renamed.get(page.title) ?? page.title;
     out.set(title.replace(/^File:/, ''), {
       url: info.thumburl.split('?')[0], // sin los parámetros de seguimiento (utm_…) que añade Commons
       page: info.descriptionurl,
-      author: plain(meta.Artist?.value).slice(0, 120) || 'Autor desconocido',
+      author: author || 'Autor desconocido',
       license,
       licenseUrl: meta.LicenseUrl?.value?.startsWith('http') ? meta.LicenseUrl.value : null,
     });
@@ -246,9 +260,30 @@ export function parseCommons(json) {
   return out;
 }
 
+/**
+ * A quién citar. Si el autor ha dicho cómo quiere que se le cite (campo Attribution: «Pere López»
+ * en vez de su usuario «pere prlpz»), eso, que es lo que piden las CC BY y BY-SA. Si no, el campo
+ * Artist; cuando trae más cosas que el nombre (una tabla, un correo, un aviso), el nombre de su
+ * enlace a la página de usuario.
+ */
+export function commonsAuthor(meta) {
+  // «I, Mdiagom» es el «yo, …» de la plantilla {{self}}; un enlace solo no dice el nombre.
+  const requested = plain(meta.Attribution?.value).replace(/^I, /, '');
+  if (requested && requested.length <= 80 && !/^https?:\/\/\S+$/.test(requested)) return requested;
+  const html = String(meta.Artist?.value ?? '');
+  const clean = (t) => t.replace(/^No machine-readable author provided\. (.+?) assumed.*$/, '$1');
+  const text = clean(plain(html));
+  if (text.length <= 80) return text;
+  // Más largo: su primera línea («Luis Miguel Bugallo Sánchez» y luego enlaces) o el usuario de Commons.
+  const first = clean(html.split(/\n|<\/p>|<br\s*\/?>|<\/dd>|<\/td>/i).map(plain).find(Boolean) ?? '');
+  if (first.length <= 80 && !/^\[?https?:/.test(first)) return first;
+  const user = html.match(/\/wiki\/User:([^"#?]+)"/);
+  return user ? decodeURIComponent(user[1]).replace(/_/g, ' ') : `${text.slice(0, 77)}…`;
+}
+
 /** HTML de Commons (enlaces al autor…) → texto. */
 function plain(html) {
-  return String(html ?? '').replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
+  return String(html ?? '').replace(/<[^>]*>/g, '').replace(/[\u200b-\u200f\ufeff]/g, '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim();
 }
 

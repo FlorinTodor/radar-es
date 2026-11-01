@@ -73,9 +73,10 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
   // v3: con dirección, provincia, ancho métrico, accesibilidad y los datos de Wikidata y Commons
   // (las cachés anteriores no los tienen).
   const cacheFile = new URL('renfe-stations-v3.json', cacheDir);
-  // Versión de lo que se calcula: si cambia (4: fotos de Commons también para las estaciones que
-  // Wikidata no tiene), se recalcula aunque la caché sea de hoy; mientras, se enseña la anterior.
-  const CATALOG_VERSION = 4;
+  // Versión de lo que se calcula: si cambia, se recalcula aunque la caché sea de hoy; mientras, se
+  // enseña la anterior. 4: fotos de Commons también para las estaciones que Wikidata no tiene.
+  // 5: autor como pide cada foto (Attribution), sin fotos sólo GFDL ni sin autor si la licencia lo exige.
+  const CATALOG_VERSION = 5;
   /** @type {Map<string, import('../../../domain/model.js').Station & { cercanias: boolean }>} */
   const stations = new Map();
 
