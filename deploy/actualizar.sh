@@ -201,6 +201,19 @@ desplegar() {
   docker image prune -f >/dev/null
 }
 
+# Una vez a la semana, desde producción (Docker y apt son del VPS, no de cada entorno): la caché
+# de compilación de Docker de más de 7 días y los paquetes que apt guarda tras instalarlos. Las
+# imágenes que funcionan, la de vuelta atrás y data/ no se tocan. Si falla, no para el despliegue.
+limpiar_semanal() {
+  [[ -n $(find .limpieza -mtime -7 2>/dev/null) ]] && return 0
+  touch .limpieza
+  if docker builder prune -f --filter until=168h >/dev/null && apt-get clean; then
+    echo "Limpieza semanal hecha: quedan $(df -h --output=avail / | tail -n1 | tr -d ' ') libres"
+  else
+    echo "Aviso: la limpieza semanal ha fallado; se reintenta dentro de una semana"
+  fi
+}
+
 # Producción ya funciona con la imagen verificada de lo que hay en pruebas: no hay nada que ver
 # y se deja de pedir los datos dos veces. Arranca otra vez con el próximo cambio en dev.
 parar_pruebas_si_sobra() {
@@ -226,6 +239,7 @@ main() {
   RAMA=$([[ $ENTORNO == pruebas ]] && echo dev || echo produccion)
   cd "$(dirname "$0")/.."
   vigilar
+  if [[ $ENTORNO == produccion ]]; then limpiar_semanal; fi
   desplegar "$forzar"
   if [[ $ENTORNO == pruebas ]]; then parar_pruebas_si_sobra; fi
 }
