@@ -71,3 +71,25 @@ test('al dejar de escuchar se borran las tres suscripciones', () => {
   bus.publish('source.updated', { id: 'renfe' });
   assert.deepEqual(got.source, []);
 });
+
+test('con muchos escuchando, cada cambio se calcula una vez por tipo y todos reciben el mismo objeto', () => {
+  const bus = fakeBus();
+  const calls = [];
+  const counting = { ...query, sourcePayload: (id, opts) => { calls.push(opts.buses); return query.sourcePayload(id, opts); } };
+  const watch = makeWatchSituation({ events: bus, query: counting });
+  const got = [];
+  const offs = [true, true, false, false, false].map((buses) => watch({ buses }, {
+    onSource: (p) => got.push(p), onHealthChange() {}, onAlerts() {},
+  }));
+  assert.equal(bus.count(), 3, 'una sola suscripción al bus para todos');
+  bus.publish('source.updated', { id: 'renfe' });
+  assert.deepEqual(calls.sort(), [false, true]);
+  assert.equal(got.length, 5);
+  assert.equal(got[0], got[1], 'con autobuses: el mismo objeto');
+  assert.equal(got[2], got[4], 'sin autobuses: el mismo objeto');
+  offs.slice(1).forEach((off) => off());
+  assert.equal(bus.count(), 3, 'mientras quede alguien, sigue escuchando');
+  offs[0]();
+  offs[0]();
+  assert.equal(bus.count(), 0, 'al irse el último se borran las suscripciones');
+});

@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHttpServer, createJsonMemo } from '../../server/adapters/inbound/http/http-server.js';
+import { createBudget, createHttpServer, createJsonMemo } from '../../server/adapters/inbound/http/http-server.js';
 
 test('el memo calcula una vez por ttl y vuelve a calcular al caducar', () => {
   let t = 0;
@@ -48,11 +48,13 @@ test('el memo guarda como mucho `max` variantes y descarta la más antigua', () 
 
 let server;
 let base;
-const calls = { lines: 0, trails: [] };
+const calls = { lines: 0, trails: [], vehicles: [], events: [] };
 before(async () => {
   const query = {
     lines: () => { calls.lines++; return { type: 'FeatureCollection', features: Array.from({ length: 50 }, (_, i) => ({ id: i })) }; },
     trails: (min) => { calls.trails.push(min); return { type: 'FeatureCollection', features: [] }; },
+    vehicles: (filter) => { calls.vehicles.push(filter); return []; },
+    events: (filter) => { calls.events.push(filter.category); return []; },
   };
   server = createHttpServer({
     query, log: { error() {}, info() {}, warn() {} },
@@ -77,4 +79,45 @@ test('/api/lines se calcula una sola vez aunque lo pidan muchos, con caché púb
 test('/api/trails acota los minutos y no crea una variante por cada valor raro', async () => {
   for (const min of ['15', 'abc', '-3', '9999', '15.4']) await fetch(`${base}/api/trails?min=${min}`);
   assert.deepEqual(calls.trails, [15, 1, 45], '15, abc→15 (misma variante), -3→1, 9999→45, 15.4→15 (misma variante)');
+});
+
+test('/api/vehicles acota sus filtros: los valores raros comparten variante', async () => {
+  for (const q of ['minDelay=1.2', 'minDelay=1.4', 'minDelay=abc', 'minDelay=-50', 'minDelay=99999', 'mode=BUS!', 'mode=%00x', 'mode=bus']) {
+    assert.equal((await fetch(`${base}/api/vehicles?${q}`)).status, 200, q);
+  }
+  assert.deepEqual(calls.vehicles, [
+    { mode: undefined, source: undefined, minDelay: 1 }, // 1.2 y 1.4 → la misma variante
+    { mode: undefined, source: undefined, minDelay: undefined }, // abc → sin filtro
+    { mode: undefined, source: undefined, minDelay: -1 },
+    { mode: undefined, source: undefined, minDelay: 1440 },
+    { mode: '-', source: undefined, minDelay: undefined }, // BUS! y %00x → «-», que no coincide con nada
+    { mode: 'bus', source: undefined, minDelay: undefined },
+  ]);
+});
+
+test('el presupuesto de cálculos deja ráfagas y luego `perSecond` de media', () => {
+  let t = 0;
+  const budget = createBudget({ perSecond: 2, burst: 3, now: () => t });
+  assert.deepEqual([1, 2, 3, 4].map(() => budget.take()), [true, true, true, false]);
+  t = 499;
+  assert.equal(budget.take(), false, 'aún no ha vuelto una ficha entera');
+  t = 500;
+  assert.equal(budget.take(), true);
+  t = 60_000;
+  assert.deepEqual([1, 2, 3, 4].map(() => budget.take()), [true, true, true, false], 'nunca más de `burst` guardadas');
+});
+
+test('pedir muchas variantes distintas a la vez da 503 en vez de calcularlas todas', async () => {
+  const statuses = [];
+  for (let i = 0; i < 20; i++) {
+    const res = await fetch(`${base}/api/events?category=c${i}`);
+    statuses.push(res.status);
+    if (res.status === 503) {
+      assert.equal(res.headers.get('retry-after'), '2');
+      assert.equal(res.headers.get('cache-control'), 'no-store');
+    }
+  }
+  assert.ok(calls.events.length <= 11, `calculadas ${calls.events.length}`);
+  assert.ok(statuses.includes(503));
+  assert.equal((await fetch(`${base}/api/events?category=c0`)).status, 200, 'una variante ya calculada se sirve igual');
 });

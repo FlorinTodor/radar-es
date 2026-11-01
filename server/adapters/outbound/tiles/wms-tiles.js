@@ -40,6 +40,11 @@ export const LAYERS = {
 const PNG = [0x89, 0x50, 0x4e, 0x47];
 const isPng = (b) => b.length > 8 && PNG.every((v, i) => b[i] === v); // los WMS devuelven los errores como XML con 200
 const MAX_PARALLEL = 4; // peticiones simultáneas al IGN o a EFFIS como mucho
+// Esperando turno, como mucho: un mapa recién abierto pide unas decenas. Sin tope, pedir miles de
+// teselas distintas a la vez (en Cloudflare /tiles/ no tiene límite por IP) dejaría miles de
+// conexiones y descargas en cola. Las que no caben se responden al momento sin descargar nada.
+const MAX_WAITING = 64;
+const BUSY = 'demasiadas teselas pendientes';
 
 /**
  * @param {{ http: import('../http/http-client.js').HttpClient, dir: string, log?: import('../../../application/ports.js').LoggerPort }} deps
@@ -50,7 +55,10 @@ export function createWmsTiles({ http, dir, log }) {
   let running = 0;
   const waiting = [];
   const slot = async () => {
-    if (running >= MAX_PARALLEL) await new Promise((r) => waiting.push(r));
+    if (running >= MAX_PARALLEL) {
+      if (waiting.length >= MAX_WAITING) throw new Error(BUSY);
+      await new Promise((r) => waiting.push(r));
+    }
     running++;
   };
   const release = () => {
@@ -87,7 +95,7 @@ export function createWmsTiles({ http, dir, log }) {
       try {
         return await inflight.get(key);
       } catch (err) {
-        log?.warn(`[teselas] ${key}: ${err.message}`);
+        if (err.message !== BUSY) log?.warn(`[teselas] ${key}: ${err.message}`); // con la cola llena serían miles
         return info ? readFile(file) : null; // la última copia, aunque haya caducado
       }
     },

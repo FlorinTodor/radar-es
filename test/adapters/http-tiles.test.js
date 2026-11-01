@@ -11,7 +11,11 @@ const provider = {
   cacheControl: (layer) => (layer === 'effis' ? 'public, max-age=3600' : 'public, max-age=86400'),
   down: false,
   requested: [],
-  async tile(...args) { this.requested.push(args.join('/')); return this.down ? null : PNG; },
+  async tile(...args) {
+    this.requested.push(args.join('/'));
+    if (this.broken) throw new Error('disco roto');
+    return this.down ? null : PNG;
+  },
   async burntAreas([w]) { if (w === -5) throw new Error('caído'); return { type: 'FeatureCollection', features: [] }; },
 };
 
@@ -90,4 +94,21 @@ test('sin caso de uso de teselas, /tiles da 404 y /api/burnt-areas 400', async (
   } finally {
     bare.close();
   }
+});
+
+test('un fallo inesperado al leer una tesela es un 500, no una promesa sin recoger que cierra el proceso', async () => {
+  const unhandled = [];
+  const onUnhandled = (err) => unhandled.push(err);
+  process.on('unhandledRejection', onUnhandled);
+  provider.broken = true;
+  try {
+    const res = await fetch(`${base}/tiles/ign-rail/14/8023/6178.png`);
+    assert.equal(res.status, 500);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual(unhandled, []);
+  } finally {
+    provider.broken = false;
+    process.off('unhandledRejection', onUnhandled);
+  }
+  assert.equal((await fetch(`${base}/tiles/ign-rail/14/8023/6178.png`)).status, 200, 'y el servidor sigue');
 });
