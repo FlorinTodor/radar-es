@@ -1,33 +1,74 @@
+# Dos contenedores de la web que se relevan (radar y radar-b) y, delante, un nginx en el puerto al
+# que apunta el túnel de Cloudflare. Al desplegar, deploy/actualizar.sh arranca la versión nueva en
+# el que está parado, espera a que haya cargado los datos, pasa nginx a él (sin cortar ninguna
+# conexión) y para el otro: no hay ni un momento sin servidor (antes, un 502 de Cloudflare). Si
+# alguna vez no responde ninguno, nginx enseña deploy/nginx/actualizando.html.
+x-radar: &radar
+  image: ${RADAR_IMAGEN:-radar-es}
+  restart: unless-stopped
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    HOST: 0.0.0.0
+    PORT: 8080
+  # Un puerto local cualquiera (sólo en 127.0.0.1): lo usan las comprobaciones del despliegue
+  # (`docker compose port radar 8080`). Las visitas llegan siempre a través de nginx.
+  ports:
+    - "127.0.0.1::8080"
+  volumes:
+    - ./data:/app/data
+  # Endurecido: sistema de ficheros de sólo lectura (sólo se escribe en data/ y en /tmp en memoria),
+  # sin capacidades de Linux ni forma de ganar privilegios, y con techo de recursos para que un
+  # fallo no se coma el VPS, que comparte con otros proyectos. Pico medido al cargar los GTFS
+  # (memory.peak del contenedor, arranque con la caché de trazados): ~350 MB en un hilo y ~530 MB
+  # con los 2 hilos de cálculo (WORKER_THREADS; 0 = un solo hilo si la memoria aprieta).
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  mem_limit: 1g
+  cpus: 2
+  pids_limit: 256
+
 services:
   radar:
+    <<: *radar
     build: .
-    # El entorno de pruebas (/opt/radar-pruebas) pone en su .env otra imagen y otro puerto, para no
-    # pisar los de producción. Ver deploy/preparar-pruebas.sh.
-    image: ${RADAR_IMAGEN:-radar-es}
+  # El relevo: sólo funciona mientras despliega o si es el que está en servicio.
+  radar-b:
+    <<: *radar
+    profiles:
+      - relevo
+  proxy:
+    # nginx sin root (escucha en el 8080 del contenedor), fijado por su huella para que el VPS use
+    # exactamente la imagen probada.
+    image: nginxinc/nginx-unprivileged:1.29-alpine@sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6
     restart: unless-stopped
-    env_file:
-      - path: .env
-        required: false
-    environment:
-      HOST: 0.0.0.0
-      PORT: 8080
-    # Solo en local: desde fuera se entra por el túnel de Cloudflare, no por este puerto.
+    # Solo en local: desde fuera se entra por el túnel de Cloudflare, no por este puerto. El entorno
+    # de pruebas (/opt/radar-pruebas) pone en su .env otra imagen y otro puerto, para no pisar los de
+    # producción. Ver deploy/preparar-pruebas.sh.
     ports:
       - "127.0.0.1:${RADAR_PUERTO:-8080}:8080"
     volumes:
-      - ./data:/app/data
-    # Endurecido: sistema de ficheros de sólo lectura (sólo se escribe en data/ y en /tmp en memoria),
-    # sin capacidades de Linux ni forma de ganar privilegios, y con techo de recursos para que un
-    # fallo no se coma el VPS, que comparte con otros proyectos. Pico medido al cargar los GTFS
-    # (memory.peak del contenedor, arranque con la caché de trazados): ~350 MB en un hilo y ~530 MB
-    # con los 2 hilos de cálculo (WORKER_THREADS; 0 = un solo hilo si la memoria aprieta).
+      - ./deploy/nginx/radar.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/nginx/actualizando.html:/usr/share/nginx/html/actualizando.html:ro
+      # activo.conf: cuál de los dos está en servicio. Lo escribe deploy/actualizar.sh.
+      - ./data/proxy:/etc/nginx/activo:ro
+    # La primera vez que se despliega este fichero lo hace el actualizar.sh anterior, que sólo
+    # conoce el servicio «radar»: así arranca antes que nginx y le deja libre el puerto.
+    depends_on:
+      - radar
     read_only: true
     tmpfs:
-      - /tmp:size=64m
+      - /tmp:size=16m
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
-    mem_limit: 1g
-    cpus: 2
-    pids_limit: 256
+    mem_limit: 64m
+    cpus: 0.5
+    pids_limit: 64

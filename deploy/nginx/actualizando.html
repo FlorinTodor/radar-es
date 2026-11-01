@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="15">
+  <meta name="robots" content="noindex">
+  <title>Actualizando · Radar España</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0d0d0d; color: #f0efec;
+      font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { max-width: 32rem; padding: 2rem 1.5rem; text-align: center; }
+    .dot { display: inline-block; width: .7rem; height: .7rem; border-radius: 50%; background: #e3b341; margin-right: .5rem;
+      animation: pulse 1.6s ease-in-out infinite; }
+    h1 { font-size: 1.4rem; margin: 0 0 .75rem; }
+    p { color: #b5b4ad; margin: .5rem 0; }
+    @keyframes pulse { 50% { opacity: .3; } }
+    @media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1><span class="dot" aria-hidden="true"></span>Estamos actualizando Radar España</h1>
+    <p>Estamos subiendo una versión nueva del radar. Tarda unos segundos y no hace falta que hagas nada:
+      esta página se recargará sola.</p>
+    <p>Los datos de los trenes no se pierden; en cuanto vuelva, verás el mapa en directo otra vez.</p>
+  </main>
+</body>
+</html>
