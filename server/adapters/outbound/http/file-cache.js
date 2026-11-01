@@ -34,5 +34,23 @@ export function createFileCache({ http, dir, log }) {
         }
       }
     },
+
+    /** Un resultado calculado guardado junto a las descargas (JSON), o null si no está o no se lee. */
+    async readJson(name) {
+      try {
+        return JSON.parse(await readFile(new URL(name, dir), 'utf8'));
+      } catch {
+        return null;
+      }
+    },
+
+    async writeJson(name, value) {
+      try {
+        await mkdir(dir, { recursive: true });
+        await writeFile(new URL(name, dir), JSON.stringify(value));
+      } catch (err) {
+        log.warn(`[caché] ${name}: no se pudo guardar (${err.message})`);
+      }
+    },
   };
 }

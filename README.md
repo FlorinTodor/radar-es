@@ -283,6 +283,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Arranque sin bloquear el servidor mientras carga los horarios de más de cien redes, y menos
   memoria al leerlos. Los horarios más grandes se leen por partes, sin cargarlos enteros.
 - Al arrancar, el mapa no se queda sin líneas aunque las pida antes de que estén listas.
+- Tras una actualización, los Cercanías aparecen en segundos: lo que se calcula de su horario se
+  guarda en disco, y la renovación diaria de los horarios de Renfe ya no detiene los trenes.
 - Cálculos pesados en hilos aparte y reintentos rápidos de las fuentes que fallan.
 - Protección frente a sobrecarga: peticiones costosas acotadas, colas con tope y fallos aislados,
   para que ni un pico de tráfico ni una fuente que responda mal tumben el servidor.
