@@ -46,7 +46,7 @@ vigilar() {
 }
 
 desplegar() {
-  local forzar=$1 imagen nuevo desplegado anterior
+  local forzar=$1 imagen nuevo desplegado anterior registro
   git fetch --quiet origin "$RAMA"
   nuevo=$(git rev-parse FETCH_HEAD)
   desplegado=$(cat .desplegado 2>/dev/null || true)
@@ -62,12 +62,19 @@ desplegar() {
   if docker image inspect "$imagen" >/dev/null 2>&1; then docker image tag "$imagen" "$imagen:anterior"; fi
   git checkout --quiet --force -B "$RAMA" FETCH_HEAD
 
-  if ! docker compose build --quiet; then
+  # La salida de la construcción va a un fichero: si falla, al registro van los tests que fallan
+  # y el final de la construcción; si va bien, no ensucia el registro.
+  registro=$(mktemp)
+  if ! docker compose --progress plain build >"$registro" 2>&1; then
     echo "ERROR: ${nuevo:0:7} no se puede construir o no pasa los tests. Sigue funcionando ${desplegado:0:7}."
+    grep -E -A 20 ' not ok ' "$registro" | grep -vE 'duration_ms|type: .test' | head -n 80 || true
+    tail -n 15 "$registro"
+    rm -f "$registro"
     git checkout --quiet --force -B "$RAMA" "$anterior"
     echo "$nuevo" > .fallido
     return 1
   fi
+  rm -f "$registro"
 
   if docker compose up -d --remove-orphans && esperar_sano; then
     echo "$nuevo" > .desplegado
