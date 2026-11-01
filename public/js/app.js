@@ -224,7 +224,10 @@ const stream = connect({
     el.dataset.state = s;
     el.querySelector('.txt').textContent = s === 'live' ? 'En directo'
       : s === 'stale' ? `Datos de hace ${Math.round(ageMs / 60_000)} min`
-        : s === 'error' ? 'Sin conexión' : 'Reconectando…';
+        : s === 'updating' ? 'Actualizando…'
+          : s === 'error' ? 'Sin conexión' : 'Reconectando…';
+    // Una actualización del servidor (unos segundos): que nadie se asuste, vuelve solo.
+    document.getElementById('updating').hidden = s !== 'updating';
   },
   live(d) {
     replaceVehicles(false, bySource(d.vehicles));
