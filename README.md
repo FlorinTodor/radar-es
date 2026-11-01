@@ -222,6 +222,22 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   salto.
 - Lista y buscador con todos los trenes.
 
+**Estaciones**
+- Pestaña «Estaciones» con buscador y una ficha para cada estación: los trenes parados en ella y los
+  que van hacia ella (con vía, hora y retraso), los avisos de Renfe de la estación, sus líneas y las
+  conexiones a pie con metro y tranvía.
+- Datos de cada estación: dirección, accesibilidad en silla de ruedas (según Renfe y, si Renfe no
+  dice nada, según Wikidata), año de apertura, número de vías y ancho de vía.
+- Enlaces a Wikipedia, a la ficha técnica en PDF de Renfe (en las estaciones que la tienen), a
+  OpenStreetMap y «Cómo llegar» con Google Maps.
+- Foto de unas 1.200 estaciones, de Wikimedia Commons, con su autor y su licencia. Se buscan en
+  Wikidata, en la categoría de la estación, en su artículo de Wikipedia y entre las fotos hechas a su
+  lado, y se revisan todas: sólo licencias que se pueden cumplir, sin personas reconocibles en primer
+  plano y con retirada a petición del autor o de quien sale en ellas.
+- Sin estaciones repetidas en el mapa: la misma estación con otro código o la parada de los trenes
+  turísticos pegada a la normal ya no salen dos veces.
+- Las estaciones se pueden pulsar desde más lejos y su nombre aparece antes al acercar el mapa.
+
 **Alertas**
 - Motor de reglas que avisa de:
   - trenes detenidos en plena vía y varios trenes parados en la misma zona;
@@ -291,8 +307,6 @@ Ninguna por ahora.
   - en toda España, pedir a Adif que publique como datos abiertos las estaciones accesibles y las
     que tienen asistencia [Adif Acerca](https://www.spain.info/es/descubrir-espana/accesibilidad-trenes/).
   - Fuentes revisadas: [`docs/accesibilidad-estaciones.md`](docs/accesibilidad-estaciones.md).
-- Enlace a la ficha oficial en PDF de las estaciones que la tienen, sacada de los listados de
-  Cercanías de Renfe por núcleo.
 - Fotos de [Flickr](https://www.flickr.com/creativecommons/) con licencia Creative Commons (con autor y
   enlace) para las estaciones que siguen sin foto en Wikimedia Commons; hace falta una clave gratuita.
 - Guía para quien quiera proponer cambios.
