@@ -293,6 +293,8 @@ Ninguna por ahora.
   - Fuentes revisadas: [`docs/accesibilidad-estaciones.md`](docs/accesibilidad-estaciones.md).
 - Enlace a la ficha oficial en PDF de las estaciones que la tienen, sacada de los listados de
   Cercanías de Renfe por núcleo.
+- Fotos de [Flickr](https://www.flickr.com/creativecommons/) con licencia Creative Commons (con autor y
+  enlace) para las estaciones que siguen sin foto en Wikimedia Commons; hace falta una clave gratuita.
 - Guía para quien quiera proponer cambios.
 
 ## Licencia

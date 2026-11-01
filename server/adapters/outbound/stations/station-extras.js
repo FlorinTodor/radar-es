@@ -1,19 +1,30 @@
 // Datos de las estaciones que no están en los ficheros de Renfe, de fuentes que se pueden reutilizar:
 // - Wikidata (CC0), por el código de estación (P296, el mismo de Renfe y Adif): accesibilidad,
 //   foto, año de apertura, número de vías y artículo de Wikipedia en español.
-// - Wikimedia Commons: autor y licencia de cada foto, que se muestran junto a ella.
+// - Wikimedia Commons: autor y licencia de cada foto, que se muestran junto a ella. Si Wikidata no
+//   tiene foto de la estación, se busca, por este orden, en su categoría de Commons, en la imagen
+//   libre principal de su artículo de Wikipedia y entre las fotos de Commons hechas a menos de 200 m
+//   (ver findMorePhotos). Todas pasan por parseCommons: sin licencia, no hay foto.
 // - Renfe (CC BY 4.0): las fichas en PDF que enlazan sus listados de estaciones de Cercanías y FEVE.
 // Cada fuente va por su lado: si una falla, las demás siguen y la estación se queda sin ese dato.
 import { createHash } from 'node:crypto';
 
-const WIKIDATA_QUERY = `SELECT ?code ?acc ?img ?open ?tracks ?wp WHERE {
+const WIKIDATA_QUERY = `SELECT ?code ?acc ?img ?cat ?open ?tracks ?wp WHERE {
   ?st wdt:P296 ?code; wdt:P17 wd:Q29; wdt:P31/wdt:P279* wd:Q55488.
-  OPTIONAL { ?st wdt:P2846 ?acc } OPTIONAL { ?st wdt:P18 ?img } OPTIONAL { ?st wdt:P1619 ?open }
+  OPTIONAL { ?st wdt:P2846 ?acc } OPTIONAL { ?st wdt:P18 ?img } OPTIONAL { ?st wdt:P373 ?cat } OPTIONAL { ?st wdt:P1619 ?open }
   OPTIONAL { ?st wdt:P1103 ?tracks } OPTIONAL { ?wp schema:about ?st; schema:isPartOf <https://es.wikipedia.org/> }
 }`;
 const WIKIDATA_URL = `https://query.wikidata.org/sparql?format=json&query=${encodeURIComponent(WIKIDATA_QUERY)}`;
 const ACCESSIBILITY = { Q24192067: true, Q24192069: false, Q24192068: 'partial' }; // accesible, no accesible, en parte
 const COMMONS_BATCH = 50;
+const COMMONS_API = 'https://commons.wikimedia.org/w/api.php?format=json&';
+const WIKIPEDIA_API = 'https://es.wikipedia.org/w/api.php?format=json&';
+// Las búsquedas de fotos cambian poco: se guardan un mes. La de cercanía va estación a estación, con
+// un tope de tiempo por carga para no retrasar el catálogo; las que no dé tiempo, en la siguiente.
+const SEARCH_MAX_AGE_MS = 30 * 24 * 3600_000;
+const NEARBY_RADIUS_M = 200;
+const NEARBY_BUDGET_MS = 90_000;
+const NEARBY_CONCURRENCY = 2;
 const RENFE_LISTS = ['madrid', 'valencia', 'sevilla', 'malaga', 'zaragoza', 'murcia-alicante', 'san-sebastian', 'bilbao', 'asturias', 'cantabria', 'cadiz']
   .map((n) => `estaciones-cercanias-${n}`).concat(['estaciones-rodalies-barcelona', 'listado-estaciones-feve']);
 const SHEET_URL = (code) => `https://data.renfe.com/files/estaciones/FichaEstacion${code}.pdf`;
@@ -23,18 +34,31 @@ const text = (bytes) => new TextDecoder().decode(bytes);
 
 /**
  * @param {{ cache: ReturnType<typeof import('../http/file-cache.js').createFileCache>,
- *           log: import('../../../application/ports.js').LoggerPort, maxAgeMs: number }} deps
+ *           log: import('../../../application/ports.js').LoggerPort, maxAgeMs: number,
+ *           stations?: Array<{ code: string, name: string, lat: number, lon: number }>,
+ *           nearbyBudgetMs?: number }} deps
+ *   stations: las del catálogo, para buscar foto a las que Wikidata no da ninguna.
  * @returns {Promise<Map<string, object>>} código → datos extra (sólo los que haya)
  */
-export async function loadStationExtras({ cache, log, maxAgeMs }) {
+export async function loadStationExtras({ cache, log, maxAgeMs, stations = [], nearbyBudgetMs = NEARBY_BUDGET_MS }) {
   const extras = new Map();
   const add = (code, data) => extras.set(code, { ...extras.get(code), ...data });
+  let wikidata = new Map();
   try {
-    const stations = parseWikidata(JSON.parse(text(await cache.bytes(WIKIDATA_URL, 'wikidata-estaciones.json', maxAgeMs))));
-    const photos = await commonsPhotos(cache, [...new Set([...stations.values()].map((s) => s.image).filter(Boolean))], maxAgeMs, log);
-    for (const [code, { image, ...rest }] of stations) add(code, { ...rest, ...(photos.has(image) ? { photo: photos.get(image) } : {}) });
+    wikidata = parseWikidata(JSON.parse(text(await cache.bytes(WIKIDATA_URL, 'wikidata-estaciones-v2.json', maxAgeMs))));
+    const photos = await commonsPhotos(cache, [...new Set([...wikidata.values()].map((s) => s.image).filter(Boolean))], maxAgeMs, log);
+    for (const [code, { image, category, ...rest }] of wikidata) add(code, { ...rest, ...(photos.has(image) ? { photo: photos.get(image) } : {}) });
   } catch (err) {
     log.warn(`[estaciones] Wikidata: ${err.message}`);
+  }
+  try {
+    const missing = stations.filter((s) => !extras.get(s.code)?.photo)
+      .map((s) => ({ ...s, category: wikidata.get(s.code)?.category, wikipedia: wikidata.get(s.code)?.wikipedia }));
+    const found = await findMorePhotos({ cache, log, missing, budgetMs: nearbyBudgetMs });
+    const photos = await commonsPhotos(cache, [...new Set(found.values())], SEARCH_MAX_AGE_MS, log);
+    for (const [code, file] of found) if (photos.has(file)) add(code, { photo: photos.get(file) });
+  } catch (err) {
+    log.warn(`[estaciones] más fotos: ${err.message}`);
   }
   try {
     for (const code of await renfeSheets(cache, maxAgeMs, log)) add(code, { sheet: SHEET_URL(code) });
@@ -44,7 +68,7 @@ export async function loadStationExtras({ cache, log, maxAgeMs }) {
   return extras;
 }
 
-/** Respuesta de Wikidata → código → { accessible, image, opened, tracks, wikipedia }. Vale el primer valor de cada uno. */
+/** Respuesta de Wikidata → código → { accessible, image, category, opened, tracks, wikipedia }. Vale el primer valor de cada uno. */
 export function parseWikidata(json) {
   const out = new Map();
   for (const b of json.results?.bindings ?? []) {
@@ -54,6 +78,7 @@ export function parseWikidata(json) {
     const acc = ACCESSIBILITY[b.acc?.value.split('/').pop()];
     if (s.accessible === undefined && acc !== undefined) s.accessible = acc;
     if (!s.image && b.img) s.image = decodeURIComponent(b.img.value.split('/Special:FilePath/').pop() ?? '').replace(/_/g, ' ');
+    if (!s.category && b.cat?.value) s.category = b.cat.value;
     const year = Number(b.open?.value.slice(0, 4));
     if (!s.opened && year > 1800) s.opened = year;
     const tracks = Number(b.tracks?.value);
@@ -74,12 +99,130 @@ async function commonsPhotos(cache, files, maxAgeMs, log) {
     // El nombre depende de las fotos pedidas: si la lista cambia, no se reutiliza otra respuesta.
     const name = `commons-${createHash('sha1').update(titles).digest('hex').slice(0, 12)}.json`;
     try {
-      for (const [file, photo] of parseCommons(JSON.parse(text(await cache.bytes(url, name, maxAgeMs))))) photos.set(file, photo);
+      for (const [file, photo] of parseCommons(await apiJson(cache, url, name, maxAgeMs))) photos.set(file, photo);
     } catch (err) {
       log.warn(`[estaciones] Commons: ${err.message}`);
     }
   }
   return photos;
+}
+
+/** JSON de una API de Wikimedia, cacheado; un error (que llega con un 200) no se guarda. */
+async function apiJson(cache, url, name, maxAgeMs) {
+  const validate = (bytes) => {
+    const json = JSON.parse(text(bytes));
+    if (json.error) throw new Error(json.error.info ?? json.error.code ?? 'error de la API');
+  };
+  return JSON.parse(text(await cache.bytes(url, name, maxAgeMs, { validate })));
+}
+
+const sha = (s) => createHash('sha1').update(s).digest('hex').slice(0, 12);
+
+/**
+ * Fotos de Commons para las estaciones sin foto en Wikidata, por este orden:
+ * 1. su categoría de Commons (P373): cualquier foto, mejor si lleva el nombre de la estación;
+ * 2. la imagen libre principal de su artículo de Wikipedia (pilicense=free), si lleva su nombre;
+ * 3. las fotos de Commons hechas a menos de 200 m que llevan su nombre y algo de tren en el título
+ *    («Apeadero Valdecilla.jpg» sí; «Viaje en tren Alicante-Murcia 34.jpg» junto a Callosa, no).
+ * @returns {Promise<Map<string, string>>} código → nombre del fichero en Commons
+ */
+async function findMorePhotos({ cache, log, missing, budgetMs }) {
+  const found = new Map();
+  const pending = () => missing.filter((s) => !found.has(s.code) && nameKey(s.name));
+
+  for (const s of pending().filter((x) => x.category)) {
+    const url = `${COMMONS_API}action=query&list=categorymembers&cmtype=file&cmlimit=50&cmtitle=${encodeURIComponent(`Category:${s.category}`)}`;
+    try {
+      const file = pickCategoryFile(await apiJson(cache, url, `commons-cat-${sha(s.category)}.json`, SEARCH_MAX_AGE_MS), s.name);
+      if (file) found.set(s.code, file);
+    } catch (err) {
+      log.warn(`[estaciones] categoría ${s.category}: ${err.message}`);
+    }
+  }
+
+  const byTitle = new Map();
+  for (const s of pending().filter((x) => x.wikipedia)) byTitle.set(decodeURIComponent(s.wikipedia.split('/wiki/').pop()).replace(/_/g, ' '), s);
+  const titles = [...byTitle.keys()];
+  for (let i = 0; i < titles.length; i += COMMONS_BATCH) {
+    const batch = titles.slice(i, i + COMMONS_BATCH).join('|');
+    const url = `${WIKIPEDIA_API}action=query&prop=pageimages&piprop=name&pilicense=free&redirects=1&titles=${encodeURIComponent(batch)}`;
+    try {
+      for (const [title, file] of pageImages(await apiJson(cache, url, `wikipedia-imagen-${sha(batch)}.json`, SEARCH_MAX_AGE_MS))) {
+        const s = byTitle.get(title);
+        if (s && !found.has(s.code) && matchesStation(file, s.name)) found.set(s.code, file);
+      }
+    } catch (err) {
+      log.warn(`[estaciones] imágenes de Wikipedia: ${err.message}`);
+    }
+  }
+
+  const queue = pending().filter((s) => Number.isFinite(s.lat) && Number.isFinite(s.lon));
+  const deadline = Date.now() + budgetMs;
+  let skipped = 0;
+  const worker = async () => {
+    for (let s = queue.shift(); s; s = queue.shift()) {
+      if (Date.now() > deadline) { skipped++; continue; }
+      const url = `${COMMONS_API}action=query&list=geosearch&gsnamespace=6&gslimit=50&gsradius=${NEARBY_RADIUS_M}&gscoord=${s.lat}|${s.lon}`;
+      try {
+        const file = pickNearby(await apiJson(cache, url, `commons-cerca-${s.code}.json`, SEARCH_MAX_AGE_MS), s.name);
+        if (file) found.set(s.code, file);
+      } catch { /* Commons «demasiado ocupado»: se reintenta en la siguiente carga */ }
+    }
+  };
+  await Promise.all(Array.from({ length: NEARBY_CONCURRENCY }, worker));
+  if (skipped) log.warn(`[estaciones] fotos cercanas: ${skipped} estaciones para la siguiente carga`);
+  return found;
+}
+
+const STOPWORDS = new Set(['de', 'del', 'la', 'las', 'los', 'el', 'els', 'les', 'y', 'i', 'en', 'san', 'santa', 'sant',
+  'estacion', 'estacio', 'apeadero', 'station', 'geltokia', 'cercanias', 'rodalies', 'alta', 'velocidad']);
+const fold = (s) => String(s ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/_/g, ' ');
+const IMAGE = /\.(jpe?g|png|webp)$/i;
+// Ni mapas ni escudos, ni puentes, ni calles: «Paseo de la Estación en 1997» junto a Callosa no es la estación.
+const NOT_A_PHOTO = /\b(mapa?|plano|esquema|logo|escudo|bandera|horario|diagram|puente|pont|bridge|paseo|calle|avenida|avda|carrer|rua|kalea|plaza|placa)\b/;
+const RAILWAY = /estaci|apeader|station|geltoki|\btren|train|renfe|feve|adif|cercanias|rodalies|ferrocarril|railway|anden|\bvias?\b/;
+
+/** La palabra más larga y propia del nombre de la estación: «Madrid-Nuevos Ministerios» → «ministerios». */
+export function nameKey(name) {
+  return fold(name).split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !STOPWORDS.has(w))
+    .reduce((best, w) => (w.length > best.length ? w : best), '') || null;
+}
+
+/** ¿Es una foto y no un mapa, un escudo o un puente? Sin contar las palabras del nombre (Puente Genil, El Pont de Vilomara). */
+function isPhoto(file, stationName) {
+  const own = new Set(fold(stationName).split(/[^a-z0-9]+/));
+  return IMAGE.test(file) && !NOT_A_PHOTO.test(fold(file).split(/[^a-z0-9]+/).filter((w) => !own.has(w)).join(' '));
+}
+
+/** ¿Es una foto cuyo nombre lleva el de la estación (y, si se pide, algo de tren)? */
+export function matchesStation(file, stationName, { railway = false } = {}) {
+  const key = nameKey(stationName);
+  const t = fold(file);
+  return Boolean(key) && isPhoto(file, stationName) && t.includes(key) && (!railway || RAILWAY.test(t));
+}
+
+/** Respuesta de categorymembers → mejor foto: con el nombre de la estación si la hay; si no, la primera. */
+export function pickCategoryFile(json, stationName) {
+  const files = (json.query?.categorymembers ?? []).map((m) => m.title.replace(/^File:/, ''))
+    .filter((f) => isPhoto(f, stationName));
+  return files.find((f) => matchesStation(f, stationName)) ?? files[0] ?? null;
+}
+
+/** Respuesta de pageimages → título del artículo pedido → fichero de su imagen libre principal. */
+export function pageImages(json) {
+  const back = new Map();
+  for (const n of [...(json.query?.normalized ?? []), ...(json.query?.redirects ?? [])]) back.set(n.to, back.get(n.from) ?? n.from);
+  const out = new Map();
+  for (const p of Object.values(json.query?.pages ?? {})) if (p.pageimage) out.set(back.get(p.title) ?? p.title, p.pageimage.replace(/_/g, ' '));
+  return out;
+}
+
+/** Respuesta de geosearch → la foto más cercana con el nombre de la estación y algo de tren en el título. */
+export function pickNearby(json, stationName) {
+  const hit = (json.query?.geosearch ?? [])
+    .filter((g) => matchesStation(g.title.replace(/^File:/, ''), stationName, { railway: true }))
+    .sort((a, b) => a.dist - b.dist)[0];
+  return hit ? hit.title.replace(/^File:/, '') : null;
 }
 
 /** Respuesta de Commons → nombre del fichero → { url, page, author, license, licenseUrl }. Sin licencia, no hay foto. */

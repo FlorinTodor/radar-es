@@ -118,7 +118,8 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
         list.set(code, { code, name: s.name, place: null, province: null, address: null, postalCode: null, lat: s.lat, lon: s.lon, cercanias: s.cercanias, metricGauge: false, accessible: s.accessible });
       }
     }
-    return withExtras(withoutDuplicates([...list.values()], new Set(gtfsStops.keys())), await loadStationExtras({ cache, log, maxAgeMs: REFRESH_MS }));
+    const stations = withoutDuplicates([...list.values()], new Set(gtfsStops.keys()));
+    return withExtras(stations, await loadStationExtras({ cache, log, maxAgeMs: REFRESH_MS, stations }));
   }
 
   return {
