@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Lo lanzan dos temporizadores del VPS cada 2 minutos, uno por entorno:
+# Lo lanzan dos temporizadores del VPS cada 30 s, uno por entorno:
 #
 #   /opt/radar-pruebas/deploy/actualizar.sh --pruebas   radar-pruebas.timer, rama dev, puerto 8081
 #   /opt/radar/deploy/actualizar.sh                     radar-actualizar.timer, rama produccion
@@ -22,6 +22,9 @@
 # `--forzar` redespliega aunque el commit ya esté desplegado o marcado como fallido. En producción,
 # además, sin pasar por pruebas si hace falta (construye aquí la imagen, con los tests): sólo para
 # urgencias.
+#
+# Cada 30 s sólo pregunta a GitHub si la rama ha cambiado, que casi no gasta CPU. Vigilar el
+# contenedor, la limpieza y parar pruebas siguen haciéndose cada 2 minutos.
 #
 # Si hay token (.github-token, de solo «Commit statuses»), cada paso marca el commit en GitHub con
 # el check «Pruebas VPS» o «Producción»: es lo que espera el pipeline de .github/workflows/pipeline.yml.
@@ -226,6 +229,17 @@ parar_pruebas_si_sobra() {
   docker compose stop radar
 }
 
+# Sin nada nuevo en GitHub y con la última vuelta completa hace menos de 2 minutos, no hay que hacer
+# nada. Cada vuelta completa gasta 2-3 s de CPU (docker compose, git fetch); esto, casi nada.
+sin_novedades() {
+  local remoto
+  [[ -n $(find .vuelta -mmin -2 2>/dev/null) ]] || return 1
+  remoto=$(git ls-remote --heads origin "$RAMA" 2>/dev/null | cut -f1) || true
+  [[ -z $remoto ]] && return 0 # GitHub no responde: se mira en la próxima vuelta completa
+  [[ $remoto == "$(cat .desplegado 2>/dev/null)" || $remoto == "$(cat .fallido 2>/dev/null)" ||
+    $remoto == "$(cat .esperando 2>/dev/null)" ]]
+}
+
 main() {
   local forzar=0 arg
   ENTORNO=produccion
@@ -238,6 +252,8 @@ main() {
   done
   RAMA=$([[ $ENTORNO == pruebas ]] && echo dev || echo produccion)
   cd "$(dirname "$0")/.."
+  if [[ $forzar != 1 ]] && sin_novedades; then return 0; fi
+  touch .vuelta
   vigilar
   if [[ $ENTORNO == produccion ]]; then limpiar_semanal; fi
   desplegar "$forzar"

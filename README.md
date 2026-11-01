@@ -295,6 +295,7 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Entorno de pruebas privado: cada cambio se prueba con datos reales antes de llegar a producción.
 - Pipeline en GitHub Actions (tests → pruebas → aprobación manual → producción), y producción sólo
   publica la misma versión que se ha probado.
+- Las subidas se detectan en unos segundos y el pipeline avanza en cuanto cada paso termina.
 - Limpieza automática del servidor.
 - Estadísticas de visitas sin cookies.
 

@@ -36,7 +36,12 @@ a `dev` sustituye al pipeline que estuviera esperando. El VPS marca cada commit 
 eso necesita un token en `.github-token` (ver abajo). El merge a mano en la terminal sigue
 funcionando igual: producción tampoco lo despliega si no está verificado.
 
-Dos temporizadores lanzan `deploy/actualizar.sh` cada 2 minutos, uno por entorno. El VPS clona
+Dos temporizadores lanzan `deploy/actualizar.sh` cada 30 s, uno por entorno. Casi siempre sólo
+preguntan a GitHub si la rama ha cambiado (unas décimas de segundo de CPU); la vuelta completa
+(vigilar el contenedor, limpieza…) sigue siendo cada 2 minutos. Los temporizadores se copian a
+systemd al preparar cada entorno: si cambia un `deploy/*.timer`, hay que volver a instalarlo
+(`install -m 644 deploy/radar-actualizar.timer /etc/systemd/system/ && systemctl daemon-reload`
+desde la carpeta de producción, y lo mismo con `radar-pruebas.timer` desde la de pruebas). El VPS clona
 el repo con una deploy key de solo lectura (`/root/.ssh/deploy_radar-es`).
 
 **Pruebas** (`/opt/radar-pruebas`, `radar-pruebas.timer`): si `dev` ha cambiado, construye la
