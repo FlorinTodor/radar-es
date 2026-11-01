@@ -190,3 +190,9 @@ servicio `radar`: con el `compose.yaml` nuevo recrea `radar` (ya sin el puerto 8
 nginx, que lo ocupa. Ese despliegue tiene el corte de siempre (segundos); desde el siguiente, el
 `actualizar.sh` nuevo hace el relevo sin corte. No hay que tocar cloudflared: sigue apuntando a
 `127.0.0.1:8080` (producción) y `127.0.0.1:8081` (pruebas).
+
+Lo medido en una copia local del VPS, con peticiones cada 0,2 s: el paso a dos contenedores, un
+corte de menos de un segundo; un despliegue normal, ninguna petición fallida; una versión que no
+arranca, ninguna (sigue la anterior). Los cambios en `deploy/nginx/` se recargan sin corte; si
+cambia la definición del servicio `proxy` en `compose.yaml`, nginx se recrea con un corte de menos
+de un segundo.
