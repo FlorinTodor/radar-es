@@ -287,6 +287,8 @@ Ninguna por ahora.
   - Fuentes revisadas: [`docs/accesibilidad-estaciones.md`](docs/accesibilidad-estaciones.md).
 - Enlace a la ficha oficial en PDF de las estaciones que la tienen, sacada de los listados de
   Cercanías de Renfe por núcleo.
+- En la ficha de cada estación, sus viajeros y su clasificación, a partir de los datos abiertos de
+  Adif.
 - Guía para quien quiera proponer cambios.
 
 ## Licencia
