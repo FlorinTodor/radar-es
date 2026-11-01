@@ -8,7 +8,7 @@ import { RENFE_FILES } from '../stations/renfe-station-catalog.js';
 import { num } from './parse.js';
 
 const GTFSRT = 'https://gtfsrt.renfe.com';
-const ATTRIBUTION = 'Origen de los datos: Renfe Operadora (CC BY 4.0; datos modificados: normalizados y combinados con sus horarios)';
+const ATTRIBUTION = 'Origen de los datos: Renfe Operadora (CC BY 4.0; datos modificados: normalizados, depurados y combinados con sus horarios)';
 const TIMETABLE_TTL_MS = 24 * 3600_000;
 // Renfe vuelve a publicar el GTFS de AV/LD/MD cada día y el id de viaje lleva la fecha de su periodo
 // ("0515212026-10-31"): si el tiempo real ya usa los nuevos y la copia es de ayer, se descarga antes.
@@ -268,6 +268,8 @@ export function createRenfeSources({ http, cache, stations, log }) {
     url: `${GTFSRT}/vehicle_positions.json`,
     page: 'https://data.renfe.com/dataset/ubicacion-vehiculos',
     license: ATTRIBUTION,
+    // CC BY 4.0 permite modificar indicándolo: a veces repite posiciones viejas o da saltos imposibles.
+    cleanPositions: true,
     async fetch() {
       await timetables.loadCercanias();
       const [positions, updates] = await Promise.allSettled([http.json(this.url), http.json(`${GTFSRT}/trip_updates.json`)]);
@@ -311,6 +313,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
     url: `${GTFSRT}/vehicle_positions_LD.json`,
     page: 'https://data.renfe.com/dataset/posicion-vehiculos-av-ld-md',
     license: ATTRIBUTION,
+    cleanPositions: true,
     async fetch() {
       await timetables.loadLd();
       const [positions, updates] = await Promise.allSettled([http.json(this.url), http.json(`${GTFSRT}/trip_updates_LD.json`)]);

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { zipSync, strToU8 } from 'fflate';
-import { createPacer, csvColumns, csvColumnsStreamed, csvRows, openGtfs, own } from '../../server/adapters/outbound/gtfs/gtfs-reader.js';
+import { createPacer, csvColumns, csvColumnsStreamed, csvRows, openGtfs, own, zipLocalDate } from '../../server/adapters/outbound/gtfs/gtfs-reader.js';
 
 const text = (bytes) => new TextDecoder().decode(bytes);
 
@@ -128,4 +128,12 @@ test('por trozos: las mismas filas que leyendo el fichero entero, comprimido o n
 test('por trozos: un fichero que no está en el ZIP es un error', async () => {
   const zip = zipSync({ 'stops.txt': strToU8('stop_id\nS1\n') });
   await assert.rejects(async () => { for await (const _ of csvColumnsStreamed(zip, 'stop_times.txt', ['trip_id'])); }, /no está en el ZIP/);
+});
+
+test('fecha de un GTFS sin fecha: la del fichero más reciente del ZIP', () => {
+  const zip = zipSync({
+    'stops.txt': [strToU8('a'), { mtime: new Date(2026, 9, 30, 4, 0, 0) }],
+    'trips.txt': [strToU8('b'), { mtime: new Date(2026, 9, 31, 3, 0, 52) }],
+  });
+  assert.equal(zipLocalDate(zip), '2026-10-31T03:00:52');
 });

@@ -54,8 +54,11 @@ const held = new WeakMap(); // historial → { point, since }: salto corto a la 
  * @param {Map<string, TrackPoint[]>} tracks
  * @param {import('./model.js').Vehicle[]} vehicles
  * @param {number} now
+ * @param {{ windowMs?: number, clean?: boolean }} [options]  clean: descartar las posiciones repetidas o
+ *   imposibles. Sólo si la licencia de la fuente permite modificar sus datos (Renfe, CC BY 4.0, indicándolo):
+ *   otras piden expresamente que el contenido no se altere (Open Data Euskadi) o se publican «en bruto».
  */
-export function recordPositions(tracks, vehicles, now, windowMs = TRACK_WINDOW_MS) {
+export function recordPositions(tracks, vehicles, now, { windowMs = TRACK_WINDOW_MS, clean = false } = {}) {
   for (const v of vehicles) {
     let track = tracks.get(v.id);
     if (!track) tracks.set(v.id, (track = []));
@@ -73,7 +76,7 @@ export function recordPositions(tracks, vehicles, now, windowMs = TRACK_WINDOW_M
       last.seen = now;
     };
     // Las posiciones estimadas las calcula el radar con el horario: si retroceden (sube el retraso) es a propósito.
-    const gps = !v.estimated;
+    const gps = clean && !v.estimated;
     if (gps && last && isEcho(track, point, now)) {
       stay();
       continue;

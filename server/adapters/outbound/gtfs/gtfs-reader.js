@@ -54,6 +54,20 @@ export async function openGtfs(zipBytes, files) {
   return out;
 }
 
+/**
+ * Fecha del fichero más reciente del ZIP, como «AAAA-MM-DDThh:mm:ss» en la hora local de quien lo generó
+ * (el formato ZIP no guarda la zona). Sirve de fecha de actualización de un GTFS que no la trae. null si no se sabe.
+ * @param {Uint8Array} zipBytes
+ */
+export function zipLocalDate(zipBytes) {
+  const zip = Buffer.from(zipBytes.buffer, zipBytes.byteOffset, zipBytes.byteLength);
+  const pad = (n) => String(n).padStart(2, '0');
+  const dates = (centralDirectory(zip) ?? [])
+    .filter((e) => e.dosDate)
+    .map(({ dosDate: d, dosTime: t }) => `${1980 + (d >> 9)}-${pad((d >> 5) & 15)}-${pad(d & 31)}T${pad(t >> 11)}:${pad((t >> 5) & 63)}:${pad((t & 31) * 2)}`);
+  return dates.length ? dates.sort().at(-1) : null;
+}
+
 /** Entrada del ZIP con sus datos comprimidos (`data`), comprobando que el ZIP no esté dañado. */
 function withData(zip, e) {
   if (e.method !== 0 && e.method !== 8) throw new Error(`${e.name}: compresión ${e.method} no soportada`);
@@ -133,7 +147,10 @@ function centralDirectory(zip) {
     const offset = zip.readUInt32LE(p + 42);
     if (size === 0xffffffff || usize === 0xffffffff || offset === 0xffffffff) return null;
     const nameLength = zip.readUInt16LE(p + 28);
-    out.push({ name: zip.toString('utf8', p + 46, p + 46 + nameLength).split('/').pop(), method: zip.readUInt16LE(p + 10), size, usize, offset });
+    out.push({
+      name: zip.toString('utf8', p + 46, p + 46 + nameLength).split('/').pop(), method: zip.readUInt16LE(p + 10), size, usize, offset,
+      dosTime: zip.readUInt16LE(p + 12), dosDate: zip.readUInt16LE(p + 14),
+    });
     p += 46 + nameLength + zip.readUInt16LE(p + 30) + zip.readUInt16LE(p + 32);
   }
   return out;

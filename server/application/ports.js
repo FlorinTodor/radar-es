@@ -15,6 +15,8 @@
  * @property {string} [url]
  * @property {string} [page]                   Ficha pública del conjunto de datos, para enlazarla en vez de `url`.
  * @property {string[]} [requires]             Variables de entorno necesarias (claves de API).
+ * @property {boolean} [cleanPositions]        Su licencia permite modificar los datos: se descartan sus posiciones
+ *                                              repetidas o imposibles. Si no, se muestran tal cual.
  * @property {() => Promise<import('../domain/model.js').SourceResult>} fetch
  * @property {(vehicleId: string) => number[][]|null|undefined} [path]  Sólo fuentes de posiciones
  *   estimadas: tramo de trazado ([lon, lat]) que el vehículo ha recorrido según su horario, para

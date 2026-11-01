@@ -212,8 +212,9 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Red ferroviaria, líneas de metro, tranvía y Cercanías, y estaciones.
 - Nombres del mapa base en español.
 - Se descartan los retrasos imposibles que a veces llegan en los datos.
-- Se descartan también las posiciones que la fuente repite o que saltan de forma imposible: los
-  trenes ya no van y vienen en el mapa.
+- En los trenes de Renfe se descartan también las posiciones que su fuente repite o que saltan de
+  forma imposible: ya no van y vienen en el mapa. Las fuentes cuya licencia pide no alterar los
+  datos se muestran tal cual.
 - Los autobuses que Renfe pone en algunas líneas de Cercanías se muestran como autobuses y no
   cuentan en los retrasos ni en las alertas de los trenes.
 - Colores de línea legibles sobre el mapa oscuro, aunque el operador publique uno muy oscuro.
@@ -300,6 +301,9 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 **Licencias**
 - Sólo datos públicos cuya licencia permite reutilizarlos, con las atribuciones que exige cada
   fuente, aviso legal y página de privacidad.
+- Revisión de todas las fuentes, horarios, fotos y librerías: licencia vigente de cada conjunto,
+  fecha de actualización de cada horario, enlace a la licencia de cada librería y, en privacidad,
+  qué webs externas contacta el navegador y cuándo.
 
 ### Preparadas, pendientes de subir
 
@@ -326,6 +330,9 @@ Ninguna por ahora.
   - Fuentes revisadas: [`docs/accesibilidad-estaciones.md`](docs/accesibilidad-estaciones.md).
 - Fotos de [Flickr](https://www.flickr.com/creativecommons/) con licencia Creative Commons (con autor y
   enlace) para las estaciones que siguen sin foto en Wikimedia Commons; hace falta una clave gratuita.
+- Servir las fotos de las estaciones desde nuestro servidor, con caché, en lugar de enlazarlas en
+  Wikimedia Commons: Commons lo permite pero no lo recomienda, y así Wikimedia no recibiría la IP de
+  quien abre la ficha.
 - Guía para quien quiera proponer cambios.
 
 ## Licencia
