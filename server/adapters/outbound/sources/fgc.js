@@ -10,11 +10,15 @@ const DAY_MS = 24 * 3600_000;
 // La copia en disco la renueva cada semana el catálogo de líneas: aquí sólo se lee y, si falta, se descarga.
 const GTFS_MAX_AGE_MS = 30 * DAY_MS;
 
-/** Códigos de estación de FGC → nombre, del stops.txt de su GTFS. */
-export function fgcStationNames(stopsTxt) {
-  const names = new Map();
-  for (const s of csvRows(stopsTxt)) if (s.stop_id && s.stop_name && !s.parent_station) names.set(s.stop_id, s.stop_name.trim());
-  return names;
+/** Códigos de estación de FGC → { name, at: [lon, lat] }, del stops.txt de su GTFS (sin los andenes). */
+export function fgcStations(stopsTxt) {
+  const stations = new Map();
+  for (const s of csvRows(stopsTxt)) {
+    if (!s.stop_id || !s.stop_name || s.parent_station) continue;
+    const at = [+s.stop_lon, +s.stop_lat];
+    stations.set(s.stop_id, { name: s.stop_name.trim(), at: at.every(Number.isFinite) ? at : null });
+  }
+  return stations;
 }
 
 /**
@@ -23,19 +27,19 @@ export function fgcStationNames(stopsTxt) {
  */
 export function createFgcSource({ http, nap, log }) {
   // La API de posiciones sólo da códigos de estación: sin el GTFS (falta la clave del NAP o no
-  // responde), se muestran los códigos.
-  let names = null;
+  // responde), se muestran los códigos y no se sabe dónde acaba cada tren.
+  let stations = null;
   let namesAt = 0;
   async function loadNames() {
     if (!nap?.enabled || Date.now() - namesAt < DAY_MS) return;
     namesAt = Date.now(); // aunque falle, no reintentar en cada lectura
     try {
-      names = fgcStationNames((await openGtfs(await nap.gtfs(FGC_GTFS, GTFS_MAX_AGE_MS), ['stops.txt']))['stops.txt']);
+      stations = fgcStations((await openGtfs(await nap.gtfs(FGC_GTFS, GTFS_MAX_AGE_MS), ['stops.txt']))['stops.txt']);
     } catch (err) {
       log?.warn(`[fgc] nombres de estación: ${err.message}`);
     }
   }
-  const name = (code) => (code ? names?.get(code) ?? code : null);
+  const name = (code) => (code ? stations?.get(code)?.name ?? code : null);
 
   return {
     id: 'fgc',
@@ -70,6 +74,8 @@ export function createFgcSource({ http, nap, log }) {
             current: name(r.estacionat_a),
             next: name((r.properes_parades ?? '').match(/"parada":\s*"([^"]+)"/)?.[1]),
             rollingStock: r.tipus_unitat ? `Serie ${r.tipus_unitat}` : null,
+            // Donde acaba su viaje: el mapa dibuja lo que le queda por el trazado de su línea.
+            end: stations?.get(r.desti)?.at ?? null,
           });
         }
         if ((d.results?.length ?? 0) < 100) break;

@@ -226,7 +226,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   todos los trenes.
 - En Cercanías, metro y tranvía, el recorrido va pegado a la vía de su línea, con sus curvas.
 - Lo que le queda a cada tren hasta su destino, dibujado por su vía: en Cercanías y Metro Bilbao
-  con el trazado de su viaje, y en metros y tranvías estimados con su horario.
+  con el trazado de su viaje, en FGC con el de su línea, y en metros y tranvías estimados con su
+  horario.
 - Flecha de hacia dónde va cada vehículo al acercar el mapa, por su vía cuando se conoce su
   recorrido.
 - En Cercanías, el origen, el destino y la próxima parada salen de las paradas de cada viaje: ni el
@@ -242,7 +243,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   otra estación, el recorrido empieza donde está de verdad.
 - Si Renfe da un tren parado en una estación pero con una posición a kilómetros (a veces deja de
   actualizarla durante minutos), la ficha lo avisa y el tren no salta en el mapa.
-- FGC con nombres de estación en el recorrido, la parada y la próxima, en vez de sus códigos.
+- FGC con nombres de estación en el recorrido, la parada y la próxima, en vez de sus códigos, y con
+  lo que le queda a cada tren hasta su destino, por el trazado de su línea.
 - Metro Bilbao con el recorrido pegado a la vía de su viaje.
 - Lista y buscador con todos los trenes.
 
