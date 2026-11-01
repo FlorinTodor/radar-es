@@ -222,6 +222,22 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   salto.
 - Lista y buscador con todos los trenes.
 
+**Estaciones**
+- Pestaña «Estaciones» con buscador y una ficha para cada estación: los trenes parados en ella y los
+  que van hacia ella (con vía, hora y retraso), los avisos de Renfe de la estación, sus líneas y las
+  conexiones a pie con metro y tranvía.
+- Datos de cada estación: dirección, accesibilidad en silla de ruedas (según Renfe y, si Renfe no
+  dice nada, según Wikidata), año de apertura, número de vías y ancho de vía.
+- Enlaces a Wikipedia, a la ficha técnica en PDF de Renfe (en las estaciones que la tienen), a
+  OpenStreetMap y «Cómo llegar» con Google Maps.
+- Foto de unas 1.200 estaciones, de Wikimedia Commons, con su autor y su licencia. Se buscan en
+  Wikidata, en la categoría de la estación, en su artículo de Wikipedia y entre las fotos hechas a su
+  lado, y se revisan todas: sólo licencias que se pueden cumplir, sin personas reconocibles en primer
+  plano y con retirada a petición del autor o de quien sale en ellas.
+- Sin estaciones repetidas en el mapa: la misma estación con otro código o la parada de los trenes
+  turísticos pegada a la normal ya no salen dos veces.
+- Las estaciones se pueden pulsar desde más lejos y su nombre aparece antes al acercar el mapa.
+
 **Alertas**
 - Motor de reglas que avisa de:
   - trenes detenidos en plena vía y varios trenes parados en la misma zona;
@@ -274,8 +290,10 @@ Ninguna por ahora.
 
 ## Posibles mejoras
 
-- Recorrido pegado a la vía también en AVE, Larga y Media Distancia, con la red ferroviaria
-  vectorial del IGN.
+- Recorrido pegado a la vía también en AVE, Larga y Media Distancia, con los
+  [tramos en servicio de Adif](https://www.arcgis.com/home/item.html?id=4ec7c0fb3cab42b0b488d65e65eeb7aa)
+  (red vectorial con licencia abierta, que cita a Adif). Cada tramo une dos estaciones con los
+  mismos códigos que usa Renfe.
 - Botón en el mapa para cambiar entre español e inglés.
 - Despliegues sin ningún corte, con dos contenedores que se relevan.
 - Más fuentes: TMB y EMT Madrid (con clave gratuita) y posiciones estimadas para las redes que
@@ -283,6 +301,14 @@ Ninguna por ahora.
 - Estadísticas de puntualidad por línea y franja horaria.
 - Pasos a nivel en el mapa.
 - Estado oficial de la red de Adif, si llega a publicarse con licencia de reutilización.
+- Accesibilidad de las estaciones con más detalle:
+  - en Madrid, qué accesos y andenes son accesibles, con los datos abiertos del
+    [Consorcio de Transportes](https://www.crtm.es/licencia-de-uso/), cuando se revise su calidad;
+  - en toda España, pedir a Adif que publique como datos abiertos las estaciones accesibles y las
+    que tienen asistencia [Adif Acerca](https://www.spain.info/es/descubrir-espana/accesibilidad-trenes/).
+  - Fuentes revisadas: [`docs/accesibilidad-estaciones.md`](docs/accesibilidad-estaciones.md).
+- Fotos de [Flickr](https://www.flickr.com/creativecommons/) con licencia Creative Commons (con autor y
+  enlace) para las estaciones que siguen sin foto en Wikimedia Commons; hace falta una clave gratuita.
 - Guía para quien quiera proponer cambios.
 
 ## Licencia

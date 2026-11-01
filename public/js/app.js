@@ -2,6 +2,7 @@ import { createMap } from './map.js';
 import { connect } from './stream.js';
 import { delayClass } from './format.js';
 import * as P from './panels.js';
+import { stationBoard } from './station-board.js';
 
 // ---------- Estado ----------
 const state = {
@@ -18,6 +19,8 @@ const state = {
   selected: new Map(), // 'tipo|id' → { kind, id }: alertas, incidencias y trenes marcados; el mapa muestra sólo eso
   multi: false,         // interruptor "Varias a la vez"
   forced: new Set(),    // 'mode:x' / 'group:y': capas que ha encendido lo marcado; se apagan al quitar la selección
+  stations: new Map(),  // código → estación de Renfe (para su ficha)
+  lines: [],            // trazados de las líneas (para saber qué líneas pasan por cada estación)
 };
 
 const PREFS_KEY = 'radar-es:prefs';
@@ -51,7 +54,10 @@ const map = createMap('map', {
     const e = findEvent(id);
     if (e) map.showEvent(e, at);
   },
+  onStationClick: (code) => openStation(code),
 });
+
+const boardFor = (st) => stationBoard(st, { vehicles: allVehicles(), events: allEvents(), lines: state.lines });
 
 // Con ?debug en la URL se expone el mapa para inspeccionarlo desde la consola o en pruebas.
 if (new URLSearchParams(location.search).has('debug')) window.radarDebug = { map, prefs };
@@ -60,7 +66,9 @@ map.ready.then(async () => {
   applyLayerPrefs();
   render('vehicles', 'events');
   try {
-    map.setStations(await (await fetch('/api/stations')).json());
+    const stations = await (await fetch('/api/stations')).json();
+    for (const s of stations) state.stations.set(s.code, s);
+    map.setStations(stations);
   } catch { /* sin estaciones no pasa nada */ }
   loadLines();
 });
@@ -69,7 +77,10 @@ map.ready.then(async () => {
 async function loadLines(attempt = 0) {
   try {
     const lines = await (await fetch('/api/lines')).json();
-    if (lines.features?.length) return map.setLines(lines);
+    if (lines.features?.length) {
+      state.lines = lines.features;
+      return map.setLines(lines);
+    }
   } catch { /* reintenta */ }
   if (attempt < 10) setTimeout(() => loadLines(attempt + 1), 15_000);
 }
@@ -128,6 +139,9 @@ function flush() {
     map.setVehicles(vehicles, alertIds);
     const selected = map.selectedVehicleId() && findVehicle(map.selectedVehicleId());
     if (selected) map.refreshVehicle(selected);
+    const code = map.selectedStationCode();
+    const station = stationDetails.get(code) ?? state.stations.get(code);
+    if (station) map.refreshStation(station, boardFor(station));
     // El recuento lo da el servidor (cuenta los autobuses aunque no se hayan pedido); si no lo
     // trae, se cuentan los vehículos recibidos.
     const counts = {};
@@ -148,6 +162,37 @@ function flush() {
   }
   if (parts.has('kpis') || parts.has('alerts')) P.renderKpis(state.kpis, state.metrics, state.alerts.length);
   if (parts.has('health') && state.tab === 'sources') P.renderSources(document.getElementById('panel-sources'), state.health);
+  if (state.tab === 'stations' && (parts.has('stations') || parts.has('vehicles'))) renderStationsPanel();
+}
+
+// Buscador de estaciones: el número de cada una son los trenes parados en ella o que van hacia ella.
+function renderStationsPanel() {
+  const trainsByName = new Map();
+  for (const v of allVehicles()) {
+    const at = v.stopped ? v.current : v.next;
+    if (at) trainsByName.set(at, (trainsByName.get(at) ?? 0) + 1);
+  }
+  const query = document.getElementById('station-search').value;
+  P.renderStations(document.getElementById('stations-list'), P.filterStations([...state.stations.values()], query), query, trainsByName);
+}
+
+/**
+ * Abre la ficha de una estación; desde la lista, además lleva el mapa hasta ella. La lista sólo trae
+ * lo básico: la ficha completa (foto, enlaces…) se pide al abrirla y se repinta cuando llega.
+ */
+const stationDetails = new Map();
+async function openStation(code, fly = false) {
+  const st = state.stations.get(code);
+  if (!st) return;
+  map.showStation(stationDetails.get(code) ?? st, boardFor(st));
+  if (fly) map.flyTo(st.lon, st.lat, 14);
+  if (stationDetails.has(code)) return;
+  try {
+    const res = await fetch(`/api/stations/${code}`);
+    if (!res.ok) return;
+    stationDetails.set(code, await res.json());
+    map.refreshStation(stationDetails.get(code), boardFor(st));
+  } catch { /* sin detalle: se queda la ficha básica */ }
 }
 
 // La lista y el buscador no dependen de las capas activas: se puede buscar cualquier tren y, al
@@ -358,6 +403,12 @@ function fitSelection(items, alertsById, vehicleIds, eventIds) {
 
 document.querySelector('.sidebar').addEventListener('click', (ev) => {
   if (ev.target.closest('[data-action=clear-focus]')) return clearFocus();
+  const station = ev.target.closest('[data-station]');
+  if (station) {
+    openStation(station.dataset.station, true);
+    if (mobile.matches) setSheet('peek');
+    return;
+  }
   const item = ev.target.closest('[data-kind]');
   if (!item) return;
   selectItem(item.dataset.kind, item.dataset.id);
@@ -433,9 +484,16 @@ sheetHandle.addEventListener('click', () => {
   if (Date.now() - sheetDragEnd < 400) return; // el click que sigue a soltar un arrastre
   setSheet(sidebar.dataset.sheet === 'peek' ? 'half' : 'peek');
 });
-// Al escribir en el buscador el teclado tapa media pantalla: se sube la hoja entera.
-document.getElementById('vehicle-search').addEventListener('focus', () => {
-  if (mobile.matches) setSheet('full');
+// Al escribir en un buscador el teclado tapa media pantalla: se sube la hoja entera.
+for (const id of ['vehicle-search', 'station-search']) {
+  document.getElementById(id).addEventListener('focus', () => {
+    if (mobile.matches) setSheet('full');
+  });
+}
+let stationTimer = null;
+document.getElementById('station-search').addEventListener('input', () => {
+  clearTimeout(stationTimer);
+  stationTimer = setTimeout(renderStationsPanel, 150);
 });
 
 let searchTimer = null;

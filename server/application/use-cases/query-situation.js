@@ -30,7 +30,11 @@ export function makeQuerySituation({ situation, stations, network, clock, source
     health: () => situation.health(),
     metrics: () => situation.metrics(),
     kpis: () => ({ current: situation.kpis(), history: situation.kpiHistory() }),
-    stations: () => stations.all(),
+    // La lista la descarga cada visita al abrir el mapa: sólo lo que hace falta para pintarlas y
+    // buscarlas. La ficha completa de una estación, con sus fotos y enlaces, va aparte (station).
+    stations: () => stations.all().map(({ code, name, place, province, lat, lon, cercanias, metricGauge, accessible }) => (
+      { code, name, place, province, lat, lon, cercanias, metricGauge, accessible })),
+    station: (code) => stations.get(code) ?? null,
     lines: () => network.lines(),
     /**
      * Recorrido reciente de un vehículo. Los de posición estimada usan su trazado (las posiciones de

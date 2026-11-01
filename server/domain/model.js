@@ -86,6 +86,12 @@
  * @property {string|null} place
  * @property {number} lat
  * @property {number} lon
+ * @property {string|null} [province]
+ * @property {string|null} [address]
+ * @property {string|null} [postalCode]
+ * @property {boolean} [cercanias]
+ * @property {boolean} [metricGauge]   Ancho métrico (antigua FEVE)
+ * @property {boolean|null} [accessible] Accesible en silla de ruedas según el GTFS; null si no lo dice
  */
 
 export const SEVERITY_RANK = { 'muy alta': 4, alta: 3, media: 2, baja: 1 };
