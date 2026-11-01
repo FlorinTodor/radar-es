@@ -39,9 +39,11 @@ after(() => {
   server.close();
 });
 
-/** Espera (como mucho 1 s) a que se cumpla una condición. */
+/** Espera a que se cumpla una condición, como mucho 10 s: en el VPS los tests corren mientras la web
+ * está en marcha y todo va más lento. Si se cumple antes, sigue al momento. */
 async function until(condition) {
-  for (let i = 0; i < 100 && !condition(); i++) await new Promise((r) => setTimeout(r, 10));
+  const end = Date.now() + 10_000;
+  while (!condition() && Date.now() < end) await new Promise((r) => setTimeout(r, 10));
   return condition();
 }
 

@@ -20,6 +20,13 @@ const inlineStub = () => {
   };
   return { calls, inline };
 };
+/** Espera a que se cumpla una condición, como mucho 10 s: en el VPS los tests corren mientras la web
+ * está en marcha y todo va más lento. Si se cumple antes, sigue al momento. */
+async function until(condition) {
+  const end = Date.now() + 10_000;
+  while (!condition() && Date.now() < end) await new Promise((r) => setTimeout(r, 10));
+  return condition();
+}
 
 test('CPU efectivas: la cuota del contenedor (cpu.max) manda sobre los núcleos visibles', () => {
   assert.equal(effectiveCpus({ cores: 16, cpuMax: '200000 100000\n' }), 2);
@@ -76,6 +83,10 @@ test('con hilos el trabajo va a otro hilo y los errores de la tarea llegan tal c
 test('los dos hilos trabajan a la vez y el resultado llega con sus arrays tipados', async () => {
   const pool = createCpuPool({ threads: 2, workerUrl: TEST_WORKER });
   try {
+    // Primero se arrancan los dos hilos: en el VPS, construyendo la imagen con la web en marcha,
+    // arrancar un hilo puede tardar más de 250 ms y no debe contar como trabajo en serie.
+    const [e1, e2] = await Promise.all([pool.run('echo', [1]), pool.run('echo', [2])]);
+    assert.notEqual(e1.threadId, e2.threadId, 'cada trabajo va a un hilo distinto');
     const t = performance.now();
     const [a, b] = await Promise.all([pool.run('slow', ['a', 300]), pool.run('slow', ['b', 300])]);
     assert.deepEqual([a, b], ['a', 'b']);
@@ -116,9 +127,8 @@ test('tras varias caídas deja los hilos y sigue en un solo hilo', async () => {
   try {
     await pool.run('crash', []);
     await pool.run('crash', []);
-    // Da tiempo a que se procese la segunda salida.
-    await new Promise((r) => setTimeout(r, 50));
-    assert.equal(pool.threads(), 0);
+    // Espera a que se procese la segunda salida.
+    assert.ok(await until(() => pool.threads() === 0), 'deja los hilos');
     assert.ok(log.warnings.some((w) => /sigo con todo en el hilo principal/.test(w)));
     assert.equal((await pool.run('echo', [1])).inline, true);
   } finally {
