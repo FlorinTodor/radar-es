@@ -7,7 +7,10 @@ let server;
 let base;
 const errors = [];
 before(async () => {
-  const query = { track: (id) => (id === 'Renfe 7/123' ? [{ lat: 40, lon: -3.7 }] : null) };
+  const query = {
+    track: (id) => (id === 'Renfe 7/123' ? [{ lat: 40, lon: -3.7 }] : null),
+    ahead: (id) => (id === 'euskotren:TG2:1' ? [[-2.67, 42.85], [-2.66, 42.85]] : null),
+  };
   server = createHttpServer({
     query, log: { error: (msg) => errors.push(msg), info() {}, warn() {} }, publicDir: '/nonexistent', vendorDirs: {},
   });
@@ -31,4 +34,11 @@ test('un %-escape roto responde 400 y no deja un error en el log', async () => {
   assert.equal(res.status, 400);
   assert.deepEqual(await res.json(), { error: 'Ruta inválida' });
   assert.deepEqual(errors, []);
+});
+
+test('/api/ahead/<id>: lo que le queda a un vehículo estimado; si no se sabe, 404', async () => {
+  const ok = await fetch(`${base}/api/ahead/${encodeURIComponent('euskotren:TG2:1')}`);
+  assert.equal(ok.status, 200);
+  assert.deepEqual(await ok.json(), [[-2.67, 42.85], [-2.66, 42.85]]);
+  assert.equal((await fetch(`${base}/api/ahead/otro`)).status, 404);
 });

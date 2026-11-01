@@ -46,8 +46,9 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
     '/api/live/buses': { fn: () => query.liveBuses(), ttl: 8_000, cache: liveCache(15), stableEtag: true },
     '/api/health': { fn: () => query.health(), ttl: 15_000, cache: liveCache(30), stableEtag: true },
     // Catálogos: cambian unas pocas veces al día.
-    '/api/stations': { fn: () => query.stations(), ttl: 600_000, cache: CATALOG_CACHE },
-    '/api/lines': { fn: () => query.lines(), ttl: 600_000, cache: CATALOG_CACHE },
+    // Vacíos mientras el servidor los carga al arrancar: entonces no se guardan (ver isEmpty).
+    '/api/stations': { fn: () => query.stations(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.length },
+    '/api/lines': { fn: () => query.lines(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.features?.length },
     '/api/trails': { fn: (p) => query.trails(trailMinutes(p)), key: trailMinutes, ttl: 15_000, cache: REVALIDATE },
     '/api/snapshot': { fn: () => query.snapshot(), ttl: 5_000, cache: REVALIDATE },
     '/api/vehicles': { fn: (p) => query.vehicles(vehicleFilter(p)), key: (p) => JSON.stringify(vehicleFilter(p)), ttl: 5_000, cache: REVALIDATE },
@@ -97,6 +98,12 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
         const station = /^\d{5}$/.test(code) ? query.station(code) : null;
         return station ? sendJson(req, res, 200, station, CATALOG_CACHE) : send(res, 404, { error: 'Estación no encontrada' });
       }
+      if (url.pathname.startsWith('/api/ahead/')) {
+        const id = decodeOrNull(url.pathname.slice('/api/ahead/'.length));
+        if (id === null) return send(res, 400, { error: 'Ruta inválida' });
+        const ahead = query.ahead?.(id);
+        return ahead ? sendJson(req, res, 200, ahead) : send(res, 404, { error: 'Sin recorrido previsto' });
+      }
       if (url.pathname.startsWith('/api/tracks/')) {
         const id = decodeOrNull(url.pathname.slice('/api/tracks/'.length));
         if (id === null) return send(res, 400, { error: 'Ruta inválida' });
@@ -141,8 +148,11 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
         return send(res, 503, { error: 'Demasiadas consultas distintas a la vez; prueba dentro de un momento' });
       }
     }
-    const { json, gz, etag } = entry;
-    const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': route.cache, ETag: etag, Vary: 'Accept-Encoding' };
+    const { json, gz, etag, empty } = entry;
+    // Un catálogo vacío (aún cargando) no lo guardan ni el navegador ni Cloudflare: si no, quien
+    // entrase en los primeros segundos tras una subida dejaría a todos sin líneas durante una hora.
+    const cache = empty ? 'no-store' : route.cache;
+    const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': cache, ETag: etag, Vary: 'Accept-Encoding' };
     if (req.headers['if-none-match'] === etag) {
       res.writeHead(304, headers);
       return res.end();
@@ -284,15 +294,18 @@ export function createBudget({ perSecond = 5, burst = 10, now = Date.now } = {})
  * parámetros (y con ellos las claves), guarda como mucho `max` variantes: al pasar del tope se
  * descarta la más antigua. Con `stableEtag`, la firma no cuenta el campo `generatedAt`.
  */
-export function createJsonMemo({ max = 200, now = Date.now } = {}) {
+export function createJsonMemo({ max = 200, now = Date.now, emptyTtl = 2_000 } = {}) {
   const entries = new Map();
-  return function get(key, ttl, compute, { stableEtag = false } = {}) {
+  return function get(key, ttl, compute, { stableEtag = false, isEmpty } = {}) {
     const hit = entries.get(key);
-    if (hit && now() - hit.at < ttl) return hit;
+    if (hit && now() - hit.at < (hit.empty ? emptyTtl : ttl)) return hit;
     const body = compute();
     const json = Buffer.from(JSON.stringify(body));
     const signed = stableEtag && body?.generatedAt !== undefined ? JSON.stringify({ ...body, generatedAt: undefined }) : json;
-    const entry = { at: now(), json, gz: gzipSync(json), etag: `"${createHash('sha1').update(signed).digest('base64url').slice(0, 20)}"` };
+    const entry = {
+      at: now(), json, gz: gzipSync(json), etag: `"${createHash('sha1').update(signed).digest('base64url').slice(0, 20)}"`,
+      empty: Boolean(isEmpty?.(body)),
+    };
     entries.delete(key);
     entries.set(key, entry);
     if (entries.size > max) entries.delete(entries.keys().next().value);

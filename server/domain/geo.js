@@ -8,6 +8,14 @@ export function distanceKm(lat1, lon1, lat2, lon2) {
   return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(a));
 }
 
+/** Rumbo de un punto a otro, en grados desde el norte y de 5 en 5 (lo que hace falta para una flecha). */
+export function bearingDeg(lat1, lon1, lat2, lon2) {
+  const y = Math.sin((lon2 - lon1) * RAD) * Math.cos(lat2 * RAD);
+  const x = Math.cos(lat1 * RAD) * Math.sin(lat2 * RAD) - Math.sin(lat1 * RAD) * Math.cos(lat2 * RAD) * Math.cos((lon2 - lon1) * RAD);
+  const deg = (Math.atan2(y, x) / RAD + 360) % 360;
+  return (Math.round(deg / 5) * 5) % 360;
+}
+
 /** Punto dentro de un anillo [[lon, lat], ...] (ray casting). */
 function inRing(lon, lat, ring) {
   let inside = false;

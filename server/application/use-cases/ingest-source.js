@@ -20,8 +20,9 @@ export function makeIngestSource({ sources, situation, publisher, clock, log }) 
       for (const e of result.events ?? []) if ('url' in e) e.url = safeLink(e.url);
       for (const v of result.vehicles ?? []) if (v.delay !== null && v.delay !== undefined) v.delay = plausibleDelay(v.delay);
       const now = clock.now();
-      situation.saveResult(source.id, result, now, now - started);
+      // Antes de guardar: el historial deja en su sitio los vehículos con una posición repetida o imposible.
       if (result.vehicles) recordPositions(situation.tracks(), result.vehicles, now);
+      situation.saveResult(source.id, result, now, now - started);
       publisher.publish('source.updated', { id: source.id });
       return true;
     } catch (err) {

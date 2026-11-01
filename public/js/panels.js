@@ -263,6 +263,8 @@ export function renderLayers(el, prefs, countsByMode) {
     <i style="background:transparent;border:2px solid #d03b3b"></i><span>Tren con alerta activa</span>
     <i style="background:transparent;border:2.5px solid #6ea8fe"></i><span>Tren seleccionado</span>
     <i style="height:0;border-radius:0;border-top:2.5px dashed #6ea8fe"></i><span>Su recorrido en los últimos 45 min</span>
+    <i style="height:3px;border-radius:0;background:#a9c9ff;box-shadow:0 0 0 1.5px #0d0d0d"></i><span>Lo que le queda hasta su destino (Cercanías, metro y tranvía)</span>
+    ${shape('M7 2L12 11L7 8.6L2 11Z', '#ffffff', '#0d0d0d')}<span>Hacia dónde va: por su recorrido o, si no lo tiene, por sus últimas posiciones (al acercar el mapa)</span>
     <i style="height:0;border-radius:0;border-top:1.5px solid #9db4d8"></i><span>Estela de cada tren (capa opcional, 15 min)</span></div>
     <h4>Incidencias</h4><div class="legend">
     ${shape('M7 1.2L12.8 7L7 12.8L1.2 7Z', '#fab219', '#0d0d0d')}<span>Tráfico (color = gravedad)</span>

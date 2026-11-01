@@ -1,5 +1,6 @@
 // Casos de uso de consulta: lo que los adaptadores de entrada (API, SSE...) pueden preguntar.
 import { sortAlerts } from '../../domain/alerts/lifecycle.js';
+import { headingOf } from '../../domain/tracking.js';
 
 /**
  * @param {{ situation: import('../ports.js').SituationRepositoryPort, stations: import('../ports.js').StationCatalogPort,
@@ -15,6 +16,16 @@ export function makeQuerySituation({ situation, stations, network, clock, source
   const countByMode = (list, into = {}) => {
     for (const v of list) into[v.mode] = (into[v.mode] ?? 0) + 1;
     return into;
+  };
+
+  // Cada vehículo del directo lleva hacia dónde va, sacado de su historial: el mapa lo dibuja con una flecha.
+  const withHeading = (list) => {
+    const tracks = situation.tracks();
+    return list.map((v) => {
+      if (Number.isFinite(v.heading)) return v; // la fuente sabe por dónde va (su recorrido): mejor que el rastro
+      const heading = headingOf(tracks.get(v.id));
+      return heading === null ? v : { ...v, heading };
+    });
   };
 
   return {
@@ -46,6 +57,17 @@ export function makeQuerySituation({ situation, stations, network, clock, source
         if (path !== undefined) return path ? path.map(([lon, lat]) => ({ lon, lat })) : [];
       }
       return situation.tracks().get(id) ?? null;
+    },
+    /**
+     * Lo que le queda a un vehículo de posición estimada hasta el final de su viaje, por su trazado.
+     * Los de GPS (Cercanías) lo calcula el mapa con el trazado de su viaje; null si no se sabe.
+     */
+    ahead(id) {
+      for (const s of withPaths) {
+        const path = s.ahead?.(id);
+        if (path !== undefined) return path && path.length > 1 ? path : null;
+      }
+      return null;
     },
 
     /** Estelas de todos los trenes (sin autobuses) en los últimos `minutes` minutos, como GeoJSON. */
@@ -98,7 +120,7 @@ export function makeQuerySituation({ situation, stations, network, clock, source
       for (const v of vehicles) countByMode([v], counts[v.source] ??= {});
       return {
         generatedAt: clock.now(),
-        vehicles: busFilter(false)(vehicles),
+        vehicles: withHeading(busFilter(false)(vehicles)),
         counts,
         metrics: situation.metrics(),
         alerts: alerts(),
@@ -107,7 +129,7 @@ export function makeQuerySituation({ situation, stations, network, clock, source
       };
     },
     liveEvents: () => ({ generatedAt: clock.now(), events: situation.events() }),
-    liveBuses: () => ({ generatedAt: clock.now(), vehicles: situation.vehicles().filter((v) => v.mode === 'bus') }),
+    liveBuses: () => ({ generatedAt: clock.now(), vehicles: withHeading(situation.vehicles().filter((v) => v.mode === 'bus')) }),
 
     snapshot({ buses = true } = {}) {
       const vehicles = situation.vehicles();

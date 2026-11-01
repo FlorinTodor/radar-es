@@ -46,6 +46,37 @@ test('el memo guarda como mucho `max` variantes y descarta la más antigua', () 
   assert.equal(calls, 4, '«a» se había descartado');
 });
 
+test('un catálogo vacío (aún cargando) sólo se guarda unos segundos', () => {
+  let t = 0;
+  let features = [];
+  const memo = createJsonMemo({ now: () => t, emptyTtl: 2_000 });
+  const compute = () => ({ features });
+  const isEmpty = (b) => !b.features.length;
+  assert.equal(memo('lines', 600_000, compute, { isEmpty }).empty, true);
+  features = [{ id: 1 }];
+  t = 1_000;
+  assert.equal(memo('lines', 600_000, compute, { isEmpty }).empty, true, 'dentro de los 2 s se sigue sirviendo el vacío');
+  t = 2_500;
+  const full = memo('lines', 600_000, compute, { isEmpty });
+  assert.equal(full.empty, false, 'a los 2 s se vuelve a calcular y ya tiene líneas');
+  t = 300_000;
+  assert.equal(memo('lines', 600_000, compute, { isEmpty }), full, 'el lleno sí se guarda sus 10 minutos');
+});
+
+test('un catálogo vacío se envía sin que lo guarden el navegador ni Cloudflare', async () => {
+  const empty = createHttpServer({
+    query: { lines: () => ({ type: 'FeatureCollection', features: [] }) }, log: { error() {}, info() {}, warn() {} },
+    publicDir: '/nonexistent', vendorDirs: {}, about: {},
+  });
+  await new Promise((resolve) => empty.listen(0, '127.0.0.1', resolve));
+  try {
+    const res = await fetch(`http://127.0.0.1:${empty.address().port}/api/lines`);
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+  } finally {
+    empty.close();
+  }
+});
+
 let server;
 let base;
 const calls = { lines: 0, trails: [], vehicles: [], events: [] };

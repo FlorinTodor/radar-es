@@ -1,6 +1,7 @@
 // Lectura de GTFS estático: descomprime sólo los ficheros pedidos (el stop_times de
-// Cercanías ocupa 290 MB y no hace falta) y recorre los CSV fila a fila.
-import { inflateRaw } from 'node:zlib';
+// Cercanías ocupa 290 MB: ese se lee por trozos) y recorre los CSV fila a fila.
+import { Readable } from 'node:stream';
+import { createInflateRaw, inflateRaw } from 'node:zlib';
 import { promisify } from 'node:util';
 import { unzipSync } from 'fflate';
 
@@ -45,18 +46,64 @@ export async function openGtfs(zipBytes, files) {
     const all = unzipSync(zipBytes, { filter: (f) => files.includes(f.name.split('/').pop()) });
     return Object.fromEntries(Object.entries(all).map(([name, data]) => [name.split('/').pop(), data]));
   }
-  const wanted = entries.filter((e) => files.includes(e.name)).map((e) => {
-    if (e.method !== 0 && e.method !== 8) throw new Error(`${e.name}: compresión ${e.method} no soportada`);
-    if (e.offset + 30 > zip.length || zip.readUInt32LE(e.offset) !== 0x04034b50) throw new Error(`${e.name}: cabecera local del ZIP dañada`);
-    const start = e.offset + 30 + zip.readUInt16LE(e.offset + 26) + zip.readUInt16LE(e.offset + 28);
-    if (start + e.size > zip.length) throw new Error(`${e.name}: el ZIP está cortado`);
-    return { ...e, data: zip.subarray(start, start + e.size) };
-  });
+  const wanted = entries.filter((e) => files.includes(e.name)).map((e) => withData(zip, e));
   const out = {};
   for (const e of wanted) {
     out[e.name] = e.method === 0 ? e.data : await inflate(e.data, { chunkSize: Math.min(Math.max(e.usize, MIN_CHUNK), MAX_CHUNK), maxOutputLength: MAX_CHUNK });
   }
   return out;
+}
+
+/** Entrada del ZIP con sus datos comprimidos (`data`), comprobando que el ZIP no esté dañado. */
+function withData(zip, e) {
+  if (e.method !== 0 && e.method !== 8) throw new Error(`${e.name}: compresión ${e.method} no soportada`);
+  if (e.offset + 30 > zip.length || zip.readUInt32LE(e.offset) !== 0x04034b50) throw new Error(`${e.name}: cabecera local del ZIP dañada`);
+  const start = e.offset + 30 + zip.readUInt16LE(e.offset + 26) + zip.readUInt16LE(e.offset + 28);
+  if (start + e.size > zip.length) throw new Error(`${e.name}: el ZIP está cortado`);
+  return { ...e, data: zip.subarray(start, start + e.size) };
+}
+
+/**
+ * Como csvColumns, pero leyendo `name` del ZIP por trozos de 256 KB en vez de descomprimirlo entero:
+ * el stop_times de Cercanías son 290 MB y así sólo hay un trozo en memoria. Entre trozo y trozo el
+ * hilo queda libre. Los ZIP64 no se pueden leer así (da error).
+ *   for await (const [tripId, stopId] of csvColumnsStreamed(zip, 'stop_times.txt', ['trip_id', 'stop_id'])) …
+ * @param {Uint8Array} zipBytes
+ * @param {string} name
+ * @param {string[]} fields
+ * @returns {AsyncGenerator<string[]>}
+ */
+export async function* csvColumnsStreamed(zipBytes, name, fields) {
+  const zip = Buffer.from(zipBytes.buffer, zipBytes.byteOffset, zipBytes.byteLength);
+  const entry = centralDirectory(zip)?.find((e) => e.name === name);
+  if (!entry) throw new Error(`${name}: no está en el ZIP (o es un ZIP64)`);
+  const { data, method } = withData(zip, entry);
+  const state = { pick: () => fields };
+  const decoder = new TextDecoder('utf-8');
+  let rest = '';
+  let total = 0;
+  for await (const chunk of method === 0 ? slices(data, CHUNK_BYTES) : data.length ? inflating(data) : []) {
+    total += chunk.length;
+    if (total > MAX_CHUNK) throw new Error(`${name}: pasa de 512 MB descomprimido`);
+    const text = rest + decoder.decode(chunk, { stream: true });
+    const cut = text.lastIndexOf('\n') + 1;
+    rest = text.slice(cut);
+    if (cut) yield* rowsOf(text.slice(0, cut), state);
+  }
+  rest += decoder.decode();
+  if (rest) yield* rowsOf(`${rest}\n`, state);
+}
+
+function* slices(data, size) {
+  for (let off = 0; off < data.length; off += size) yield data.subarray(off, off + size);
+}
+
+/** Datos descomprimidos poco a poco: lo comprimido entra de 64 KB en 64 KB y zlib no coge más hasta
+ * que se ha leído lo anterior, así que no se adelanta a la lectura. */
+function inflating(data) {
+  const inflater = createInflateRaw({ chunkSize: 256 * 1024 });
+  Readable.from(slices(data, 64 * 1024), { objectMode: false }).pipe(inflater);
+  return inflater;
 }
 
 // El tamaño descomprimido lo declara el propio ZIP: se acota por si viene mal (si se queda corto,
@@ -137,47 +184,52 @@ const trimCell = (s) => (s.length && (isSpace(s.charCodeAt(0)) || isSpace(s.char
  */
 function* columns(bytes, pick) {
   if (!bytes) return;
-  let template = null; // fila vacía: '' en las columnas pedidas que trae el fichero, undefined en las que no
-  let slot = null; // columna del fichero → posición en la fila (-1: no se pide)
-  let lastCol = -1; // última columna del fichero que hace falta leer
-  for (const text of textChunks(bytes)) {
-    let quote = text.indexOf('"'); // próxima comilla del trozo (-1: ninguna)
-    for (let from = 0, nl = text.indexOf('\n'); nl !== -1; from = nl + 1, nl = text.indexOf('\n', from)) {
-      let start = from;
-      let end = nl > start && text.charCodeAt(nl - 1) === 13 ? nl - 1 : nl;
-      if (!slot && text.charCodeAt(start) === 0xfeff) start++;
-      if (end === start || (isSpace(text.charCodeAt(start)) && !text.slice(start, end).trim())) continue;
-      if (quote !== -1 && quote < start) quote = text.indexOf('"', start);
-      const quoted = quote !== -1 && quote < end;
-      if (!slot) {
-        const line = text.slice(start, end);
-        const header = (quoted ? parseQuotedLine(line) : line.split(',')).map(trimCell);
-        const wanted = pick(header);
-        template = wanted.map((name) => (header.includes(name) ? '' : undefined));
-        slot = new Int32Array(header.length).fill(-1);
-        // Con columnas repetidas manda la última, como cuando cada fila era un objeto.
-        wanted.forEach((name, i) => {
-          const col = header.lastIndexOf(name);
-          if (col >= 0) slot[col] = i;
-          lastCol = Math.max(lastCol, col);
-        });
-        continue;
-      }
-      const row = template.slice();
-      if (quoted) {
-        const cells = parseQuotedLine(text.slice(start, end));
-        for (let c = 0; c <= lastCol && c < cells.length; c++) if (slot[c] >= 0) row[slot[c]] = trimCell(cells[c]);
-      } else {
-        for (let c = 0, p = start; c <= lastCol; c++) {
-          let q = text.indexOf(',', p);
-          if (q === -1 || q > end) q = end;
-          if (slot[c] >= 0) row[slot[c]] = trimCell(text.slice(p, q));
-          if (q === end) break;
-          p = q + 1;
-        }
-      }
-      yield row;
+  const state = { pick };
+  for (const text of textChunks(bytes)) yield* rowsOf(text, state);
+}
+
+/** Filas de un trozo de texto que acaba en salto de línea. `state` guarda la cabecera de un trozo al siguiente. */
+function* rowsOf(text, state) {
+  let quote = text.indexOf('"'); // próxima comilla del trozo (-1: ninguna)
+  for (let from = 0, nl = text.indexOf('\n'); nl !== -1; from = nl + 1, nl = text.indexOf('\n', from)) {
+    let start = from;
+    const end = nl > start && text.charCodeAt(nl - 1) === 13 ? nl - 1 : nl;
+    if (!state.slot && text.charCodeAt(start) === 0xfeff) start++;
+    if (end === start || (isSpace(text.charCodeAt(start)) && !text.slice(start, end).trim())) continue;
+    if (quote !== -1 && quote < start) quote = text.indexOf('"', start);
+    const quoted = quote !== -1 && quote < end;
+    if (!state.slot) {
+      const line = text.slice(start, end);
+      const header = (quoted ? parseQuotedLine(line) : line.split(',')).map(trimCell);
+      const wanted = state.pick(header);
+      // template: fila vacía, '' en las columnas pedidas que trae el fichero y undefined en las que no;
+      // slot: columna del fichero → posición en la fila (-1: no se pide); lastCol: la última que hace falta leer.
+      state.template = wanted.map((name) => (header.includes(name) ? '' : undefined));
+      state.slot = new Int32Array(header.length).fill(-1);
+      state.lastCol = -1;
+      // Con columnas repetidas manda la última, como cuando cada fila era un objeto.
+      wanted.forEach((name, i) => {
+        const col = header.lastIndexOf(name);
+        if (col >= 0) state.slot[col] = i;
+        state.lastCol = Math.max(state.lastCol, col);
+      });
+      continue;
     }
+    const { slot, lastCol } = state;
+    const row = state.template.slice();
+    if (quoted) {
+      const cells = parseQuotedLine(text.slice(start, end));
+      for (let c = 0; c <= lastCol && c < cells.length; c++) if (slot[c] >= 0) row[slot[c]] = trimCell(cells[c]);
+    } else {
+      for (let c = 0, p = start; c <= lastCol; c++) {
+        let q = text.indexOf(',', p);
+        if (q === -1 || q > end) q = end;
+        if (slot[c] >= 0) row[slot[c]] = trimCell(text.slice(p, q));
+        if (q === end) break;
+        p = q + 1;
+      }
+    }
+    yield row;
   }
 }
 

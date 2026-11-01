@@ -43,6 +43,26 @@ const ESTIMATED_BY_SCHEDULE = [
 ];
 
 /**
+ * Metro Bilbao: el id de entidad es "ESTACIÓN_ESTACIÓN+VÍA_DESTINO_timestamp" ("AIB_AIB2_ETX_…") con
+ * códigos de 3 letras, y la posición es la de esa estación (en la que está o la última por la que pasó);
+ * su stopId es la misma estación. El trazado del viaje ("IBB_ETX") da el origen; su GTFS, los nombres.
+ */
+export function metroBilbao(e, gtfs) {
+  const [here, , to] = e.id?.split('_') ?? [];
+  const shape = gtfs?.trip(e.vehicle?.trip?.tripId)?.shape ?? null;
+  const [from, end] = shape?.split('_') ?? [];
+  const name = (code) => (code ? gtfs?.stop(code)?.name ?? code : null);
+  return {
+    origin: name(from),
+    destination: name(to ?? end),
+    current: name(here),
+    next: null,
+    shape,
+    end: gtfs?.stop(to ?? end)?.at ?? null,
+  };
+}
+
+/**
  * @param {{ http: import('../http/http-client.js').HttpClient, stations: import('../../../application/ports.js').StationCatalogPort,
  *           nap: ReturnType<typeof import('../nap/nap-client.js').createNapClient>,
  *           log: import('../../../application/ports.js').LoggerPort, env: Record<string, string|undefined>,
@@ -75,10 +95,10 @@ export function createSources(deps) {
       url: `${MOVEUSKADI}/metro_bilbao/gtfsrt_metro_bilbao_vehicle_positions.pb`,
       mode: 'metro',
       operator: 'Metro Bilbao',
-      license: 'Open Data Euskadi · MoveUskadi (CC BY 4.0). Formato adaptado, contenido sin alterar',
+      license: 'Open Data Euskadi · MoveUskadi (CC BY 4.0): posiciones y horario (nombres de estación). Formato adaptado, contenido sin alterar',
       line: () => null, // el feed sólo trae routeId "MB"
-      // El id de entidad es "ORIGEN_ORIGEN2_DESTINO_timestamp" con códigos de estación de 3 letras.
-      describe: (e) => ({ destination: e.id?.split('_')[2] ?? null, current: e.id?.split('_')[0] ?? null }),
+      staticUrl: `${MOVEUSKADI}/metro_bilbao/gtfs_metro_bilbao.zip`,
+      describe: metroBilbao,
     }),
     // Autobús (se muestran, pero no cuentan para las alertas ferroviarias)
     createMoveuskadiBusSource(deps),

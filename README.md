@@ -129,13 +129,13 @@ Todas son públicas. Solo las marcadas con 🔑 necesitan `NAP_API_KEY`, una cla
 
 | Fuente | Qué aporta | Refresco |
 |---|---|---|
-| Renfe Cercanías/Rodalies (GTFS-RT `gtfsrt.renfe.com/vehicle_positions.json` + `trip_updates.json`) | posición, línea, retraso y estación; origen y destino desde su GTFS | 20 s |
+| Renfe Cercanías/Rodalies (GTFS-RT `gtfsrt.renfe.com/vehicle_positions.json` + `trip_updates.json`) | posición, línea, retraso y estación; origen, destino, próxima parada y recorrido desde las paradas de cada viaje de su GTFS | 20 s |
 | Renfe AV/LD/MD (GTFS-RT `vehicle_positions_LD.json` + `trip_updates_LD.json`) | posición y retraso; producto (AVE, Alvia…), origen y destino desde su GTFS | 20 s |
 | Renfe GTFS-RT alerts + trip updates (`alerts.json`, `trip_updates.json`) | avisos de servicio y trenes de Cercanías/Rodalies cancelados | 2 min |
 | Estaciones Renfe (lista oficial `estaciones.csv` + paradas de sus GTFS) | nombres y coordenadas de ~1.530 estaciones | 24 h |
 | FGC (`dadesobertes.fgc.cat`, `posicionament-dels-trens`) | posición y si va en hora | 30 s |
 | Rodalies de Catalunya (RSS «Estat del servei» de la Generalitat) | avisos por línea (p. ej. transporte por carretera) | 3 min |
-| Metro Bilbao (GTFS-RT, Open Data Euskadi) | posición | 30 s |
+| Metro Bilbao (GTFS-RT y GTFS, Open Data Euskadi) | posición; nombres de estación, origen, destino y recorrido desde su GTFS | 30 s |
 | 🔑 Euskotren (GTFS del NAP + trip updates de Open Data Euskadi) | **posición estimada** con su **retraso real** | 30 s |
 | 🔑 Ouigo (GTFS del NAP) | **posición estimada** por horario, marcada como tal | 30 s |
 | 🔑 Metros y tranvías sin GPS (GTFS del NAP) | **posición estimada** por horario en Barcelona (Metro, TRAM), Madrid (Metro Ligero), Valencia, Alicante, Sevilla, Málaga, Granada, Zaragoza y Murcia | 30 s |
@@ -171,6 +171,8 @@ las alertas ni para los KPIs**.
 | `GET /api/events?category=carretera` | incidencias (`ferroviario`, `carretera`, `meteo`, `incendio`, `sismo`) |
 | `GET /api/alerts` | alertas activas y resueltas |
 | `GET /api/tracks/:id` | recorrido de un vehículo en los últimos 45 min |
+| `GET /api/ahead/:id` | lo que le queda a un vehículo con posición estimada hasta su destino |
+| `GET /api/stations/:código` | ficha de una estación (trenes, avisos, líneas, conexiones, datos y foto) |
 | `GET /api/lines` | trazados de las líneas (GeoJSON) |
 | `GET /api/trails?min=15` | estela de cada tren en los últimos minutos (GeoJSON, máx. 45) |
 | `GET /api/health`, `/api/kpis`, `/api/metrics`, `/api/stations` | salud de fuentes, KPIs, métricas y estaciones |
@@ -210,6 +212,11 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Red ferroviaria, líneas de metro, tranvía y Cercanías, y estaciones.
 - Nombres del mapa base en español.
 - Se descartan los retrasos imposibles que a veces llegan en los datos.
+- Se descartan también las posiciones que la fuente repite o que saltan de forma imposible: los
+  trenes ya no van y vienen en el mapa.
+- Los autobuses que Renfe pone en algunas líneas de Cercanías se muestran como autobuses y no
+  cuentan en los retrasos ni en las alertas de los trenes.
+- Colores de línea legibles sobre el mapa oscuro, aunque el operador publique uno muy oscuro.
 
 **Trenes**
 - Pictograma por tipo de vehículo y color según el retraso.
@@ -217,6 +224,15 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Recorrido de los últimos 45 minutos del tren seleccionado y, como capa opcional, la estela de
   todos los trenes.
 - En Cercanías, metro y tranvía, el recorrido va pegado a la vía de su línea, con sus curvas.
+- Lo que le queda a cada tren hasta su destino, dibujado por su vía: en Cercanías y Metro Bilbao
+  con el trazado de su viaje, y en metros y tranvías estimados con su horario.
+- Flecha de hacia dónde va cada vehículo al acercar el mapa, por su vía cuando se conoce su
+  recorrido.
+- En Cercanías, el origen, el destino y la próxima parada salen de las paradas de cada viaje: ni el
+  nombre de la línea ni el trazado que publica Renfe dicen siempre en qué sentido va.
+- Metro Bilbao con nombres de estación, origen y destino.
+- Los trenes de Alta Velocidad y Larga Distancia mantienen su origen y destino aunque Renfe
+  renueve su horario ese día.
 - Cuando el operador pasa el número de un tren a otro convoy, lo anterior cuenta como otro viaje:
   ni se une con una recta en el mapa ni da alertas de retraso falsas. Los túneles no cuentan como
   salto.
@@ -264,7 +280,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Directo servido desde caché, preparado para picos de muchas visitas a la vez.
 - Respuestas de la API calculadas una sola vez y compartidas entre todas las visitas.
 - Arranque sin bloquear el servidor mientras carga los horarios de más de cien redes, y menos
-  memoria al leerlos.
+  memoria al leerlos. Los horarios más grandes se leen por partes, sin cargarlos enteros.
+- Al arrancar, el mapa no se queda sin líneas aunque las pida antes de que estén listas.
 - Cálculos pesados en hilos aparte y reintentos rápidos de las fuentes que fallan.
 - Protección frente a sobrecarga: peticiones costosas acotadas, colas con tope y fallos aislados,
   para que ni un pico de tráfico ni una fuente que responda mal tumben el servidor.
