@@ -22,6 +22,7 @@ Por tipo de estación:
 | Renfe, «Estaciones con servicio Atendo» | Estaciones con asistencia | No: sigue en el catálogo de datos.gob.es, pero el fichero ya no existe en data.renfe.com. Desde diciembre de 2020 la asistencia la presta Adif con el nombre «Acerca». |
 | Adif Acerca | Unas 146 estaciones con asistencia | No: no se publica como datos abiertos ni con licencia de reutilización. |
 | Adif, «Dependencias Adif público» (ArcGIS) | Inventario de 3.087 dependencias (estaciones, apeaderos, bifurcaciones, puntos kilométricos…): nombre, código (el mismo que Renfe), tramo, tipo, estado, municipio, código postal y titular | Licencia: cualquier uso citando «© Administrador de infraestructuras ferroviarias». **No trae accesibilidad, servicios ni asistencia.** |
+| Adif, «Tramos en servicio Adif público» (ArcGIS) | Red ferroviaria en vectorial: 1.174 tramos con estación de origen y destino, tipo de red, ancho, electrificación, túneles y puentes | Misma licencia abierta. **No trae accesibilidad**, pero sirve para pegar a la vía el recorrido de AVE, Larga y Media Distancia. |
 | Adif, «Terminales de viajeros» (ArcGIS) | Pasajeros y clasificación, pero sólo de 72 estaciones del Corredor Mediterráneo | No: sólo cubre ese corredor y no indica licencia. |
 | Web de Adif (`adif.es/viajeros/estaciones`) | Ficha de cada estación con servicios y accesibilidad | No: responde 403 a cualquier programa (no se salta) y no tiene licencia de reutilización. Como mucho, enlazarla. |
 | FGC, GTFS y «Accessibilitat» | Accesibilidad de sus estaciones y de sus itinerarios | Licencia CC BY 4.0, pero en la línea Lleida–La Pobla el GTFS pone «sin datos». No aporta nada para las estaciones de Renfe. |
@@ -43,6 +44,8 @@ puede usar en el mapa. Por eso la ficha dice «según Renfe».
 - [FGC: accesibilidad (fgc.opendatasoft.com, CC BY 4.0)](https://fgc.opendatasoft.com/explore/dataset/accesibilidad-itinerarios/table/)
 - [FGC: paradas GTFS (fgc.opendatasoft.com, CC BY 4.0)](https://fgc.opendatasoft.com/explore/dataset/gtfs_stops/table/)
 - [Estaciones de transporte de Euskadi (opendata.euskadi.eus)](https://opendata.euskadi.eus/contenidos/ds_recursos_turisticos/estaciones_transporte_euskadi/opendata/transporte.json)
+- [Adif: «Dependencias Adif público»](https://www.arcgis.com/home/item.html?id=b181bd5b69bb40aca11892a6361c39f5)
+- [Adif: «Tramos en servicio Adif público»](https://www.arcgis.com/home/item.html?id=4ec7c0fb3cab42b0b488d65e65eeb7aa)
 - [Datos abiertos de Adif en ArcGIS (servicios de `ideadif_adif`)](https://services7.arcgis.com/XTupIrLX53AjaJqO/arcgis/rest/services)
 - [Licencia de uso del CRTM](https://www.crtm.es/licencia-de-uso/)
 - [Análisis de las paradas accesibles de Metro de Madrid (Universitat de València)](https://www.uv.es/dataenhance/datasets/2526020013.html)

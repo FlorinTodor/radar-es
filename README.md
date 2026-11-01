@@ -270,8 +270,10 @@ Ninguna por ahora.
 
 ## Posibles mejoras
 
-- Recorrido pegado a la vía también en AVE, Larga y Media Distancia, con la red ferroviaria
-  vectorial del IGN.
+- Recorrido pegado a la vía también en AVE, Larga y Media Distancia, con los
+  [tramos en servicio de Adif](https://www.arcgis.com/home/item.html?id=4ec7c0fb3cab42b0b488d65e65eeb7aa)
+  (red vectorial con licencia abierta, que cita a Adif). Cada tramo une dos estaciones con los
+  mismos códigos que usa Renfe.
 - Botón en el mapa para cambiar entre español e inglés.
 - Despliegues sin ningún corte, con dos contenedores que se relevan.
 - Más fuentes: TMB y EMT Madrid (con clave gratuita) y posiciones estimadas para las redes que
