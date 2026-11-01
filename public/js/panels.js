@@ -122,6 +122,42 @@ export function filterVehicles(vehicles, query) {
   return [...list].sort((a, b) => (b.delay ?? (b.late ? 1 : -1)) - (a.delay ?? (a.late ? 1 : -1)));
 }
 
+// Sin tildes ni mayúsculas: «castellon» encuentra Castellón.
+const plain = (s) => String(s ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+
+/** Estaciones cuyo nombre o población contiene la búsqueda; primero las que empiezan por ella. */
+export function filterStations(stations, query) {
+  const q = plain(query.trim());
+  if (!q) return [];
+  const rank = (s) => (plain(s.name).startsWith(q) ? 0 : plain(s.name).includes(q) ? 1 : 2);
+  return stations.filter((s) => plain(s.name).includes(q) || plain(s.place).includes(q))
+    .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name, 'es'));
+}
+
+/** @param {Map<string, number>} trainsByName trenes parados en cada estación o que van hacia ella */
+export function renderStations(el, stations, query, trainsByName) {
+  if (!query.trim()) {
+    el.innerHTML = '<div class="empty">Escribe el nombre de una estación de Renfe o de su población.<br>Al pulsarla, el mapa va a ella y muestra sus trenes.</div>';
+    return;
+  }
+  if (!stations.length) {
+    el.innerHTML = '<div class="empty">Ninguna estación coincide con la búsqueda.</div>';
+    return;
+  }
+  const rows = stations.slice(0, MAX_ROWS).map((s) => {
+    const trains = trainsByName.get(s.name) ?? 0;
+    const tags = [s.cercanias && 'Cercanías', s.accessible === true && 'Accesible', s.metricGauge && 'Ancho métrico'].filter(Boolean);
+    return `
+    <button class="item srow" data-station="${esc(s.code)}">
+      <span class="title">${esc(s.name)}</span>
+      <span class="delay">${trains ? `${fmtNum(trains)} ${trains === 1 ? 'tren' : 'trenes'}` : ''}</span>
+      <span class="sub">${esc([s.place, s.province !== s.place && s.province].filter(Boolean).join(' · ') || '—')}${tags.length ? ` · ${esc(tags.join(' · '))}` : ''}</span>
+    </button>`;
+  }).join('');
+  const more = stations.length > MAX_ROWS ? `<div class="empty">Mostrando ${MAX_ROWS} de ${fmtNum(stations.length)}. Afina la búsqueda.</div>` : '';
+  el.innerHTML = `<div class="section-title">${fmtNum(stations.length)} ${stations.length === 1 ? 'estación' : 'estaciones'} · trenes ahora en ellas o en camino</div>${rows}${more}`;
+}
+
 export function renderVehicles(el, vehicles, total, sel = NO_SELECTION) {
   if (!vehicles.length) {
     el.innerHTML = `<div class="empty">${total ? 'Ningún tren coincide con la búsqueda.' : 'Esperando datos…'}</div>`;
@@ -177,7 +213,7 @@ export const groupOn = (prefs, g) => prefs.groups[g] ?? !GROUPS_OFF_BY_DEFAULT.i
 export const GROUP_ITEMS = [
   ['rail', 'Red ferroviaria', 'Red ferroviaria', 'Ferrocarril'],
   ['lines', 'Líneas urbanas', 'Líneas de metro, tranvía y Cercanías', 'Ferrocarril'],
-  ['stations', 'Estaciones', 'Estaciones Renfe (aparecen al acercar el mapa)', 'Ferrocarril'],
+  ['stations', 'Estaciones', 'Estaciones de Renfe: aparecen al acercar el mapa; púlsalas para ver sus trenes', 'Ferrocarril'],
   ['renfe-avisos', 'Avisos Renfe', 'Avisos ferroviarios de Renfe y Rodalies', 'Ferrocarril'],
   ['trails', 'Estelas', 'Estelas de todos los trenes (últimos 15 min)', 'Ferrocarril'],
   ['meteo', 'Meteo (AEMET)', 'Avisos meteorológicos de AEMET', 'Emergencias'],
@@ -209,10 +245,14 @@ export function renderLayers(el, prefs, countsByMode) {
   const head = (title, kind) => `<div class="layers-head"><h4>${title}</h4><span class="bulk">
     <button type="button" class="link" data-bulk="${kind}" data-on="1" aria-label="Todas: activar todas las capas de ${title}">Todas</button> ·
     <button type="button" class="link" data-bulk="${kind}" data-on="0" aria-label="Ninguna: desactivar todas las capas de ${title}">Ninguna</button></span></div>`;
-  // La leyenda va plegada: es para consultarla, no para tenerla delante tapando el mapa.
+  // La leyenda va plegada: es para consultarla, no para tenerla delante tapando el mapa. Empieza
+  // por lo que es cada capa, porque en el móvil no hay ratón para ver el title de las pastillas.
+  const help = GROUP_ITEMS.filter(([, label, title]) => label !== title)
+    .map(([, label, title]) => `<dt>${esc(label)}</dt><dd>${esc(title)}</dd>`).join('');
   el.innerHTML = `${head('Trenes', 'mode')}<div class="chips">${modes}</div>${head('Mapa y avisos', 'group')}${sections}
     <p class="layers-note">Las estaciones y el tráfico leve aparecen al acercar el mapa.</p>
-    <details class="legend-box"><summary>Qué significa cada símbolo</summary>
+    <details class="legend-box"><summary>Qué es cada capa y qué significa cada símbolo</summary>
+    <h4>Capas</h4><dl class="layer-help">${help}</dl>
     <h4>Tipo de vehículo</h4><div class="legend">${types}</div>
     <h4>Retraso (color de la placa)</h4><div class="legend">${legend}
     ${plate('tren', '#fab219', true)}<span>Posición <strong>estimada</strong> a partir del horario, no GPS (Ouigo, ALSA y los metros y tranvías sin GPS): placa hueca; el color indica el retraso si se conoce</span>
@@ -223,6 +263,7 @@ export function renderLayers(el, prefs, countsByMode) {
     <h4>Incidencias</h4><div class="legend">
     ${shape('M7 1.2L12.8 7L7 12.8L1.2 7Z', '#fab219', '#0d0d0d')}<span>Tráfico (color = gravedad)</span>
     ${shape('M2.2 2.2H11.8V11.8H2.2Z', '#fab219', '#0d0d0d')}<span>Obras en carretera (color = gravedad)</span>
+    <i style="background:#f0efec;border:1.5px solid #0d0d0d"></i><span>Estación de Renfe: púlsala para ver sus trenes</span>
     ${shape('M7 1.5L12.8 12.3L1.2 12.3Z', '#ec835a', '#f0efec')}<span>Aviso Renfe en estación</span>
     <i style="border-radius:2px;background:rgba(236,131,90,.25);border:1.2px solid #ec835a"></i><span>Aviso meteorológico (amarillo, naranja o rojo)</span>
     <i style="background:radial-gradient(circle,#ffd27a 25%,#ff5a1f 60%,transparent 75%)"></i><span>Foco de calor por satélite</span>

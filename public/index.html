@@ -133,6 +133,7 @@
         <button role="tab" data-tab="alerts" aria-selected="true">Alertas <span class="badge" id="b-alerts">0</span></button>
         <button role="tab" data-tab="events" aria-selected="false">Incidencias <span class="badge" id="b-events">0</span></button>
         <button role="tab" data-tab="vehicles" aria-selected="false">Trenes</button>
+        <button role="tab" data-tab="stations" aria-selected="false">Estaciones</button>
         <button role="tab" data-tab="sources" aria-selected="false">Fuentes</button>
       </nav>
 
@@ -146,6 +147,11 @@
       <div class="panel" id="panel-vehicles" role="tabpanel" hidden>
         <input type="search" id="vehicle-search" placeholder="Buscar tren, línea o estación…" autocomplete="off">
         <div class="list" id="vehicles-list"></div>
+      </div>
+
+      <div class="panel" id="panel-stations" role="tabpanel" hidden>
+        <input type="search" id="station-search" placeholder="Buscar estación o población…" autocomplete="off">
+        <div class="list" id="stations-list"></div>
       </div>
 
       <div class="panel" id="panel-sources" role="tabpanel" hidden></div>

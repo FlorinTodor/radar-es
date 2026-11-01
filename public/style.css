@@ -110,8 +110,12 @@ button { font: inherit; color: inherit; }
 .vrow .plate { width: 22px; height: 22px; grid-row: span 2; }
 .vrow .delay { font-weight: 600; font-size: 13px; white-space: nowrap; }
 .vrow .sub { grid-column: 2 / 4; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.srow { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; align-items: center; padding: 8px 10px; }
+.srow .title { font-weight: 600; }
+.srow .delay { color: var(--ink-2); font-size: 12.5px; white-space: nowrap; }
+.srow .sub { grid-column: 1 / 3; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-#vehicle-search {
+#vehicle-search, #station-search {
   width: 100%; margin: 6px 0 4px; padding: 9px 11px; border-radius: 6px;
   background: var(--page); color: var(--ink); border: 1px solid var(--border);
 }
@@ -196,6 +200,9 @@ button { font: inherit; color: inherit; }
 .legend-box { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 6px; }
 .legend-box summary { padding: 4px 0; color: var(--ink-2); font-size: 12px; cursor: pointer; }
 .legend-box summary:hover, .legend-box summary:focus-visible { color: var(--ink); }
+.layer-help { display: grid; grid-template-columns: auto 1fr; gap: 3px 8px; margin: 0; font-size: 12px; }
+.layer-help dt { color: var(--ink); white-space: nowrap; }
+.layer-help dd { margin: 0; color: var(--ink-2); }
 .legend { display: grid; grid-template-columns: 18px 1fr; gap: 4px 8px; align-items: center; color: var(--ink-2); font-size: 12px; }
 .legend i { width: 10px; height: 10px; border-radius: 50%; justify-self: center; }
 .legend svg { justify-self: center; }
@@ -223,6 +230,18 @@ button { font: inherit; color: inherit; }
 .est-tag { margin-left: 4px; padding: 0 5px; border: 1px dashed currentColor; border-radius: 3px; color: var(--muted);
   font-size: 10.5px; font-weight: 600; vertical-align: 1px; }
 .pop a { color: var(--accent); }
+/* Ficha de estación */
+.pop h4 { margin: 10px 0 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.st-meta { margin: -2px 0 6px; color: var(--ink-2); font-size: 12px; }
+.st-lines { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 2px; }
+.st-line { min-width: 26px; padding: 1px 6px; border-radius: 4px; background: var(--line); color: #fff; font-size: 11.5px; font-weight: 600; text-align: center; text-shadow: 0 0 2px rgba(0, 0, 0, 0.6); }
+.st-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 3px; }
+.st-list li { line-height: 1.35; }
+.st-list .link { padding: 0; color: var(--ink); font-weight: 600; }
+.st-delay { float: right; margin-left: 8px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.st-empty { margin: 0; color: var(--muted); font-size: 12px; }
+.pop h4 + .st-list, .pop h4 + .st-empty { margin-bottom: 2px; }
+.pop dl { margin-top: 10px; }
 
 .maplibregl-ctrl-attrib { background: rgba(13, 13, 13, 0.7) !important; color: var(--muted); }
 .maplibregl-ctrl-attrib a { color: var(--ink-2); }
@@ -323,7 +342,10 @@ body.doc { overflow: auto; display: block; }
   }
   .sheet-handle span { width: 40px; height: 4px; border-radius: 2px; background: var(--muted); }
   .tabs { flex: none; }
-  .tabs button { height: 43px; padding: 0 6px; }
+  /* Cinco pestañas: si no caben, la fila se desliza de lado en vez de cortarse. */
+  .tabs { overflow-x: auto; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs button { height: 43px; padding: 0 8px; }
   .panel { overscroll-behavior: contain; }
   .disclaimer { padding: 6px 12px; font-size: 10.5px; line-height: 1.35; }
 

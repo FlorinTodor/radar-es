@@ -16,6 +16,28 @@ export const RENFE_FILES = {
 const padCode = (c) => String(c ?? '').trim().padStart(5, '0');
 const titleCase = (s) => s.toLowerCase().replace(/(^|[\s(/'-])(\p{L})/gu, (_, p, c) => p + c.toUpperCase());
 
+const plainName = (s) => s.normalize('NFD').replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
+
+/**
+ * La lista oficial trae algunas estaciones repetidas que no salen en ningún horario: la misma con
+ * otro código y el nombre escrito de otra forma («Madrid - Atocha Cercanías» y «Madrid-Atocha
+ * Cercanías», a 12 m) y las paradas de los trenes turísticos (códigos 99…, «Oviedo-Tur») pegadas a
+ * la estación normal. En el mapa salían como dos puntos. Se quitan las que no tienen horarios y
+ * tienen al lado otra que sí; las estaciones distintas que están cerca (Bilbao Concordia y Abando)
+ * se quedan.
+ */
+export function withoutDuplicates(stations, scheduled) {
+  const withTimes = stations.filter((s) => scheduled.has(s.code));
+  const duplicate = (s) => withTimes.some((o) => {
+    const km = distanceKm(s.lat, s.lon, o.lat, o.lon);
+    return (km < 1 && plainName(o.name) === plainName(s.name)) || (km < 0.3 && s.code.startsWith('99'));
+  });
+  return stations.filter((s) => scheduled.has(s.code) || !duplicate(s));
+}
+
+/** wheelchair_boarding del GTFS: 1 accesible, 2 no accesible; vacío o 0, sin datos. */
+const wheelchair = (v) => (v === '1' ? true : v === '2' ? false : null);
+
 /** CSV de Renfe: separado por ';', cada campo entre comillas y en Latin-1. */
 function* semicolonRows(bytes) {
   const split = (line) => line.split(';').map((c) => c.trim().replace(/^"|"$/g, ''));
@@ -29,7 +51,8 @@ function* semicolonRows(bytes) {
  * @returns {import('../../../application/ports.js').StationCatalogPort}
  */
 export function createRenfeStationCatalog({ cache, cacheDir, log }) {
-  const cacheFile = new URL('renfe-stations-oficial.json', cacheDir);
+  // v2: con dirección, provincia, ancho métrico y accesibilidad (la caché anterior no los tiene).
+  const cacheFile = new URL('renfe-stations-v2.json', cacheDir);
   /** @type {Map<string, import('../../../domain/model.js').Station & { cercanias: boolean }>} */
   const stations = new Map();
 
@@ -42,7 +65,9 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
         const files = await openGtfs(await cache.bytes(url, `renfe-${url.split('/').at(-1)}`, REFRESH_MS), ['stops.txt']);
         for (const s of csvRows(files['stops.txt'])) {
           const code = padCode(s.stop_id);
-          if (!gtfsStops.has(code)) gtfsStops.set(code, { name: s.stop_name, lat: Number(s.stop_lat), lon: Number(s.stop_lon), cercanias });
+          if (!gtfsStops.has(code)) {
+            gtfsStops.set(code, { name: s.stop_name, lat: Number(s.stop_lat), lon: Number(s.stop_lon), cercanias, accessible: wheelchair(s.wheelchair_boarding) });
+          }
         }
       } catch (err) {
         log.warn(`[estaciones] ${url}: ${err.message}`);
@@ -58,15 +83,22 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
         code,
         name: gtfsStops.get(code)?.name ?? titleCase(r.DESCRIPCION),
         place: r.POBLACION ? titleCase(r.POBLACION) : null,
+        province: r.PROVINCIA ? titleCase(r.PROVINCIA) : null,
+        address: r.DIRECION ? r.DIRECION.replace(/\s+/g, ' ') : null,
+        postalCode: r.CP || null,
         lat,
         lon,
         cercanias: r.CERCANIAS === 'SI',
+        metricGauge: r['ANCHO MÉTRICO'] === 'SI',
+        accessible: gtfsStops.get(code)?.accessible ?? null,
       });
     }
     for (const [code, s] of gtfsStops) {
-      if (!list.has(code) && Number.isFinite(s.lat) && Number.isFinite(s.lon)) list.set(code, { code, name: s.name, place: null, lat: s.lat, lon: s.lon, cercanias: s.cercanias });
+      if (!list.has(code) && Number.isFinite(s.lat) && Number.isFinite(s.lon)) {
+        list.set(code, { code, name: s.name, place: null, province: null, address: null, postalCode: null, lat: s.lat, lon: s.lon, cercanias: s.cercanias, metricGauge: false, accessible: s.accessible });
+      }
     }
-    return [...list.values()];
+    return withoutDuplicates([...list.values()], new Set(gtfsStops.keys()));
   }
 
   return {
