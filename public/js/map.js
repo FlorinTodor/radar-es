@@ -403,8 +403,8 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       .then((r) => (r.ok ? r.json() : []))
       .then((track) => {
         if (selectedId !== id) return;
-        map.getSource('track').setData(track.length < 2 ? EMPTY
-          : { type: 'Feature', geometry: { type: 'LineString', coordinates: track.map((p) => [p.lon, p.lat]) }, properties: {} });
+        const parts = trackParts(track).filter((part) => part.length > 1);
+        map.getSource('track').setData(parts.length ? { type: 'Feature', geometry: { type: 'MultiLineString', coordinates: parts }, properties: {} } : EMPTY);
       })
       .catch(() => {});
   }
@@ -555,6 +555,29 @@ export function createMap(container, { onVehicleClick, onEventClick }) {
       if (loaded) map.getSource('trails').setData(collection ?? EMPTY);
     },
   };
+}
+
+// Más de esto entre dos posiciones seguidas (llegan cada 20-60 s) es un rato sin datos: el camino
+// real no se conoce y una recta cruzaría el mapa por donde no hay vía.
+const TRACK_GAP_KM = 5;
+
+/** Recorrido [{lat, lon}] → tramos [[lon, lat], …] partidos donde faltan datos. */
+export function trackParts(track) {
+  const parts = [];
+  let part = [];
+  for (const [i, p] of track.entries()) {
+    const prev = track[i - 1];
+    if (prev) {
+      const km = Math.hypot((p.lat - prev.lat) * 111.2, (p.lon - prev.lon) * 111.2 * Math.cos((p.lat * Math.PI) / 180));
+      if (km > TRACK_GAP_KM) {
+        parts.push(part);
+        part = [];
+      }
+    }
+    part.push([p.lon, p.lat]);
+  }
+  if (part.length) parts.push(part);
+  return parts;
 }
 
 /** Icono rasterizado para MapLibre (rombo, cuadrado o triángulo de 14 px a doble resolución). */
