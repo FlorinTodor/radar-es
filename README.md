@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/img/logo-radar-espana.png" alt="Radar España" width="560"></p>
+
 # Radar España
 
 **[radarespaña.es](https://radarespaña.es)** · Mapa en tiempo real de trenes, metros y tranvías de
