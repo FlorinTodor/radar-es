@@ -20,8 +20,11 @@ y atraer búsquedas de lo que muestra («trenes en tiempo real», «incidencias 
 | Favicon, iconos y manifest | `public/favicon.*`, `icon-*.png`, `site.webmanifest` | Google exige un favicon rastreable (antes era un `data:`) para mostrarlo junto al resultado |
 | Imagen para redes | `public/og.png` (1200×630) | Vista previa al compartir en WhatsApp, X, Telegram… |
 
-`test/public/seo.test.js` comprueba que cada página tiene título, descripción, canonical, un solo `h1`, Open
-Graph y entrada en el sitemap. **Al añadir una página nueva hay que añadirla al sitemap**, o el test falla.
+`test/public/seo.test.js` comprueba que cada página tiene título (hasta 65 caracteres), descripción (de 70 a
+160, que es lo que Google enseña sin cortar), canonical, un solo `h1`, Open Graph y entrada en el sitemap con
+fecha. **Al añadir una página nueva hay que añadirla al sitemap**, o el test falla. **Al cambiar el texto de una
+página, hay que poner la fecha del día en su `<lastmod>`**: Google sólo hace caso de esa fecha si es fiable, y la
+usa para volver a rastrear antes lo que ha cambiado.
 
 La imagen `og.png` es una captura real del mapa con solo los trenes y la red ferroviaria, para que la
 atribución de las licencias quepa en una línea (Renfe, FGC, Open Data Euskadi, MITRAMS, IGR-RT y OpenStreetMap).
@@ -46,9 +49,14 @@ Si se rehace con otras capas, hay que añadir su atribución.
 
 ## Lo que más ayuda a partir de aquí
 
-- **Enlaces desde otras webs**: es lo que más pesa para que una marca nueva salga la primera. Publicar la web
-  en Reddit (r/spain, r/askspain), Menéame, foros de ferrocarril y de transporte, y un perfil en redes sociales
-  con el enlace en la biografía.
+- **Enlaces desde otras webs**: es lo que más pesa para que una marca nueva salga la primera. Los mejores:
+  - el **catálogo de aplicaciones de datos.gob.es**, que recoge las webs que reutilizan datos abiertos
+    (formulario «Aplicaciones» del portal, lo revisa su equipo): un enlace desde un dominio `.gob.es`;
+  - el **portafolio** del autor (`florintodor.dev`), con un texto de enlace que diga qué es («Radar España,
+    mapa de trenes en tiempo real») y no sólo «aquí»;
+  - los artículos que recopilan mapas de trenes en tiempo real (Xataka, Genbeta…), que se actualizan de vez en
+    cuando: escribir a su redacción con la web;
+  - Reddit (r/spain, r/askspain), Menéame, foros de ferrocarril y de transporte.
 - **Que la gente busque el nombre**: cada vez que alguien busca «radarespaña» y entra, Google refuerza la marca.
 - **Paciencia**: una web nueva tarda de días a semanas en indexarse y en asentarse en los resultados. Search
   Console enseña las búsquedas por las que ya aparece.

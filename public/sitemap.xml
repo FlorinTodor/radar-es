@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://xn--radarespaa-19a.es/</loc><changefreq>always</changefreq><priority>1.0</priority></url>
-  <url><loc>https://xn--radarespaa-19a.es/que-es-radar-espana</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
-  <url><loc>https://xn--radarespaa-19a.es/trenes-en-tiempo-real</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
-  <url><loc>https://xn--radarespaa-19a.es/metro-tranvia-autobus</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
-  <url><loc>https://xn--radarespaa-19a.es/incidencias-y-emergencias</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
-  <url><loc>https://xn--radarespaa-19a.es/legal</loc><changefreq>monthly</changefreq><priority>0.3</priority></url>
-  <url><loc>https://xn--radarespaa-19a.es/en</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
-  <url><loc>https://xn--radarespaa-19a.es/en/live-trains</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
-  <url><loc>https://xn--radarespaa-19a.es/en/metro-tram-bus</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
-  <url><loc>https://xn--radarespaa-19a.es/en/incidents-and-emergencies</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://xn--radarespaa-19a.es/</loc><lastmod>2026-11-01</lastmod><changefreq>always</changefreq><priority>1.0</priority></url>
+  <url><loc>https://xn--radarespaa-19a.es/que-es-radar-espana</loc><lastmod>2026-11-01</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://xn--radarespaa-19a.es/trenes-en-tiempo-real</loc><lastmod>2026-11-01</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://xn--radarespaa-19a.es/metro-tranvia-autobus</loc><lastmod>2026-11-01</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://xn--radarespaa-19a.es/incidencias-y-emergencias</loc><lastmod>2026-11-01</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://xn--radarespaa-19a.es/legal</loc><lastmod>2026-11-01</lastmod><changefreq>monthly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://xn--radarespaa-19a.es/en</loc><lastmod>2026-11-01</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://xn--radarespaa-19a.es/en/live-trains</loc><lastmod>2026-11-01</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://xn--radarespaa-19a.es/en/metro-tram-bus</loc><lastmod>2026-11-01</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://xn--radarespaa-19a.es/en/incidents-and-emergencies</loc><lastmod>2026-11-01</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>
 </urlset>
