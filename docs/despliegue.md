@@ -1,12 +1,20 @@
 # Despliegue
 
-Radar ES corre en un VPS de Contabo (Ubuntu 26.04, `IP_DEL_VPS`) dentro de un contenedor
-Docker, detrás de un túnel de Cloudflare. El VPS no tiene puertos web abiertos: el cortafuegos
-solo deja pasar SSH (con clave), y el tráfico web entra por el túnel, que conecta desde dentro.
+Radar ES corre en un VPS de Contabo (Ubuntu 26.04, `IP_DEL_VPS`) en contenedores Docker, detrás
+de un túnel de Cloudflare. El VPS no tiene puertos web abiertos: el cortafuegos solo deja pasar
+SSH (con clave), y el tráfico web entra por el túnel, que conecta desde dentro.
 
 ```
-navegador ──HTTPS──▶ Cloudflare ──túnel──▶ cloudflared (VPS) ──▶ 127.0.0.1:8080 ──▶ contenedor radar
+navegador ──HTTPS──▶ Cloudflare ──túnel──▶ cloudflared (VPS) ──▶ 127.0.0.1:8080 ──▶ nginx (proxy)
+                                                                                  ├──▶ radar    (uno en servicio,
+                                                                                  └──▶ radar-b   el otro parado)
 ```
+
+La web va en dos contenedores que se relevan en cada despliegue, `radar` y `radar-b`, y nginx
+pasa las visitas al que está en servicio (`data/proxy/activo.conf`). Así un despliegue no corta
+nada: no hay 502 de Cloudflare mientras arranca la versión nueva. Si alguna vez no responde
+ninguno, nginx enseña `deploy/nginx/actualizando.html` (y la API responde 503 «actualizando», que
+la web convierte en un aviso). El plan gratuito de Cloudflare no permite cambiar su página de 502.
 
 ## Ramas
 
@@ -64,12 +72,15 @@ Un despliegue roto no tumba la web (en los dos entornos):
 
 - **Tests**: se pasan dentro de `docker build`. Si fallan no hay imagen nueva y el contenedor
   que funciona no se toca.
-- **Arranque**: tras cambiar el contenedor espera a que `/api/health` responda (hasta 3 min).
-  Si se cae o no responde, vuelve a la imagen y al código anteriores (`<imagen>:anterior`).
+- **Relevo**: la versión nueva arranca en el contenedor parado (`radar` o `radar-b`) mientras el
+  otro sigue atendiendo. Espera a que responda (hasta 3 min) y a que cada fuente haya hecho su
+  primera lectura (hasta 10 min; si alguna tarda más, sigue igualmente), y entonces nginx pasa a
+  él con una recarga que no corta ninguna conexión y se para el otro. Si no arranca, se para y
+  sigue el de antes, sin haber dejado de atender; el código vuelve al anterior.
 - En los dos casos el commit queda en `.fallido` y no se reintenta cada 2 minutos; se vuelve a
   intentar cuando llega otro commit o con `--forzar`.
-- **Colgado**: en cada vuelta, si el contenedor está `unhealthy` (vivo pero sin responder,
-  ~2 min seguidos), lo reinicia. Docker sólo reinicia solo los que terminan.
+- **Colgado**: en cada vuelta, si el contenedor en servicio está `unhealthy` (vivo pero sin
+  responder, ~2 min seguidos), lo reinicia. Docker sólo reinicia solo los que terminan.
 - **Limpieza**: una vez a la semana, producción borra la caché de compilación de Docker de más
   de 7 días y la de paquetes de apt. Las imágenes viejas ya se borran en cada despliegue (se
   guardan la anterior y las 5 últimas verificadas); `data/` no se toca.
@@ -80,7 +91,8 @@ cat /opt/radar-pruebas/.estado              # ¿está verificado lo último de d
 journalctl -u radar-pruebas -n 50           # pruebas: construcción y comprobación
 journalctl -u radar-actualizar -n 50        # producción: últimos despliegues
 /opt/radar/deploy/actualizar.sh --forzar    # urgencia: desplegar ya, aunque no haya pasado pruebas
-cd /opt/radar && docker compose logs -f     # logs de la aplicación
+cd /opt/radar && docker compose --profile relevo logs -f   # logs de la aplicación (y de nginx)
+cat /opt/radar/data/proxy/activo.conf       # cuál de los dos está en servicio
 ```
 
 ### Montar el entorno de pruebas
@@ -170,3 +182,11 @@ Más rápido que lo anterior: se reutiliza el mismo túnel, así que no hay que 
    `/etc/cloudflared/` y `cloudflared service install`.
 3. En cuanto el túnel conecta, Cloudflare manda el tráfico al VPS nuevo. Los datos (`data/`) se
    regeneran solos en unos minutos.
+
+### Paso a dos contenedores (una sola vez)
+
+El primer despliegue con nginx lo hace todavía el `actualizar.sh` anterior, que sólo conoce el
+servicio `radar`: con el `compose.yaml` nuevo recrea `radar` (ya sin el puerto 8080) y arranca
+nginx, que lo ocupa. Ese despliegue tiene el corte de siempre (segundos); desde el siguiente, el
+`actualizar.sh` nuevo hace el relevo sin corte. No hay que tocar cloudflared: sigue apuntando a
+`127.0.0.1:8080` (producción) y `127.0.0.1:8081` (pruebas).

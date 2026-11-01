@@ -97,14 +97,23 @@ proxy_al_dia() {
   dc exec -T proxy nginx -t -q && dc exec -T proxy nginx -s reload
 }
 
-# nginx pasa a $1: las peticiones en curso terminan con el anterior. Luego se comprueba a través de
-# nginx que responde el nuevo.
+# nginx pasa a $1: las peticiones en curso terminan con el anterior. Cada paso se comprueba (dentro
+# de un `if`, bash no para en los errores) y, al final, se pregunta a nginx quién atiende: sólo si es
+# $1 se puede parar el otro. La cabecera X-Radar-Activo sólo sale si se pide (X-Radar-Relevo: 1).
 cambiar_a() {
-  echo "set \$radar_activo $1;" > "$ACTIVO.nuevo"
-  mv "$ACTIVO.nuevo" "$ACTIVO"
-  dc exec -T proxy nginx -t -q && dc exec -T proxy nginx -s reload || return 1
-  sleep 2
-  curl -fsS -o /dev/null --max-time 10 "http://$(dc port proxy 8080)/api/health" # el puerto de este entorno
+  local destino=$1 atiende=
+  printf 'set $radar_activo %s;\n' "$destino" > "$ACTIVO.nuevo" || return 1
+  mv -f "$ACTIVO.nuevo" "$ACTIVO" || return 1
+  dc exec -T proxy nginx -t -q || return 1
+  dc exec -T proxy nginx -s reload || return 1
+  for _ in {1..15}; do
+    atiende=$(curl -fsS -o /dev/null -D - --max-time 5 -H 'X-Radar-Relevo: 1' \
+      "http://$(dc port proxy 8080)/api/health" 2>/dev/null | tr -d '\r' | sed -n 's/^x-radar-activo: //Ip')
+    [[ $atiende == "$destino" ]] && return 0
+    sleep 1
+  done
+  echo "nginx no atiende con $destino (atiende: ${atiende:-nadie})"
+  return 1
 }
 
 vigilar() {
@@ -243,7 +252,8 @@ desplegar() {
     echo "$nuevo" > .fallido
     return 1
   fi
-  [[ $relevo != "$viejo" ]] && dc stop "$viejo"
+  # Se para el que sobra (normalmente el de antes; también si quedaba otro en marcha de antes).
+  dc stop "$([[ $relevo == radar ]] && echo radar-b || echo radar)"
   echo "$nuevo" > .desplegado
   rm -f .fallido
   echo "Desplegado ${nuevo:0:7} en $relevo, sin corte: responde y ha cargado los datos"

@@ -295,6 +295,9 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Entorno de pruebas privado: cada cambio se prueba con datos reales antes de llegar a producción.
 - Pipeline en GitHub Actions (tests → pruebas → aprobación manual → producción), y producción sólo
   publica la misma versión que se ha probado.
+- Despliegues sin cortes: la versión nueva arranca al lado de la que funciona y sólo recibe visitas
+  cuando ya ha cargado los datos. Si algún día el servidor no respondiera, se ve un aviso de que se
+  está actualizando en vez de un error.
 - Limpieza automática del servidor.
 - Estadísticas de visitas sin cookies.
 
@@ -316,7 +319,6 @@ Ninguna por ahora.
   (red vectorial con licencia abierta, que cita a Adif). Cada tramo une dos estaciones con los
   mismos códigos que usa Renfe.
 - Botón en el mapa para cambiar entre español e inglés.
-- Despliegues sin ningún corte, con dos contenedores que se relevan.
 - Más fuentes: TMB y EMT Madrid (con clave gratuita) y posiciones estimadas para las redes que
   sólo publican tiempos de llegada (ver *Pendiente y conocido*).
 - Estadísticas de puntualidad por línea y franja horaria.
