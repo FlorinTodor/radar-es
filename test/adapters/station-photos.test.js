@@ -6,7 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { loadStationExtras, matchesStation, nameKey, pageImages, parseCommons, pickCategoryFile, pickNearby } from '../../server/adapters/outbound/stations/station-extras.js';
+import { categoryCandidates, choosePhotos, loadStationExtras, matchesStation, nameKey, nearbyCandidates, pageImages, parseCommons } from '../../server/adapters/outbound/stations/station-extras.js';
 import { createFileCache } from '../../server/adapters/outbound/http/file-cache.js';
 
 const silent = { warn() {}, info() {} };
@@ -18,9 +18,13 @@ test('la palabra propia del nombre: la más larga que no es «de», «estación�
   assert.equal(nameKey('Poo'), 'poo');
   assert.equal(nameKey('Vimbodí i Poblet'), 'vimbodi');
   assert.equal(nameKey('de la'), null);
+  assert.equal(nameKey('Barcelona Plaça de Catalunya'), 'catalunya', 'la ciudad no sirve si hay algo más propio');
+  assert.equal(nameKey('Madrid-Atocha'), 'atocha');
+  assert.equal(nameKey('Valencia'), 'valencia');
 });
 
-test('cercanía: sólo fotos con el nombre de la estación y algo de tren, la más cercana', () => {
+test('cercanía: sólo fotos con el nombre de la estación y algo de tren, de la más cercana a la más lejana', () => {
+  const pickNearby = (json, name) => nearbyCandidates(json, name)[0]?.file ?? null;
   const near = (...hits) => ({ query: { geosearch: hits.map(([title, dist]) => ({ title: `File:${title}`, dist })) } });
   assert.equal(pickNearby(near(['Viaje en tren Alicante-Murcia en julio de 2022 34.jpg', 31]), 'Callosa de Segura-Cox'), null);
   assert.equal(pickNearby(near(['Renfe 319.304 + 319.323 (31461093005).jpg', 90]), 'Puertollano'), null);
@@ -48,11 +52,36 @@ test('imágenes de Wikipedia: cada una vuelve al título pedido aunque haya redi
   assert.deepEqual([...pageImages(json)], [['estación de Udalla', 'Udalla 15.JPG']]);
 });
 
-test('categoría de Commons: mejor la foto con el nombre; si no, la primera foto; nunca un mapa', () => {
+test('categoría de Commons: sólo fotos con algo de tren, primero las que llevan el nombre; nunca un mapa ni una tienda', () => {
   const cat = (...files) => ({ query: { categorymembers: files.map((f) => ({ title: `File:${f}` })) } });
-  assert.equal(pickCategoryFile(cat('Mapa de Bravo.png', 'Tren 1.jpg', 'Estación de Bravo.jpg'), 'Bravo'), 'Estación de Bravo.jpg');
-  assert.equal(pickCategoryFile(cat('Plano.svg', 'Tren 1.jpg'), 'Bravo'), 'Tren 1.jpg');
-  assert.equal(pickCategoryFile(cat('Plano.svg'), 'Bravo'), null);
+  assert.deepEqual(categoryCandidates(cat('Mapa de Bravo.png', 'Tren 1.jpg', 'Estación de Bravo.jpg'), 'Bravo'), ['Estación de Bravo.jpg', 'Tren 1.jpg']);
+  assert.deepEqual(categoryCandidates(cat('Plano.svg', 'Iglesia.jpg'), 'Bravo'), []);
+  assert.deepEqual(categoryCandidates(cat('Automated grocery store Barcelona Spain 2006.jpg', 'FGC Plaça Catalunya via 3 4944.jpg'), 'Barcelona Plaça de Catalunya'),
+    ['FGC Plaça Catalunya via 3 4944.jpg']);
+});
+
+test('foto repetida por cercanía: con nombres distintos se queda en la estación más cercana; con el mismo nombre, en las dos', () => {
+  const photos = new Map([['Apeadero Valdecilla.jpg', {}], ['Vallecas (Cercanías) 1.jpg', {}], ['Otra.jpg', {}]]);
+  const names = new Map([['05602', 'Valdecilla la Marga'], ['14230', 'Valdecilla'], ['70005', 'Vallecas'], ['70001', 'Vallecas'], ['1', 'Uno']]);
+  const out = choosePhotos(new Map([
+    ['05602', [{ file: 'Apeadero Valdecilla.jpg', dist: 95 }]],
+    ['14230', [{ file: 'Apeadero Valdecilla.jpg', dist: 40 }]],
+    ['70005', [{ file: 'Vallecas (Cercanías) 1.jpg', dist: 30 }]],
+    ['70001', [{ file: 'Vallecas (Cercanías) 1.jpg', dist: 120 }]],
+    ['1', [{ file: 'Sin licencia.jpg', dist: 0 }, { file: 'Otra.jpg', dist: 50 }]],
+  ]), photos, names);
+  assert.deepEqual([...out], [['14230', 'Apeadero Valdecilla.jpg'], ['70005', 'Vallecas (Cercanías) 1.jpg'], ['70001', 'Vallecas (Cercanías) 1.jpg'], ['1', 'Otra.jpg']]);
+});
+
+test('una foto que Wikidata da a una estación no se la lleva por cercanía otra con otro nombre', () => {
+  const photos = new Map([['Apeadero Valdecilla.jpg', {}], ['Vallecas (Cercanías) 1.jpg', {}]]);
+  const names = new Map([['05602', 'Valdecilla la Marga'], ['70001', 'Vallecas']]);
+  const taken = new Map([['Apeadero Valdecilla.jpg', ['Valdecilla']], ['Vallecas (Cercanías) 1.jpg', ['Vallecas']]]);
+  const out = choosePhotos(new Map([
+    ['05602', [{ file: 'Apeadero Valdecilla.jpg', dist: 95 }]],
+    ['70001', [{ file: 'Vallecas (Cercanías) 1.jpg', dist: 120 }]],
+  ]), photos, names, taken);
+  assert.deepEqual([...out], [['70001', 'Vallecas (Cercanías) 1.jpg']], 'Vallecas sí: es la misma estación con otro código');
 });
 
 test('carga completa: Wikidata, categoría, Wikipedia y cercanía, y sin licencia no hay foto', async () => {
@@ -61,6 +90,7 @@ test('carga completa: Wikidata, categoría, Wikipedia y cercanía, y sin licenci
   const responses = (url) => {
     const u = new URL(url);
     if (u.host === 'query.wikidata.org') return { results: { bindings: [
+      { code: v('10000'), img: v('http://commons.wikimedia.org/wiki/Special:FilePath/Alfa%20sin%20autor.jpg') },
       { code: v('10000'), img: v('http://commons.wikimedia.org/wiki/Special:FilePath/Alfa%20estaci%C3%B3n.jpg') },
       { code: v('10001'), cat: v('Bravo railway station') },
       { code: v('10002'), wp: v('https://es.wikipedia.org/wiki/Estaci%C3%B3n_de_Charlie') },
@@ -77,7 +107,9 @@ test('carga completa: Wikidata, categoría, Wikipedia y cercanía, y sin licenci
       const pages = q.get('titles').split('|').map((title, i) => ({
         title,
         imageinfo: [{ thumburl: `https://upload.wikimedia.org/${i}.jpg`, descriptionurl: `https://commons.wikimedia.org/wiki/${title}`,
-          extmetadata: title === 'File:Estación de Foxtrot.jpg' ? {} : { Artist: v('Ana'), LicenseShortName: v('CC BY 4.0') } }],
+          extmetadata: title === 'File:Estación de Foxtrot.jpg' ? {}
+            : title === 'File:Alfa sin autor.jpg' ? { LicenseShortName: v('CC BY-SA 3.0') }
+              : { Artist: v('Ana'), LicenseShortName: v('CC BY 4.0') } }],
       }));
       return { query: { pages } };
     }
@@ -86,7 +118,7 @@ test('carga completa: Wikidata, categoría, Wikipedia y cercanía, y sin licenci
   const cache = { bytes: async (url) => new TextEncoder().encode(JSON.stringify(responses(url))) };
   const extras = await loadStationExtras({ cache, log: silent, maxAgeMs: 1, stations: STATIONS, nearbyBudgetMs: 10_000 });
   const photo = (code) => extras.get(code)?.photo?.page.split('/wiki/').pop() ?? null;
-  assert.equal(photo('10000'), 'File:Alfa estación.jpg', 'la de Wikidata');
+  assert.equal(photo('10000'), 'File:Alfa estación.jpg', 'la segunda de Wikidata, porque la primera no dice su autor');
   assert.equal(photo('10001'), 'File:Bravo andenes.jpg', 'de su categoría');
   assert.equal(photo('10002'), 'File:Estación de Charlie.jpg', 'de su artículo');
   assert.equal(photo('10003'), 'File:Apeadero de Delta.jpg', 'la de al lado con su nombre');
@@ -141,8 +173,9 @@ test('licencias: sin autor sólo valen CC0 y dominio público; las fotos sólo G
     page('c.jpg', { LicenseShortName: v('Public domain') }),
     page('d.jpg', { LicenseShortName: v('GFDL'), Artist: v('Ana') }),
     page('e.jpg', { LicenseShortName: v('CC BY-SA 3.0'), Attribution: v('Willtron') }),
+    page('f.jpg', { LicenseShortName: v('CC BY-SA 3.0'), Artist: v('Ana'), Restrictions: v('personality') }),
   ] } });
-  assert.deepEqual([...out.keys()], ['b.jpg', 'c.jpg', 'e.jpg']);
+  assert.deepEqual([...out.keys()], ['b.jpg', 'c.jpg', 'e.jpg'], 'tampoco las de personas reconocibles con aviso de derechos de imagen');
   assert.equal(out.get('b.jpg').author, 'Autor desconocido');
   assert.equal(out.get('e.jpg').author, 'Willtron');
 });
