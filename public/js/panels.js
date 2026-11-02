@@ -45,6 +45,10 @@ function selectionBar(sel, what) {
 const NO_SELECTION = { ids: new Set(), total: 0, multi: false };
 const check = (on) => (on ? '<span class="check" aria-hidden="true">✓</span>' : '');
 
+// Alertas que cruzan los datos de una fuente con los trenes: AEMET pide «Fuente: AEMET» cuando sus
+// avisos se usan para elaborar otra información (los avisos tal cual llevan «© AEMET»).
+const ALERT_CREDIT = { meteo: 'Fuente: AEMET' };
+
 export function renderAlerts(el, alerts, resolved, sel = NO_SELECTION) {
   const now = Date.now();
   const toolbar = alerts.length ? selectionBar(sel, { one: 'una alerta', plural: 'las alertas' }) : '';
@@ -56,7 +60,7 @@ export function renderAlerts(el, alerts, resolved, sel = NO_SELECTION) {
         <div class="row">${severityPill(a.severity)}${check(on)}</div>
         <div class="title">${esc(a.title)}</div>
         ${a.description ? `<div class="desc">${esc(a.description)}</div>` : ''}
-        <div class="meta"><span>Desde las ${fmtTime(a.since)} (${timeAgo(a.since, now)})</span></div>
+        <div class="meta"><span>Desde las ${fmtTime(a.since)} (${timeAgo(a.since, now)})</span>${ALERT_CREDIT[a.type] ? `<span>${ALERT_CREDIT[a.type]}</span>` : ''}</div>
       </button>`;
     }).join('')
     : `<div class="empty">Sin alertas activas.<br>El motor revisa trenes detenidos en plena vía, saltos de retraso, terremotos,

@@ -101,8 +101,9 @@ function stretch(shape, from, to) {
  *           label?: (trip: object) => string, line?: (name: string|null) => string|null }} options
  *   dataset: conjunto de datos del NAP al que pertenece el fichero (para su fecha de actualización).
  *   feeds: varios ficheros en una sola fuente (empresas con muchos conjuntos), en lugar de ficheroId/dataset/operator.
- *   credit: atribución que pide el propio operador además de la del NAP ("Powered by CRTM"…).
- * @typedef {{ ficheroId: number, dataset: number, operator: string, excludeAgency?: RegExp, excludeRoute?: RegExp }} Feed
+ *   credit: atribución que pide el propio operador además de la del NAP ("Powered by CRTM"…). En un grupo,
+ *   la que pide uno solo de sus operadores va en su fichero (Feed.credit) y no en la de todo el grupo.
+ * @typedef {{ ficheroId: number, dataset: number, operator: string, credit?: string, excludeAgency?: RegExp, excludeRoute?: RegExp }} Feed
  * @returns {import('../../../application/ports.js').DataSourcePort}
  */
 export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlinePool }, options) {
@@ -117,6 +118,9 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
   // dónde llega su viaje: id → { shape, from, to, end } (distancias en metros), o null si se queda
   // en la última parada.
   let paths = new Map();
+  const estimatedLicense = (credit) => `Powered by MITRAMS (Punto de Acceso Nacional) · ${credit} · `
+    + 'Posición estimada a partir del horario (dato explotado, no GPS)';
+  const feedCredit = (f) => f.credit ?? f.operator;
 
   function vehicle(fi, schedule, trip, day, t, delaySec, offset = 0, nextPaths = paths) {
     const tt = t - offset;
@@ -231,9 +235,10 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
     interval,
     requires: ['NAP_API_KEY'],
     url: tripUpdatesUrl ?? (feeds.length === 1 ? napDatasetPage(feeds[0].dataset) : 'https://nap.transportes.gob.es'),
-    license: options.license
-      ?? `Powered by MITRAMS (Punto de Acceso Nacional) · ${options.credit ?? [...new Set(feeds.map((f) => f.operator))].join(', ')} · `
-        + 'Posición estimada a partir del horario (dato explotado, no GPS)',
+    license: options.license ?? estimatedLicense(options.credit
+      ?? [...new Set(feeds.map((f) => (f.credit ? `${f.operator} (${f.credit})` : f.operator)))].join(', ')),
+    // En un grupo, la ficha de cada vehículo cita sólo a su operador (y lo que este pida, como TMB).
+    ...(feeds.length > 1 ? { operatorLicenses: Object.fromEntries(feeds.map((f) => [f.operator, estimatedLicense(feedCredit(f))])) } : {}),
     /**
      * Tramo de su trazado recorrido en los últimos 45 min, como [lon, lat], para dibujarlo por la calle
      * y no uniendo con rectas las posiciones de cada lectura. null: autobús sin trazado (se queda en la
@@ -257,7 +262,8 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
       if (!loaded.size || today !== loadedDay || Date.now() - loadedAt > RELOAD_MS) await load(today);
       else if (failed.size && Date.now() - failedAt >= RETRY_MS) await load(today, [...failed]);
       const first = loaded.get(0)?.schedule;
-      const rt = tripUpdatesUrl && first ? delaysFromTripUpdates(decodeFeed(await http.bytes(tripUpdatesUrl)), first) : null;
+      const rtFeed = tripUpdatesUrl && first ? decodeFeed(await http.bytes(tripUpdatesUrl)) : null;
+      const rt = rtFeed ? delaysFromTripUpdates(rtFeed, first) : null;
       const now = Date.now();
       const vehicles = [];
       const nextPaths = new Map();
@@ -291,12 +297,22 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
         }
       }
       paths = nextPaths;
-      // En los grupos, la fecha del horario más reciente y la del más antiguo.
+      // En los grupos, la fecha del horario más reciente, la del más antiguo y la de cada operador.
       const dates = [...loaded.values()].map((l) => l.updatedAt).filter(Boolean);
+      const byOperator = {};
+      if (feeds.length > 1) {
+        for (const [fi, { updatedAt }] of loaded) {
+          const op = feeds[fi].operator;
+          if (updatedAt && updatedAt > (byOperator[op] ?? 0)) byOperator[op] = updatedAt;
+        }
+      }
       return {
         vehicles,
         datasetUpdated: dates.length ? Math.max(...dates) : null,
         datasetUpdatedFrom: dates.length > 1 ? Math.min(...dates) : null,
+        ...(feeds.length > 1 ? { datasetUpdatedBy: byOperator } : {}),
+        // Hora de los retrasos en tiempo real (AMB, Euskotren), la que hay que citar con ellos.
+        ...(rtFeed ? { sourceTime: Number(rtFeed.header?.timestamp) * 1000 || null } : {}),
       };
     },
   };

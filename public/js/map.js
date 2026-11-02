@@ -1,5 +1,5 @@
 import * as maplibregl from '/vendor/maplibre/maplibre-gl.mjs';
-import { DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, STATUS, esc, fmtDateTime, fmtDelay, fmtLocalHour, safeUrl, timeAgo, vehicleTitle } from './format.js';
+import { DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, STATUS, esc, fmtDate, fmtDateTime, fmtDelay, fmtLocalHour, fmtTime, photoTitleOf, safeUrl, timeAgo, vehicleTitle } from './format.js';
 import { PICTOS, pictoFor, vehicleImage } from './icons.js';
 import { headingAlong, matchTrack, pathBetween } from './track-match.js';
 
@@ -70,6 +70,8 @@ const ATTRIBUTION = [
   'Powered by <a href="https://www.transportes.gob.es/" target="_blank" rel="noopener">MITRAMS</a>',
   'Powered by <a href="https://www.crtm.es/" target="_blank" rel="noopener">CRTM</a>',
   'Powered by <a href="https://www.tram.cat/" target="_blank" rel="noopener">TRAM Barcelona</a>',
+  'Fuente: TMB',
+  'Fuente: AUVASA',
   'Origen de los datos: Renfe Operadora',
   '© Administrador de infraestructuras ferroviarias',
   `Obra derivada de Catálogo de terremotos IGN ${today} · CC-BY 4.0 <a href="https://www.ign.es" target="_blank" rel="noopener">ign.es</a>`,
@@ -713,6 +715,11 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
 
     selectedStationCode: () => selectedStation,
 
+    /** Estado de las fuentes (/api/health): de ahí salen la atribución y la fecha de cada ficha. */
+    setSources(health) {
+      sourcesById = new Map(health.map((s) => [s.id, s]));
+    },
+
     setTrails(collection) {
       if (loaded) map.getSource('trails').setData(collection ?? EMPTY);
     },
@@ -818,12 +825,19 @@ function stationDetail(st, { stopped, arriving, notices, lines, connections = []
   // Las de otras redes salen del GTFS de su operador en el NAP: su atribución y la fecha de sus datos.
   // «Powered by MITRAMS», «Powered by CRTM» y «Powered by TRAM Barcelona» van con su enlace, como pide
   // su licencia (igual que en el pie del mapa).
-  const updated = /^\d{4}-\d{2}-\d{2}/.test(st.source?.updated ?? '') ? st.source.updated.slice(0, 10).split('-').reverse().join('/') : null;
+  // Las de Renfe, de sus datos abiertos: «Origen de los datos: Renfe Operadora» y el día en que se descargaron.
+  const day = (iso) => (/^\d{4}-\d{2}-\d{2}/.test(iso ?? '') ? iso.slice(0, 10).split('-').reverse().join('/') : null);
+  const updated = day(st.source?.updated);
+  const downloaded = day(st.source?.downloaded);
   const credit = (text) => CREDIT_LINKS.reduce((html, [name, url]) => html.replace(name, link(url, name)), esc(text));
-  const source = st.source?.credit ? `<p class="st-source">Datos de la estación: ${credit(st.source.credit)}${updated ? ` · actualizados el ${esc(updated)}` : ''}</p>` : '';
-  // La foto viene de Wikimedia Commons: su licencia pide citar autor y licencia junto a ella.
+  const creditText = st.source?.credit ?? (st.networkId ? null : 'Origen de los datos: Renfe Operadora');
+  const source = creditText ? `<p class="st-source">Datos de la estación: ${credit(creditText)}${updated ? ` · actualizados el ${esc(updated)}`
+    : downloaded ? ` · descargados el ${esc(downloaded)}` : ''}</p>` : '';
+  // La foto viene de Wikimedia Commons: su licencia pide citar título, autor y licencia junto a ella.
+  // El título es el nombre del fichero, que enlaza a su página en Commons.
+  const photoTitle = st.photo ? photoTitleOf(st.photo.page) : null;
   const photo = st.photo && safeUrl(st.photo.url) ? `<figure class="st-photo"><img src="${esc(safeUrl(st.photo.url))}" alt="Estación de ${esc(st.name)}" loading="lazy">
-    <figcaption>Foto: ${esc(st.photo.author)} · ${st.photo.licenseUrl ? link(st.photo.licenseUrl, st.photo.license) : esc(st.photo.license)} · ${link(st.photo.page, 'Wikimedia Commons')}</figcaption></figure>` : '';
+    <figcaption>Foto: ${photoTitle ? `${link(st.photo.page, photoTitle)}, de ` : ''}${esc(st.photo.author)} · ${st.photo.licenseUrl ? link(st.photo.licenseUrl, st.photo.license) : esc(st.photo.license)} · ${photoTitle ? 'Wikimedia Commons' : link(st.photo.page, 'Wikimedia Commons')}</figcaption></figure>` : '';
   // Sólo enlaces: no se carga nada de esas webs hasta que se pulsan. El de Google Maps usa su
   // formato público de enlaces (Maps URLs): en el móvil abre la app con la ruta hasta la estación.
   const links = [
@@ -844,6 +858,27 @@ function stationDetail(st, { stopped, arriving, notices, lines, connections = []
       Pulsa un tren para ver su ficha.</div></div>`;
 }
 
+// Fuentes por id, de /api/health. Las licencias (TMB, AMB, TRAM, Renfe…) piden citar la fuente y la
+// fecha de actualización donde se ven sus datos: en la ficha de cada tren y de cada suceso.
+let sourcesById = new Map();
+
+/**
+ * Filas «Atribución» y «Actualizado» de una ficha: el texto que pide la licencia (en un grupo de
+ * operadores, la del suyo) y la fecha del horario o la hora del dato según la fuente. Si aún no se
+ * conoce, la hora a la que se leyó.
+ */
+function sourceRows(id, operator) {
+  const s = sourcesById.get(id);
+  if (!s) return [['Fuente', id]]; // todavía sin el estado de las fuentes
+  const schedule = s.datasetUpdatedBy?.[operator] ?? s.datasetUpdated;
+  const dates = [
+    schedule && `horario del ${fmtDate(schedule)}`,
+    s.sourceTime ? `datos de las ${fmtTime(s.sourceTime)}` : !schedule && s.lastOk && `leídos a las ${fmtTime(s.lastOk)}`,
+  ].filter(Boolean);
+  // «Atribución» y no «Fuente»: muchas ya empiezan por «Fuente: …» u «Origen de los datos: …».
+  return [['Atribución', s.operatorLicenses?.[operator] ?? s.license ?? s.name], dates.length && ['Actualizado', dates.join(' · ')]];
+}
+
 /** @param {object} v  @param {boolean} [onRoute] se dibuja lo que le queda hasta su final */
 function vehicleDetail(v, onRoute = false) {
   // La vía es la de una estación (en la que está parado o a la que llega), nunca la del trayecto:
@@ -860,7 +895,7 @@ function vehicleDetail(v, onRoute = false) {
     v.area && ['Núcleo', v.area],
     v.rollingStock && ['Material', v.rollingStock],
     v.fixTime && ['GPS', timeAgo(v.fixTime)],
-    ['Fuente', v.source],
+    ...sourceRows(v.source, v.operator),
   ].filter(Boolean);
   const aheadText = (how) => `La <strong>línea azul clara continua</strong> (con borde oscuro) es lo que le queda hasta ${esc(v.destination ?? 'su destino')}${how}. `;
   const ahead = onRoute || v.ahead ? aheadText('') : '';
@@ -945,7 +980,7 @@ function eventDetail(e) {
     e.issued && ['Emitido', fmtDateTime(e.issued)],
     e.start && ['Inicio', fmtDateTime(e.start)],
     e.end && ['Fin previsto', fmtDateTime(e.end)],
-    ['Fuente', e.source],
+    ...sourceRows(e.source),
   ].filter(Boolean);
   const url = safeUrl(e.url);
   const link = url ? `<div class="note"><a href="${esc(url)}" target="_blank" rel="noopener">Ficha oficial</a></div>` : '';

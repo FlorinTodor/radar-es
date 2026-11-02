@@ -31,10 +31,13 @@ test('cada estación lleva dirección, provincia, ancho métrico y accesibilidad
       log: { info() {}, warn() {} },
     });
     await catalog.load();
-    assert.deepEqual(catalog.get('15211'), {
+    const { source, ...oviedo } = catalog.get('15211');
+    assert.deepEqual(oviedo, {
       code: '15211', name: 'Oviedo', place: 'Oviedo', province: 'Asturias', address: 'Calle Uría S/N', postalCode: '33012',
       lat: 43.3663577, lon: -5.854838, cercanias: true, metricGauge: false, accessible: true, accessibleSource: 'Renfe',
     });
+    assert.equal(source.credit, 'Origen de los datos: Renfe Operadora', 'la ficha cita a Renfe, como pide su licencia');
+    assert.match(source.downloaded, /^\d{4}-\d{2}-\d{2}T/, 'con el día en que se descargaron sus datos');
     assert.equal(catalog.get('05100').metricGauge, true);
     assert.equal(catalog.get('05100').accessible, null);
     assert.equal(catalog.get('99999').accessible, false);

@@ -17,7 +17,9 @@ export function createSctSource({ http }) {
     url: SCT_URL,
     license: "Generalitat de Catalunya. Departament d'Interior i Seguretat Pública. Servei Català de Trànsit",
     async fetch() {
-      const doc = xmlParser.parse(await http.text(SCT_URL));
+      // El fichero no lleva su fecha dentro: la de actualización es la de su cabecera Last-Modified.
+      const info = {};
+      const doc = xmlParser.parse(await http.text(SCT_URL, { info }));
       const events = [];
       for (const member of arr(doc.FeatureCollection?.featureMember)) {
         const f = member.mct2_v_afectacions_data;
@@ -42,7 +44,7 @@ export function createSctSource({ http }) {
           start: Date.parse(text(f.data)) || null,
         });
       }
-      return { events };
+      return { events, sourceTime: info.lastModified ?? null };
     },
   };
 }

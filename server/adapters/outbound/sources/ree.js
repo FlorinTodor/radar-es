@@ -9,6 +9,8 @@ export function createReeSource({ http }) {
     kind: 'metrics',
     interval: 300_000,
     license: 'Fuente: Red Eléctrica (REData). Uso informativo, sin fines comerciales',
+    // Su aviso legal pide enlazar sólo a la portada, no a la API.
+    page: 'https://www.ree.es/',
     get url() {
       const day = madridToday();
       return `https://apidatos.ree.es/es/datos/demanda/demanda-tiempo-real?start_date=${day}T00:00&end_date=${day}T23:59&time_trunc=hour`;
