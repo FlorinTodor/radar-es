@@ -198,7 +198,7 @@ async function findMorePhotos({ cache, log, missing, budgetMs }) {
       const url = `${COMMONS_API}action=query&list=geosearch&gsnamespace=6&gslimit=50&gsradius=${NEARBY_RADIUS_M}&gscoord=${s.lat}|${s.lon}`;
       try {
         push(s.code, nearbyCandidates(await apiJson(cache, url, `commons-cerca-${s.code}.json`, SEARCH_MAX_AGE_MS), s.name));
-      } catch { /* Commons «demasiado ocupado»: se reintenta en la siguiente carga */ }
+      } catch { skipped++; } // Commons «demasiado ocupado»: se reintenta en la siguiente carga
     }
   };
   await Promise.all(Array.from({ length: NEARBY_CONCURRENCY }, worker));

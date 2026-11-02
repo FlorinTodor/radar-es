@@ -47,16 +47,16 @@ test('el planificador lee cada fuente por su id, escalonadas 250 ms', async (t) 
   }
 });
 
-test('los catálogos se recargan cada 6 h y dejan de recargarse al parar', async (t) => {
+test('los catálogos se recargan cada hora y dejan de recargarse al parar', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
   let refreshed = 0;
   const scheduler = startPolling({ feeds: [], ingestSource: async () => true, detectAlerts() {}, refreshCatalogs: async () => { refreshed++; }, log: quietLog });
-  t.mock.timers.tick(6 * HOUR - 1);
+  t.mock.timers.tick(HOUR - 1);
   assert.equal(refreshed, 0, 'la primera carga la hace el arranque');
   t.mock.timers.tick(1);
   await flush();
   assert.equal(refreshed, 1);
-  t.mock.timers.tick(6 * HOUR);
+  t.mock.timers.tick(HOUR);
   await flush();
   assert.equal(refreshed, 2);
   scheduler.stop();
@@ -74,7 +74,7 @@ test('si la recarga de catálogos falla, se registra y el planificador sigue', a
     log: { ...quietLog, warn: (msg) => warnings.push(msg) },
   });
   try {
-    t.mock.timers.tick(6 * HOUR);
+    t.mock.timers.tick(HOUR);
     await flush();
     assert.deepEqual(warnings, ['[catálogos] Renfe no responde']);
   } finally {
