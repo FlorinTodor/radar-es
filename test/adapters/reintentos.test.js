@@ -11,6 +11,7 @@ import { strToU8, zipSync } from 'fflate';
 import { createGtfsScheduleSource } from '../../server/adapters/outbound/sources/gtfs-horario.js';
 import { NETWORKS, createGtfsNetworkCatalog } from '../../server/adapters/outbound/network/gtfs-network-catalog.js';
 import { RENFE_FILES, createRenfeStationCatalog } from '../../server/adapters/outbound/stations/renfe-station-catalog.js';
+import { STATION_NETWORKS, createNetworkStationCatalog } from '../../server/adapters/outbound/stations/network-station-catalog.js';
 
 const MIN = 60_000;
 const NOW = Date.parse('2026-11-01T11:00:00Z'); // 12:00 en Madrid
@@ -140,4 +141,39 @@ test('estaciones: si faltan fotos o fichas (Wikimedia no responde), el catálogo
   await catalog.load(); // con copia: se rehace detrás
   await again;
   assert.equal(downloads, 2, 'a la hora, se rehace');
+});
+
+test('estaciones de otras redes: si falla una red o Wikimedia, el catálogo se rehace a la hora', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: NOW });
+  const dir = await tempDir(t);
+  const metro = zipSync({
+    'routes.txt': csv(['route_id,route_short_name,route_long_name,route_type', 'L1,L1,Línea 1,1']),
+    'trips.txt': csv(['route_id,service_id,trip_id', 'L1,S,v1']),
+    'stop_times.txt': csv(['trip_id,stop_sequence,stop_id,arrival_time', 'v1,1,a,08:00:00', 'v1,2,b,08:03:00']),
+    'stops.txt': csv(['stop_id,stop_name,stop_lat,stop_lon,location_type,parent_station', 'a,Alfa,41.38,2.17,1,', 'b,Beta,41.39,2.18,1,']),
+  });
+  let reads = 0;
+  const first = STATION_NETWORKS[0].ficheroId;
+  const nap = {
+    gtfs: async (id) => { if (id === first) reads++; if (id !== first) throw new Error('no disponible'); return metro; },
+    updatedAt: async () => null,
+  };
+  const cache = { bytes: async () => { throw new Error('Wikimedia no responde'); } };
+  let done;
+  const log = { info: () => done?.(), warn() {} };
+  const rebuilt = () => new Promise((resolve) => { done = resolve; });
+  const catalog = createNetworkStationCatalog({ nap, cache, cacheDir: pathToFileURL(`${dir}/`), log });
+  let again = rebuilt();
+  await catalog.load(); // sin copia: se calcula detrás
+  await again;
+  assert.equal(reads, 1);
+  assert.ok(catalog.all().length > 0, 'con lo que sí se ha conseguido');
+  t.mock.timers.tick(59 * MIN);
+  await catalog.load();
+  assert.equal(reads, 1, 'antes de la hora, no');
+  t.mock.timers.tick(MIN);
+  again = rebuilt();
+  await catalog.load();
+  await again;
+  assert.equal(reads, 2, 'a la hora, se rehace');
 });
