@@ -157,7 +157,7 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
       { code, name, place, province, lat, lon, cercanias, metricGauge, accessible, ...(networkId ? { network: net, networkId, mode } : {}) })),
     station: (code) => stations.get(code) ?? networkStations?.get(code) ?? null,
     lines: () => network.lines(),
-    lineSources: () => network.sources?.() ?? [],
+    lineSources: () => network.sources(),
     /**
      * Recorrido reciente de un vehículo. Los de posición estimada usan su trazado (las posiciones de
      * cada lectura, unidas con rectas, cruzarían manzanas); los que no tienen trazado, ninguno. Los
