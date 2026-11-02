@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Prepara un VPS Ubuntu para Radar ES. Idempotente: se puede relanzar las veces que haga falta.
-#   ssh root@VPS 'bash -s' < deploy/preparar-vps.sh
-# No toca SSH (eso lo hace deploy/endurecer-ssh.sh) ni el cortafuegos (asegurado a mano), ni da
-# de alta el túnel de Cloudflare, que necesita autorizarse desde el navegador. Ver docs/despliegue.md.
+# Se lanza en el VPS por SSH: bash -s < deploy/preparar-vps.sh
+# No toca el acceso ni el cortafuegos, ni da de alta el túnel de Cloudflare, que necesita
+# autorizarse desde el navegador.
 set -euo pipefail
 
 REPO=FlorinTodor/radar-es
@@ -29,7 +29,7 @@ if ! command -v docker >/dev/null || ! command -v cloudflared >/dev/null; then
   apt-get install -y -qq cloudflared
 fi
 
-# Clave de solo lectura para clonar el repo privado.
+# Clave de solo lectura para clonar el repo.
 [[ -f $CLAVE ]] || ssh-keygen -q -t ed25519 -N '' -C "deploy radar-es@$(hostname)" -f "$CLAVE"
 if ! grep -q "^Host $ALIAS\$" /root/.ssh/config 2>/dev/null; then
   printf 'Host %s\n  HostName github.com\n  User git\n  IdentityFile %s\n  IdentitiesOnly yes\n' "$ALIAS" "$CLAVE" >> /root/.ssh/config
@@ -44,7 +44,7 @@ fi
 if [[ ! -d $DIR/.git ]]; then
   if ! git clone --quiet --branch produccion "git@$ALIAS:$REPO.git" "$DIR"; then
     echo "No se pudo clonar. Añade esta clave como deploy key (solo lectura) en GitHub y relanza:" >&2
-    echo "  gh repo deploy-key add - --repo $REPO --title vps-contabo <<< '$(cat "$CLAVE.pub")'" >&2
+    echo "  gh repo deploy-key add - --repo $REPO --title vps-radar <<< '$(cat "$CLAVE.pub")'" >&2
     exit 1
   fi
 fi

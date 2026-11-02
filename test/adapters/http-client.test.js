@@ -8,6 +8,9 @@ const MB = 1024 * 1024;
 let server;
 let base;
 const sent = { chunked: 0 };
+// Se cumple cuando el servidor ve cerrada la respuesta sin Content-Length: ya no puede mandar más.
+let chunkedClosed;
+const chunkedDone = new Promise((resolve) => { chunkedClosed = resolve; });
 before(async () => {
   server = createServer((req, res) => {
     if (req.url === '/texto') return res.end('{"á":1}');
@@ -22,7 +25,10 @@ before(async () => {
       sent.chunked++;
       res.write(Buffer.alloc(MB));
     }, 10);
-    res.on('close', () => clearInterval(timer));
+    res.on('close', () => {
+      clearInterval(timer);
+      chunkedClosed();
+    });
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${server.address().port}`;
@@ -44,6 +50,6 @@ test('si el Content-Length pasa del tope, falla sin descargar el cuerpo', async 
 
 test('sin Content-Length, corta la descarga en cuanto pasa del tope', async () => {
   await assert.rejects(createHttpClient().bytes(`${base}/sin-longitud`, { maxBytes: 2 * MB }), /Respuesta de más de 2 MB/);
-  await new Promise((r) => setTimeout(r, 100));
+  await chunkedDone;
   assert.ok(sent.chunked < 10, `el servidor llegó a mandar ${sent.chunked} MB`);
 });

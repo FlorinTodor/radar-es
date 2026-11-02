@@ -102,7 +102,8 @@ proxy_al_dia() {
 
 # nginx pasa a $1: las peticiones en curso terminan con el anterior. Cada paso se comprueba (dentro
 # de un `if`, bash no para en los errores) y, al final, se pregunta a nginx quién atiende: sólo si es
-# $1 se puede parar el otro. La cabecera X-Radar-Activo sólo sale si se pide (X-Radar-Relevo: 1).
+# $1 se puede parar el otro. La cabecera X-Radar-Activo sólo sale si se pide (X-Radar-Relevo: 1)
+# desde el propio servidor, no por Cloudflare.
 cambiar_a() {
   local destino=$1 atiende=
   printf 'set $radar_activo %s;\n' "$destino" > "$ACTIVO.nuevo" || return 1
