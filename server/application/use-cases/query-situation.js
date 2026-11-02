@@ -9,16 +9,19 @@ import { gaugeFactors, matchToRail, routeAhead } from '../../domain/rail-match.j
 // cuando el tren da una posición nueva. Caben todos los trenes de cada memo a la vez, con margen: si
 // fueran menos que los que se miran, cada cálculo nuevo echaría otro y el memo se vaciaría en bucle.
 const TRAIN_MEMO_MAX = 1_000;
+const SWEEP_MIN = 64; // por debajo de esto no se barre: es poca memoria
 const round5 = (x) => Math.round(x * 1e5) / 1e5;
 
 /**
  * Cálculos por tren guardados mientras no cambien `key` ni la red: `get(id, net, key, compute)`. Sin
- * memoria de más: al guardar uno nuevo salen los trenes que ya no tienen recorrido (`live`) y, si aun
- * así son muchos, los calculados hace más.
+ * memoria de más: cuando el memo dobla lo que tenía tras el último barrido, salen los trenes que ya no
+ * tienen recorrido (`live`) y, si aun así son muchos, los calculados hace más. Barrer en cada cálculo
+ * nuevo costaba recorrer el memo entero cientos de veces por lectura (la flecha de cada Cercanías).
  */
 function makeTrainMemo(live) {
-  const memo = new Map(); // id → { key, value }
+  const memo = new Map(); // id → { key, value }, del calculado hace más al más reciente
   let memoNet = null;
+  let sweepAt = SWEEP_MIN;
   return (id, net, key, compute) => {
     if (net !== memoNet) { // red o trazados nuevos (al recargarlos): lo calculado con los anteriores no vale
       memo.clear();
@@ -27,9 +30,13 @@ function makeTrainMemo(live) {
     const hit = memo.get(id);
     if (hit?.key === key) return hit.value;
     const value = compute();
-    const tracks = live();
     memo.delete(id);
-    for (const old of memo.keys()) if (!tracks.has(old) || memo.size >= TRAIN_MEMO_MAX) memo.delete(old);
+    if (memo.size >= sweepAt) {
+      const tracks = live();
+      for (const old of memo.keys()) if (!tracks.has(old)) memo.delete(old);
+      for (const old of memo.keys()) if (memo.size >= TRAIN_MEMO_MAX) memo.delete(old); else break;
+      sweepAt = Math.min(TRAIN_MEMO_MAX, Math.max(SWEEP_MIN, memo.size * 2));
+    }
     memo.set(id, { key, value });
     return value;
   };
@@ -190,7 +197,11 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
       }
       const trip = railTripOf(id);
       if (trip !== undefined) return railAhead(id, trip);
-      const v = withStops.size ? situation.vehicles().find((x) => x.id === id) : null;
+      // Sólo si una fuente sabe sus paradas (una búsqueda en su Map) se busca el vehículo: la lista de
+      // vehículos se monta entera en cada consulta (miles, con los autobuses), y un id inventado no
+      // debe costar eso (ni gasta el presupuesto de /api/ahead, porque no da nada).
+      if (![...withStops.values()].some((s) => s.stopsAhead(id))) return null;
+      const v = situation.vehicles().find((x) => x.id === id);
       const path = v ? stopsPath(v) : null;
       return path && path.length > 1 ? path.map(([lon, lat]) => [Math.round(lon * 1e5) / 1e5, Math.round(lat * 1e5) / 1e5]) : null;
     },
