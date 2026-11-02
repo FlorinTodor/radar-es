@@ -13,8 +13,10 @@ export const DEFAULT_THRESHOLDS = Object.freeze({
   quakeWindowHours: 3,
   gridDropHigh: -0.10,      // demanda eléctrica real frente a prevista
   gridDropCritical: -0.25,
-  isolatedGridDrop: 0.5,        // isla, Ceuta o Melilla: demanda real por debajo de la mitad de la programada
-  isolatedGridZero: 0.05,       // …y por debajo del 5 %: posible apagón total
+  // Isla, Ceuta o Melilla: demanda real por debajo de la mitad de la esperada, que es la programada o,
+  // si es mayor, la máxima de las dos últimas horas (tras un apagón REE reprograma la prevista a la baja).
+  isolatedGridDrop: 0.5,
+  isolatedGridZero: 0.05,       // …y por debajo del 5 % de la esperada: posible apagón total
   isolatedGridStaleMinutes: 30, // con un dato más viejo no se sabe si sigue así
   fleetDropRatio: 0.6,      // quedan menos del 60 % de los trenes de hace ~10 min
   staleFeedMinutes: 10,

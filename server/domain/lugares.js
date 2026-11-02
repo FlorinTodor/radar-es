@@ -30,33 +30,43 @@ export const ILLES_BALEARS = [
   { name: 'Formentera', lat: 38.7, lon: 1.45 },
 ];
 
-/** Provincias de las comunidades con avisos integrados. */
+// Cada provincia lleva la clave de su comunidad en COMUNIDADES (`region`): así un adaptador sabe cuáles
+// son las de su comunidad sin repetir la lista.
+const enComunidad = (region, places) => places.map((p) => ({ ...p, region }));
+
+/**
+ * Provincias de las comunidades con avisos integrados.
+ * @type {Array<Place & { region: string }>}
+ */
 export const PROVINCIAS = [
-  // Andalucía
-  { name: 'Almería', lat: 37.19, lon: -2.34 },
-  { name: 'Cádiz', lat: 36.55, lon: -5.76 },
-  { name: 'Córdoba', lat: 37.99, lon: -4.78 },
-  { name: 'Granada', lat: 37.31, lon: -3.27 },
-  { name: 'Huelva', lat: 37.57, lon: -6.83 },
-  { name: 'Jaén', lat: 37.99, lon: -3.46 },
-  { name: 'Málaga', lat: 36.81, lon: -4.59 },
-  { name: 'Sevilla', lat: 37.43, lon: -5.68 },
-  // Castilla-La Mancha
-  { name: 'Albacete', lat: 38.82, lon: -1.98 },
-  { name: 'Ciudad Real', lat: 38.92, lon: -3.84 },
-  { name: 'Cuenca', lat: 39.9, lon: -2.19 },
-  { name: 'Guadalajara', lat: 40.81, lon: -2.62 },
-  { name: 'Toledo', lat: 39.79, lon: -4.15 },
-  // Castilla y León
-  { name: 'Ávila', lat: 40.57, lon: -4.98 },
-  { name: 'Burgos', lat: 42.35, lon: -3.58 },
-  { name: 'León', lat: 42.62, lon: -5.84 },
-  { name: 'Palencia', lat: 42.37, lon: -4.54 },
-  { name: 'Salamanca', lat: 40.8, lon: -6.06 },
-  { name: 'Segovia', lat: 41.17, lon: -4.05 },
-  { name: 'Soria', lat: 41.62, lon: -2.59 },
-  { name: 'Valladolid', lat: 41.64, lon: -4.85 },
-  { name: 'Zamora', lat: 41.73, lon: -6.05 },
+  ...enComunidad('andalucia', [
+    { name: 'Almería', lat: 37.19, lon: -2.34 },
+    { name: 'Cádiz', lat: 36.55, lon: -5.76 },
+    { name: 'Córdoba', lat: 37.99, lon: -4.78 },
+    { name: 'Granada', lat: 37.31, lon: -3.27 },
+    { name: 'Huelva', lat: 37.57, lon: -6.83 },
+    { name: 'Jaén', lat: 37.99, lon: -3.46 },
+    { name: 'Málaga', lat: 36.81, lon: -4.59 },
+    { name: 'Sevilla', lat: 37.43, lon: -5.68 },
+  ]),
+  ...enComunidad('castilla-la-mancha', [
+    { name: 'Albacete', lat: 38.82, lon: -1.98 },
+    { name: 'Ciudad Real', lat: 38.92, lon: -3.84 },
+    { name: 'Cuenca', lat: 39.9, lon: -2.19 },
+    { name: 'Guadalajara', lat: 40.81, lon: -2.62 },
+    { name: 'Toledo', lat: 39.79, lon: -4.15 },
+  ]),
+  ...enComunidad('castilla-y-leon', [
+    { name: 'Ávila', lat: 40.57, lon: -4.98 },
+    { name: 'Burgos', lat: 42.35, lon: -3.58 },
+    { name: 'León', lat: 42.62, lon: -5.84 },
+    { name: 'Palencia', lat: 42.37, lon: -4.54 },
+    { name: 'Salamanca', lat: 40.8, lon: -6.06 },
+    { name: 'Segovia', lat: 41.17, lon: -4.05 },
+    { name: 'Soria', lat: 41.62, lon: -2.59 },
+    { name: 'Valladolid', lat: 41.64, lon: -4.85 },
+    { name: 'Zamora', lat: 41.73, lon: -6.05 },
+  ]),
 ];
 
 export const COMUNIDADES = {
@@ -69,17 +79,28 @@ export const COMUNIDADES = {
   'la-rioja': { name: 'La Rioja', lat: 42.27, lon: -2.52 },
 };
 
+/** Una isla de Canarias por su nombre, con sus coordenadas de ISLAS_CANARIAS (sin repetirlas). */
+function islaCanaria(name) {
+  const isla = ISLAS_CANARIAS.find((p) => p.name === name);
+  if (!isla) throw new Error(`lugares: «${name}» no está en ISLAS_CANARIAS`);
+  return { name, lat: isla.lat, lon: isla.lon };
+}
+
 /**
  * Sistemas eléctricos aislados con su demanda en tiempo real (Red Eléctrica): cada isla o grupo de
  * islas conectadas de Canarias, Ceuta y Melilla. Baleares no publica su demanda real en tiempo real.
+ * `id` es la clave con la que el adaptador de la fuente (e·sios) da la demanda de cada uno: el dominio
+ * lo sitúa por ella, no por el nombre que traiga la fuente.
+ * @type {Array<Place & { id: string }>}
  */
 export const SISTEMAS_AISLADOS = [
-  { name: 'Gran Canaria', lat: 27.96, lon: -15.6 },
-  { name: 'Lanzarote y Fuerteventura', lat: 28.75, lon: -13.85 },
-  { name: 'Tenerife', lat: 28.29, lon: -16.62 },
-  { name: 'La Palma', lat: 28.68, lon: -17.86 },
-  { name: 'La Gomera', lat: 28.11, lon: -17.23 },
-  { name: 'El Hierro', lat: 27.74, lon: -18.02 },
-  { name: 'Ceuta', lat: 35.889, lon: -5.316 },
-  { name: 'Melilla', lat: 35.292, lon: -2.938 },
+  { id: 'gran-canaria', ...islaCanaria('Gran Canaria') },
+  // Dos islas conectadas entre sí: un solo sistema, situado entre las dos (no es ninguna de ISLAS_CANARIAS).
+  { id: 'lanzarote-fuerteventura', name: 'Lanzarote y Fuerteventura', lat: 28.75, lon: -13.85 },
+  { id: 'tenerife', ...islaCanaria('Tenerife') },
+  { id: 'la-palma', ...islaCanaria('La Palma') },
+  { id: 'la-gomera', ...islaCanaria('La Gomera') },
+  { id: 'el-hierro', ...islaCanaria('El Hierro') },
+  { id: 'ceuta', name: 'Ceuta', lat: 35.889, lon: -5.316 },
+  { id: 'melilla', name: 'Melilla', lat: 35.292, lon: -2.938 },
 ];

@@ -1,6 +1,6 @@
 // Fuentes de avisos oficiales de emergencias: cada una lee su formato tal y como lo publica su
 // administración (con los mismos campos y rarezas que el original) y da los avisos en vigor.
-// Sin red ni esperas: http y geocodificador falsos, reloj simulado.
+// Sin red ni esperas: http y geocodificador falsos y el reloj de cada fuente fijado (`now`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -9,6 +9,8 @@ import {
 } from '../../server/adapters/outbound/sources/emergencias-oficiales.js';
 
 const NOW = Date.parse('2026-11-02T12:00:00Z');
+const HOUR = 3_600_000;
+const clock = () => NOW;
 const fakeHttp = (byUrl) => ({
   text: async (url) => { const body = byUrl(url); if (body instanceof Error) throw body; return body; },
   json: async (url) => { const body = byUrl(url); if (body instanceof Error) throw body; return body; },
@@ -50,9 +52,8 @@ const CANARIAS_XML = rss([
   canariasItem({ p: 870, title: 'El Gobierno de Canarias analiza el estado de las infraestructuras y barrancos ante la próxima temporada de lluvias', date: 'Mon, 02 Nov 2026 08:00:00 +0000' }),
 ].join(''));
 
-test('Canarias: el apagón de La Palma en su isla (la del campo de ámbito, no la del texto), con sus observaciones', async (t) => {
-  t.mock.timers.enable({ apis: ['Date'], now: NOW });
-  const src = createCanariasAlertasSource({ http: fakeHttp(() => CANARIAS_XML) });
+test('Canarias: el apagón de La Palma en su isla (la del campo de ámbito, no la del texto), con sus observaciones', async () => {
+  const src = createCanariasAlertasSource({ http: fakeHttp(() => CANARIAS_XML), now: clock });
   const { events, sourceTime } = await src.fetch();
   const cut = events.find((e) => e.power);
   assert.equal(cut.id, 'emergencias-canarias:899:la-palma');
@@ -67,9 +68,8 @@ test('Canarias: el apagón de La Palma en su isla (la del campo de ámbito, no l
   assert.match(src.license, /^Fuente: Gobierno de Canarias · CC BY 4\.0/);
 });
 
-test('Canarias: la alerta por lluvias más nueva sustituye a la anterior; la calima ya finalizó; lo que no es un aviso no entra', async (t) => {
-  t.mock.timers.enable({ apis: ['Date'], now: NOW });
-  const { events } = await createCanariasAlertasSource({ http: fakeHttp(() => CANARIAS_XML) }).fetch();
+test('Canarias: la alerta por lluvias más nueva sustituye a la anterior; la calima ya finalizó; lo que no es un aviso no entra', async () => {
+  const { events } = await createCanariasAlertasSource({ http: fakeHttp(() => CANARIAS_XML), now: clock }).fetch();
   const rain = events.filter((e) => !e.power).map((e) => `${e.area}:${e.severity}:${e.id.split(':')[1]}`).sort();
   assert.deepEqual(rain, ['El Hierro:alta:900', 'La Gomera:alta:900', 'La Palma:alta:900']);
   assert.ok(events.every((e) => e.group === `emergencias-canarias:${e.id.split(':')[1]}`));
@@ -77,8 +77,7 @@ test('Canarias: la alerta por lluvias más nueva sustituye a la anterior; la cal
 });
 
 // ---------- Cataluña ----------
-test('Cataluña: planes activos con su fase y su fecha (día/mes), el PDF del CECAT y la fecha de actualización', async (t) => {
-  t.mock.timers.enable({ apis: ['Date'], now: NOW });
+test('Cataluña: planes activos con su fase y su fecha (día/mes), el PDF del CECAT y la fecha de actualización', async () => {
   const rows = [
     {
       plaicona: { url: 'https://documents.dadesobertes.gencat.cat/cecat/docs/ico_INUNCAT.png' }, plaacronim: 'INUNCAT', planom: 'INUNCAT',
@@ -134,10 +133,9 @@ const NEWS = andaluciaNews([
   { id: 'GeNews-302', title: 'Dos personas evacuadas al hospital tras un incendio de vivienda en Puente Genil', publication_date: '2026-11-01T13:16:00.000Z', body: '<p>Sin más.</p>' },
 ]);
 
-test('Andalucía: cortes de luz en los pueblos que cita la noticia, situados con CartoCiudad; la luz que vuelve no cuenta', async (t) => {
-  t.mock.timers.enable({ apis: ['Date'], now: NOW });
+test('Andalucía: cortes de luz en los pueblos que cita la noticia, situados con CartoCiudad; la luz que vuelve no cuenta', async () => {
   const geocoder = fakeGeocoder({ Benamahoma: [36.77, -5.47], Espera: [36.87, -5.8], 'San José del Valle': [36.61, -5.8], 'Puerto Serrano': [36.92, -5.54] });
-  const src = createAndaluciaEmergenciasSource({ http: fakeHttp(() => NEWS), geocoder });
+  const src = createAndaluciaEmergenciasSource({ http: fakeHttp(() => NEWS), geocoder, now: clock });
   const { events, sourceTime } = await src.fetch();
   const cuts = events.filter((e) => e.power).map((e) => `${e.area}:${e.approx}`).sort();
   assert.deepEqual(cuts, ['Benamahoma:municipio', 'Espera:municipio', 'San José del Valle:municipio'], 'en Puerto Serrano ya ha vuelto');
@@ -151,9 +149,8 @@ test('Andalucía: cortes de luz en los pueblos que cita la noticia, situados con
   assert.equal(sourceTime, Date.parse('2026-11-02T09:30:00Z'));
 });
 
-test('Andalucía: el plan activado en su provincia; las noticias que no son ni planes ni cortes no entran', async (t) => {
-  t.mock.timers.enable({ apis: ['Date'], now: NOW });
-  const { events } = await createAndaluciaEmergenciasSource({ http: fakeHttp(() => NEWS), geocoder: fakeGeocoder({}) }).fetch();
+test('Andalucía: el plan activado en su provincia; las noticias que no son ni planes ni cortes no entran', async () => {
+  const { events } = await createAndaluciaEmergenciasSource({ http: fakeHttp(() => NEWS), geocoder: fakeGeocoder({}), now: clock }).fetch();
   const plan = events.find((e) => e.type === 'plan');
   assert.equal(plan.area, 'Cádiz');
   assert.equal(plan.approx, 'provincia');
@@ -168,20 +165,39 @@ const clmItem = (slug, title, iso) => `<item><title>${title}</title><link>https:
   <description>${title}&lt;span class="field field--name-uid"&gt;&lt;span&gt;omgf04&lt;/span&gt;&lt;/span&gt; &lt;time datetime="${iso}" class="datetime"&gt;x&lt;/time&gt; &lt;div class="social-sharing-buttons"&gt;¿Te ha gustado? Comparte:&lt;/div&gt;</description>
   <pubDate>Wed, 28 Oct 2026 09:07:53 +0000</pubDate></item>`;
 
-test('Castilla-La Mancha: planes por provincia con la fecha de su publicación; nunca el usuario que lo publicó', async (t) => {
-  t.mock.timers.enable({ apis: ['Date'], now: NOW });
+test('Castilla-La Mancha: planes por provincia con la fecha de su publicación; nunca el usuario que lo publicó', async () => {
   const xml = rss([
     clmItem('platecam-activado-en-la-provincia-de-toledo', 'PLATECAM, activado en la provincia de Toledo', '2026-11-02T10:07:53+01:00'),
     clmItem('meteocam-cuenca-y-guadalajara', 'METEOCAM. Cuenca y Guadalajara', '2026-11-01T20:57:22+01:00'),
     clmItem('meteocam-desactivado-en-guadalajara', 'METEOCAM, desactivado en Guadalajara', '2026-11-02T08:00:00+01:00'),
   ].join(''));
-  const { events, sourceTime } = await createClmPlansSource({ http: fakeHttp(() => xml) }).fetch();
+  const { events, sourceTime } = await createClmPlansSource({ http: fakeHttp(() => xml), now: clock }).fetch();
   assert.deepEqual(events.map((e) => e.area).sort(), ['Cuenca', 'Toledo'], 'Guadalajara ya se desactivó');
   const toledo = events.find((e) => e.area === 'Toledo');
   assert.equal(toledo.issued, Date.parse('2026-11-02T09:07:53Z'));
   assert.equal(toledo.description, '');
   assert.ok(events.every((e) => !JSON.stringify(e).includes('omgf04')));
   assert.equal(sourceTime, Date.parse('2026-11-02T09:07:53Z'));
+});
+
+test('Castilla-La Mancha: un corte de luz ya caducado no tapa la alerta de su provincia que sigue en vigor', async () => {
+  // El fallo de la auditoría: el corte de hace 30 h (un día de vigencia) ocupaba el sitio de la alerta
+  // de hace 40 h (cuatro días) y, al quitarlo después por viejo, Toledo se quedaba sin nada.
+  const iso = (hoursAgo) => new Date(NOW - hoursAgo * HOUR).toISOString();
+  const xml = rss([
+    clmItem('corte-de-luz-en-toledo', 'Corte de luz en Toledo', iso(30)),
+    clmItem('meteocam-alerta-toledo', 'METEOCAM. Activada la alerta en la provincia de Toledo', iso(40)),
+  ].join(''));
+  const { events } = await createClmPlansSource({ http: fakeHttp(() => xml), now: clock }).fetch();
+  assert.deepEqual(events.map((e) => `${e.title} @ ${e.area}`), ['METEOCAM. Activada la alerta en la provincia de Toledo @ Toledo']);
+  assert.equal(events[0].approx, 'provincia');
+  assert.equal(events[0].type, 'plan');
+});
+
+test('Castilla-La Mancha: sólo sus provincias, sacadas de la tabla de lugares', async () => {
+  const xml = rss(clmItem('meteocam-x', 'METEOCAM. Toledo y Cuenca, como en Sevilla', '2026-11-02T10:00:00+01:00'));
+  const { events } = await createClmPlansSource({ http: fakeHttp(() => xml), now: clock }).fetch();
+  assert.deepEqual(events.map((e) => e.area).sort(), ['Cuenca', 'Toledo']);
 });
 
 // ---------- La Rioja ----------
@@ -195,10 +211,9 @@ const RIOJA_BACK = riojaItem('restablecido-suministro-1b', 'Restablecido el sumi
   'Iberdrola comunica que se ha restablecido el suministro eléctrico en Ventrosa.');
 const RIOJA_OTHER = riojaItem('colision-1c', 'Colisión de un turismo con un patinete', '2/11/2026 a las 08:02 en Logroño', 'Un particular alerta a SOS RIOJA 112.');
 
-test('La Rioja: la avería en los pueblos que cita, con la hora del suceso (no la del RSS)', async (t) => {
-  t.mock.timers.enable({ apis: ['Date'], now: NOW });
+test('La Rioja: la avería en los pueblos que cita, con la hora del suceso (no la del RSS)', async () => {
   const geocoder = fakeGeocoder({ Ventrosa: [42.16, -2.85], Brieva: [42.16, -2.88] });
-  const src = createRiojaSosSource({ http: fakeHttp(() => rss(RIOJA_CUT + RIOJA_OTHER)), geocoder });
+  const src = createRiojaSosSource({ http: fakeHttp(() => rss(RIOJA_CUT + RIOJA_OTHER)), geocoder, now: clock });
   const { events, sourceTime } = await src.fetch();
   assert.deepEqual(events.map((e) => e.area).sort(), ['Brieva', 'Ventrosa']);
   assert.ok(events.every((e) => e.issued === Date.parse('2026-11-02T08:16:00Z')));
@@ -207,10 +222,9 @@ test('La Rioja: la avería en los pueblos que cita, con la hora del suceso (no l
   assert.equal(sourceTime, Date.parse('2026-11-02T08:16:00Z'), 'la incidencia más reciente (las 08:02 o las 09:16), no el pubDate');
 });
 
-test('La Rioja: «Restablecido el suministro eléctrico» cierra la avería', async (t) => {
-  t.mock.timers.enable({ apis: ['Date'], now: NOW });
+test('La Rioja: «Restablecido el suministro eléctrico» cierra la avería', async () => {
   const geocoder = fakeGeocoder({ Ventrosa: [42.16, -2.85], Brieva: [42.16, -2.88] });
-  const { events } = await createRiojaSosSource({ http: fakeHttp(() => rss(RIOJA_BACK + RIOJA_CUT)), geocoder }).fetch();
+  const { events } = await createRiojaSosSource({ http: fakeHttp(() => rss(RIOJA_BACK + RIOJA_CUT)), geocoder, now: clock }).fetch();
   assert.deepEqual(events.map((e) => e.area), [], 'la vuelta en Ventrosa cierra la avería entera, también en Brieva');
 });
 
@@ -218,12 +232,12 @@ test('La Rioja: «Restablecido el suministro eléctrico» cierra la avería', as
 const cylItem = (id, title, desc, date) => `<item><title>${title}</title><description>${desc}</description><pubDate>${date}</pubDate>
   <link><![CDATA[https://112.jcyl.es/web/jcyl/112/es/Plantilla100Detalle/1284178030391/Incidente/${id}/Emergencia?utm_source=suscripcion&utm_medium=rss]]></link></item>`;
 
-test('Castilla y León: guarda el corte aunque el feed (de una sola entrada) ya publique otra cosa, y lo suelta al día', async (t) => {
-  t.mock.timers.enable({ apis: ['Date'], now: NOW });
+test('Castilla y León: guarda el corte aunque el feed (de una sola entrada) ya publique otra cosa, y lo suelta al día', async () => {
   let feed = rss(cylItem('1285694676100', 'Sin suministro eléctrico varias localidades de la comarca',
     'Riaño (Le&amp;oacute;n) - El Centro Coordinador de Emergencias informa de que varias localidades est&amp;aacute;n sin suministro el&amp;eacute;ctrico...', 'Mon, 02 Nov 2026 10:00:00 GMT'));
   const geocoder = fakeGeocoder({ 'Riaño': [42.97, -5.0] });
-  const src = createCyl112Source({ http: fakeHttp(() => feed), geocoder });
+  let now = NOW;
+  const src = createCyl112Source({ http: fakeHttp(() => feed), geocoder, now: () => now });
   let { events } = await src.fetch();
   assert.equal(events.length, 1);
   assert.equal(events[0].area, 'Riaño');
@@ -235,7 +249,7 @@ test('Castilla y León: guarda el corte aunque el feed (de una sola entrada) ya 
   ({ events } = await src.fetch());
   assert.equal(events.length, 1, 'el corte sigue aunque el feed ya no lo traiga');
 
-  t.mock.timers.tick(25 * 3_600_000);
+  now += 25 * HOUR;
   ({ events } = await src.fetch());
   assert.equal(events.length, 0, 'a las 24 h sin noticias se deja de mostrar');
 });
@@ -254,9 +268,8 @@ const BALEAR_ITEMS = [
   balearItem(5, 'Salut impulsa la investigación contra el cáncer con un convenio', 'Mon, 02 Nov 2026 12:39:00 +0100'),
 ];
 
-test('Baleares: alertas por isla desde la sala de prensa del Govern (ISO-8859-1), enlazadas en www.caib.es', async (t) => {
-  t.mock.timers.enable({ apis: ['Date'], now: NOW });
-  const src = createBalearsPremsaSource({ http: { bytes: async () => balearFeed(BALEAR_ITEMS.join('')) } });
+test('Baleares: alertas por isla desde la sala de prensa del Govern (ISO-8859-1), enlazadas en www.caib.es', async () => {
+  const src = createBalearsPremsaSource({ http: { bytes: async () => balearFeed(BALEAR_ITEMS.join('')) }, now: clock });
   const { events, sourceTime } = await src.fetch();
   assert.deepEqual(events.map((e) => `${e.area}:${e.severity}`).sort(), ['Formentera:muy alta', 'Ibiza:muy alta', 'Mallorca:muy alta'],
     'la roja sustituye a la naranja; la reunión del CECOPI, el Plan de Fosas y lo demás no son avisos');
@@ -270,10 +283,22 @@ test('Baleares: alertas por isla desde la sala de prensa del Govern (ISO-8859-1)
   assert.equal(src.interval, 900_000);
 });
 
-test('Baleares: «Decretado el fin de la emergencia» cierra las alertas de sus islas', async (t) => {
-  t.mock.timers.enable({ apis: ['Date'], now: NOW });
+test('Baleares: «Decretado el fin de la emergencia» cierra las alertas de sus islas', async () => {
   const fin = balearItem(6, 'Decretado el fin de la emergencia en Ibiza, Formentera y Mallorca', 'Mon, 02 Nov 2026 12:00:00 +0100');
-  const { events } = await createBalearsPremsaSource({ http: { bytes: async () => balearFeed(BALEAR_ITEMS.join('') + fin) } }).fetch();
+  const { events } = await createBalearsPremsaSource({ http: { bytes: async () => balearFeed(BALEAR_ITEMS.join('') + fin) }, now: clock }).fetch();
   assert.deepEqual(events, []);
   assert.equal(decodeXml(new Uint8Array(Buffer.from('<?xml version="1.0" encoding="UTF-8"?><a>ñ</a>', 'utf8'))), '<?xml version="1.0" encoding="UTF-8"?><a>ñ</a>');
+});
+
+test('Baleares: un corte de luz caduca a las 24 h, como en las demás comunidades; un plan sigue', async () => {
+  const feed = balearFeed([
+    balearItem(10, 'Corte de luz en Menorca por la tormenta', 'Mon, 02 Nov 2026 08:00:00 +0100'),
+    balearItem(11, 'Emergencias activa la alerta naranja por lluvias en Mallorca', 'Mon, 02 Nov 2026 08:00:00 +0100'),
+  ].join(''));
+  const at = Date.parse('2026-11-02T07:00:00Z');
+  const fetchAt = (now) => createBalearsPremsaSource({ http: { bytes: async () => feed }, now: () => now }).fetch();
+  const areas = async (now) => (await fetchAt(now)).events.map((e) => `${e.area}:${e.type}`).sort();
+  assert.deepEqual(await areas(at + 23 * HOUR), ['Mallorca:plan', 'Menorca:apagon']);
+  assert.deepEqual(await areas(at + 25 * HOUR), ['Mallorca:plan'], 'el corte, sin noticias de su fin, se deja de mostrar al día');
+  assert.deepEqual(await areas(at + 97 * HOUR), [], 'el plan, a los cuatro días');
 });
