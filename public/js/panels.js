@@ -1,7 +1,7 @@
 // Render de los paneles laterales y la barra de KPIs. Funciones puras de estado → HTML;
 // los clics se gestionan por delegación en app.js mediante data-id / data-kind.
 import {
-  DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, SEVERITY_RANK, creditHtml, esc, fmtDateTime, fmtDelay, fmtNum, fmtTime, safeUrl, sevClass, timeAgo, vehicleTitle,
+  DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, SEVERITY_RANK, creditHtml, esc, fmtDataTime, fmtDateTime, fmtDelay, fmtNum, fmtTime, safeUrl, sevClass, timeAgo, vehicleTitle,
 } from './format.js';
 import { pictoFor, vehicleIconUrl } from './icons.js';
 
@@ -227,7 +227,7 @@ export function renderSources(el, health, lineSources = []) {
         <span class="status ${cls}">${label}</span>
         ${s.count !== null && s.count !== undefined ? `<span>${fmtNum(s.count)} elementos</span>` : ''}
         ${s.lastOk ? `<span>leída ${timeAgo(s.lastOk, now)}</span>` : ''}
-        ${s.sourceTime ? `<span>dato de ${fmtTime(s.sourceTime)}</span>` : ''}
+        ${s.sourceTime ? `<span>dato ${fmtDataTime(s.sourceTime, now)}</span>` : ''}
         ${s.datasetUpdatedFrom ? `<span>horarios actualizados entre el ${fmtDateTime(s.datasetUpdatedFrom)} y el ${fmtDateTime(s.datasetUpdated)}</span>`
           : s.datasetUpdated ? `<span>horario actualizado el ${fmtDateTime(s.datasetUpdated)}</span>` : ''}
         ${s.ms ? `<span>${fmtNum(s.ms)} ms</span>` : ''}

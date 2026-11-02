@@ -42,8 +42,9 @@ identificarse. El primer
 arranque descarga los horarios GTFS en `data/` y tarda unos minutos; los siguientes los leen de ahí.
 Para contar visitas en producción se pone `GOATCOUNTER_URL` (GoatCounter, sin cookies); sin ella
 no se carga ningún contador y la página de privacidad lo indica. Con `ESIOS_TOKEN` (clave gratuita de
-Red Eléctrica, [esios.ree.es/es/token](https://www.esios.ree.es/es/token)) se vigila la demanda de cada
-isla de Canarias, Ceuta y Melilla; sin ella esa fuente se desactiva.
+Red Eléctrica, que se pide desde la web de [e·sios](https://www.esios.ree.es/)) se vigila la demanda de cada
+isla de Canarias, Ceuta y Melilla; sin ella esa fuente se desactiva. Su aviso legal sólo permite enlazar
+la portada de sus webs.
 
 ## Ramas
 

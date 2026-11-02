@@ -1,5 +1,5 @@
 import * as maplibregl from '/vendor/maplibre/maplibre-gl.mjs';
-import { DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, STATUS, esc, fmtDate, fmtDateTime, fmtDelay, fmtLocalHour, fmtTime, creditHtml, photoTitleOf, safeUrl, timeAgo, vehicleTitle } from './format.js';
+import { DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, STATUS, esc, fmtDataTime, fmtDate, fmtDateTime, fmtDelay, fmtLocalHour, fmtTime, creditHtml, photoTitleOf, safeUrl, timeAgo, vehicleTitle } from './format.js';
 import { PICTOS, pictoFor, vehicleImage } from './icons.js';
 import { headingAlong, matchTrack, pathBetween } from './track-match.js';
 
@@ -970,7 +970,7 @@ function sourceRows(id, operator) {
   const schedule = s.datasetUpdatedBy?.[operator] ?? s.datasetUpdated;
   const dates = [
     schedule && `horario del ${fmtDate(schedule)}`,
-    s.sourceTime ? `datos de las ${fmtTime(s.sourceTime)}` : !schedule && s.lastOk && `leídos a las ${fmtTime(s.lastOk)}`,
+    s.sourceTime ? `datos ${fmtDataTime(s.sourceTime)}` : !schedule && s.lastOk && `leídos ${fmtDataTime(s.lastOk)}`,
   ].filter(Boolean);
   // «Atribución» y no «Fuente»: muchas ya empiezan por «Fuente: …» u «Origen de los datos: …».
   // La atribución va como HTML: las que lo piden llevan su enlace (ver creditHtml).
