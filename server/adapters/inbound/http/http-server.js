@@ -58,13 +58,15 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
   // expulsa del memo a /api/lines ni a /api/live, y no puede forzar más de unos pocos cálculos
   // por segundo (sin esto, /api/vehicles?minDelay=<cada vez otro> costaba ~36 ms de CPU por
   // petición: un núcleo saturado con 28 peticiones por segundo).
-  const memoParams = createJsonMemo({ max: 100, now });
+  // Una variante de /api/vehicles pesa unos 3 MB entre JSON y gzip: con el tope de bytes, por muchas
+  // que se pidan nunca ocupan más de PARAMS_MEMO_BYTES (el montón de Node es de unos 500 MB).
+  const memoParams = createJsonMemo({ max: 100, maxBytes: PARAMS_MEMO_BYTES, now });
   const budgets = new Map(Object.keys(routes).filter((path) => routes[path].key).map((path) => [path, createBudget({ now })]));
   // Recorrido y lo que le queda de cada vehículo (/api/tracks/<id>, /api/ahead/<id>). Cada uno puede
   // costar un cálculo por la vía o por las paradas, y hay cientos de vehículos: memo propio, que guarda
   // todos los que se miran a la vez, y un presupuesto que sólo se gasta al calcular. Quien pide otra vez
   // el mismo vehículo antes de TRAIN_TTL_MS recibe la copia, sin gastar nada.
-  const memoTrains = createJsonMemo({ max: TRAIN_MEMO_MAX, now });
+  const memoTrains = createJsonMemo({ max: TRAIN_MEMO_MAX, maxBytes: TRAIN_MEMO_BYTES, now });
   const trainBudget = createBudget({ perSecond: TRAIN_BUDGET.perSecond, burst: TRAIN_BUDGET.burst, now });
 
   const security = Object.entries(securityHeaders(about));
@@ -233,12 +235,20 @@ const REVALIDATE = 'no-cache'; // el navegador guarda la copia y pregunta con el
 const TRAIN_TTL_MS = 10_000;
 const TRAIN_CACHE = 'public, max-age=5, s-maxage=15';
 const TRAIN_MEMO_MAX = 2_000; // más que todos los vehículos que puede haber a la vez con recorrido
+const TRAIN_MEMO_BYTES = 32 * 1024 * 1024;
+const PARAMS_MEMO_BYTES = 48 * 1024 * 1024;
 const TRAIN_BUDGET = { perSecond: 4, burst: 20 };
 const CATALOG_CACHE = 'public, max-age=600, s-maxage=3600';
 /** Directo: Cloudflare lo guarda `edge` s y, si el servidor no responde, sirve la última copia 15 min. */
 const liveCache = (edge) => `public, max-age=0, s-maxage=${edge}, stale-while-revalidate=${edge * 3}, stale-if-error=900`;
-/** Minutos de estela pedidos (1-45; 15 por defecto). Entero, para que no haya infinitas variantes. */
-const trailMinutes = (p) => Math.max(1, Math.min(Math.round(Number(p.get('min'))) || 15, 45));
+/**
+ * Minutos de estela pedidos: 15 (por defecto, lo que pide la web), 30 o 45. Sólo tres variantes: cada
+ * una es una estela de todos los trenes, y con un valor por minuto serían 45 copias en memoria.
+ */
+const trailMinutes = (p) => {
+  const min = Math.round(Number(p.get('min')));
+  return !(min > 15) ? 15 : min <= 30 ? 30 : 45;
+};
 /**
  * Filtros de /api/vehicles y /api/events, acotados para que no haya infinitas variantes caras:
  * el retraso mínimo, entero entre -1 (todos) y 1440 minutos; los identificadores (tipo, fuente,
@@ -285,24 +295,37 @@ export function createBudget({ perSecond = 5, burst = 10, now = Date.now } = {})
 /**
  * Memo de respuestas JSON ya serializadas, comprimidas y firmadas: `get(clave, ttl, calcular)`
  * sólo vuelve a calcular cuando la copia tiene más de `ttl` ms. Como quien llama elige los
- * parámetros (y con ellos las claves), guarda como mucho `max` variantes: al pasar del tope se
- * descarta la más antigua. Con `stableEtag`, la firma no cuenta el campo `generatedAt`.
+ * parámetros (y con ellos las claves), guarda como mucho `max` variantes y `maxBytes` entre todas
+ * (JSON y gzip): al pasar de un tope se descartan las más antiguas. Las copias caducadas se tiran en
+ * cuanto hay que calcular otra: una variante que nadie vuelve a pedir no se queda ocupando memoria.
+ * Con `stableEtag`, la firma no cuenta el campo `generatedAt`.
  */
-export function createJsonMemo({ max = 200, now = Date.now, emptyTtl = 2_000 } = {}) {
+export function createJsonMemo({ max = 200, maxBytes = Infinity, now = Date.now, emptyTtl = 2_000 } = {}) {
   const entries = new Map();
+  let bytes = 0;
+  const drop = (key) => {
+    const e = entries.get(key);
+    if (!e) return;
+    bytes -= e.json.length + e.gz.length;
+    entries.delete(key);
+  };
   return function get(key, ttl, compute, { stableEtag = false, isEmpty } = {}) {
+    const t = now();
     const hit = entries.get(key);
-    if (hit && now() - hit.at < (hit.empty ? emptyTtl : ttl)) return hit;
+    if (hit && t - hit.at < hit.ttl) return hit;
+    for (const [k, e] of entries) if (t - e.at >= e.ttl) drop(k);
     const body = compute();
     const json = Buffer.from(JSON.stringify(body));
     const signed = stableEtag && body?.generatedAt !== undefined ? JSON.stringify({ ...body, generatedAt: undefined }) : json;
+    const empty = Boolean(isEmpty?.(body));
     const entry = {
-      at: now(), json, gz: gzipSync(json), etag: `"${createHash('sha1').update(signed).digest('base64url').slice(0, 20)}"`,
-      empty: Boolean(isEmpty?.(body)),
+      at: now(), ttl: empty ? emptyTtl : ttl, json, gz: gzipSync(json),
+      etag: `"${createHash('sha1').update(signed).digest('base64url').slice(0, 20)}"`, empty,
     };
-    entries.delete(key);
+    drop(key);
     entries.set(key, entry);
-    if (entries.size > max) entries.delete(entries.keys().next().value);
+    bytes += json.length + entry.gz.length;
+    while (entries.size > max || (bytes > maxBytes && entries.size > 1)) drop(entries.keys().next().value);
     return entry;
   };
 }
