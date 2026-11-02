@@ -307,6 +307,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Metro Bilbao con nombres de estación, origen y destino.
 - Los trenes de Alta Velocidad y Larga Distancia mantienen su origen y destino aunque Renfe
   renueve su horario ese día.
+- Un tren de Larga Distancia que da la vuelta en una estación (los Alvia en Monforte de Lemos)
+  conserva su recorrido: su salida hacia atrás tras la parada ya no se toma por un salto erróneo.
 - Cuando el operador pasa el número de un tren a otro convoy, lo anterior cuenta como otro viaje:
   ni se une con una recta en el mapa ni da alertas de retraso falsas. Los túneles no cuentan como
   salto.
@@ -399,6 +401,11 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - La búsqueda del camino por la vía de AVE, Larga y Media Distancia sólo mira las vías del ancho del
   tren y no busca en la red métrica, a la que no puede llegar; los regionales de la antigua Feve van
   por la suya.
+- La flecha de cada Cercanías se calcula sólo hasta sus próximas paradas, no hasta su destino, y
+  cada trazado se prepara una sola vez: el directo se prepara en la mitad de tiempo. Lo calculado de
+  los trenes que acaban su viaje sale de la memoria poco a poco, sin vaciarla de golpe.
+- El puerto de las fuentes declara todo lo que los casos de uso les piden (paradas que le quedan a
+  cada tren, red de sus trazados y lo que le queda a cada posición estimada).
 
 **Despliegue y seguridad**
 - La aplicación funciona aislada, en un contenedor con recursos limitados y cabeceras de

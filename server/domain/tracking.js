@@ -27,6 +27,12 @@ const ECHO_BACK = 4;
 // el tren y más lejos que esto, se retiene como un salto imposible hasta ver el punto siguiente.
 const BACK_KM = 0.4;
 const BACK_DEG = 150;
+// Un tren de Larga Distancia que da la vuelta en una estación (los Alvia en Monforte de Lemos) sale
+// hacia donde venía, con el mismo viaje: tras minutos parado, el rumbo con el que llegó ya no dice
+// hacia dónde va, y su salida no es un salto atrás (antes se borraba su recorrido). En Cercanías no:
+// al dar la vuelta empieza otro viaje (otro historial), y un salto atrás tras una parada es de Renfe.
+const REVERSAL_DWELL_MS = 2 * 60_000;
+const DWELL_RADIUS_KM = 0.15;
 
 const tooFast = (a, b, km, maxKmh = MAX_SPEED_KMH) => km / (Math.max(a.fix && b.fix ? b.fix - a.fix : b.t - (a.seen ?? a.t), 1000) / 3_600_000) > maxKmh;
 
@@ -101,7 +107,11 @@ export function recordPositions(tracks, vehicles, now, { windowMs = TRACK_WINDOW
       stay();
       continue;
     }
-    const heading = gps && last ? headingOf(track) : null;
+    // Cuánto llevaba parado al llegar el salto (si se está reteniendo uno, hasta entonces: mientras se
+    // retiene, el tren no se mueve en el historial, pero eso no es estar parado).
+    const turned = gps && last && v.mode !== 'cercanias'
+      && (pending?.since ?? now) - stationarySince(track, DWELL_RADIUS_KM) >= REVERSAL_DWELL_MS;
+    const heading = gps && last && !turned ? headingOf(track) : null;
     const odd = gps && last && (isSpike(last, point, v.mode) || isBackJump(last, point, heading));
     if (odd && !(pending && now - pending.since > HOLD_MAX_MS)) {
       const from = pending?.point;
