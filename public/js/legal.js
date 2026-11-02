@@ -1,6 +1,7 @@
 // Página legal: datos del titular (de /api/about), contador y estado de cada capa.
 // Va en un fichero aparte y no en línea para que la CSP pueda prohibir los scripts en línea.
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './format.js';
+
 const when = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', dateStyle: 'short', timeStyle: 'medium' });
 const day = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', dateStyle: 'short' });
 // En el móvil cada fila se ve como una ficha: cada celda lleva el nombre de su columna.

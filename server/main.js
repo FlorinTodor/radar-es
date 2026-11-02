@@ -7,7 +7,6 @@ import { makeIngestSource } from './application/use-cases/ingest-source.js';
 import { makeDetectAlerts } from './application/use-cases/detect-alerts.js';
 import { makeQuerySituation } from './application/use-cases/query-situation.js';
 import { makeServeTiles } from './application/use-cases/serve-tiles.js';
-import { makeWatchSituation } from './application/use-cases/watch-situation.js';
 import { makeRefreshCatalogs } from './application/use-cases/refresh-catalogs.js';
 import { createHttpClient } from './adapters/outbound/http/http-client.js';
 import { createFileCache } from './adapters/outbound/http/file-cache.js';
@@ -19,7 +18,6 @@ import { createGtfsNetworkCatalog } from './adapters/outbound/network/gtfs-netwo
 import { createAdifRailNetwork } from './adapters/outbound/network/adif-rail-network.js';
 import { createInMemorySituation } from './adapters/outbound/persistence/in-memory-situation.js';
 import { createJsonlHistory } from './adapters/outbound/persistence/jsonl-history.js';
-import { createInProcessEventBus } from './adapters/outbound/events/in-process-event-bus.js';
 import { createSources } from './adapters/outbound/sources/index.js';
 import { startPolling } from './adapters/inbound/scheduler/polling-scheduler.js';
 import { createHttpServer } from './adapters/inbound/http/http-server.js';
@@ -45,7 +43,6 @@ const network = assertPort('NetworkCatalog', createGtfsNetworkCatalog({ nap, cac
 const railNetwork = assertPort('RailNetwork', createAdifRailNetwork({ cache, log }), PORT_MEMBERS.RailNetwork);
 const situation = assertPort('SituationRepository', createInMemorySituation(), PORT_MEMBERS.SituationRepository);
 const history = assertPort('History', createJsonlHistory({ dir: new URL('history/', config.dataDir), log }), PORT_MEMBERS.History);
-const bus = assertPort('EventPublisher', createInProcessEventBus(), PORT_MEMBERS.EventPublisher);
 const tiles = assertPort('TileProvider', createWmsTiles({ http, dir: fileURLToPath(new URL('tiles/', config.dataDir)), log }), PORT_MEMBERS.TileProvider);
 
 const sources = createSources({ http, cache, stations, nap, log, env: config.env, pool })
@@ -60,11 +57,10 @@ for (const s of sources) {
 }
 
 // --- Casos de uso ----------------------------------------------------------
-const ingestSource = makeIngestSource({ sources: enabledSources, situation, publisher: bus, clock, log });
-const detectAlerts = makeDetectAlerts({ situation, stations, history, publisher: bus, clock });
+const ingestSource = makeIngestSource({ sources: enabledSources, situation, clock, log });
+const detectAlerts = makeDetectAlerts({ situation, stations, history, clock });
 const query = makeQuerySituation({ situation, stations, networkStations, network, clock, sources, railNetwork });
 const serveTiles = makeServeTiles({ tiles });
-const watchSituation = makeWatchSituation({ events: bus, query });
 const refreshCatalogs = makeRefreshCatalogs({ stations, networkStations, network, railNetwork, log });
 
 // --- Adaptadores de entrada ------------------------------------------------
@@ -75,7 +71,6 @@ const scheduler = startPolling({ feeds, ingestSource, detectAlerts, refreshCatal
 
 const server = createHttpServer({
   query,
-  watchSituation,
   log,
   about: config.about,
   serveTiles,

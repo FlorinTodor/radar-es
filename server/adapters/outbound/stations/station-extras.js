@@ -52,7 +52,13 @@ const RENFE_LISTS = ['madrid', 'valencia', 'sevilla', 'malaga', 'zaragoza', 'mur
   .map((n) => `estaciones-cercanias-${n}`).concat(['estaciones-rodalies-barcelona', 'listado-estaciones-feve']);
 const SHEET_URL = (code) => `https://data.renfe.com/files/estaciones/FichaEstacion${code}.pdf`;
 
-const padCode = (c) => String(c ?? '').trim().padStart(5, '0');
+/** Código de estación de Renfe con sus 5 cifras («7100» → «07100»). */
+export const padCode = (c) => String(c ?? '').trim().padStart(5, '0');
+/**
+ * wheelchair_boarding de GTFS: 1 accesible, 2 no accesible, vacío o 0 sin dato (null). Aquí y no en
+ * gtfs-reader.js, que forma parte de la huella de los horarios guardados en disco.
+ */
+export const wheelchair = (v) => (v === '1' ? true : v === '2' ? false : null);
 const text = (bytes) => new TextDecoder().decode(bytes);
 
 /**

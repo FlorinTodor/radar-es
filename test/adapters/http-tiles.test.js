@@ -112,3 +112,21 @@ test('un fallo inesperado al leer una tesela es un 500, no una promesa sin recog
   }
   assert.equal((await fetch(`${base}/tiles/ign-rail/14/8023/6178.png`)).status, 200, 'y el servidor sigue');
 });
+
+test('áreas quemadas: una ráfaga de consultas recibe 429 en vez de llenar la cola de EFFIS', async () => {
+  let asked = 0;
+  const burst = createHttpServer({
+    query: {}, log: { error() {} }, publicDir: '/nonexistent', vendorDirs: {}, now: () => 0, // reloj parado: no se recupera presupuesto
+    serveTiles: makeServeTiles({ tiles: { ...provider, burntAreas: async () => { asked++; return { type: 'FeatureCollection', features: [] }; } } }),
+  });
+  await new Promise((resolve) => burst.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${burst.address().port}`;
+  try {
+    const statuses = [];
+    for (let i = 0; i < 12; i++) statuses.push((await fetch(`${url}/api/burnt-areas?bbox=-4.${i + 10},38,-4,38.1`)).status);
+    assert.deepEqual(statuses, [...Array(10).fill(200), 429, 429]);
+    assert.equal(asked, 10);
+  } finally {
+    burst.close();
+  }
+});

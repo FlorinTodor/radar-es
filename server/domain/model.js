@@ -109,8 +109,6 @@ export const SEVERITY_RANK = { 'muy alta': 4, alta: 3, media: 2, baja: 1 };
 export const RAIL_MODES = new Set(['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'otros']);
 export const monitoredVehicles = (vehicles) => vehicles.filter((v) => !v.estimated && RAIL_MODES.has(v.mode));
 
-export const MODES = ['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'bus', 'otros'];
-
 /** @param {Vehicle} v */
 export function vehicleLabel(v) {
   const service = v.service && v.service !== v.line ? `${v.service} ` : '';

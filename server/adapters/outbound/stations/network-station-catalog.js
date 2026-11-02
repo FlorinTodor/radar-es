@@ -9,7 +9,7 @@ import { distanceKm } from '../../../domain/geo.js';
 import { createPacer, csvColumns, csvColumnsStreamed, csvRows, openGtfs, own } from '../gtfs/gtfs-reader.js';
 import { modeOf } from '../gtfs/gtfs-modes.js';
 import { DEFAULT_COLOR, NETWORKS, readableColor } from '../network/gtfs-network-catalog.js';
-import { RETIRED_PHOTOS_VERSION, loadNetworkStationExtras } from './station-extras.js';
+import { RETIRED_PHOTOS_VERSION, loadNetworkStationExtras, wheelchair } from './station-extras.js';
 
 const REFRESH_MS = 24 * 3600_000;
 // Si algo ha fallado al calcularlo (un GTFS, Wikidata, Commons), se vuelve a intentar a la hora y no
@@ -54,7 +54,6 @@ export const readable = (raw) => {
     : name;
 };
 /** wheelchair_boarding del GTFS: 1 accesible, 2 no accesible; vacío o 0, sin datos. */
-const wheelchair = (v) => (v === '1' ? true : v === '2' ? false : null);
 
 /**
  * Estaciones de una red a partir de su GTFS. Trabajo de CPU, con pausas para no bloquear el hilo.
@@ -205,7 +204,11 @@ export function createNetworkStationCatalog({ nap, cache, cacheDir, log, renfe }
     for (const net of STATION_NETWORKS) {
       try {
         const zip = await nap.gtfs(net.ficheroId, REFRESH_MS);
-        const updated = await nap.updatedAt(net.dataset, net.ficheroId).catch(() => null);
+        // Sin fecha de actualización (la pide la licencia) se avisa: el catálogo se rehace a la hora.
+        const updated = await nap.updatedAt(net.dataset, net.ficheroId).catch((err) => {
+          log.warn(`[estaciones de otras redes] ${net.name}: sin fecha de actualización del NAP (${err.message})`);
+          return null;
+        });
         const source = { credit: `Powered by MITRAMS (Punto de Acceso Nacional) · ${net.credit}`, updated, dataset: net.dataset };
         for (const s of await buildStations(zip, net)) list.push({ ...s, source });
       } catch (err) {

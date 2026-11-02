@@ -65,7 +65,7 @@ superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`]
 
 ```
                    ┌───────────────────── adapters/inbound ─────────────────────┐
-  navegador ──────▶│ http/http-server.js  (REST + SSE + teselas + estáticos)    │
+  navegador ──────▶│ http/http-server.js  (API REST + teselas + estáticos)      │
   reloj ──────────▶│ scheduler/polling-scheduler.js (sondeo, alertas, catálogos)│
                    └──────────────┬─────────────────────────────────────────────┘
                                   ▼ sólo casos de uso
@@ -73,7 +73,6 @@ superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`]
                    │ use-cases/ingest-source.js           │
                    │ use-cases/detect-alerts.js           │
                    │ use-cases/query-situation.js         │──▶ ports.js (contratos)
-                   │ use-cases/watch-situation.js  (SSE)  │
                    │ use-cases/serve-tiles.js             │
                    │ use-cases/refresh-catalogs.js        │
                    └──────────────┬───────────────────────┘
@@ -92,7 +91,6 @@ superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`]
                    │ network/, gtfs/, nap/   trazados de líneas desde el NAP    │
                    │                         y red ferroviaria de Adif          │
                    │ persistence/     estado en memoria + histórico JSONL       │
-                   │ events/          bus de eventos en proceso                 │
                    │ tiles/           teselas de IGN y EFFIS con copia en disco │
                    │ workers/         hilos para leer GTFS y XML (CPU)          │
                    │ http/, logging/                                            │
@@ -124,7 +122,6 @@ Los puertos están en `server/application/ports.js`:
 | `RailNetwork` | `network/adif-rail-network.js` | red ferroviaria de Adif, para dibujar por la vía |
 | `SituationRepository` | `persistence/in-memory-situation.js` | estado actual: último dato de cada fuente, recorridos, alertas, KPIs |
 | `History` | `persistence/jsonl-history.js` | histórico de alertas y KPIs |
-| `EventPublisher` | `events/in-process-event-bus.js` | avisar de cada cambio al directo por SSE |
 | `TileProvider` | `tiles/wms-tiles.js` | teselas de IGN y EFFIS con copia en disco |
 
 `Clock` (la hora, para poder simularla en los tests) y `Logger` (el registro) también son puertos.
@@ -229,7 +226,6 @@ Lo que no se puede dibujar por falta de datos públicos:
 |---|---|
 | `GET /api/live` | lo que consulta la web cada 15 s: posiciones (sin autobuses), recuentos, alertas e indicadores |
 | `GET /api/live/events`, `/api/live/buses` | incidencias y autobuses, para la web (cada 60 y 20 s) |
-| `GET /api/stream` | directo antiguo por SSE (`snapshot` al conectar, y luego `source`, `alerts` y `health`); la web ya no lo usa |
 | `GET /api/snapshot` | todo el estado actual |
 | `GET /api/vehicles?mode=av&source=renfe-ld&minDelay=15` | vehículos filtrados |
 | `GET /api/events?category=carretera` | incidencias (`ferroviario`, `carretera`, `meteo`, `incendio`, `sismo`, `catastrofe`) |

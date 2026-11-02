@@ -18,6 +18,7 @@ export function createJsonlHistory({ dir, log }) {
         await ready;
         await appendFile(new URL(`${stream}-${day()}.jsonl`, dir), `${JSON.stringify(row)}\n`);
       } catch (err) {
+        ready = null; // si fue la carpeta, se vuelve a intentar con la siguiente fila
         log.warn(`[historial] ${err.message}`);
       }
     },

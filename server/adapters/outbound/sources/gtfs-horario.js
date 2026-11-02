@@ -213,7 +213,11 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
       if (only && !only.includes(fi)) continue;
       try {
         const schedule = await pool.queue(() => scheduleOf(feed, days));
-        const updatedAt = await nap.updatedAt(feed.dataset, feed.ficheroId).then(madridLocalToMs).catch(() => loaded.get(fi)?.updatedAt ?? null);
+        // La licencia pide citar esta fecha: si el NAP no la da, se avisa y se sigue con la anterior.
+        const updatedAt = await nap.updatedAt(feed.dataset, feed.ficheroId).then(madridLocalToMs).catch((err) => {
+          log?.warn(`[${id}] ${feed.operator}: sin fecha de actualización del NAP (${err.message})`);
+          return loaded.get(fi)?.updatedAt ?? null;
+        });
         loaded.set(fi, { schedule, updatedAt });
         failed.delete(fi);
       } catch (err) {

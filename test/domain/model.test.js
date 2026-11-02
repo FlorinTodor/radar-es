@@ -34,7 +34,7 @@ test('la ingesta guarda sin retraso los vehículos con un retraso imposible', as
   const ingest = makeIngestSource({
     sources: [{ id: 'renfe-cercanias', fetch: async () => ({ vehicles }) }],
     situation: { saveResult: (id, result) => { saved = result; }, tracks: () => new Map(), saveFailure() {} },
-    publisher: { publish() {} }, clock: { now: () => 1000 }, log: { warn() {} },
+    clock: { now: () => 1000 }, log: { warn() {} },
   });
   await ingest('renfe-cercanias');
   assert.deepEqual(saved.vehicles.map((v) => v.delay), [null, 4, null]);

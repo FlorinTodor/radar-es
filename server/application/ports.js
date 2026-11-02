@@ -1,6 +1,6 @@
 // Puertos: los contratos que la aplicación necesita del exterior. Los adaptadores
 // (adapters/outbound) los implementan y main.js los inyecta en los casos de uso. Los adaptadores
-// de entrada (HTTP, planificador) no los usan: sólo hablan con casos de uso.
+// de entrada (HTTP, planificador) sólo hablan con casos de uso; de los puertos, sólo usan el registro.
 // JavaScript no tiene interfaces, así que se documentan con JSDoc y se comprueban
 // en el arranque con `assertPort`.
 
@@ -82,15 +82,8 @@
 /**
  * Registro histórico append-only (alertas, KPIs) para análisis posterior.
  * @typedef {object} HistoryPort
- * @property {(stream: string, row: object) => Promise<void>} append
- */
-
-/**
- * Bus de eventos de aplicación: ingest-source y detect-alerts publican los cambios y
- * watch-situation se suscribe para que el directo (SSE) los empuje.
- * @typedef {object} EventPublisherPort
- * @property {(topic: string, payload?: object) => void} publish
- * @property {(topic: string, handler: (payload: any) => void) => () => void} subscribe
+ * @property {(stream: string, row: object) => Promise<void>} append  Nunca rechaza: si no puede escribir,
+ *   lo registra y sigue (detect-alerts no espera a que termine).
  */
 
 /**
@@ -129,6 +122,5 @@ export const PORT_MEMBERS = {
   SituationRepository: ['registerSource', 'saveResult', 'saveFailure', 'source', 'vehicles', 'events', 'metrics', 'health',
     'tracks', 'activeAlerts', 'addResolved', 'resolvedAlerts', 'setKpis', 'kpis', 'pushKpiSample', 'kpiHistory'],
   History: ['append'],
-  EventPublisher: ['publish', 'subscribe'],
   TileProvider: ['layers', 'cacheControl', 'tile', 'burntAreas'],
 };

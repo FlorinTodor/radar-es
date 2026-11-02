@@ -46,6 +46,29 @@ const MAX_PARALLEL = 4; // peticiones simultáneas al IGN o a EFFIS como mucho
 // conexiones y descargas en cola. Las que no caben se responden al momento sin descargar nada.
 const MAX_WAITING = 64;
 const BUSY = 'demasiadas teselas pendientes';
+// Las consultas de áreas quemadas (WFS de EFFIS, hasta 15 s) van por su propia cola, más pequeña:
+// muchas a la vez no dejan sin turno a las teselas del mapa.
+const MAX_PARALLEL_WFS = 2;
+const MAX_WAITING_WFS = 8;
+
+/** Turnos de descarga: como mucho `parallel` a la vez y `maxWaiting` esperando; el resto falla al momento. */
+function createSlots(parallel, maxWaiting, busy) {
+  let running = 0;
+  const waiting = [];
+  return {
+    async take() {
+      if (running >= parallel) {
+        if (waiting.length >= maxWaiting) throw new Error(busy);
+        await new Promise((r) => waiting.push(r));
+      }
+      running++;
+    },
+    release() {
+      running--;
+      waiting.shift()?.();
+    },
+  };
+}
 
 /**
  * @param {{ http: import('../http/http-client.js').HttpClient, dir: string, log?: import('../../../application/ports.js').LoggerPort }} deps
@@ -53,22 +76,11 @@ const BUSY = 'demasiadas teselas pendientes';
  */
 export function createWmsTiles({ http, dir, log }) {
   const inflight = new Map(); // misma tesela pedida a la vez → una sola descarga
-  let running = 0;
-  const waiting = [];
-  const slot = async () => {
-    if (running >= MAX_PARALLEL) {
-      if (waiting.length >= MAX_WAITING) throw new Error(BUSY);
-      await new Promise((r) => waiting.push(r));
-    }
-    running++;
-  };
-  const release = () => {
-    running--;
-    waiting.shift()?.();
-  };
+  const tileSlots = createSlots(MAX_PARALLEL, MAX_WAITING, BUSY);
+  const wfsSlots = createSlots(MAX_PARALLEL_WFS, MAX_WAITING_WFS, 'demasiadas consultas de áreas quemadas pendientes');
 
   async function download(layer, z, x, y, file) {
-    await slot();
+    await tileSlots.take();
     try {
       const bytes = await http.bytes(LAYERS[layer].url(tileBbox(z, x, y)), { timeout: 15_000 });
       if (!isPng(bytes)) throw new Error('el servicio no ha devuelto una imagen');
@@ -76,7 +88,7 @@ export function createWmsTiles({ http, dir, log }) {
       await writeFileAtomic(file, bytes);
       return bytes;
     } finally {
-      release();
+      tileSlots.release();
     }
   }
 
@@ -108,11 +120,11 @@ export function createWmsTiles({ http, dir, log }) {
     async burntAreas([minLon, minLat, maxLon, maxLat]) {
       const url = 'https://maps.effis.emergency.copernicus.eu/effis?service=WFS&version=1.0.0&request=GetFeature'
         + `&typename=ms:modis.ba.poly.month&outputformat=geojson&bbox=${minLon},${minLat},${maxLon},${maxLat}`;
-      await slot();
+      await wfsSlots.take();
       try {
         return JSON.parse(new TextDecoder().decode(await http.bytes(url, { timeout: 15_000 })));
       } finally {
-        release();
+        wfsSlots.release();
       }
     },
   };
