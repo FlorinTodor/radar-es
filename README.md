@@ -315,6 +315,11 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   para que ni un pico de tráfico ni una fuente que responda mal tumben el servidor.
 - El servidor arranca en segundos aunque haya que rehacer el catálogo de estaciones (fotos,
   fichas): arranca con la copia guardada y lo rehace después.
+- Un reinicio a mitad de una descarga nunca deja un fichero cortado que se siga usando: todo se
+  guarda de golpe.
+- Si una parte de los datos falla al cargar (el horario de un operador, una red de líneas, las fotos
+  de las estaciones), se reintenta en minutos y sólo esa parte, en vez de esperar al día siguiente.
+- Una fuente nunca deja de leerse por un fallo inesperado.
 
 **Despliegue y seguridad**
 - La aplicación funciona aislada, en un contenedor con recursos limitados y cabeceras de
@@ -330,7 +335,7 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Las subidas se detectan en unos segundos y el pipeline avanza en cuanto cada paso termina.
 - Pruebas automáticas que no dependen de la velocidad de la máquina: dan lo mismo en el servidor,
   más lento y ocupado, que en un ordenador rápido.
-- Limpieza automática del servidor.
+- Limpieza automática del servidor, también de las teselas del mapa que ya nadie mira.
 - Estadísticas de visitas sin cookies.
 
 **Licencias**

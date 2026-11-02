@@ -13,6 +13,9 @@ import { createCpuPool } from '../workers/cpu-pool.js';
 import { packSchedule, unpackSchedule } from '../gtfs/gtfs-schedule.js';
 
 const RELOAD_MS = 24 * 3600_000;
+// Un fichero de un grupo que no se ha podido leer se reintenta a los 10 min, sin releer los demás:
+// si no, ese operador faltaría en el mapa hasta el día siguiente.
+const RETRY_MS = 10 * 60_000;
 const sha1 = (data) => createHash('sha1').update(data).digest('hex');
 // Huella del código que calcula los horarios: un despliegue que lo cambie no reutiliza lo guardado.
 const PARSER = sha1(['../gtfs/gtfs-schedule.js', '../gtfs/gtfs-reader.js', '../gtfs/gtfs-modes.js', '../../../domain/schedule.js']
@@ -108,6 +111,8 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
   const loaded = new Map(); // índice del fichero → { schedule, updatedAt }
   let loadedAt = 0;
   let loadedDay = null; // día de servicio (Madrid) para el que se cargaron los horarios
+  const failed = new Set(); // índices de los ficheros del grupo que fallaron en la última carga
+  let failedAt = 0;
   // Tramo de trazado recorrido en los últimos 45 min por cada vehículo de la última lectura y hasta
   // dónde llega su viaje: id → { shape, from, to, end } (distancias en metros), o null si se queda
   // en la última parada.
@@ -194,19 +199,27 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
     return schedule;
   }
 
-  /** Carga los horarios (de uno en uno en todo el servidor); si falla un fichero de un grupo, el resto sigue. */
-  async function load(today) {
+  /**
+   * Carga los horarios (de uno en uno en todo el servidor); si falla un fichero de un grupo, el resto
+   * sigue. `only`: sólo esos ficheros (los que fallaron), sin cambiar cuándo toca la carga completa.
+   */
+  async function load(today, only = null) {
     const days = { today: madridServiceDay(Date.now(), 0), yesterday: madridServiceDay(Date.now(), -1) };
     for (const [fi, feed] of feeds.entries()) {
+      if (only && !only.includes(fi)) continue;
       try {
         const schedule = await pool.queue(() => scheduleOf(feed, days));
         const updatedAt = await nap.updatedAt(feed.dataset, feed.ficheroId).then(madridLocalToMs).catch(() => loaded.get(fi)?.updatedAt ?? null);
         loaded.set(fi, { schedule, updatedAt });
+        failed.delete(fi);
       } catch (err) {
         if (feeds.length === 1) throw err;
-        log?.warn(`[${id}] ${feed.operator} (fichero ${feed.ficheroId}): ${err.message}`);
+        failed.add(fi);
+        log?.warn(`[${id}] ${feed.operator} (fichero ${feed.ficheroId}): ${err.message}${only ? '' : '; se reintentará en 10 min'}`);
       }
     }
+    failedAt = Date.now();
+    if (only) return;
     loadedAt = Date.now();
     loadedDay = today;
   }
@@ -242,6 +255,7 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
       // Se recarga cada día (sólo se guardan los viajes de hoy y los de ayer que pasan de medianoche).
       const today = madridServiceDay(Date.now(), 0).ymd;
       if (!loaded.size || today !== loadedDay || Date.now() - loadedAt > RELOAD_MS) await load(today);
+      else if (failed.size && Date.now() - failedAt >= RETRY_MS) await load(today, [...failed]);
       const first = loaded.get(0)?.schedule;
       const rt = tripUpdatesUrl && first ? delaysFromTripUpdates(decodeFeed(await http.bytes(tripUpdatesUrl)), first) : null;
       const now = Date.now();

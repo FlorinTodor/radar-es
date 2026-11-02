@@ -356,7 +356,7 @@ async function findMorePhotos({ cache, log, missing, budgetMs, words = RAILWAY }
         // Los códigos de las otras redes llevan «:» y letras: el fichero va por su huella.
         const name = /^\d{5}$/.test(s.code) ? s.code : sha(s.code);
         push(s.code, nearbyCandidates(await apiJson(cache, url, `commons-cerca-${name}.json`, SEARCH_MAX_AGE_MS), s.name, words));
-      } catch { /* Commons «demasiado ocupado»: se reintenta en la siguiente carga */ }
+      } catch { skipped++; } // Commons «demasiado ocupado»: se reintenta en la siguiente carga
     }
   };
   await Promise.all(Array.from({ length: NEARBY_CONCURRENCY }, worker));

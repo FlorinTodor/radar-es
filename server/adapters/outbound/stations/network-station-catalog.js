@@ -3,7 +3,8 @@
 // by MITRAMS», dato actualizado, fecha de actualización) y la de cada operador, que se cita en la
 // ficha de cada estación. Va aparte del catálogo de Renfe: las alertas y Rodalies buscan «la
 // estación más cercana» y tiene que ser una de Renfe. Se refresca una vez al día.
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
+import { writeFileAtomic } from '../http/file-cache.js';
 import { distanceKm } from '../../../domain/geo.js';
 import { createPacer, csvColumns, csvColumnsStreamed, csvRows, openGtfs, own } from '../gtfs/gtfs-reader.js';
 import { modeOf } from '../gtfs/gtfs-modes.js';
@@ -11,6 +12,9 @@ import { DEFAULT_COLOR, NETWORKS, readableColor } from '../network/gtfs-network-
 import { RETIRED_PHOTOS_VERSION, loadNetworkStationExtras } from './station-extras.js';
 
 const REFRESH_MS = 24 * 3600_000;
+// Si algo ha fallado al calcularlo (un GTFS, Wikidata, Commons), se vuelve a intentar a la hora y no
+// al día siguiente: mientras, se usa lo que sí se ha conseguido.
+const RETRY_MS = 3600_000;
 const SAME_STATION_KM = 0.5; // andenes, sentidos y líneas con el mismo nombre a menos de esto: una estación
 
 // id: prefijo de sus códigos («fgc:PC»). dataset: conjunto del NAP (su fecha de actualización).
@@ -196,7 +200,7 @@ export function createNetworkStationCatalog({ nap, cache, cacheDir, log, renfe }
   /** @type {Map<string, object>} */
   const stations = new Map();
 
-  async function download() {
+  async function download(log) {
     const list = [];
     for (const net of STATION_NETWORKS) {
       try {
@@ -223,14 +227,17 @@ export function createNetworkStationCatalog({ nap, cache, cacheDir, log, renfe }
 
   async function refresh() {
     try {
-      const list = await download();
+      // Cualquier aviso mientras se calcula quiere decir que falta algo (una red, fotos).
+      let incomplete = false;
+      const watched = { ...log, warn: (msg) => { incomplete = true; log.warn(msg); } };
+      const list = await download(watched);
       if (!list.length) throw new Error('lista vacía');
       stations.clear();
       for (const s of list) stations.set(s.code, s);
       version = CATALOG_VERSION;
-      savedAt = Date.now();
+      savedAt = incomplete ? Date.now() - REFRESH_MS + RETRY_MS : Date.now();
       await mkdir(cacheDir, { recursive: true });
-      await writeFile(cacheFile, JSON.stringify({ version, savedAt, stations: list }));
+      await writeFileAtomic(cacheFile, JSON.stringify({ version, savedAt, stations: list }));
       log.info(`[estaciones de otras redes] ${stations.size} estaciones de ${STATION_NETWORKS.length} redes`);
     } catch (err) {
       log.warn(`[estaciones de otras redes] no se pudo calcular el catálogo (${err.message}); ${stations.size} en caché`);

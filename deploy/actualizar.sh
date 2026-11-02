@@ -279,12 +279,29 @@ desplegar() {
   docker image prune -f >/dev/null
 }
 
+# Teselas del mapa que nadie ha vuelto a mirar desde hace el doble de lo que duran (ign-rail 30 días
+# y effis 3 h en server/adapters/outbound/tiles/wms-tiles.js; se guardan algo más como copia por si
+# el IGN o EFFIS fallan) y restos de escrituras cortadas (*.tmp de más de un día), en producción y en
+# pruebas. Sin esto, cada tesela que alguien mira se queda para siempre (580 MB en dos días).
+limpiar_datos() {
+  local d
+  for d in data "$DIR_PRUEBAS/data"; do
+    [[ -d $d ]] || continue
+    find "$d/tiles/ign-rail" -type f -mtime +60 -delete 2>/dev/null || true
+    find "$d/tiles/effis" -type f -mtime +7 -delete 2>/dev/null || true
+    find "$d/tiles" -mindepth 1 -type d -empty -delete 2>/dev/null || true
+    find "$d" -type f -name '*.tmp' -mmin +1440 -delete 2>/dev/null || true
+  done
+}
+
 # Una vez a la semana, desde producción (Docker y apt son del VPS, no de cada entorno): la caché
-# de compilación de Docker de más de 7 días y los paquetes que apt guarda tras instalarlos. Las
-# imágenes que funcionan, la de vuelta atrás y data/ no se tocan. Si falla, no para el despliegue.
+# de compilación de Docker de más de 7 días, los paquetes que apt guarda tras instalarlos y, en
+# data/, las teselas caducadas (limpiar_datos). Las imágenes que funcionan, la de vuelta atrás y
+# los datos en uso no se tocan. Si falla, no para el despliegue.
 limpiar_semanal() {
   [[ -n $(find .limpieza -mtime -7 2>/dev/null) ]] && return 0
   touch .limpieza
+  limpiar_datos
   if docker builder prune -f --filter until=168h >/dev/null && apt-get clean; then
     echo "Limpieza semanal hecha: quedan $(df -h --output=avail / | tail -n1 | tr -d ' ') libres"
   else

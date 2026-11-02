@@ -87,8 +87,10 @@ Un despliegue roto no tumba la web (en los dos entornos):
 - **Colgado**: en cada vuelta, si el contenedor en servicio está `unhealthy` (vivo pero sin
   responder, ~2 min seguidos), lo reinicia. Docker sólo reinicia solo los que terminan.
 - **Limpieza**: una vez a la semana, producción borra la caché de compilación de Docker de más
-  de 7 días y la de paquetes de apt. Las imágenes viejas ya se borran en cada despliegue (se
-  guardan la anterior y las 5 últimas verificadas); `data/` no se toca.
+  de 7 días y la de paquetes de apt. En `data/` (de producción y de pruebas) borra las teselas del
+  mapa que nadie ha vuelto a mirar en el doble de lo que duran (60 días las de la red ferroviaria y
+  7 las de áreas quemadas) y los restos de escrituras cortadas. Las imágenes viejas ya se borran en
+  cada despliegue (se guardan la anterior y las 5 últimas verificadas).
 
 ```bash
 ssh root@IP_DEL_VPS

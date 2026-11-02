@@ -5,7 +5,9 @@ const FIRST_RETRY_MS = 30_000;
 const MIN_RETRY_CAP_MS = 10 * 60_000;
 const DETECT_DEBOUNCE_MS = 1500;
 const DETECT_HEARTBEAT_MS = 30_000; // las alertas dependen del tiempo transcurrido, no sólo de datos nuevos
-const CATALOG_REFRESH_MS = 6 * 3600_000; // estaciones y trazados cambian pocas veces al día
+// Cada hora: si están al día no cuesta nada, y lo que falló la vez anterior (una red de líneas, las
+// fotos de las estaciones) se reintenta pronto. Cada catálogo decide cuándo renovarse entero.
+const CATALOG_REFRESH_MS = 3600_000;
 
 /**
  * Espera hasta la siguiente lectura. Si la fuente ha fallado, se reintenta pronto (30 s, 1, 2,
@@ -44,7 +46,14 @@ export function startPolling({ feeds, ingestSource, detectAlerts, refreshCatalog
 
   const loop = async (feed, failures = 0) => {
     if (stopped) return;
-    const ok = await ingestSource(feed.id);
+    // Pase lo que pase en la lectura, se programa la siguiente: si un fallo inesperado (al avisar de
+    // otro fallo, por ejemplo) escapara de aquí, la fuente dejaría de leerse hasta reiniciar.
+    let ok = false;
+    try {
+      ok = await ingestSource(feed.id);
+    } catch (err) {
+      log.error(`[${feed.id}] ${err?.stack ?? err}`);
+    }
     scheduleDetect();
     const nextFailures = ok ? 0 : failures + 1;
     if (!stopped) timers.set(feed.id, setTimeout(() => loop(feed, nextFailures), nextDelay(feed.interval, nextFailures)));
