@@ -3,7 +3,7 @@
 // puertos de salida ni las fuentes.
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream';
 import { extname, join, resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -75,6 +75,9 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
   const trainBudget = createBudget({ perSecond: TRAIN_BUDGET.perSecond, burst: TRAIN_BUDGET.burst, now });
 
   const security = Object.entries(securityHeaders(about));
+  // El aviso legal lleva el titular y el contacto (de .env) en el propio HTML: la LSSI pide que estén
+  // siempre a la vista, también sin JavaScript. Las demás páginas se sirven tal cual.
+  const fillAbout = aboutFiller(about);
   // Dominio canónico (PUBLIC_URL): www.<dominio> redirige a él para que los buscadores no vean dos
   // webs iguales. Sólo esa variante: localhost, la IP y el chequeo de salud siguen igual.
   const canonical = about.publicUrl ? new URL(about.publicUrl) : null;
@@ -123,6 +126,7 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
       const isPage = !extname(url.pathname);
       // /404 no es una página propia: sirve la de error con su estado 404.
       const file = url.pathname === '/' ? 'index.html' : isPage && url.pathname !== '/404' ? `${url.pathname}.html` : url.pathname;
+      if (file === '/legal.html' && fillAbout) return await serveFilledPage(req, res, join(publicDir, 'legal.html'), fillAbout);
       return await serveFile(req, res, publicDir, file, OWN_CACHE, isPage ? join(publicDir, '404.html') : null);
     } catch (err) {
       log.error(`[http] ${err.stack ?? err.message}`);
@@ -437,6 +441,38 @@ function sendStream(res, file) {
   pipeline(createReadStream(file), res, (err) => {
     if (err && !res.destroyed) res.destroy(err);
   });
+}
+
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+/**
+ * Rellena los `<span data-about="owner|contact">` de una página con el titular y el contacto; el
+ * correo, como enlace. null si no hay ninguno de los dos (la página se sirve tal cual).
+ * @param {{ owner?: string | null, contact?: string | null }} about
+ */
+export function aboutFiller({ owner, contact } = {}) {
+  if (!owner && !contact) return null;
+  const value = {
+    owner: owner && escapeHtml(owner),
+    contact: contact && (contact.includes('@') ? `<a href="mailto:${escapeHtml(contact)}">${escapeHtml(contact)}</a>` : escapeHtml(contact)),
+  };
+  const fill = (html) => html.replace(/(<span data-about="(owner|contact)">)[^<]*(<\/span>)/g, (all, open, key, close) => (value[key] ? `${open}${value[key]}${close}` : all));
+  fill.tag = createHash('sha1').update(`${owner}|${contact}`).digest('base64url').slice(0, 8); // para el ETag
+  return fill;
+}
+
+/** Una página que se rellena al servirla: su ETag cuenta el fichero y lo que se le añade. */
+async function serveFilledPage(req, res, file, fill) {
+  const info = await stat(file);
+  const etag = fileEtag(info).replace(/"$/, `-${fill.tag}"`);
+  const headers = { 'Cache-Control': OWN_CACHE, ETag: etag, 'Last-Modified': info.mtime.toUTCString() };
+  if (req.headers['if-none-match'] === etag) {
+    res.writeHead(304, headers);
+    return res.end();
+  }
+  const body = Buffer.from(fill(await readFile(file, 'utf8')));
+  res.writeHead(200, { ...headers, 'Content-Type': MIME['.html'], 'Content-Length': body.length });
+  res.end(req.method === 'HEAD' ? undefined : body);
 }
 
 /** @param {string|null} [notFoundPage]  Página HTML que se sirve con 404 si el fichero no existe. */
