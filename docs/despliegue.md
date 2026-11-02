@@ -87,8 +87,8 @@ Un despliegue roto no tumba la web (en los dos entornos):
   responder, ~2 min seguidos), lo reinicia. Docker sólo reinicia solo los que terminan.
 - **Limpieza**: una vez a la semana, producción borra la caché de compilación de Docker de más
   de 7 días y la de paquetes de apt. En `data/` (de producción y de pruebas) borra las teselas del
-  mapa que nadie ha vuelto a mirar en el doble de lo que duran (60 días las de la red ferroviaria y
-  7 las de áreas quemadas) y los restos de escrituras cortadas. Las imágenes viejas ya se borran en
+  mapa que nadie ha vuelto a mirar en 60 días (red ferroviaria) o en 7 (áreas quemadas) y los
+  restos de escrituras cortadas. Las imágenes viejas ya se borran en
   cada despliegue (se guardan la anterior y las 5 últimas verificadas).
 
 El resultado de pruebas está en su `.estado`, y los registros de los dos temporizadores

@@ -280,9 +280,9 @@ desplegar() {
   docker image prune -f >/dev/null
 }
 
-# Teselas del mapa que nadie ha vuelto a mirar desde hace el doble de lo que duran (ign-rail 30 días
-# y effis 3 h en server/adapters/outbound/tiles/wms-tiles.js; se guardan algo más como copia por si
-# el IGN o EFFIS fallan) y restos de escrituras cortadas (*.tmp de más de un día), en producción y en
+# Teselas del mapa que nadie ha vuelto a mirar en 60 días (ign-rail, que dura 30) o en 7 (effis, que
+# dura 3 h; ver server/adapters/outbound/tiles/wms-tiles.js): se guardan más de lo que duran como copia
+# por si el IGN o EFFIS fallan y restos de escrituras cortadas (*.tmp de más de un día), en producción y en
 # pruebas. Sin esto, cada tesela que alguien mira se queda para siempre (580 MB en dos días).
 limpiar_datos() {
   local d
