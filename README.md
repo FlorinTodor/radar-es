@@ -343,6 +343,8 @@ Ninguna por ahora.
   - en toda España, pedir a Adif que publique como datos abiertos las estaciones accesibles y las
     que tienen asistencia [Adif Acerca](https://www.spain.info/es/descubrir-espana/accesibilidad-trenes/).
   - Fuentes revisadas: [`docs/accesibilidad-estaciones.md`](docs/accesibilidad-estaciones.md).
+- Estaciones de Metro de Madrid y del tranvía de Tenerife cuando vuelva a haber un horario vigente
+  en el Punto de Acceso Nacional (el de Metro de Madrid caducó en mayo de 2026).
 - Fotos de [Flickr](https://www.flickr.com/creativecommons/) con licencia Creative Commons (con autor y
   enlace) para las estaciones que siguen sin foto en Wikimedia Commons; hace falta una clave gratuita.
 - Servir las fotos de las estaciones desde nuestro servidor, con caché, en lugar de enlazarlas en
