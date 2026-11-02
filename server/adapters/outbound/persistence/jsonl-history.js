@@ -2,6 +2,7 @@
 // Fácil de analizar con jq, DuckDB o pandas. Sustituible por una base de datos
 // implementando el mismo puerto History.
 import { appendFile, mkdir, readdir, unlink } from 'node:fs/promises';
+import { madridDate } from '../sources/parse.js';
 
 /** Días que se guarda cada fichero diario: unos 2 MB al día entre alertas y KPIs. */
 const KEEP_DAYS = 90;
@@ -16,7 +17,8 @@ const DAILY_FILE = /^[a-z][\w-]*-(\d{4}-\d{2}-\d{2})\.jsonl$/;
 export function createJsonlHistory({ dir, log, keepDays = KEEP_DAYS, now = Date.now }) {
   let ready = null;
   let prunedDay = null;
-  const day = (t = now()) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Madrid' }).format(t);
+  // Un fichero por día de Madrid: el de una noche no se parte a la 01:00.
+  const day = (t = now()) => madridDate(t);
 
   async function prune() {
     const oldest = day(now() - keepDays * 86_400_000);
