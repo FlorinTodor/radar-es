@@ -431,7 +431,7 @@ const OWN_CACHE = 'no-cache';
 const VENDOR_CACHE = 'public, max-age=86400';
 
 /** ETag débil a partir de tamaño y fecha: cambia en cuanto el fichero cambia. */
-export function fileEtag(info) {
+function fileEtag(info) {
   return `W/"${info.size.toString(16)}-${Math.floor(info.mtimeMs).toString(16)}"`;
 }
 

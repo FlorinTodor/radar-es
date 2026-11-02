@@ -159,7 +159,7 @@ export function isStationCode(code) {
  * metros y tranvías con posición real. Las posiciones estimadas por horario, los autobuses
  * (que paran en cualquier sitio) se muestran pero no cuentan.
  */
-export const RAIL_MODES = new Set(['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'otros']);
+const RAIL_MODES = new Set(['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'otros']);
 export const monitoredVehicles = (vehicles) => vehicles.filter((v) => !v.estimated && RAIL_MODES.has(v.mode));
 
 /** @param {Vehicle} v */
@@ -171,8 +171,8 @@ export function vehicleLabel(v) {
 // Retrasos imposibles: Renfe publica a veces, en los trenes que cruzan la medianoche, el retraso
 // calculado contra el horario del día siguiente (-86.160 s = -1.436 min) u horas sin sentido
 // (+1.008 min). No se corrigen (sería alterar el dato): se descartan como si no se publicaran.
-export const DELAY_MIN = -60;      // más de una hora de adelanto
-export const DELAY_MAX = 12 * 60;  // más de 12 horas de retraso
+const DELAY_MIN = -60;      // más de una hora de adelanto
+const DELAY_MAX = 12 * 60;  // más de 12 horas de retraso
 
 /** Retraso en minutos si es creíble; null si la fuente no lo da o es imposible. */
 export function plausibleDelay(delay) {

@@ -56,7 +56,11 @@ export function isServableTile(layer, z, x, y, { layers = TILE_LAYERS, bounds = 
   return x >= r.minX && x <= r.maxX && y >= r.minY && y <= r.maxY;
 }
 
-/** Número máximo de teselas que puede llegar a guardar una capa (todas las de la caja en su rango de zoom). */
+/**
+ * Número máximo de teselas que puede llegar a guardar una capa (todas las de la caja en su rango de zoom).
+ * Herramienta de cálculo: el servidor no la usa. Sirve para elegir el zoom máximo de cada capa sabiendo
+ * cuánto disco puede llegar a ocupar (las cifras de TILE_LAYERS salen de aquí, y las pruebas las vigilan).
+ */
 export function maxTileCount(layer, { layers = TILE_LAYERS, bounds = SPAIN_BOUNDS } = {}) {
   const zooms = layers[layer];
   if (!zooms) return 0;
@@ -69,7 +73,7 @@ export function maxTileCount(layer, { layers = TILE_LAYERS, bounds = SPAIN_BOUND
 }
 
 /** Lado máximo, en grados, de la caja de áreas quemadas: lo que hay bajo un clic, no una región. */
-export const MAX_BURNT_BOX_DEG = 0.5;
+const MAX_BURNT_BOX_DEG = 0.5;
 /**
  * Rejilla, en grados (unos 5 km), a la que se amplía la caja de áreas quemadas. Los clics cercanos
  * piden la misma caja, que Cloudflare guarda una vez, y nadie puede generar infinitas variantes

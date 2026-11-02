@@ -28,10 +28,10 @@ export function meters(lon1, lat1, lon2, lat2) {
 export const NEAR_M = 150;
 // Extremos de tramos más cerca que esto son el mismo nudo de la red: los tramos no siempre se tocan
 // exactamente (en el 90 % de los nudos coinciden al metro; algunos quedan a 20-40 m).
-export const MERGE_M = 40;
+const MERGE_M = 40;
 // Extremos con el mismo código de estación o bifurcación son el mismo nudo aunque estén más lejos (en
 // Lebrija los dos tramos de la línea Sevilla-Cádiz acaban a 43 m; en las estaciones grandes, a 100-200 m).
-export const CODE_MERGE_M = 250;
+const CODE_MERGE_M = 250;
 // Entre dos posiciones, el camino por la vía no puede ser mucho más largo que la recta: si lo es, la
 // vía que las une no está en la red (o una de las dos no es buena) y se dibuja la recta, como antes.
 export const DETOUR = 3;
@@ -41,7 +41,7 @@ export const DETOUR_EXTRA_M = 1000;
 // se admite hasta LOOP_DETOUR veces la recta si al tren le ha dado tiempo a recorrerlo a LOOP_SPEED. Entre
 // dos lecturas casi seguidas, no: dos posiciones en vías paralelas de una estación darían la vuelta por un
 // cambio de vía lejano (en Barcelona-Sants, 2,3 km para 300 m).
-export const LOOP_DETOUR = 12;
+const LOOP_DETOUR = 12;
 const LOOP_SPEED = 160 / 3.6; // m/s
 const LOOP_GAP_MS = 2 * 60_000;
 // Cada posición puede ir a cualquier vía a menos de SNAP_SLACK_M más que la más cercana (las paralelas de
@@ -51,7 +51,7 @@ const SNAP_SLACK_M = 25;
 const SNAP_WEIGHT = 10;
 // Más de esto entre dos posiciones seguidas es un rato largo sin datos: no se unen (como TRACK_GAP_KM
 // en public/js/map.js, que parte el recorrido en el mismo sitio).
-export const GAP_KM = 30;
+const GAP_KM = 30;
 // Ningún paso de la línea dibujada puede pasar de esto: el mapa la partiría como si faltaran datos.
 const MAX_STEP_M = 10_000;
 
@@ -109,12 +109,12 @@ const joinable = (g1, g2) => (g1 === GAUGE.metric) === (g2 === GAUGE.metric) || 
 
 // Lo que le queda a un tren hasta su destino: entre parada y parada, el camino por la vía no puede
 // pasar de esto (la vía de montaña es más larga que la recta, pero no tanto); si pasa, no se dibuja.
-export const LEG_DETOUR = 3;
-export const LEG_EXTRA_M = 5000;
+const LEG_DETOUR = 3;
+const LEG_EXTRA_M = 5000;
 // Las coordenadas de una estación caen en el edificio o entre sus vías: valen todas las vías que pasan
 // a menos de STOP_SPREAD_M más que la más cercana (en las estaciones con vías de los dos anchos, las
 // dos), hasta STOP_M. El tren pasa por la que le queda de camino.
-export const STOP_M = 600;
+const STOP_M = 600;
 const STOP_SPREAD_M = 100;
 
 const CELL = 0.01; // grados (~1,1 km de latitud y ~0,85 km de longitud en España)

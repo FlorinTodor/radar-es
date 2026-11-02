@@ -18,7 +18,7 @@
 const ALSA_EN_GVA = /^(València - Alacant\/Elx|Les Marines - Alacant)$/;
 
 /** @type {Array<{ id: string, name: string, feeds: Array<[number, number, string, object?]> }>} */
-export const BUS_GROUPS = [
+const BUS_GROUPS = [
   {
     id: 'avanza', name: 'Avanza: autobuses urbanos',
     feeds: [[1170, 969, 'Avanza Ávila'], [1172, 971, 'Avanza Huesca'], [1173, 972, 'Avanza Mataró'], [1174, 973, 'Avanza Soria'],
