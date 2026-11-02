@@ -386,6 +386,11 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Si una parte de los datos falla al cargar (el horario de un operador, una red de líneas, las fotos
   de las estaciones), se reintenta en minutos y sólo esa parte, en vez de esperar al día siguiente.
 - Una fuente nunca deja de leerse por un fallo inesperado.
+- Fuera el directo antiguo, que ya nadie usaba: la web consulta el directo desde la caché.
+- La ficha de las áreas quemadas sólo consulta zonas de España, con un ritmo máximo y su propia
+  cola, y los clics cercanos comparten la misma respuesta guardada.
+- Arquitectura hexagonal más estricta: los casos de uso cambian el estado sólo a través del puerto
+  del repositorio, y el cálculo de las posiciones estimadas por horario está en el dominio.
 
 **Despliegue y seguridad**
 - La aplicación funciona aislada, en un contenedor con recursos limitados y cabeceras de
@@ -410,6 +415,11 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Revisión de todas las fuentes, horarios, fotos y librerías: licencia vigente de cada conjunto,
   fecha de actualización de cada horario, enlace a la licencia de cada librería y, en privacidad,
   qué webs externas contacta el navegador y cuándo.
+- La ficha de cada tren, metro, autobús e incidencia cita su fuente con la atribución que pide su
+  licencia y la fecha de sus datos; en los grupos de autobuses, sólo la de su operador.
+- Atribuciones que faltaban: TMB y AUVASA en el pie del mapa, AEMET en las alertas que cruzan sus
+  avisos con los trenes, Renfe en la ficha de sus estaciones y el título de cada foto. La web ya no
+  dice que todos los datos se muestran sin alterar: cada fuente indica qué se hace con ella.
 
 ### Preparadas, pendientes de subir
 
