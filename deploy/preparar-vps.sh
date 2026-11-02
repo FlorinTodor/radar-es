@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prepara un VPS Ubuntu para Radar ES. Idempotente: se puede relanzar las veces que haga falta.
+# Prepara un VPS para Radar ES. Idempotente: se puede relanzar las veces que haga falta.
 # Se lanza en el VPS por SSH: bash -s < deploy/preparar-vps.sh
 # No toca el acceso ni el cortafuegos, ni da de alta el túnel de Cloudflare, que necesita
 # autorizarse desde el navegador.
@@ -9,7 +9,7 @@ REPO=FlorinTodor/radar-es
 DIR=/opt/radar
 CLAVE=/root/.ssh/deploy_radar-es
 # Alias propio en ~/.ssh/config: GitHub no deja reutilizar una deploy key en varios repos,
-# así que cada proyecto del VPS tendrá su clave y su alias.
+# así que este tiene su clave y su alias.
 ALIAS=github-radar-es
 # Huella publicada en https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
 HUELLA_GITHUB=SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU

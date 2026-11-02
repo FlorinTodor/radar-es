@@ -105,8 +105,7 @@ superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`]
   adaptadores: leer los horarios GTFS, construir los trazados y analizar el XML de la DGT. Sólo
   calculan; las descargas y el estado siguen en el hilo principal. **Desactivados por defecto**:
   se activan con `WORKER_THREADS=2` en `.env` (arranque ~20 % más rápido, pero cada hilo carga sus
-  propios horarios y el pico de memoria sube; con un solo hilo, producción ya llega a unos 670 MB del
-  límite de 1 GB). Si un hilo falla, el trabajo se repite en el principal.
+  propios horarios y el pico de memoria sube). Si un hilo falla, el trabajo se repite en el principal.
 - **`server/adapters/inbound/`**: quien dispara los casos de uso (la API HTTP y el planificador).
   Sólo hablan con casos de uso, nunca con los puertos de salida.
 - **`server/main.js`**: raíz de composición; el único sitio donde se eligen las implementaciones.
