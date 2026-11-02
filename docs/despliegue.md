@@ -99,7 +99,7 @@ urgencias.
 ## Entorno de pruebas, secretos y servidor
 
 - **Pruebas** se monta con `deploy/preparar-pruebas.sh` y no está abierto al público.
-- **Secretos**: el `.env` (`NAP_API_KEY`, titular y contacto), el token que marca los commits y las
+- **Secretos**: el `.env` (`NAP_API_KEY`, las claves de EMT Madrid, titular y contacto), el token que marca los commits y las
   credenciales del túnel no están en git. El token sólo puede escribir el estado de los commits de
   este repositorio y no va en el `.env`, que también llega al contenedor.
 - **`data/`**: cachés de GTFS e histórico. Sobrevive a los redespliegues y, si se pierde, se

@@ -412,6 +412,10 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   los trenes que acaban su viaje sale de la memoria poco a poco, sin vaciarla de golpe.
 - El puerto de las fuentes declara todo lo que los casos de uso les piden (paradas que le quedan a
   cada tren, red de sus trazados y lo que le queda a cada posición estimada).
+- El servidor se queda menos veces ocupado de golpe: el XML de la DGT se lee en un hilo aparte, y la
+  lectura de los horarios y la evaluación de alertas repiten menos trabajo.
+- Las respuestas guardadas de la API caducan y tienen un tope de memoria, aunque se pidan muchas
+  variantes distintas.
 
 **Despliegue y seguridad**
 - La aplicación funciona aislada, en un contenedor con recursos limitados y cabeceras de
@@ -445,6 +449,13 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   dice que todos los datos se muestran sin alterar: cada fuente indica qué se hace con ella.
 - Atribuciones al día de lo que se dibuja con la red de Adif y con los horarios del Punto de Acceso
   Nacional de FGC y Metro Bilbao (dato explotado y fecha de actualización).
+- Cercanías y Metro Bilbao citan también el trazado del Punto de Acceso Nacional con el que se
+  dibuja lo que le queda a cada tren, y cada red de trazados muestra su fecha de actualización en el
+  aviso legal y en la pestaña Fuentes.
+- El aviso legal muestra el titular y el contacto aunque el navegador no ejecute JavaScript.
+- Los avisos de EMT Madrid usan la aplicación registrada de Radar España en MobilityLabs en cuanto
+  EMT la activa; mientras tanto, se leen como hasta ahora.
+- El servidor no guarda registro de las visitas, como dice la página de privacidad.
 
 ### Preparadas, pendientes de subir
 
