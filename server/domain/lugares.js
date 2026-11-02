@@ -1,6 +1,6 @@
 // Centros aproximados (a unos kilómetros) de islas, provincias y comunidades autónomas, para situar
 // en el mapa los avisos oficiales que sólo dicen el territorio afectado. Puro: datos fijos.
-// Los avisos de un municipio se sitúan con el geocodificador (puerto Geocoder), no con esta tabla.
+// Los avisos de un municipio los sitúa el geocodificador de las fuentes (CartoCiudad), no esta tabla.
 
 /** @typedef {{ name: string, lat: number, lon: number }} Place */
 
@@ -22,7 +22,7 @@ export const GRUPOS_ISLAS = {
   orientales: ['Gran Canaria', 'Fuerteventura', 'Lanzarote', 'La Graciosa'],
 };
 
-/** Islas de Baleares, con el nombre en castellano con el que las cita la sala de prensa del Govern. */
+/** Islas de Baleares, con su nombre en castellano (la sala de prensa del Govern, en catalán, dice «Eivissa»: ver illesIn). */
 export const ILLES_BALEARS = [
   { name: 'Mallorca', lat: 39.62, lon: 2.98 },
   { name: 'Menorca', lat: 39.95, lon: 4.08 },

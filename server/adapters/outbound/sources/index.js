@@ -76,10 +76,6 @@ export function metroBilbao(e, gtfs) {
  *   pool: hilos de cálculo (horarios). xmlPool: el del XML de la DGT, si es otro (sin hilos de cálculo, uno propio).
  * @returns {import('../../../application/ports.js').DataSourcePort[]}
  */
-const PAUSED = 'En pausa mientras se revisa cómo se leen sus avisos';
-/** Fuente en pausa: se cita, pero no se lee (ver `paused` en DataSourcePort). */
-const paused = (source) => Object.assign(source, { paused: PAUSED });
-
 export function createSources(deps) {
   return [
     // Ferrocarril
@@ -163,16 +159,15 @@ export function createSources(deps) {
     createFirmsSource(deps),
     createIgnSismosSource(deps),
     createGdacsSource(deps),
-    // Avisos oficiales de protección civil y de los 112 (planes activados y cortes de luz). Canarias,
-    // activa; las demás, en pausa mientras se corrige cómo se leen sus avisos (frases que no son un
-    // corte de luz, notas que no son emergencias): para reactivarlas, quitar `paused`.
+    // Avisos oficiales de protección civil y de los 112 (planes activados y cortes de luz). Si alguna
+    // hubiera que dejar de leerla sin quitarla de /legal, se le pone `paused` con su motivo.
     createCanariasAlertasSource(deps),
-    paused(createCatalunaPlansSource(deps)),
-    paused(createAndaluciaEmergenciasSource(deps)),
-    paused(createClmPlansSource(deps)),
-    paused(createRiojaSosSource(deps)),
-    paused(createCyl112Source(deps)),
-    paused(createBalearsPremsaSource(deps)),
+    createCatalunaPlansSource(deps),
+    createAndaluciaEmergenciasSource(deps),
+    createClmPlansSource(deps),
+    createRiojaSosSource(deps),
+    createCyl112Source(deps),
+    createBalearsPremsaSource(deps),
     createReeSource(deps),
     createEsiosSource(deps), // con ESIOS_TOKEN: apagón de una isla, de Ceuta o de Melilla
   ];

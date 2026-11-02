@@ -129,3 +129,18 @@ test('el histórico no se espera: detect devuelve aunque append no haya terminad
   assert.equal(alerts.length, 1);
   assert.deepEqual(pending, ['alerts', 'kpis']);
 });
+
+test('un corte de luz caducado no da alerta aunque su fuente esté caída y el repositorio guarde su última lectura', () => {
+  const { situation, clock, detect } = setup();
+  situation.registerSource({ id: 'emergencias-castilla-y-leon', name: '112 CyL', kind: 'events', interval: 180_000, url: 'https://x' }, { enabled: true });
+  const cut = {
+    id: 'emergencias-castilla-y-leon:1:riano', group: 'emergencias-castilla-y-leon:1', category: 'emergencia', type: 'apagon', power: true,
+    severity: 'media', title: 'Sin suministro eléctrico', description: 'Riaño sin luz', area: 'Riaño', lat: 42.97, lon: -5.0,
+    issued: clock.t, expires: clock.t + 24 * 60 * MIN,
+  };
+  situation.saveResult('emergencias-castilla-y-leon', { events: [cut] }, clock.t, 1);
+  assert.ok(detect().alerts.some((a) => a.id === 'apagon:emergencias-castilla-y-leon:1'));
+  situation.saveFailure('emergencias-castilla-y-leon', new Error('HTTP 503'), clock.t + MIN);
+  clock.t += 25 * 60 * MIN;
+  assert.ok(!detect().alerts.some((a) => a.type === 'apagon'), 'a las 25 h, sin noticias de la fuente, ya no está en vigor');
+});

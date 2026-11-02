@@ -28,13 +28,18 @@ const CANARIAS = new Set([8795, 8796, 8797, 8798, 8799, 8800]);
 // hora el mismo día, así que la diferencia es siempre de una hora.
 const CANARY_SHIFT = 3_600_000;
 const RECENT_MS = 2 * 3_600_000; // «lo que consumía hace poco»: las dos últimas horas (en hora real)
+// Lo que se lee: seis horas reales. Si un apagón dura más de dos horas y REE programa 0 todo ese rato,
+// lo que consumía antes del corte sigue a mano para decir que la isla sigue sin luz.
+const READ_MS = 6 * 3_600_000;
 
 /**
- * Último dato de cada sistema: demanda real, la programada para ese mismo momento y la mayor real de
- * lo leído (las dos últimas horas), en MW. Tras un apagón REE reprograma la demanda prevista (en La
- * Palma, a 0 durante una hora): la mayor reciente sirve de referencia mientras tanto.
+ * Último dato de cada sistema: demanda real, la programada para ese mismo momento, la mayor real de
+ * las dos últimas horas (`recentMax`) y de todo lo leído (`readMax`, seis horas), en MW, y el dato
+ * anterior (`previous`): la regla pide dos seguidos. Tras un apagón REE reprograma la demanda prevista
+ * (en La Palma, a 0 durante una hora): la mayor reciente sirve de referencia mientras tanto.
  * `id` es la clave del sistema en el dominio (SISTEMAS_AISLADOS) y `name`, su nombre allí.
- * @returns {Array<{ id: string, name: string, real: number, programmed: number|null, recentMax: number, at: number }>}
+ * @returns {Array<{ id: string, name: string, real: number, programmed: number|null, recentMax: number, readMax: number,
+ *   previous: { real: number, at: number } | null, at: number }>}
  */
 export function parseEsiosDemand(real, programmed) {
   // Sólo valen los números: Number(null) y Number('') dan 0, y un dato vacío no es «0 MW» (un apagón falso).
@@ -49,14 +54,17 @@ export function parseEsiosDemand(real, programmed) {
     bySystem.get(v.geo_id).push(v);
   }
   return [...bySystem.values()].map((values) => {
-    const last = values.reduce((a, b) => (atOf(b) > atOf(a) ? b : a));
+    values.sort((a, b) => atOf(a) - atOf(b));
+    const last = values.at(-1);
+    const prev = values.at(-2);
     const at = atOf(last);
     const recent = values.filter((v) => atOf(v) >= at - RECENT_MS).map(mw);
     const plan = planned.get(`${last.geo_id}|${last.datetime_utc}`);
     const id = ESIOS_SYSTEMS.get(last.geo_id);
     return {
       id, name: nameOf(id), real: mw(last), programmed: Number.isFinite(plan) ? plan : null,
-      recentMax: Math.max(...recent), at,
+      recentMax: Math.max(...recent), readMax: Math.max(...values.map(mw)),
+      previous: prev ? { real: mw(prev), at: atOf(prev) } : null, at,
     };
   });
 }
@@ -82,11 +90,10 @@ export function createEsiosSource({ http, env, now = Date.now }) {
     page: 'https://www.esios.ree.es/es',
     license: 'Fuente: Red Eléctrica (e·sios). Uso informativo, sin fines comerciales',
     async fetch() {
-      // Tres horas en la hora de e·sios: así llegan las dos últimas horas reales también de Canarias,
-      // que va una hora por detrás.
+      // Seis horas reales: en la hora de e·sios, siete, porque Canarias va una hora por detrás.
       const t = now();
       const iso = (ms) => new Date(ms).toISOString().slice(0, 19) + 'Z';
-      const from = iso(t - 3 * 3_600_000);
+      const from = iso(t - READ_MS - CANARY_SHIFT);
       const to = iso(t + 15 * 60_000);
       const opts = { timeout: 30_000, headers: headers(), maxBytes: 8 * 1024 * 1024 };
       const [real, programmed] = await Promise.all([http.json(indicator(REAL, from, to), opts), http.json(indicator(PROGRAMMED, from, to), opts)]);

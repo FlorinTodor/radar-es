@@ -17,7 +17,10 @@ export const DEFAULT_THRESHOLDS = Object.freeze({
   // si es mayor, la máxima de las dos últimas horas (tras un apagón REE reprograma la prevista a la baja).
   isolatedGridDrop: 0.5,
   isolatedGridZero: 0.05,       // …y por debajo del 5 % de la esperada: posible apagón total
-  isolatedGridStaleMinutes: 30, // con un dato más viejo no se sabe si sigue así
+  // Con un dato más viejo no se sabe si sigue así. e·sios publica los de Canarias con 8-15 min de
+  // retraso, y a veces más: con 30 min una alerta abierta se cerraba y se volvía a abrir (dos veces en
+  // el historial). La alerta dice la hora de su dato.
+  isolatedGridStaleMinutes: 60,
   fleetDropRatio: 0.6,      // quedan menos del 60 % de los trenes de hace ~10 min
   staleFeedMinutes: 10,
   fireNearKm: 3,            // foco de calor a menos de esto de un tren

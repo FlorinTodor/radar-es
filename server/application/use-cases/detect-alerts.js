@@ -4,7 +4,7 @@ import { evaluateRules } from '../../domain/alerts/rules.js';
 import { reconcileAlerts, sortAlerts } from '../../domain/alerts/lifecycle.js';
 import { DEFAULT_THRESHOLDS } from '../../domain/alerts/thresholds.js';
 import { computeKpis } from '../../domain/kpis.js';
-import { monitoredVehicles } from '../../domain/model.js';
+import { inForce, monitoredVehicles } from '../../domain/model.js';
 
 const KPI_SAMPLE_MS = 60_000;
 // Un día de muestras de minuto en minuto. Es el único tope del histórico: el repositorio guarda las
@@ -28,7 +28,8 @@ export function makeDetectAlerts({ situation, stations, history, clock, threshol
       now,
       vehicles,
       tracks: situation.tracks(),
-      events: situation.events(),
+      // Los avisos que ya no están en vigor no dan alertas, aunque su fuente no haya vuelto a responder.
+      events: situation.events().filter((e) => inForce(e, now)),
       metrics: situation.metrics(),
       health: situation.health(),
       kpis,

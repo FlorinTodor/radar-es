@@ -5,8 +5,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CREDITS, createAndaluciaEmergenciasSource, createBalearsPremsaSource, createCanariasAlertasSource, createCatalunaPlansSource, createClmPlansSource,
-  createCyl112Source, createRiojaSosSource, decodeXml, parseCanariasAlertas, parseCatalunaPlans,
+  createCyl112Source, createRiojaSosSource, decodeXml, firstItems, parseCanariasAlertas, parseCatalunaPlans, parseClmPlans, parseRiojaSos,
 } from '../../server/adapters/outbound/sources/emergencias-oficiales.js';
+import { CUT_MAX_AGE, PLAN_MAX_AGE } from '../../server/domain/emergencias.js';
 
 const NOW = Date.parse('2026-11-02T12:00:00Z');
 const HOUR = 3_600_000;
@@ -301,4 +302,134 @@ test('Baleares: un corte de luz caduca a las 24 h, como en las demás comunidade
   assert.deepEqual(await areas(at + 23 * HOUR), ['Mallorca:plan', 'Menorca:apagon']);
   assert.deepEqual(await areas(at + 25 * HOUR), ['Mallorca:plan'], 'el corte, sin noticias de su fin, se deja de mostrar al día');
   assert.deepEqual(await areas(at + 97 * HOUR), [], 'el plan, a los cuatro días');
+});
+
+// ---------- Illes Balears en catalán: la secuencia real de la DANA de octubre de 2026 ----------
+// Títulos tal cual del RSS en catalán (lang=ca, la URL del catálogo), con sus horas (CEST, +0200).
+const DANA_ITEMS = [
+  balearItem(101, "Emergències activa l'alerta taronja per pluges i tempestes a Eivissa i Formentera i demana precaució a la població", 'Fri, 17 Oct 2026 14:04:00 +0200'),
+  balearItem(102, 'Reunió de seguiment del Comitè Tècnic Assessor del Pla Meteobal', 'Fri, 17 Oct 2026 22:07:00 +0200'),
+  balearItem(103, "Emergències eleva a vermella l'alerta per pluges i tempestes a Mallorca, Eivissa i Formentera i suspèn les classes demà a les tres illes", 'Sat, 18 Oct 2026 19:59:00 +0200'),
+  balearItem(104, "El Govern autoritza el teletreball per als empleats públics de la CAIB davant l'alerta vermella meteorològica d'aquest dilluns", 'Sat, 18 Oct 2026 22:02:00 +0200'),
+  balearItem(105, "Emergències manté l'alerta vermella de Protecció Civil per pluges i tempestes a Eivissa, Formentera i Mallorca", 'Sun, 19 Oct 2026 12:45:00 +0200'),
+  balearItem(106, 'Reunió de seguiment del CECOPI del Pla Meteobal i del Pla Inunbal', 'Sun, 19 Oct 2026 15:27:00 +0200'),
+];
+// Lo que radar-d1 vio que se colaba: una nota sanitaria posterior en Eivissa y su fin, sin isla.
+const SARAMPIO = [
+  balearItem(107, "Salut declara l'alerta sanitària per xarampió a Eivissa", 'Sun, 19 Oct 2026 13:30:00 +0200'),
+  balearItem(108, "Salut dona per finalitzada l'alerta per xarampió", 'Sun, 19 Oct 2026 14:00:00 +0200'),
+];
+const REBAIXA = balearItem(109, "Emergències rebaixa els nivells d'alerta i confirma el retorn a les classes a partir de demà a Mallorca, Eivissa i Formentera", 'Sun, 19 Oct 2026 19:19:00 +0200');
+const FINAL = balearItem(110, "Decretat el final de l'emergència a Eivissa, Formentera i Mallorca", 'Wed, 22 Oct 2026 17:01:00 +0200');
+// El RSS va de lo más nuevo a lo más viejo.
+const danaFeed = (items) => balearFeed([...items].reverse().join(''));
+const balearsAt = async (items, iso) => {
+  const src = createBalearsPremsaSource({ http: { bytes: async () => danaFeed(items) }, now: () => Date.parse(iso) });
+  return (await src.fetch()).events.map((e) => `${e.area}:${e.severity}`).sort();
+};
+
+test('Baleares en catalán: la URL exacta del catálogo de datos.gob.es (lang=ca)', () => {
+  const src = createBalearsPremsaSource({ http: {} });
+  assert.equal(src.url, 'https://www.caib.es/pidip2front/pidipRSS?opcio=getRSS&grup=salaDePremsa&lang=ca');
+});
+
+test('Baleares en catalán: taronja, vermella en las tres islas, la rebaja las deja en alta y el final lo cierra todo', async () => {
+  assert.deepEqual(await balearsAt(DANA_ITEMS.slice(0, 2), '2026-10-17T20:00:00Z'), ['Formentera:alta', 'Ibiza:alta']);
+  assert.deepEqual(await balearsAt(DANA_ITEMS, '2026-10-19T13:00:00Z'), ['Formentera:muy alta', 'Ibiza:muy alta', 'Mallorca:muy alta'],
+    'ni el teletrabajo ni las reuniones son avisos');
+  assert.deepEqual(await balearsAt([...DANA_ITEMS, REBAIXA], '2026-10-19T19:30:00Z'), ['Formentera:alta', 'Ibiza:alta', 'Mallorca:alta']);
+  assert.deepEqual(await balearsAt([...DANA_ITEMS, REBAIXA, FINAL], '2026-10-23T10:00:00Z'), []);
+});
+
+test('Baleares: una alerta sanitaria no sustituye a la roja por lluvias, y su fin sin isla no la cierra', async () => {
+  assert.deepEqual(await balearsAt([...DANA_ITEMS, ...SARAMPIO], '2026-10-19T13:00:00Z'),
+    ['Formentera:muy alta', 'Ibiza:muy alta', 'Mallorca:muy alta']);
+});
+
+test('Baleares: sólo se leen las 200 notas más recientes (el RSS trae unas 1.300)', () => {
+  const xml = `<rss><channel><title>t</title>${'<item><title>a</title></item>'.repeat(5)}</channel></rss>`;
+  const cut = firstItems(xml, 2);
+  assert.equal(cut, '<rss><channel><title>t</title><item><title>a</title></item><item><title>a</title></item></channel></rss>');
+  assert.equal(firstItems(xml, 50), xml, 'si trae menos, entero');
+});
+
+// ---------- Andalucía: lo que no es un corte de luz que mostrar ----------
+const newsAt = (id, title, body, iso = '2026-11-02T09:00:00.000Z') => ({ id, title, subtitle: '', publication_date: iso, path: { uri: `https://x/${id}` }, body });
+
+test('Andalucía: un simulacro (en el título) con el corte en el texto no es un corte; tampoco «cortes de luz» sin decir dónde', async () => {
+  const news = andaluciaNews([
+    newsAt('GeNews-400', 'La EMA realiza un simulacro de incendio forestal en Sierra Morena',
+      '<p>Durante el ejercicio se ha simulado el corte de la JA-6100 y del suministro eléctrico en Cazalla de la Sierra.</p>'),
+    newsAt('GeNews-401', 'El Centro de Coordinación gestiona más de 200 emergencias por el temporal',
+      '<p>El resto se ha referido a incidencias de tráfico, además de anomalías en servicios básicos, por roturas de tuberías o cortes de luz.</p>'),
+    newsAt('GeNews-402', 'Balance del temporal', '<p>No se han registrado cortes de luz en la provincia de Málaga.</p>'),
+  ]);
+  const geocoder = fakeGeocoder({ 'Cazalla de la Sierra': [37.93, -5.76], 'Málaga': [36.72, -4.42] });
+  const { events } = await createAndaluciaEmergenciasSource({ http: fakeHttp(() => news), geocoder, now: clock }).fetch();
+  assert.deepEqual(events, []);
+  assert.deepEqual(geocoder.calls, [], 'ni siquiera se busca dónde');
+});
+
+test('Andalucía: «ha vuelto la luz» en un sitio que no se sabe situar no cierra los cortes de toda la comunidad', async () => {
+  const news = andaluciaNews([
+    newsAt('GeNews-410', 'Borrasca en Cádiz', '<p>Hay falta de suministro eléctrico en Espera.</p>', '2026-11-02T06:00:00.000Z'),
+    newsAt('GeNews-411', 'Mejora la situación', '<p>Ya se ha restablecido el suministro eléctrico en Villanueva del Despiste.</p>', '2026-11-02T09:00:00.000Z'),
+    newsAt('GeNews-412', 'Sigue la borrasca', '<p>Se ha restablecido el suministro eléctrico.</p>', '2026-11-02T10:00:00.000Z'),
+  ]);
+  const { events } = await createAndaluciaEmergenciasSource({ http: fakeHttp(() => news), geocoder: fakeGeocoder({ Espera: [36.87, -5.8] }), now: clock }).fetch();
+  assert.deepEqual(events.map((e) => e.area), ['Espera']);
+});
+
+test('geocodificador: si CartoCiudad no responde, no se le pregunta más en esa lectura; y como mucho 30 lugares por lectura', async () => {
+  const down = { calls: 0, async locate() { this.calls++; throw new Error('HTTP 503'); } };
+  const news = andaluciaNews([newsAt('GeNews-420', 'Borrasca', '<p>Hay falta de suministro eléctrico en Espera, Arcos, Bornos, Villamartín y Prado del Rey.</p>')]);
+  const { events } = await createAndaluciaEmergenciasSource({ http: fakeHttp(() => news), geocoder: down, now: clock }).fetch();
+  assert.equal(down.calls, 1);
+  assert.deepEqual(events.map((e) => `${e.area}:${e.approx}`), ['Andalucía:comunidad'], 'el corte se ve igual, en el centro de la comunidad');
+
+  const towns = Array.from({ length: 40 }, (_, i) => `Pueblo${String.fromCharCode(97 + (i % 26))}${String.fromCharCode(97 + Math.floor(i / 26))}`);
+  const many = andaluciaNews(towns.map((t, i) => newsAt(`GeNews-5${i}`, 'Borrasca', `<p>Hay falta de suministro eléctrico en ${t}.</p>`)));
+  const geocoder = fakeGeocoder({});
+  await createAndaluciaEmergenciasSource({ http: fakeHttp(() => many), geocoder, now: clock }).fetch();
+  assert.equal(geocoder.calls.length, 30);
+});
+
+// ---------- Ids, Cataluña, topes y vigencia ----------
+test('Castilla-La Mancha y La Rioja: un enlace acabado en «/» no deja a todos los avisos con el mismo id', () => {
+  const clm = parseClmPlans(rss([
+    clmItem('platecam-toledo/', 'PLATECAM, activado en la provincia de Toledo', '2026-11-02T10:07:53+01:00'),
+    clmItem('meteocam-cuenca/', 'METEOCAM. Cuenca', '2026-11-02T10:00:00+01:00'),
+  ].join(''))).notices;
+  assert.deepEqual(clm.map((n) => n.id), ['platecam-toledo', 'meteocam-cuenca']);
+  const rioja = parseRiojaSos(rss(riojaItem('averia-1/', 'Avería que afecta a suministro eléctrico', '2/11/2026 a las 09:16 en Ventrosa', 'Avería en Ventrosa.')
+    + riojaItem('averia-2/', 'Avería que afecta a suministro eléctrico', '2/11/2026 a las 10:16 en Brieva', 'Avería en Brieva.'))).notices;
+  assert.deepEqual(rioja.map((n) => n.id), ['averia-1', 'averia-2']);
+});
+
+test('Cataluña: sólo los planes con «SI»; si el campo cambia o falta, ninguno (mejor nada que todo activo)', () => {
+  assert.deepEqual(parseCatalunaPlans([{ planom: 'INUNCAT', plafase: 'ALERTA' }, { planom: 'NEUCAT', plafase: 'ALERTA', plaactivat: 'true' }]), []);
+  assert.equal(parseCatalunaPlans([{ planom: 'INUNCAT', plafase: 'ALERTA', plaactivat: 'Sí' }]).length, 1);
+});
+
+test('cada fuente descarga con su tope de tamaño (los feeds pesan de 2 KB a 800 KB)', async () => {
+  const seen = [];
+  const http = {
+    text: async (url, opts) => { seen.push([url, opts.maxBytes]); return rss(''); },
+    json: async (url, opts) => { seen.push([url, opts.maxBytes]); return url.includes('juntadeandalucia') ? andaluciaNews([]) : []; },
+    bytes: async (url, opts) => { seen.push([url, opts.maxBytes]); return balearFeed(''); },
+  };
+  const geocoder = fakeGeocoder({});
+  for (const src of [
+    createCanariasAlertasSource({ http, now: clock }), createCatalunaPlansSource({ http }), createAndaluciaEmergenciasSource({ http, geocoder, now: clock }),
+    createClmPlansSource({ http, now: clock }), createRiojaSosSource({ http, geocoder, now: clock }), createCyl112Source({ http, geocoder, now: clock }),
+    createBalearsPremsaSource({ http, now: clock }),
+  ]) await src.fetch();
+  assert.equal(seen.length, 8, 'Cataluña lee también la ficha del conjunto');
+  for (const [url, max] of seen) assert.ok(max > 0 && max <= 4 * 1024 * 1024, `${url}: ${max}`);
+});
+
+test('cada aviso lleva hasta cuándo está en vigor: así deja el mapa a su hora aunque la fuente caiga', async () => {
+  const { events } = await createCanariasAlertasSource({ http: fakeHttp(() => CANARIAS_XML), now: clock }).fetch();
+  for (const e of events) assert.equal(e.expires, e.issued + (e.power && !/PLATECA/.test(e.title) ? CUT_MAX_AGE : PLAN_MAX_AGE), e.title);
+  assert.ok(events.length > 0);
 });

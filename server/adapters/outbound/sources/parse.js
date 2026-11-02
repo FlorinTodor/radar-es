@@ -88,7 +88,7 @@ const ENTITIES = {
 };
 
 /** Decodifica entidades HTML («&oacute;», «&#243;», «&#x27;»); las desconocidas se dejan como están. */
-export function decodeEntities(s) {
+function decodeEntities(s) {
   return String(s ?? '').replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (all, e) => {
     if (e[0] === '#') {
       const code = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);

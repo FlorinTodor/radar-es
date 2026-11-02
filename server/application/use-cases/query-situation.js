@@ -4,6 +4,7 @@ import { headingOf } from '../../domain/tracking.js';
 import { headingOfPath, pathThroughStops } from '../../domain/route-ahead.js';
 import { gaugeFactors, matchToRail, routeAhead } from '../../domain/rail-match.js';
 import { round5 } from '../../domain/geo.js';
+import { inForce } from '../../domain/model.js';
 
 // Cálculos por tren que se guardan (recorrido por la vía, ~30 KB cada uno; lo que le queda): el mapa
 // pide los del tren seleccionado cada 15 s, /api/live la flecha de cada Cercanías, y sólo cambian
@@ -52,6 +53,12 @@ function makeTrainMemo(live) {
  */
 export function makeQuerySituation({ situation, stations, networkStations, network, clock, sources = [], railNetwork }) {
   const withPaths = sources.filter((s) => typeof s.path === 'function');
+  // Los sucesos en vigor: un aviso oficial que ya pasó de su vigencia no se muestra aunque su fuente
+  // esté caída y el repositorio guarde su última lectura.
+  const currentEvents = () => {
+    const now = clock.now();
+    return situation.events().filter((e) => inForce(e, now));
+  };
   // Fuentes que dicen las paradas que le quedan a cada tren (Cercanías de Renfe): lo que le queda se
   // dibuja por el trazado de su viaje, pero sólo entre esas paradas (ver domain/route-ahead.js).
   const withStops = new Map(sources.filter((s) => typeof s.stopsAhead === 'function').map((s) => [s.id, s]));
@@ -157,7 +164,7 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
         (!mode || v.mode === mode) && (!source || v.source === source) && (minDelay === undefined || (v.delay ?? -1) >= minDelay));
     },
     events({ category } = {}) {
-      return situation.events().filter((e) => !category || e.category === category);
+      return currentEvents().filter((e) => !category || e.category === category);
     },
     alerts,
     resolvedAlerts: () => situation.resolvedAlerts(),
@@ -246,7 +253,7 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
         kpis: situation.kpis(),
       };
     },
-    liveEvents: () => ({ generatedAt: clock.now(), events: situation.events() }),
+    liveEvents: () => ({ generatedAt: clock.now(), events: currentEvents() }),
     liveBuses: () => ({ generatedAt: clock.now(), vehicles: withHeading(situation.vehicles().filter((v) => v.mode === 'bus')) }),
 
     snapshot({ buses = true } = {}) {
@@ -257,7 +264,7 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
         generatedAt: clock.now(),
         vehicles: busFilter(buses)(vehicles),
         counts,
-        events: situation.events(),
+        events: currentEvents(),
         metrics: situation.metrics(),
         alerts: alerts(),
         resolved: situation.resolvedAlerts().slice(0, 30),

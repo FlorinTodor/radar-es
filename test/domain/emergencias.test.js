@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CUT_MAX_AGE, PLAN_MAX_AGE, currentNotices, illesIn, islandsIn, isEndNotice, isPlanNotice, maxAgeOf, mentionsPlan, mentionsPowerBack,
+  CUT_MAX_AGE, PLAN_MAX_AGE, currentNotices, expiresAt, illesIn, islandsIn, isEndNotice, isPlanNotice, maxAgeOf, mentionsPlan, mentionsPowerBack,
   mentionsPowerCut, placeCandidates, powerClauses, provincesIn, severityOf, subjectsOf,
 } from '../../server/domain/emergencias.js';
 
@@ -30,7 +30,7 @@ test('apagones que no son eléctricos, en singular y en plural: ni corte de luz 
     assert.ok(!mentionsPowerCut(t), t);
     assert.ok(!subjectsOf(t).includes('luz'), `${t} → ${subjectsOf(t)}`);
   }
-  for (const t of ['Apagón en La Palma', 'Apagones en Tenerife tras la tormenta', 'El apagón del 28 de abril']) {
+  for (const t of ['Apagón en La Palma', 'Apagones en Tenerife tras la tormenta', 'Apagón general en toda Andalucía']) {
     assert.ok(mentionsPowerCut(t), t);
     assert.ok(subjectsOf(t).includes('luz'), t);
   }
@@ -236,4 +236,120 @@ test('islas de Baleares: por su nombre, las Pitiusas y todo el archipiélago', (
   assert.deepEqual(illesIn('la DANA en las Pitiusas').sort(), ['Formentera', 'Ibiza']);
   assert.deepEqual(illesIn('alerta en Eivissa'), ['Ibiza']);
   assert.deepEqual(illesIn('prealerta en todas las islas'), ['*']);
+});
+
+// ---------- Casos reales que no son un corte de luz ahora (radar-d1 y noticias de la Junta) ----------
+
+test('no es un corte de luz: negación, prevención, simulacro, otro suceso con su fecha o un vehículo', () => {
+  for (const t of [
+    'No se han registrado cortes de luz en la provincia de Málaga.',
+    'Ante posibles cortes de suministro eléctrico, la población debe tener linternas.',
+    'Simulacro de apagón en Menorca',
+    'No constan incidencias en el suministro eléctrico',
+    'El temporal ha pasado sin que se hayan producido cortes de luz',
+    'Moreno pide explicaciones por el apagón del 28 de abril',
+    'Insta al Gobierno de España a dar explicaciones a los ciudadanos ante cuestiones como el apagón o el caos ferroviario.',
+    'ha reclamado conocer las causas del apagón',
+    'el apagón del pasado 28 de abril',
+    'El conductor circulaba sin luz por la A-4',
+    'El 1-1-2 recomienda qué hacer en caso de apagón eléctrico',
+    'un frigorífico conserva los alimentos hasta cuatro horas durante un apagón',
+    'interrupción del suministro eléctrico y de internet en el edificio de la Policía Local',
+    'No hi ha talls de llum a Menorca',
+  ]) {
+    assert.ok(!mentionsPowerCut(t), t);
+    assert.deepEqual(powerClauses(t).cut, [], t);
+  }
+  assert.ok(mentionsPowerCut('Se ha producido un corte de luz en Ronda.'));
+  assert.ok(mentionsPowerCut('El incendio no ha causado heridos, ha dejado sin luz a 300 vecinos de Ronda'), 'la negación de otra parte de la frase no cuenta');
+  assert.ok(mentionsPowerCut('La avería, que no se ha localizado aún, deja sin suministro eléctrico a Ventrosa'));
+});
+
+test('un simulacro no da cortes aunque el corte esté en el texto y el simulacro en el título (EMA, 25-3)', () => {
+  const full = 'La EMA realiza un simulacro de incendio forestal en Sierra Morena. '
+    + 'Durante el ejercicio se ha simulado el corte de la JA-6100 y del suministro eléctrico en la zona.';
+  assert.deepEqual(powerClauses(full), { cut: [], back: [] });
+});
+
+test('Andalucía: las frases reales de la Junta que sí son un corte de luz o su vuelta', () => {
+  for (const t of [
+    'En Benamahoma el ayuntamiento informó que toda la población estaba anoche sin suministro eléctrico ni cobertura',
+    'Hay falta de suministro eléctrico en Espera y San José del Valle',
+    'Según el último balance, hay 195 personas sin suministro eléctrico en Jimena de la Frontera',
+    'se ha detectado falta de suministro eléctrico, telefonía e internet en la población de Trebujena',
+  ]) assert.equal(powerClauses(t).cut.length, 1, t);
+  assert.deepEqual(powerClauses('en San Martín del Tesorillo se ha restablecido el suministro eléctrico').back.length, 1);
+  assert.ok(!mentionsPowerBack('Todavía no se ha restablecido el suministro eléctrico en Ventrosa'), 'que no ha vuelto no es que ha vuelto');
+});
+
+test('sequía, alerta sanitaria o alimentaria: no son planes de protección civil, con su propia clave', () => {
+  for (const t of [
+    'El Govern declara la situación de emergencia por sequía en Ibiza y Formentera',
+    'Salut declara la alerta sanitaria por sarampión en Ibiza',
+    'Consumo activa la alerta alimentaria por listeria',
+    "El Govern declara la situació d'emergència per sequera a Eivissa i Formentera",
+    "Salut declara l'alerta sanitària per xarampió a Eivissa",
+  ]) assert.ok(!isPlanNotice(t), t);
+  assert.deepEqual(subjectsOf('Salut da por finalizada la alerta por sarampión'), ['sanitaria'], 'no cierra lo de todas las islas');
+  assert.deepEqual(subjectsOf('Activada la alerta por riesgo de incendios por la sequía'), ['incendio'], 'el riesgo que se nombra antes manda');
+});
+
+test('«*» sólo si el aviso nombra un nivel o un plan; si no, no sustituye ni cierra lo de los demás', () => {
+  assert.deepEqual(subjectsOf('Emergencias rebaja los niveles de alerta y confirma la vuelta a las clases en Mallorca'), ['*']);
+  assert.deepEqual(subjectsOf("Decretat el final de l'emergència a Eivissa, Formentera i Mallorca"), ['*']);
+  assert.deepEqual(subjectsOf('Finaliza el dispositivo especial en Ibiza'), ['sin-riesgo']);
+  const list = currentNotices([
+    notice('roja', 10, { places: ['Ibiza'] }),
+    notice('otra-cosa', 5, { subjects: ['sin-riesgo'], places: ['Ibiza'] }),
+    notice('fin-otra-cosa', 2, { end: true, subjects: ['sin-riesgo'], places: [] }),
+  ], { now: NOW });
+  assert.deepEqual(list.map(({ notice: n }) => n.id), ['roja'], 'la alerta por lluvias sigue');
+});
+
+// ---------- Catalán (sala de prensa del Govern balear, títulos reales de octubre de 2026) ----------
+
+test('Baleares en catalán: alertas por color, su fin y sus islas', () => {
+  const taronja = "Emergències activa l'alerta taronja per pluges i tempestes a Eivissa i Formentera i demana precaució a la població";
+  assert.ok(isPlanNotice(taronja));
+  assert.equal(severityOf(taronja), 'alta');
+  assert.deepEqual(subjectsOf(taronja), ['lluvia']);
+  assert.deepEqual(illesIn(taronja).sort(), ['Formentera', 'Ibiza']);
+  const vermella = "Emergències eleva a vermella l'alerta per pluges i tempestes a Mallorca, Eivissa i Formentera i suspèn les classes demà a les tres illes";
+  assert.ok(isPlanNotice(vermella));
+  assert.equal(severityOf(vermella), 'muy alta');
+  assert.equal(severityOf("Emergències manté l'alerta vermella de Protecció Civil per pluges i tempestes a Eivissa, Formentera i Mallorca"), 'muy alta');
+  const rebaixa = "Emergències rebaixa els nivells d'alerta i confirma el retorn a les classes a partir de demà a Mallorca, Eivissa i Formentera";
+  assert.ok(isPlanNotice(rebaixa));
+  assert.equal(severityOf(rebaixa), 'alta');
+  assert.ok(isEndNotice("Decretat el final de l'emergència a Eivissa, Formentera i Mallorca"));
+  const inunbal = "La presidenta Prohens anuncia l'activació del Pla INUNBAL en fase de prealerta davant el risc de danes";
+  assert.ok(isPlanNotice(inunbal));
+  assert.equal(severityOf(inunbal), 'media');
+  assert.equal(severityOf("activa el Pla INUNBAL en situació operativa 2"), 'muy alta');
+});
+
+test('Baleares en catalán: lo que no es un aviso ni un corte de luz', () => {
+  for (const t of [
+    "Reunió del CECOPI del Pla Meteobal i del Pla Inunbal des d'Eivissa",
+    "El Govern aprova el primer protocol d'emergències meteorològiques per a l'àmbit esportiu de les Illes Balears",
+    'El Govern eleva el Protocol ECLIPBAL a nivell 2 per reforçar la coordinació del dispositiu',
+    "El Govern alerta de la consolidació de la nova ruta migratòria cap a les Illes Balears",
+    "El Govern autoritza el teletreball per als empleats públics de la CAIB davant l'alerta vermella meteorològica d'aquest dilluns",
+    "El Govern eleva la cobertura de la xarxa de comunicacions d'emergències d'Eivissa fins al 87,2%",
+    'El Govern finalitza les excavacions del V Pla de Fosses a Son Servera',
+    "Presentació de les ajudes per donar resposta a la situació d'emergència provocada pels terratrèmols de Veneçuela",
+  ]) assert.ok(!isPlanNotice(t), t);
+  for (const t of [
+    'CONSELL DE GOVERN: Llum verda a un nou tram de doble via entre Petra i Manacor',
+    "El Govern autoritza la fi de la generació elèctrica amb carbó a Mallorca",
+    "Comencen les obres del sistema de subministrament elèctric a vaixells al port exterior de Ciutadella",
+  ]) assert.ok(!mentionsPowerCut(t), t);
+  assert.ok(mentionsPowerCut('Talls de llum a Menorca pel temporal'));
+  assert.ok(mentionsPowerBack('Ja ha tornat la llum a Ciutadella'));
+});
+
+test('vigencia en el suceso: lo que dura sin noticias de su fin, desde que se publicó', () => {
+  const at = NOW - 3 * HOUR;
+  assert.equal(expiresAt({ at, power: true, title: 'Corte de luz en Toledo' }), at + CUT_MAX_AGE);
+  assert.equal(expiresAt({ at, power: false, title: 'METEOCAM. Activada la alerta en Toledo' }), at + PLAN_MAX_AGE);
 });

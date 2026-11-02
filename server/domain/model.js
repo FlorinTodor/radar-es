@@ -63,6 +63,8 @@
  *   (el centro de la isla, del municipio…): los avisos oficiales no traen coordenadas.
  * @property {string} [group]    Mismo aviso publicado para varios lugares (un evento por lugar).
  * @property {string} [credit]   Atribución que pide la licencia de su fuente, para mostrarla junto al dato.
+ * @property {number} [expires]  Epoch ms a partir del cual deja de estar en vigor aunque su fuente no
+ *   vuelva a responder (avisos oficiales: lo que dura uno sin noticias de su fin, ver domain/emergencias.js).
  */
 
 /**
@@ -160,6 +162,13 @@ export function isStationCode(code) {
  * (que paran en cualquier sitio) se muestran pero no cuentan.
  */
 const RAIL_MODES = new Set(['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'otros']);
+/**
+ * El suceso sigue en vigor a la hora `now`: los que traen `expires` dejan de mostrarse y de dar alertas
+ * a esa hora, también si su fuente ha dejado de responder y el repositorio guarda su última lectura.
+ * @param {IncidentEvent} e
+ */
+export const inForce = (e, now) => !(Number.isFinite(e.expires) && e.expires <= now);
+
 export const monitoredVehicles = (vehicles) => vehicles.filter((v) => !v.estimated && RAIL_MODES.has(v.mode));
 
 /** @param {Vehicle} v */

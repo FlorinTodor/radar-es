@@ -2,7 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { strToU8, zipSync } from 'fflate';
-import { NETWORK_CODE, buildStations, readable, withNetworkExtras } from '../../server/adapters/outbound/stations/network-station-catalog.js';
+import { buildStations, readable, withNetworkExtras } from '../../server/adapters/outbound/stations/network-station-catalog.js';
+import { isStationCode } from '../../server/domain/model.js';
 
 const csv = (rows) => strToU8(rows.join('\n'));
 const RED = { id: 'prueba', name: 'Metro de Prueba' };
@@ -57,7 +58,7 @@ test('los andenes y sentidos con el mismo nombre son una sola estación', async 
 test('código corto y válido, y nombres en mayúsculas legibles', async () => {
   const tram = (await buildStations(gtfs(), RED)).find((s) => s.mode === 'tranvia');
   assert.equal(tram.code, 'prueba:77', '«ES:Red:StopPlace:77:» → «77»');
-  assert.match(tram.code, NETWORK_CODE);
+  assert.ok(isStationCode(tram.code), 'el código que da el catálogo es el que acepta /api/stations/<código>');
   assert.equal(readable('PINAR DE CHAMARTIN'), 'Pinar de Chamartin');
   assert.equal(readable('Sants Estació'), 'Sants Estació', 'lo que no viene en mayúsculas no se toca');
   assert.equal(readable('L\'Illa'), 'L\'Illa');

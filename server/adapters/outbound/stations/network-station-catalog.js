@@ -37,9 +37,6 @@ export const STATION_NETWORKS = [
   { id: 'euskotren', ficheroId: 1263, dataset: 1062, credit: 'Euskotren' },
 ].map((n) => ({ ...n, name: NETWORKS.find(([id]) => id === n.ficheroId)?.[1] ?? n.credit }));
 
-/** Código de una estación de estas redes: el prefijo de la red y el stop_id de su GTFS. */
-export const NETWORK_CODE = /^[a-z]+:[\w.:-]{1,64}$/;
-
 const fold = (s) => String(s ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const SMALL_WORDS = new Set(['de', 'del', 'la', 'las', 'los', 'el', 'y', 'a']);
 /**

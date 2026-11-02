@@ -11,7 +11,8 @@ import { inBounds, SPAIN_BOUNDS } from '../../../domain/geo.js';
  * @typedef {object} Geocoder
  * @property {(place: string, scope?: { region?: string, province?: string }) => Promise<{ name: string, lat: number, lon: number } | null>} locate
  *   region: código de comunidad autónoma del INE («01» Andalucía…), para no confundir pueblos con el
- *   mismo nombre; province: nombre de la provincia. null si no lo encuentra o el servicio no responde.
+ *   mismo nombre; province: nombre de la provincia. null si no lo encuentra; si el servicio no responde,
+ *   lanza el error: quien pregunta decide si sigue (las fuentes de avisos dejan de preguntar en esa lectura).
  */
 /** Lo que main.js comprueba en el arranque (assertPort) que tiene el geocodificador. */
 export const GEOCODER_MEMBERS = Object.freeze(['locate']);
@@ -60,10 +61,11 @@ export function createCartoCiudadGeocoder({ http, log, base = BASE }) {
         const lat = Number(found?.lat);
         const lon = Number(found?.lng);
         if (!Number.isFinite(lat) || !Number.isFinite(lon) || !inSpain(lat, lon)) return remember(key, null);
-        return remember(key, { name: pick.type === 'poblacion' ? (pick.poblacion ?? name) : (pick.muni ?? name), lat, lon });
+        // Siempre texto: el nombre llega al mapa (area), que sólo escapa lo que es texto.
+        return remember(key, { name: String((pick.type === 'poblacion' ? pick.poblacion : pick.muni) ?? name), lat, lon });
       } catch (err) {
         log?.warn(`[cartociudad] ${name}: ${err.message}`);
-        return null;
+        throw err;
       }
     },
   };

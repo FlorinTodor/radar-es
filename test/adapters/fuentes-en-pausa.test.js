@@ -1,5 +1,5 @@
-// Fuentes en pausa: se citan en /legal y salen en el estado de las fuentes, pero no se leen. Hoy, los
-// avisos oficiales de seis comunidades; Canarias sigue activa.
+// Fuentes en pausa (`paused` en DataSourcePort): se citan en /legal y salen en el estado de las fuentes,
+// pero no se leen. Hoy no hay ninguna: los avisos oficiales de las siete comunidades se leen todos.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSources } from '../../server/adapters/outbound/sources/index.js';
@@ -15,11 +15,11 @@ const deps = {
   pool: { run: async () => null },
 };
 
-test('avisos oficiales: Canarias activa; las demás comunidades en pausa, con su motivo; e·sios activa', () => {
+test('avisos oficiales de las siete comunidades y e·sios, activos (ninguno en pausa)', () => {
   const byId = Object.fromEntries(createSources(deps).map((s) => [s.id, s]));
-  assert.equal(byId['emergencias-canarias'].paused, undefined);
-  assert.equal(byId['esios-sistemas-aislados'].paused, undefined);
-  for (const id of ['emergencias-cataluna', 'emergencias-andalucia', 'emergencias-castilla-la-mancha', 'emergencias-la-rioja', 'emergencias-castilla-y-leon', 'emergencias-illes-balears']) {
-    assert.match(byId[id].paused ?? '', /pausa/, id);
+  for (const id of ['emergencias-canarias', 'emergencias-cataluna', 'emergencias-andalucia', 'emergencias-castilla-la-mancha', 'emergencias-la-rioja',
+    'emergencias-castilla-y-leon', 'emergencias-illes-balears', 'esios-sistemas-aislados']) {
+    assert.ok(byId[id], id);
+    assert.equal(byId[id].paused, undefined, id);
   }
 });

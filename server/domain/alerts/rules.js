@@ -12,10 +12,10 @@ import { SISTEMAS_AISLADOS } from '../lugares.js';
  * @typedef {object} RuleContext
  * @property {number} now
  * @property {import('../model.js').Vehicle[]} vehicles  Sólo trenes, metros y tranvías con GPS.
- * @property {Map<string, import('../tracking.js').TrackPoint[]>} tracks
+ * @property {ReadonlyMap<string, import('../tracking.js').TrackPoint[]>} tracks
  * @property {import('../model.js').IncidentEvent[]} events
  * @property {Record<string, any>} metrics
- * @property {Array<{id: string, name: string, kind: string, enabled: boolean, ok: boolean|null, lastOk: number|null, interval: number, sourceTime: number|null, error: string|null}>} health
+ * @property {import('../model.js').SourceHealth[]} health
  * @property {{ vehicles: number }} kpis
  * @property {Array<{ t: number, vehicles: number }>} kpiHistory
  * @property {(lat: number, lon: number) => { station: import('../model.js').Station, km: number } | null} nearestStation
@@ -282,12 +282,18 @@ export function officialEmergencyPlans(ctx) {
   });
 }
 
+// e·sios da un dato cada 5 minutos: dos con un hueco mayor entre ellos no son seguidos.
+const CONSECUTIVE_MS = 15 * 60_000;
+
 /**
  * Apagón de un sistema eléctrico aislado (una isla o un grupo de islas de Canarias, Ceuta, Melilla):
- * su demanda real cae muy por debajo de la esperada, que es la programada para ese momento o, si es
- * mayor, la que tenía en las dos últimas horas (tras un apagón REE reprograma la prevista, en La Palma
- * a 0 durante una hora, y el corte parecería normal). Llega minutos después del corte, antes que los
- * avisos oficiales: el 2-11-2026 en La Palma, a los 3 minutos; el Gobierno de Canarias, a la hora.
+ * su demanda real cae muy por debajo de la esperada en dos datos seguidos (uno solo puede ser un dato
+ * suelto mal medido). La esperada es la programada para ese momento o, si es mayor, la que tenía en
+ * las dos últimas horas: tras un apagón REE reprograma la prevista (en La Palma, a 0 durante una hora)
+ * y el corte parecería normal. Si el apagón dura más que eso y REE sigue programando 0, se compara con
+ * lo que consumía antes (lo leído, seis horas), sólo para decir que sigue a cero. Llega minutos
+ * después del corte, antes que los avisos oficiales: el 2-11-2026 en La Palma, con el dato de las
+ * 06:45 (el corte fue a las 06:42) en cuanto e·sios lo publica; el Gobierno de Canarias, a la hora.
  */
 export function isolatedGridBlackouts(ctx) {
   const th = ctx.thresholds;
@@ -295,12 +301,22 @@ export function isolatedGridBlackouts(ctx) {
   for (const s of ctx.metrics[GRID_METRICS.aislados]?.systems ?? []) {
     if (!Number.isFinite(s.real)) continue;
     if (!s.at || ctx.now - s.at > th.isolatedGridStaleMinutes * 60_000) continue; // dato viejo: no se sabe
+    const prev = s.previous;
+    if (!prev || !Number.isFinite(prev.real) || !(s.at - prev.at <= CONSECUTIVE_MS)) continue;
+    const worst = Math.max(s.real, prev.real); // los dos tienen que estar por debajo
     const programmed = Number.isFinite(s.programmed) ? s.programmed : 0;
-    const expected = Math.max(programmed, Number.isFinite(s.recentMax) ? s.recentMax : 0);
-    if (expected < 1) continue; // sin referencia (o un sistema minúsculo): no se puede decir nada
-    const ratio = s.real / expected;
-    if (ratio > th.isolatedGridDrop) continue;
-    const zero = ratio <= th.isolatedGridZero;
+    const recent = Math.max(programmed, Number.isFinite(s.recentMax) ? s.recentMax : 0);
+    const before = Math.max(recent, Number.isFinite(s.readMax) ? s.readMax : 0);
+    let expected;
+    let basis;
+    if (recent >= 1 && worst / recent <= th.isolatedGridDrop) {
+      expected = recent;
+      basis = recent === programmed ? 'programados' : 'que consumía en las dos últimas horas';
+    } else if (before >= 1 && worst / before <= th.isolatedGridZero) {
+      expected = before;
+      basis = 'que consumía antes del corte';
+    } else continue; // sin referencia (o un sistema minúsculo), o no ha caído tanto
+    const zero = worst / expected <= th.isolatedGridZero;
     // El sistema se sitúa por su clave (la de SISTEMAS_AISLADOS), no por el nombre que dé la fuente.
     const place = SISTEMAS_AISLADOS.find((p) => p.id === s.id);
     const name = place?.name ?? s.name ?? s.id;
@@ -308,9 +324,8 @@ export function isolatedGridBlackouts(ctx) {
       id: `red-aislada:${s.id}`, type: 'red-electrica', severity: zero ? 'muy alta' : 'alta',
       lat: place?.lat, lon: place?.lon,
       title: zero ? `Posible apagón total en ${name}: demanda a ${mw(s.real)} MW`
-        : `Demanda eléctrica de ${name} un ${Math.round((1 - ratio) * 100)} % por debajo de lo esperado`,
-      description: `Real ${mw(s.real)} MW a las ${madridTime(s.at)} (hora peninsular) frente a ${mw(expected)} MW `
-        + `${expected === programmed ? 'programados' : 'que consumía en las dos últimas horas'}. `
+        : `Demanda eléctrica de ${name} un ${Math.round((1 - s.real / expected) * 100)} % por debajo de lo esperado`,
+      description: `Real ${mw(s.real)} MW a las ${madridTime(s.at)} (hora peninsular) frente a ${mw(expected)} MW ${basis}. `
         + 'Estimación de Radar España con datos de Red Eléctrica: confírmalo con los avisos oficiales.',
       credit: REE_CREDIT,
     });

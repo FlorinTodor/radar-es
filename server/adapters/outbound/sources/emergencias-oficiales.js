@@ -17,10 +17,14 @@
 // - Castilla y León: «Origen de los datos: Junta de Castilla y León» y la fecha de actualización.
 // - Govern de les Illes Balears: conjunto «Actualidad Informativa - Comunicaciones» del catálogo de datos
 //   abiertos (CC BY): «Font de les dades: Govern de les Illes Balears», sin alterar, con la fecha. Su
-//   robots.txt prohíbe la ruta del RSS, en contra de su propio catálogo: se usa la URL del catálogo, cada
-//   15 minutos y avisándoles (decisión del titular de Radar España, 2-11-2026).
+//   robots.txt prohíbe la ruta del RSS, en contra de su propio catálogo: se usa la URL exacta que publica
+//   el catálogo de datos.gob.es (la sala de prensa en catalán, lang=ca), cada 15 minutos y avisándoles
+//   (decisión del titular de Radar España, 2-11-2026).
+//
+// Cada descarga lleva su tope (maxBytes): los feeds pesan de unos cientos de bytes a 800 KB y se leen
+// en el hilo principal.
 import {
-  NOTICE_MAX_AGE, currentNotices, fold, illesIn, isEndNotice, isPlanNotice, islandsIn, mentionsPlan, mentionsPowerBack,
+  NOTICE_MAX_AGE, currentNotices, expiresAt, fold, illesIn, isEndNotice, isPlanNotice, islandsIn, mentionsPlan, mentionsPowerBack,
   mentionsPowerCut, placeCandidates, powerClauses, provincesIn, severityOf, subjectsOf,
 } from '../../../domain/emergencias.js';
 import { COMUNIDADES, ILLES_BALEARS, ISLAS_CANARIAS, PROVINCIAS } from '../../../domain/lugares.js';
@@ -37,8 +41,11 @@ export const CREDITS = {
   'emergencias-illes-balears': 'Font de les dades: Govern de les Illes Balears',
 };
 
-// Códigos de comunidad del INE, los que usa CartoCiudad.
-const REGION = { andalucia: '01', 'castilla-y-leon': '07', 'castilla-la-mancha': '08', 'la-rioja': '17' };
+// Códigos de comunidad del INE, los que usa CartoCiudad (sólo las fuentes que geocodifican).
+const REGION = { andalucia: '01', 'castilla-y-leon': '07', 'la-rioja': '17' };
+// Topes de descarga, muy por encima de lo que pesa hoy cada feed (como mucho, unos 150 KB).
+const FEED_MAX_BYTES = 2 * 1024 * 1024;
+const SMALL_MAX_BYTES = 1024 * 1024;
 
 /**
  * @typedef {import('../../../domain/emergencias.js').Notice & {
@@ -49,6 +56,8 @@ const REGION = { andalucia: '01', 'castilla-y-leon': '07', 'castilla-la-mancha':
  */
 
 const slug = (s) => fold(s).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80);
+/** El último tramo de un enlace («…/rss/123/» → «123»); null si no tiene: el id no puede quedar vacío y repetirse. */
+const lastSegment = (link) => String(link ?? '').replace(/[?#].*$/, '').split('/').filter(Boolean).pop() || null;
 const placeByName = (list, name) => list.find((p) => fold(p.name) === fold(name));
 
 /** «27/10/2026 a las 16:16» o «27/10/2026 16:16» (hora de Madrid) → epoch ms. */
@@ -59,8 +68,11 @@ function spanishDateTime(s) {
   return madridLocalToMs(`${m[3]}-${pad(m[2])}-${pad(m[1])}T${pad(m[4])}:${pad(m[5])}:${pad(m[6])}`);
 }
 
-/** Evento del mapa para un aviso en vigor, en el lugar indicado. */
-function toEvent(sourceId, notice, place, where) {
+/**
+ * Evento del mapa para un aviso en vigor, en el lugar indicado. `expires`: hasta cuándo sigue en vigor
+ * sin noticias de su fin (ver expiresAt), para que no se quede en el mapa si su fuente deja de responder.
+ */
+function toEvent(sourceId, notice, place, where, expires = null) {
   return {
     id: `${sourceId}:${notice.id}${place ? `:${slug(place)}` : ''}`,
     group: `${sourceId}:${notice.id}`, // el mismo aviso en varios lugares: una sola alerta
@@ -77,6 +89,7 @@ function toEvent(sourceId, notice, place, where) {
     issued: notice.at,
     url: notice.url,
     credit: CREDITS[sourceId],
+    ...(expires ? { expires } : {}),
   };
 }
 
@@ -84,20 +97,41 @@ function toEvent(sourceId, notice, place, where) {
 const newest = (dates) => dates.reduce((max, t) => Math.max(max, t || 0), 0) || null;
 const rssDates = (doc) => arr(doc.rss?.channel?.item).map((it) => Date.parse(text(it.pubDate)) || 0);
 
+// Lo más que se pregunta al geocodificador en una lectura (lugares distintos). Con su caché, en una
+// lectura normal casi todos ya se conocen: esto sólo pone tope a una con muchos pueblos nuevos.
+const MAX_PLACES_PER_READ = 30;
+
 /**
- * Sitúa con el geocodificador los lugares que cita cada aviso del 112. Se quedan los que existen en
- * esa comunidad; si no encuentra ninguno, el aviso cuenta para toda la provincia que nombre o, si
- * no, para toda la comunidad.
+ * Sitúa con el geocodificador los lugares que cita cada aviso del 112, de los más nuevos a los más
+ * viejos. Se quedan los que existen en esa comunidad; si no encuentra ninguno, el aviso cuenta para
+ * toda la provincia que nombre o, si no, para toda la comunidad. Cada lugar se pregunta una vez por
+ * lectura, como mucho MAX_PLACES_PER_READ, y si el servicio no responde no se le pregunta más hasta la
+ * siguiente lectura (cada pregunta puede esperar 10 s).
  * @param {OfficialNotice[]} notices
- * @param {import('../../../application/ports.js').GeocoderPort} geocoder
+ * @param {import('../geo/cartociudad-geocoder.js').Geocoder} geocoder
  * @returns {Promise<Map<string, Where>>} nombre del lugar → ubicación
  */
 async function locateNotices(notices, geocoder, region) {
   const where = new Map();
-  for (const n of notices) {
+  const asked = new Map(); // lugar|provincia → lo que respondió en esta lectura
+  let down = false;
+  const locate = async (name, province) => {
+    const key = `${fold(name)}|${fold(province)}`;
+    if (asked.has(key)) return asked.get(key);
+    if (down || asked.size >= MAX_PLACES_PER_READ) return null;
+    let hit = null;
+    try {
+      hit = await geocoder.locate(name, { region, ...(province ? { province } : {}) });
+    } catch {
+      down = true; // ya lo ha apuntado el geocodificador
+    }
+    asked.set(key, hit);
+    return hit;
+  };
+  for (const n of [...notices].sort((a, b) => b.at - a.at)) {
     const found = [];
     for (const name of n.candidates ?? []) {
-      const hit = await geocoder.locate(name, { region, ...(n.province ? { province: n.province } : {}) });
+      const hit = await locate(name, n.province);
       if (!hit) continue;
       where.set(hit.name, { name: hit.name, lat: hit.lat, lon: hit.lon, approx: 'municipio' });
       if (!found.includes(hit.name)) found.push(hit.name);
@@ -123,8 +157,11 @@ async function locateNotices(notices, geocoder, region) {
  */
 function eventsFrom(sourceId, notices, { now, region, where = new Map(), wholeNotice = false }) {
   const fallback = { ...COMUNIDADES[region], approx: 'comunidad' };
-  return currentNotices(notices, { now, wholeNotice })
-    .map(({ notice, place }) => toEvent(sourceId, notice, place, (place && where.get(place)) || fallback));
+  // Un «ha vuelto la luz» que no se ha podido situar no cierra nada: sin lugares, cerraría los cortes
+  // de toda la comunidad.
+  const usable = notices.filter((n) => !(n.end && n.candidates && !n.places.length));
+  return currentNotices(usable, { now, wholeNotice })
+    .map(({ notice, place }) => toEvent(sourceId, notice, place, (place && where.get(place)) || fallback, expiresAt(notice)));
 }
 /** Lugares de una tabla fija (islas, provincias), por su nombre, para situar los avisos. */
 const placesAs = (list, approx) => new Map(list.map((p) => [p.name, { name: p.name, lat: p.lat, lon: p.lon, approx }]));
@@ -173,7 +210,7 @@ export function createCanariasAlertasSource({ http, now = Date.now }) {
     page: 'https://www3.gobiernodecanarias.org/noticias/category/alertas/',
     license: `${CREDITS['emergencias-canarias']} · CC BY 4.0`,
     async fetch() {
-      const { notices, updated } = parseCanariasAlertas(await http.text(CANARIAS, { timeout: 30_000 }));
+      const { notices, updated } = parseCanariasAlertas(await http.text(CANARIAS, { timeout: 30_000, maxBytes: FEED_MAX_BYTES }));
       const events = eventsFrom('emergencias-canarias', notices, { now: now(), region: 'canarias', where: placesAs(ISLAS_CANARIAS, 'isla') });
       return { sourceTime: updated, events };
     },
@@ -188,7 +225,7 @@ const CATALUNA_META = 'https://analisi.transparenciacatalunya.cat/api/views/wj9c
 export function parseCatalunaPlans(rows) {
   const where = { ...COMUNIDADES.cataluna, approx: 'comunidad' }; // el conjunto no trae comarcas
   return (Array.isArray(rows) ? rows : [])
-    .filter((r) => r && fold(r.plaactivat) !== 'no')
+    .filter((r) => r && fold(r.plaactivat) === 'si') // «SI»: si el campo cambia, mejor nada que todo por activo
     .map((r) => {
       const name = String(r.planom ?? r.plaacronim ?? 'Pla de protecció civil');
       const acronym = r.plaacronim ? String(r.plaacronim) : '';
@@ -220,9 +257,9 @@ export function createCatalunaPlansSource({ http }) {
     page: 'https://analisi.transparenciacatalunya.cat/d/wj9c-j6vf',
     license: `${CREDITS['emergencias-cataluna']} · Llicència oberta d'ús d'informació – Catalunya`,
     async fetch() {
-      const events = parseCatalunaPlans(await http.json(CATALUNA, { timeout: 30_000 }));
+      const events = parseCatalunaPlans(await http.json(CATALUNA, { timeout: 30_000, maxBytes: SMALL_MAX_BYTES }));
       // La licencia pide la fecha de la última actualización: la da la ficha del conjunto.
-      const meta = await http.json(CATALUNA_META, { timeout: 30_000 }).catch(() => null);
+      const meta = await http.json(CATALUNA_META, { timeout: 30_000, maxBytes: SMALL_MAX_BYTES }).catch(() => null);
       const updated = Number(meta?.rowsUpdatedAt);
       return { sourceTime: Number.isFinite(updated) && updated > 0 ? updated * 1000 : null, events };
     },
@@ -235,8 +272,10 @@ const ANDALUCIA = 'https://datos.juntadeandalucia.es/api/v0/news/paginated_searc
 
 /**
  * Cada noticia puede dar un aviso de plan (activa, desactiva, cambia de fase), uno de corte de luz
- * en los lugares que cita y otro de que la luz ha vuelto en otros. Las fotos no se usan: la licencia
- * del portal no permite reproducir sus logotipos.
+ * en los lugares que cita y otro de que la luz ha vuelto en otros. Un corte sólo cuenta si la noticia
+ * dice dónde: «roturas de tuberías o cortes de luz» sueltos en el balance de un temporal no son un
+ * corte en toda Andalucía (sí «195 personas sin suministro eléctrico en Jimena de la Frontera»). Las
+ * fotos no se usan: la licencia del portal no permite reproducir sus logotipos.
  * @returns {{ notices: OfficialNotice[], updated: number|null }}
  */
 export function parseAndaluciaNews(json) {
@@ -259,9 +298,10 @@ export function parseAndaluciaNews(json) {
       });
     }
     const { cut, back } = powerClauses(full);
-    if (cut.length) {
+    const cutPlaces = placeCandidates(cut.join(' '));
+    if (cutPlaces.length) {
       out.push({
-        ...base, id: `${id}:luz`, end: false, subjects: ['luz'], places: [], candidates: placeCandidates(cut.join(' ')), province,
+        ...base, id: `${id}:luz`, end: false, subjects: ['luz'], places: [], candidates: cutPlaces, province,
         title, description: cut.join(' '), power: true, severity: 'media',
       });
     }
@@ -276,7 +316,7 @@ export function parseAndaluciaNews(json) {
 }
 
 /**
- * @param {{ http: import('../http/http-client.js').HttpClient, geocoder: import('../../../application/ports.js').GeocoderPort,
+ * @param {{ http: import('../http/http-client.js').HttpClient, geocoder: import('../geo/cartociudad-geocoder.js').Geocoder,
  *           now?: () => number }} deps
  */
 export function createAndaluciaEmergenciasSource({ http, geocoder, now = Date.now }) {
@@ -289,7 +329,7 @@ export function createAndaluciaEmergenciasSource({ http, geocoder, now = Date.no
     page: 'https://www.juntadeandalucia.es/datosabiertos/portal/dataset/noticias-de-la-junta-de-andalucia',
     license: `${CREDITS['emergencias-andalucia']} · CC BY 4.0`,
     async fetch() {
-      const { notices, updated } = parseAndaluciaNews(await http.json(ANDALUCIA, { timeout: 30_000 }));
+      const { notices, updated } = parseAndaluciaNews(await http.json(ANDALUCIA, { timeout: 30_000, maxBytes: FEED_MAX_BYTES }));
       // Se sitúan todos (el geocodificador guarda cada pueblo): también un «ha vuelto la luz» viejo
       // tiene que saber dónde para cerrar sólo allí.
       const where = await locateNotices(notices.filter((n) => n.candidates), geocoder, REGION.andalucia);
@@ -319,7 +359,7 @@ export function parseClmPlans(xml) {
     const datetime = String(text(it.description) ?? '').match(/datetime="([^"]+)"/)?.[1];
     const link = text(it.link);
     out.push({
-      id: slug(link?.split('/').pop() ?? title),
+      id: slug(lastSegment(link) ?? title),
       at: Date.parse(datetime) || Date.parse(text(it.pubDate)) || 0,
       end: isEndNotice(title),
       subjects: subjectsOf(title),
@@ -345,7 +385,7 @@ export function createClmPlansSource({ http, now = Date.now }) {
     page: 'https://112.castillalamancha.es/',
     license: CREDITS['emergencias-castilla-la-mancha'],
     async fetch() {
-      const { notices, updated } = parseClmPlans(await http.text(CLM, { timeout: 30_000 }));
+      const { notices, updated } = parseClmPlans(await http.text(CLM, { timeout: 30_000, maxBytes: FEED_MAX_BYTES }));
       const events = eventsFrom('emergencias-castilla-la-mancha', notices, { now: now(), region: 'castilla-la-mancha', where: placesAs(PROVINCIAS, 'provincia') });
       return { sourceTime: updated, events };
     },
@@ -384,7 +424,7 @@ export function parseRiojaSos(xml) {
     const body = htmlText(html.match(/class="contentText"[^>]*>([\s\S]*)$/)?.[1] ?? html);
     const link = text(it.link);
     const notice = powerNotice({
-      id: slug(link?.split('/').pop() ?? title),
+      id: slug(lastSegment(link) ?? title),
       at: spanishDateTime(when) || Date.parse(text(it.pubDate)) || 0,
       title, body, url: link,
       town: when.match(/\ben\s+(.+)$/)?.[1]?.trim() ?? null,
@@ -397,7 +437,7 @@ export function parseRiojaSos(xml) {
 }
 
 /**
- * @param {{ http: import('../http/http-client.js').HttpClient, geocoder: import('../../../application/ports.js').GeocoderPort,
+ * @param {{ http: import('../http/http-client.js').HttpClient, geocoder: import('../geo/cartociudad-geocoder.js').Geocoder,
  *           now?: () => number }} deps
  */
 export function createRiojaSosSource({ http, geocoder, now = Date.now }) {
@@ -410,7 +450,7 @@ export function createRiojaSosSource({ http, geocoder, now = Date.now }) {
     page: 'https://www.larioja.org/emergencias-112/es',
     license: CREDITS['emergencias-la-rioja'],
     async fetch() {
-      const { notices, updated } = parseRiojaSos(await http.text(RIOJA, { timeout: 30_000 }));
+      const { notices, updated } = parseRiojaSos(await http.text(RIOJA, { timeout: 30_000, maxBytes: SMALL_MAX_BYTES }));
       const where = await locateNotices(notices, geocoder, REGION['la-rioja']);
       return { sourceTime: updated, events: eventsFrom('emergencias-la-rioja', notices, { now: now(), region: 'la-rioja', where, wholeNotice: true }) };
     },
@@ -442,7 +482,7 @@ export function parseCyl112(xml) {
 }
 
 /**
- * @param {{ http: import('../http/http-client.js').HttpClient, geocoder: import('../../../application/ports.js').GeocoderPort,
+ * @param {{ http: import('../http/http-client.js').HttpClient, geocoder: import('../geo/cartociudad-geocoder.js').Geocoder,
  *           now?: () => number }} deps
  */
 export function createCyl112Source({ http, geocoder, now = Date.now }) {
@@ -459,7 +499,7 @@ export function createCyl112Source({ http, geocoder, now = Date.now }) {
     license: CREDITS['emergencias-castilla-y-leon'],
     async fetch() {
       const t = now();
-      const { notices: latest, updated } = parseCyl112(await http.text(CYL, { timeout: 30_000 }));
+      const { notices: latest, updated } = parseCyl112(await http.text(CYL, { timeout: 30_000, maxBytes: SMALL_MAX_BYTES }));
       for (const n of latest) kept.set(n.id, n);
       // Sólo para no guardarlas para siempre: se olvidan las que ya no podrían estar en vigor con
       // ninguna vigencia. Cuáles lo están lo decide currentNotices.
@@ -472,8 +512,12 @@ export function createCyl112Source({ http, geocoder, now = Date.now }) {
 }
 
 // ---------- Govern de les Illes Balears: sala de prensa (emergencias y cortes de luz) ----------
-// El RSS de «Noticias» del mismo catálogo está parado desde abril de 2024: se usa el de la sala de prensa.
-const BALEARES = 'https://www.caib.es/pidip2front/pidipRSS?opcio=getRSS&grup=salaDePremsa&lang=es';
+// El RSS de «Noticias» del mismo catálogo está parado desde abril de 2024: se usa el de la sala de prensa,
+// con la URL exacta del catálogo de datos.gob.es (en catalán).
+const BALEARES = 'https://www.caib.es/pidip2front/pidipRSS?opcio=getRSS&grup=salaDePremsa&lang=ca';
+// Trae unas 1.300 notas (tres meses, unos 800 KB) de la más nueva a la más vieja: con las 200 primeras
+// (unas dos semanas) sobra para lo que puede seguir en vigor, y no se leen las demás cada 15 minutos.
+const BALEARES_ITEMS = 200;
 
 /** El RSS viene en ISO-8859-1 (lo dice su cabecera XML): se decodifica con la codificación que declara. */
 export function decodeXml(bytes) {
@@ -486,9 +530,21 @@ export function decodeXml(bytes) {
   }
 }
 
+/** El RSS con sólo sus `max` primeras notas (se corta el texto antes de leerlo, que es lo que cuesta). */
+export function firstItems(xml, max) {
+  let at = -1;
+  for (let i = 0; i < max; i++) {
+    at = xml.indexOf('</item>', at + 1);
+    if (at < 0) return xml;
+  }
+  return `${xml.slice(0, at + '</item>'.length)}</channel></rss>`;
+}
+
 /**
- * Sólo trae títulos (sin texto): se quedan las declaraciones de alerta o emergencia, su fin y los
- * cortes de luz. Las reuniones del CECOPI, las obras «de emergencia» o los protocolos no son avisos.
+ * Sólo trae títulos (sin texto), en catalán: se quedan las declaraciones de alerta o emergencia de
+ * protección civil, su fin y los cortes de luz. Las reuniones del CECOPI, las obras «de emergència»,
+ * los protocolos, una sequía o una alerta sanitaria o alimentaria no son avisos del mapa, y un aviso
+ * que no dice su riesgo ni un nivel no puede cerrar los de los demás (subjectsOf).
  * @returns {{ notices: OfficialNotice[], updated: number|null }}
  */
 export function parseBalearsPremsa(xml) {
@@ -498,10 +554,13 @@ export function parseBalearsPremsa(xml) {
     const title = htmlText(text(it.title));
     if (!title) continue;
     const t = fold(title);
-    // «Decretado el fin de la emergencia en Ibiza» no nombra plan ni nivel; «finaliza las excavaciones
-    // del Plan de Fosas» no es una emergencia.
+    // «Decretat el final de l'emergència a Eivissa» no nombra plan ni riesgo; «finalitza les excavacions
+    // del V Pla de Fosses» no es una emergencia.
     const end = isEndNotice(title) && /\b(?:emergencia|alerta|prealerta|platerbal|meteobal|inunbal|infobal)\b/.test(t);
-    if (!isPlanNotice(title) && !end && !mentionsPowerCut(title)) continue;
+    const power = mentionsPowerCut(title);
+    if (!isPlanNotice(title) && !end && !power) continue;
+    const subjects = subjectsOf(title);
+    if (!power && subjects[0] === 'sin-riesgo') continue;
     const illes = illesIn(title);
     // Sus enlaces apuntan a intranet.caib.es, que redirige; la misma ficha está en www.caib.es.
     const link = String(text(it.link) ?? '').replace(/^https?:\/\/intranet\.caib\.es\//, 'https://www.caib.es/');
@@ -509,12 +568,12 @@ export function parseBalearsPremsa(xml) {
       id: String(text(it.guid) ?? slug(title)),
       at: Date.parse(text(it.pubDate)) || 0,
       end: isEndNotice(title),
-      subjects: subjectsOf(title),
+      subjects,
       places: illes.includes('*') ? [] : illes,
       title,
       description: '',
       url: link || null,
-      power: mentionsPowerCut(title),
+      power,
       severity: severityOf(title) ?? 'media',
     });
   }
@@ -532,7 +591,8 @@ export function createBalearsPremsaSource({ http, now = Date.now }) {
     page: 'https://datos.gob.es/catalogo/a04003003-actualidad-informativa-comunicaciones-del-gobierno-de-las-islas-baleares1',
     license: `${CREDITS['emergencias-illes-balears']} · CC BY`,
     async fetch() {
-      const { notices, updated } = parseBalearsPremsa(decodeXml(await http.bytes(BALEARES, { timeout: 60_000, maxBytes: 8 * 1024 * 1024 })));
+      const xml = decodeXml(await http.bytes(BALEARES, { timeout: 60_000, maxBytes: 4 * 1024 * 1024 }));
+      const { notices, updated } = parseBalearsPremsa(firstItems(xml, BALEARES_ITEMS));
       const events = eventsFrom('emergencias-illes-balears', notices, { now: now(), region: 'illes-balears', where: placesAs(ILLES_BALEARS, 'isla') });
       return { sourceTime: updated, events };
     },
