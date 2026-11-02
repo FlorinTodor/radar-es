@@ -126,8 +126,11 @@ test('Larga distancia: si muchos trenes no están en el horario guardado, se vue
   await settle();
   assert.equal(reads.length, 2, 'no otra vez en la misma hora');
   t.mock.timers.tick(61 * 60_000);
-  await ld.fetch();
-  await readsReach(3);
+  // Si la relectura anterior aún no ha terminado (máquina lenta), se pide en la lectura siguiente.
+  while (reads.length < 3) {
+    await ld.fetch();
+    await new Promise((resolve) => setImmediate(resolve));
+  }
   assert.equal(reads.length, 3, 'pasada la hora, sí');
 });
 

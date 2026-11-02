@@ -48,10 +48,11 @@ export function createTimetables({ cache, stations, log }) {
   const loadLd = () => firstOrBackground('ld', () => ld.size > 0, () => loadLdNow(TIMETABLE_TTL_MS));
   const loadCercanias = () => firstOrBackground('cerc', () => cerc.size > 0, loadCercaniasNow);
   /** El tiempo real trae viajes que el horario guardado no tiene: se vuelve a leer, descargándolo si la
-   * copia tiene más de una hora. Como mucho una vez por hora. */
+   * copia tiene más de una hora. Como mucho una vez por hora. Con otra lectura en marcha no se gasta el
+   * turno de la hora: se pide en la siguiente lectura del tiempo real. */
   let ldRefreshedAt = 0;
   const refreshLd = () => {
-    if (Date.now() - ldRefreshedAt < LD_REFRESH_MS) return;
+    if (loading.ld || Date.now() - ldRefreshedAt < LD_REFRESH_MS) return;
     ldRefreshedAt = Date.now();
     once('ld', () => loadLdNow(LD_REFRESH_MS, true));
   };
