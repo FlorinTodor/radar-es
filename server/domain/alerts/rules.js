@@ -6,6 +6,7 @@
 import { distanceKm, pointInGeometry } from '../geo.js';
 import { vehicleLabel } from '../model.js';
 import { stationarySince } from '../tracking.js';
+import { SISTEMAS_AISLADOS } from '../lugares.js';
 
 /**
  * @typedef {object} RuleContext
@@ -210,6 +211,95 @@ export function gridDemandDrop(ctx) {
   }];
 }
 
+/** Atribución de la fuente de un suceso, que su licencia pide citar también en las alertas. */
+const creditOf = (ctx, e) => e.credit ?? ctx.health.find((s) => s.id === e.source)?.license ?? null;
+
+/**
+ * Avisos oficiales agrupados por aviso: uno que declara lo mismo en tres islas o tres pueblos es una
+ * sola alerta que señala los tres puntos.
+ */
+function byNotice(events) {
+  const groups = new Map();
+  for (const e of events) {
+    const key = e.group ?? e.id;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(e);
+  }
+  return [...groups.entries()];
+}
+const areasOf = (list) => [...new Set(list.map((e) => e.area).filter(Boolean))].join(', ');
+
+/**
+ * Cortes de luz que publican los avisos oficiales de protección civil y de los 112 autonómicos. Su
+ * texto se cita tal cual; Radar España sólo añade dónde situarlo.
+ */
+export function officialPowerCuts(ctx) {
+  const cuts = ctx.events.filter((e) => e.category === 'emergencia' && e.power);
+  return byNotice(cuts).map(([key, list]) => {
+    const e = list[0];
+    return {
+      id: `apagon:${key}`, type: 'apagon', severity: e.severity === 'baja' ? 'media' : e.severity,
+      eventIds: list.map((x) => x.id), lat: e.lat ?? undefined, lon: e.lon ?? undefined,
+      title: `Corte de luz · ${areasOf(list)}`,
+      description: `Aviso oficial: «${e.description || e.title}»${list.every((x) => x.approx === 'comunidad') ? ' (el aviso no dice el lugar exacto)' : ''}.`,
+      credit: creditOf(ctx, e),
+    };
+  });
+}
+
+/** Planes de protección civil en alerta o emergencia (las prealertas se quedan en el mapa, sin alerta). */
+export function officialEmergencyPlans(ctx) {
+  const plans = ctx.events.filter((e) => e.category === 'emergencia' && !e.power && e.type === 'plan'
+    && (e.severity === 'alta' || e.severity === 'muy alta'));
+  return byNotice(plans).map(([key, list]) => {
+    const e = list[0];
+    const areas = areasOf(list);
+    return {
+      id: `emergencia:${key}`, type: 'emergencia', severity: e.severity,
+      eventIds: list.map((x) => x.id), lat: e.lat ?? undefined, lon: e.lon ?? undefined,
+      title: areas && !e.title.includes(areas) ? `${e.title} · ${areas}` : e.title,
+      description: e.description ?? '',
+      credit: creditOf(ctx, e),
+    };
+  });
+}
+
+const mw = (v) => v.toLocaleString('es-ES', { maximumFractionDigits: 1 });
+
+/**
+ * Apagón de un sistema eléctrico aislado (una isla o un grupo de islas de Canarias, Ceuta, Melilla):
+ * su demanda real cae muy por debajo de la esperada, que es la programada para ese momento o, si es
+ * mayor, la que tenía en las dos últimas horas (tras un apagón REE reprograma la prevista, en La Palma
+ * a 0 durante una hora, y el corte parecería normal). Llega minutos después del corte, antes que los
+ * avisos oficiales: el 2-11-2026 en La Palma, a los 3 minutos; el Gobierno de Canarias, a la hora.
+ */
+export function isolatedGridBlackouts(ctx) {
+  const th = ctx.thresholds;
+  const alerts = [];
+  for (const s of ctx.metrics['esios-sistemas-aislados']?.systems ?? []) {
+    if (!Number.isFinite(s.real)) continue;
+    if (!s.at || ctx.now - s.at > th.isolatedGridStaleMinutes * 60_000) continue; // dato viejo: no se sabe
+    const programmed = Number.isFinite(s.programmed) ? s.programmed : 0;
+    const expected = Math.max(programmed, Number.isFinite(s.recentMax) ? s.recentMax : 0);
+    if (expected < 1) continue; // sin referencia (o un sistema minúsculo): no se puede decir nada
+    const ratio = s.real / expected;
+    if (ratio > th.isolatedGridDrop) continue;
+    const zero = ratio <= th.isolatedGridZero;
+    const place = SISTEMAS_AISLADOS.find((p) => p.name === s.name);
+    alerts.push({
+      id: `red-aislada:${s.id}`, type: 'red-electrica', severity: zero ? 'muy alta' : 'alta',
+      lat: place?.lat, lon: place?.lon,
+      title: zero ? `Posible apagón total en ${s.name}: demanda a ${mw(s.real)} MW`
+        : `Demanda eléctrica de ${s.name} un ${Math.round((1 - ratio) * 100)} % por debajo de lo esperado`,
+      description: `Real ${mw(s.real)} MW a las ${madridTime(s.at)} (hora peninsular) frente a ${mw(expected)} MW `
+        + `${expected === programmed ? 'programados' : 'que consumía en las dos últimas horas'}. `
+        + 'Estimación de Radar España con datos de Red Eléctrica: confírmalo con los avisos oficiales.',
+      credit: 'Fuente: Red Eléctrica',
+    });
+  }
+  return alerts;
+}
+
 /** Desaparición masiva de trenes del mapa. */
 export function fleetDrop(ctx) {
   const ref = ctx.kpiHistory.find((k) => ctx.now - k.t <= 12 * 60_000 && ctx.now - k.t >= 8 * 60_000);
@@ -258,7 +348,10 @@ export const RULES = [
   severeWeather,
   firesNearTrains,
   disasterAlerts,
+  officialPowerCuts,
+  officialEmergencyPlans,
   gridDemandDrop,
+  isolatedGridBlackouts,
   fleetDrop,
   feedHealth,
 ];

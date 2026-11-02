@@ -60,11 +60,12 @@ export function renderAlerts(el, alerts, resolved, sel = NO_SELECTION) {
         <div class="row">${severityPill(a.severity)}${check(on)}</div>
         <div class="title">${esc(a.title)}</div>
         ${a.description ? `<div class="desc">${esc(a.description)}</div>` : ''}
-        <div class="meta"><span>Desde las ${fmtTime(a.since)} (${timeAgo(a.since, now)})</span>${ALERT_CREDIT[a.type] ? `<span>${ALERT_CREDIT[a.type]}</span>` : ''}</div>
+        <div class="meta"><span>Desde las ${fmtTime(a.since)} (${timeAgo(a.since, now)})</span>${a.credit || ALERT_CREDIT[a.type] ? `<span>${esc(a.credit || ALERT_CREDIT[a.type])}</span>` : ''}</div>
       </button>`;
     }).join('')
     : `<div class="empty">Sin alertas activas.<br>El motor revisa trenes detenidos en plena vía, saltos de retraso, terremotos,
-       focos de incendio cerca de trenes, avisos meteorológicos naranja o rojo, la red eléctrica y la salud de las fuentes.</div>`;
+       focos de incendio cerca de trenes, avisos meteorológicos naranja o rojo, la red eléctrica, los cortes de luz y planes de
+       emergencia que publican protección civil y los 112, y la salud de las fuentes.</div>`;
   const done = resolved.slice(0, 15).map((a) => `
       <div class="item resolved ${sevClass(a.severity)}">
         <div class="title">${esc(a.title)}</div>
@@ -80,6 +81,7 @@ export const EVENT_CATEGORIES = [
   ['incendio', 'Incendios'],
   ['sismo', 'Terremotos'],
   ['catastrofe', 'Catástrofes'],
+  ['emergencia', 'Avisos oficiales'],
 ];
 
 export function renderEventFilters(el, prefs) {
@@ -91,7 +93,9 @@ export function renderEventFilters(el, prefs) {
 export function filterEvents(events, prefs) {
   return events
     .filter((e) => prefs.eventCats.includes(e.category) && (prefs.obras || e.type !== 'roadMaintenance'))
-    .sort((a, b) => (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0) || (b.start ?? 0) - (a.start ?? 0));
+    // A igual gravedad, los cortes de luz primero (como en las alertas).
+    .sort((a, b) => (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0) || (b.power ? 1 : 0) - (a.power ? 1 : 0)
+      || (b.start ?? b.issued ?? 0) - (a.start ?? a.issued ?? 0));
 }
 
 export function renderEvents(el, events, sel = NO_SELECTION) {
@@ -110,6 +114,8 @@ export function renderEvents(el, events, sel = NO_SELECTION) {
         ${e.start ? `<span>${fmtDateTime(e.start)}</span>` : ''}
         ${e.end ? `<span>hasta ${fmtDateTime(e.end)}</span>` : ''}
         ${e.lat === null || e.lat === undefined ? '<span>sin ubicación</span>' : ''}
+        ${e.area ? `<span>${esc(e.area)}</span>` : ''}
+        ${e.credit ? `<span>${esc(e.credit)}</span>` : ''}
       </div>
     </button>`;
   }).join('');
@@ -254,6 +260,7 @@ export const GROUP_ITEMS = [
   ['effis', 'Áreas quemadas', 'Áreas quemadas en los últimos 30 días (EFFIS)', 'Emergencias'],
   ['sismos', 'Terremotos', 'Terremotos', 'Emergencias'],
   ['gdacs', 'Catástrofes', 'Alertas de catástrofes (GDACS)', 'Emergencias'],
+  ['emergencias', 'Avisos oficiales', 'Cortes de luz y planes de emergencia activados que publican protección civil y los 112 (Canarias, Baleares, Cataluña, Andalucía, Castilla-La Mancha, La Rioja y Castilla y León)', 'Emergencias'],
   ['dgt', 'Tráfico', 'Incidencias de tráfico (las leves aparecen al acercar el mapa)', 'Carreteras'],
   ['obras', 'Obras', 'Obras en carretera', 'Carreteras'],
 ];
@@ -304,12 +311,14 @@ export function renderLayers(el, prefs, countsByMode) {
     <i style="background:radial-gradient(circle,#ffd27a 25%,#ff5a1f 60%,transparent 75%)"></i><span>Foco de calor por satélite</span>
     <i style="background:rgba(180,140,255,.25);border:1.5px solid #b48cff"></i><span>Terremoto (tamaño = magnitud)</span>
     <i style="background:transparent;border:2.5px solid #ec835a"></i><span>Alerta GDACS (naranja o roja)</span>
+    <svg viewBox="0 0 18 18" width="14" height="14" aria-hidden="true"><circle cx="9" cy="9" r="7.9" fill="#0d0d0d" stroke="#ffd23f" stroke-width="1.4"/><path d="M10.4 3.2L5.6 10H8.7L7.6 14.8L12.4 7.7H9.3Z" fill="#ffd23f"/></svg><span>Corte de luz (aviso oficial de protección civil o del 112), en el centro de su isla, municipio, provincia o comunidad</span>
+    <svg viewBox="0 0 18 18" width="14" height="14" aria-hidden="true"><path d="M9 1.4L15.6 3.9V8.6C15.6 12.6 12.8 15.4 9 16.7C5.2 15.4 2.4 12.6 2.4 8.6V3.9Z" fill="#ec835a" stroke="#0d0d0d" stroke-width="1.4" stroke-linejoin="round"/><rect x="8.05" y="4.6" width="1.9" height="6" rx="0.9" fill="#0d0d0d"/><circle cx="9" cy="12.7" r="1.1" fill="#0d0d0d"/></svg><span>Plan de emergencias activado (aviso oficial). Color = nivel: amarillo prealerta, naranja alerta, rojo emergencia</span>
     <i style="border-radius:2px;background:linear-gradient(90deg,#e8261c 33%,#f39c12 33% 66%,#1f6fd1 66%)"></i><span>Área quemada (EFFIS): rojo, último día; naranja, 7 días; azul, 30 días. Púlsala para ver su ficha</span></div>
     </details>`;
 }
 
 // Casilla de «Mapa y avisos» que enseña cada incidencia en el mapa.
-const EVENT_GROUP = { ferroviario: 'renfe-avisos', meteo: 'meteo', incendio: 'incendios', sismo: 'sismos', catastrofe: 'gdacs' };
+const EVENT_GROUP = { ferroviario: 'renfe-avisos', meteo: 'meteo', incendio: 'incendios', sismo: 'sismos', catastrofe: 'gdacs', emergencia: 'emergencias' };
 export const groupForEvent = (e) => (e.category === 'carretera' ? (e.type === 'roadMaintenance' ? 'obras' : 'dgt') : EVENT_GROUP[e.category]);
 
 /**

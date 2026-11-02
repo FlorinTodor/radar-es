@@ -4,16 +4,18 @@
 
 **[radarespaña.es](https://radarespaña.es)** (también [radarespana.es](https://radarespana.es)) · Mapa
 de trenes, metros, tranvías y autobuses de España, cruzado con incidencias de tráfico, terremotos,
-avisos meteorológicos, incendios y el estado de la red eléctrica. Los vehículos salen en su posición
+avisos meteorológicos, incendios, el estado de la red eléctrica y los avisos oficiales de protección
+civil (planes de emergencia activados y cortes de luz). Los vehículos salen en su posición
 en directo cuando el operador la publica y, si solo publica su horario, en una posición estimada
-marcada como tal. Todo a partir de **datos públicos**: de sus 45 fuentes, 20 no piden nada y 25
-necesitan la clave gratuita del Punto de Acceso Nacional (NAP).
+marcada como tal. Todo a partir de **datos públicos**: de sus 53 fuentes, 27 no piden nada, 25
+necesitan la clave gratuita del Punto de Acceso Nacional (NAP) y 1 la de e·sios (Red Eléctrica).
 
 Un motor de reglas vigila situaciones que merecen atención humana: trenes detenidos en
 plena vía, varios trenes parados en la misma zona, saltos bruscos de retraso, desapariciones
 masivas de trenes del mapa, terremotos, incendios o avisos naranja y rojo cerca de trenes en
-circulación, alertas de catástrofes naranja o roja, caídas de la demanda eléctrica y fuentes de
-datos caídas.
+circulación, alertas de catástrofes naranja o roja, caídas de la demanda eléctrica (de toda España y
+de cada isla de Canarias, Ceuta y Melilla), cortes de luz y
+planes de emergencia en alerta que publican protección civil y los 112, y fuentes de datos caídas.
 
 > **Límites.** Los datos públicos llegan con decenas de segundos o minutos de retraso y no
 > incluyen señalización, estado de la vía ni comunicaciones con el maquinista. Esta
@@ -39,7 +41,9 @@ en [MobilityLabs](https://mobilitylabs.emtmadrid.es); sin ellas, o si EMT no las
 identificarse. El primer
 arranque descarga los horarios GTFS en `data/` y tarda unos minutos; los siguientes los leen de ahí.
 Para contar visitas en producción se pone `GOATCOUNTER_URL` (GoatCounter, sin cookies); sin ella
-no se carga ningún contador y la página de privacidad lo indica.
+no se carga ningún contador y la página de privacidad lo indica. Con `ESIOS_TOKEN` (clave gratuita de
+Red Eléctrica, [esios.ree.es/es/token](https://www.esios.ree.es/es/token)) se vigila la demanda de cada
+isla de Canarias, Ceuta y Melilla; sin ella esa fuente se desactiva.
 
 ## Ramas
 
@@ -85,6 +89,7 @@ superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`]
                    │ kpis.js · tiles.js · rail-match.js   │  sin dependencias externas
                    │ schedule.js · route-ahead.js         │
                    │ estimated-position.js                │
+                   │ emergencias.js · lugares.js          │
                    │ alerts/{rules,lifecycle,thresholds}  │
                    └──────────────────────────────────────┘
                                   ▲ implementan los puertos
@@ -96,6 +101,7 @@ superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`]
                    │                         y red ferroviaria de Adif          │
                    │ persistence/     estado en memoria + histórico JSONL       │
                    │ tiles/           teselas de IGN y EFFIS con copia en disco │
+                   │ geo/             sitúa pueblos por su nombre (CartoCiudad) │
                    │ workers/         hilos para leer GTFS y XML (CPU)          │
                    │ http/, logging/                                            │
                    └────────────────────────────────────────────────────────────┘
@@ -126,6 +132,7 @@ Los puertos están en `server/application/ports.js`:
 | `SituationRepository` | `persistence/in-memory-situation.js` | estado actual: último dato de cada fuente, recorridos, alertas, KPIs |
 | `History` | `persistence/jsonl-history.js` | histórico de alertas y KPIs |
 | `TileProvider` | `tiles/wms-tiles.js` | teselas de IGN y EFFIS con copia en disco |
+| `Geocoder` | `geo/cartociudad-geocoder.js` | situar el municipio que cita un aviso del 112 (no traen coordenadas) |
 
 `Clock` (la hora, para poder simularla en los tests) y `Logger` (el registro) también son puertos.
 
@@ -154,8 +161,9 @@ tras revisar sus avisos legales. Del tranvía de Tenerife solo se dibuja el traz
 publica con licencia CC BY en el portal del Cabildo. La licencia y la atribución de cada fuente están
 en `/legal`.
 
-Todas son públicas. Solo las marcadas con 🔑 necesitan `NAP_API_KEY`, una clave gratuita del NAP. En
-total son 45 fuentes (34 de vehículos, 10 de incidencias y 1 de métricas): 20 sin clave y 25 con ella.
+Todas son públicas. Las marcadas con 🔑 necesitan `NAP_API_KEY`, una clave gratuita del NAP, y la de
+e·sios, `ESIOS_TOKEN`. En total son 53 fuentes (34 de vehículos, 17 de incidencias y 2 de métricas):
+27 sin clave, 25 con la del NAP y 1 con la de e·sios.
 
 | Fuente | Qué aporta | Refresco |
 |---|---|---|
@@ -186,11 +194,77 @@ total son 45 fuentes (34 de vehículos, 10 de incidencias y 1 de métricas): 20 
 | GDACS (ONU / Comisión Europea) | alertas de catástrofes en la zona (verde, naranja, roja) | 15 min |
 | Copernicus EFFIS (WMS, servido por `/tiles` con copia de 3 h) | capa de áreas quemadas en los últimos 30 días y su ficha | — |
 | Red Eléctrica REData | demanda real frente a prevista | 5 min |
+| 🔑 Red Eléctrica e·sios (`ESIOS_TOKEN`) | demanda real y programada de cada isla o grupo de islas de Canarias, Ceuta y Melilla | 5 min |
+| Gobierno de Canarias (alertas del PLATECA, CC BY 4.0) | prealerta, alerta y emergencia por isla, incluidos los ceros energéticos | 5 min |
+| Generalitat de Catalunya (planes de protección civil activados) | planes en prealerta, alerta o emergencia | 5 min |
+| Junta de Andalucía (noticias de Emergencias 112, CC BY 4.0) | planes activados y cortes de luz en los pueblos que citan | 10 min |
+| 112 Castilla-La Mancha (RSS de planes) | PLATECAM, METEOCAM… activados por provincia | 10 min |
+| SOS Rioja 112 (RSS) | averías del suministro eléctrico por pueblo y cuándo vuelve la luz | 10 min |
+| 112 Castilla y León (RSS de última hora) | cortes de luz por localidad | 3 min |
+| Govern de les Illes Balears (RSS de la sala de prensa, CC BY) | alertas y emergencias por isla y su fin, cortes de luz | 15 min |
+| CartoCiudad (IGN-CNIG, CC BY 4.0) | ubicación de los pueblos que citan esos avisos | al leerlos |
 
 El mapa base es de OpenFreeMap (datos de OpenStreetMap), sin clave.
 
 Las posiciones estimadas (`estimated: true`) se dibujan como un anillo hueco y **no cuentan para
 las alertas ni para los KPIs**.
+
+### Emergencias y cortes de luz: qué hay de cada comunidad
+
+Para ser transparentes con lo que se ve y con lo que **no** se ve. Revisado el 2-11-2026: de cada
+fuente se leyó su licencia o aviso legal y su robots.txt. Solo se usan las que permiten reutilizar sus
+datos. Ninguna sustituye a los avisos oficiales: ante una emergencia, llama al **112**.
+
+**En toda España**
+- Avisos meteorológicos de AEMET (amarillo, naranja y rojo, con su zona), terremotos del IGN,
+  focos de calor de la NASA, áreas quemadas de Copernicus y alertas de catástrofes de GDACS.
+- Apagón general de la península: alerta si la demanda eléctrica de Red Eléctrica (REData) cae muy
+  por debajo de la prevista, como el 28-4-2025. Un corte local o de una comunidad no se nota ahí.
+- Lo que **no publica nadie** como datos abiertos:
+  - **Cortes de luz por calle o por barrio.** Solo los conocen las distribuidoras eléctricas
+    (e-distribución, i-DE, UFD, E-Redes, Viesgo…). Ninguna los publica con licencia de
+    reutilización, y e-distribución lo prohíbe expresamente.
+  - **Avisos de Protección Civil del Estado y de ES-Alert.** No tienen ningún canal (RSS ni API) que
+    se pueda leer.
+
+**Por comunidad.** «Avisos oficiales» son los planes de protección civil activados y los cortes de
+luz que publica cada administración. «Apagón total» es la alerta automática con la demanda de cada
+sistema eléctrico aislado (e·sios, Red Eléctrica): llega a los pocos minutos, antes que el aviso
+oficial.
+
+| Comunidad | Avisos oficiales | Apagón total automático | Fuente o motivo |
+|---|---|---|---|
+| Andalucía | ✅ Planes activados y cortes de luz en los pueblos que citan | Solo el general de la península | Noticias de Emergencias 112 de la Junta (CC BY 4.0) |
+| Aragón | ❌ | Solo el general de la península | Licencia contradictoria (el pie de la web dice CC BY 4.0 y el aviso legal, «uso personal», sin fines comerciales ni modificación) y ningún conjunto de emergencias |
+| Asturias | ❌ | Solo el general de la península | El 112 no tiene RSS y su licencia es no comercial; las noticias del Principado (CC BY 4.0) no tienen RSS |
+| Illes Balears | ✅ Alertas y emergencias por isla, su fin y cortes de luz | ❌ | Sala de prensa del Govern (CC BY, conjunto de su catálogo de datos abiertos). Su robots.txt prohíbe esa ruta, en contra de su propio catálogo: se usa la URL del catálogo cada 15 minutos y se pide confirmación al Govern; si no lo aceptan, se retira. Red Eléctrica no publica en tiempo real la demanda real de Baleares, solo la programada |
+| Canarias | ✅ Declaraciones del PLATECA por isla (prealerta, alerta, emergencia y su fin), ceros energéticos incluidos | ✅ Cada isla o grupo de islas | Gobierno de Canarias (CC BY 4.0) y e·sios |
+| Cantabria | ❌ (por ahora) | Solo el general de la península | Su RSS del 112 tiene licencia válida (CC BY 3.0 ES), pero solo trae avisos meteorológicos y del PLATERCANT y nunca ha publicado un corte de luz. Se puede añadir para los planes |
+| Castilla-La Mancha | ✅ Planes activados por provincia (PLATECAM, METEOCAM…) | Solo el general de la península | RSS del 112 Castilla-La Mancha (aviso legal: reutilización citando la fuente) |
+| Castilla y León | ✅ Cortes de luz por localidad | Solo el general de la península | RSS «Última hora» del 112 (condiciones de reutilización de la Junta) |
+| Cataluña | ✅ Planes activados (fase y comunicado del CECAT), sin comarcas | Solo el general de la península | Conjunto «Plans de protecció civil activats» (Llicència oberta de Catalunya) |
+| Comunitat Valenciana | ❌ | Solo el general de la península | No hay ningún canal: el 112 no tiene RSS, la app usa una API interna y su robots.txt bloquea los programas automáticos |
+| Extremadura | ❌ | Solo el general de la península | Su aviso legal prohíbe reproducir los contenidos sin autorización expresa y no tiene RSS |
+| Galicia | ❌ | Solo el general de la península | El 112 (AXEGA) exige autorización por escrito. Las notas de la Xunta tienen licencia válida, pero solo cuentan los grandes eventos |
+| Madrid | ❌ (por ahora) | Solo el general de la península | Solo hay RSS generales de noticias (licencia válida), con poca información de emergencias |
+| Región de Murcia | ❌ (por ahora) | Solo el general de la península | Noticias de la CARM en datos abiertos (licencia válida), sin ubicación y con pocas emergencias |
+| Navarra | ❌ | Solo el general de la península | Sin RSS y sin licencia de reutilización en su web |
+| País Vasco | ❌ (por ahora) | Solo el general de la península | Las incidencias de Open Data Euskadi no traen cortes de luz; Irekia (CC BY 4.0) solo cuenta los grandes eventos |
+| La Rioja | ✅ Cortes de luz por pueblo y cuándo vuelve la luz | Solo el general de la península | RSS de SOS Rioja 112 (aviso legal: reproducción citando la fuente) |
+| Ceuta | ❌ | ✅ | Su aviso legal prohíbe la reproducción sin autorización; demanda de e·sios |
+| Melilla | ❌ | ✅ | Su web no tiene RSS ni condiciones de reutilización; demanda de e·sios |
+
+«Por ahora» quiere decir que la fuente se puede usar, pero aporta poco. Las que no se pueden usar se
+pueden pedir: ver *Posibles mejoras*.
+
+**Cómo se muestran**
+- **Texto:** el de cada administración, sin alterar, con su atribución y su fecha de publicación.
+- **Ubicación:** los avisos no traen coordenadas, así que se sitúan en el centro de la isla, el
+  pueblo (con CartoCiudad, del IGN), la provincia o la comunidad que nombran. La ficha dice cuál.
+- **Cuándo dejan de verse:** cuando la administración publica su fin («finaliza», «restablecido»…). Si
+  no lo publica, a los 4 días los planes y al día siguiente los cortes de luz del 112.
+- **Alertas:** dan alerta los cortes de luz y los planes en alerta o emergencia. A igual gravedad, los
+  cortes de luz salen primero.
 
 ### Qué recorrido se ve de cada tren
 
@@ -281,6 +355,16 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Contexto y emergencias: incidencias de tráfico y obras en carretera (capas separadas), avisos
   meteorológicos, focos de calor por satélite, áreas quemadas con su ficha, terremotos, alertas
   de catástrofes y demanda eléctrica.
+- Avisos oficiales de emergencias: planes de protección civil activados y cortes de luz que publican
+  Canarias, Baleares, Cataluña, Andalucía, Castilla-La Mancha, La Rioja y Castilla y León. Su texto se
+  cita tal cual, con la atribución de cada administración; se sitúan en el centro de su isla, pueblo,
+  provincia o comunidad, y dejan de verse cuando se publica su fin. Los cortes de luz y los planes en
+  alerta o emergencia dan alerta, y a igual gravedad los cortes de luz salen los primeros de la lista.
+  Qué hay de cada comunidad y por qué falta lo que falta, en *Emergencias y cortes de luz: qué hay de
+  cada comunidad*.
+- Apagón total de una isla de Canarias, de Ceuta o de Melilla: alerta a los pocos minutos cuando su
+  demanda real cae muy por debajo de la esperada (datos de Red Eléctrica). Con los datos del
+  2-11-2026 habría avisado del apagón de La Palma a los 3 minutos, una hora antes que el aviso oficial.
 - Red ferroviaria, líneas de metro, tranvía y Cercanías, y estaciones.
 - Nombres del mapa base en español.
 - Se descartan los retrasos imposibles que a veces llegan en los datos.
@@ -512,6 +596,17 @@ Ninguna por ahora.
   Wikimedia Commons: Commons lo permite pero no lo recomienda, y así Wikimedia no recibiría la IP de
   quien abre la ficha.
 - Guía para quien quiera proponer cambios.
+- Cortes de luz en el resto de España:
+  - Baleares: Red Eléctrica sólo publica en tiempo real su demanda programada, no la real, así que su
+    apagón no se puede detectar como el de las islas de Canarias, Ceuta o Melilla;
+  - avisos de las comunidades que no tienen un canal que se pueda leer con su licencia (Galicia,
+    Comunidad Valenciana, Aragón, Extremadura, Asturias, Navarra, Ceuta y Melilla): pedirles permiso o
+    que lo publiquen como datos abiertos;
+  - noticias oficiales de Murcia, País Vasco, Galicia y Madrid, que sólo cuentan los grandes apagones, y
+    los planes que publica el 112 de Cantabria (ver *Emergencias y cortes de luz: qué hay de cada
+    comunidad*);
+  - los cortes por barrio o por calle sólo los tienen las distribuidoras eléctricas, que no los
+    publican con licencia de reutilización.
 
 ## Licencia
 

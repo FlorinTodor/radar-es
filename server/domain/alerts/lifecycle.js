@@ -37,6 +37,14 @@ export function reconcileAlerts(active, candidates, now) {
   return { opened, escalated, resolved };
 }
 
+// Cortes de luz: los avisos oficiales (apagon) y las caídas de la red eléctrica (red-electrica).
+const POWER_CUTS = new Set(['apagon', 'red-electrica']);
+const powerFirst = (a) => (POWER_CUTS.has(a.type) ? 1 : 0);
+
+/**
+ * Primero las más graves; a igual gravedad, los cortes de luz (para que un apagón no quede entre
+ * decenas de avisos de lluvia) y después las más recientes.
+ */
 export function sortAlerts(alerts) {
-  return [...alerts].sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity] || b.since - a.since);
+  return [...alerts].sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity] || powerFirst(b) - powerFirst(a) || b.since - a.since);
 }

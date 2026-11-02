@@ -16,7 +16,12 @@ import { createIgnSismosSource } from './ign-sismos.js';
 import { createAemetAvisosSource } from './aemet-avisos.js';
 import { createFirmsSource } from './firms.js';
 import { createReeSource } from './ree.js';
+import { createEsiosSource } from './esios.js';
 import { createGdacsSource } from './emergencias-extra.js';
+import {
+  createAndaluciaEmergenciasSource, createBalearsPremsaSource, createCanariasAlertasSource, createCatalunaPlansSource,
+  createClmPlansSource, createCyl112Source, createRiojaSosSource,
+} from './emergencias-oficiales.js';
 import { createEmtMadridAlertsSource } from './emt-madrid.js';
 import { busGroupSources } from './autobuses-nap.js';
 
@@ -66,6 +71,7 @@ export function metroBilbao(e, gtfs) {
  * @param {{ http: import('../http/http-client.js').HttpClient, stations: import('../../../application/ports.js').StationCatalogPort,
  *           nap: ReturnType<typeof import('../nap/nap-client.js').createNapClient>,
  *           log: import('../../../application/ports.js').LoggerPort, env: Record<string, string|undefined>,
+ *           geocoder: import('../../../application/ports.js').GeocoderPort,
  *           pool?: import('../workers/cpu-pool.js').CpuPool, xmlPool?: import('../workers/cpu-pool.js').CpuPool }} deps
  *   pool: hilos de cálculo (horarios). xmlPool: el del XML de la DGT, si es otro (sin hilos de cálculo, uno propio).
  * @returns {import('../../../application/ports.js').DataSourcePort[]}
@@ -153,6 +159,15 @@ export function createSources(deps) {
     createFirmsSource(deps),
     createIgnSismosSource(deps),
     createGdacsSource(deps),
+    // Avisos oficiales de protección civil y de los 112 (planes activados y cortes de luz).
+    createCanariasAlertasSource(deps),
+    createCatalunaPlansSource(deps),
+    createAndaluciaEmergenciasSource(deps),
+    createClmPlansSource(deps),
+    createRiojaSosSource(deps),
+    createCyl112Source(deps),
+    createBalearsPremsaSource(deps),
     createReeSource(deps),
+    createEsiosSource(deps), // con ESIOS_TOKEN: apagón de una isla, de Ceuta o de Melilla
   ];
 }

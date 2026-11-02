@@ -25,10 +25,14 @@ const state = {
 };
 
 const PREFS_KEY = 'radar-es:prefs';
-const prefs = Object.assign(
-  { modes: {}, groups: {}, obras: false, eventCats: ['ferroviario', 'carretera', 'meteo', 'incendio', 'sismo', 'catastrofe'] },
-  readPrefs(),
-);
+const EVENT_CATS = P.EVENT_CATEGORIES.map(([id]) => id);
+const prefs = Object.assign({ modes: {}, groups: {}, obras: false, eventCats: [...EVENT_CATS] }, readPrefs());
+// Las categorías nuevas desde la última visita se ven aunque haya preferencias guardadas de antes
+// (las de quien ya las conocía y las quitó siguen quitadas).
+const knownCats = Array.isArray(prefs.knownCats) ? prefs.knownCats : ['ferroviario', 'carretera', 'meteo', 'incendio', 'sismo', 'catastrofe'];
+if (!Array.isArray(prefs.eventCats)) prefs.eventCats = [...EVENT_CATS];
+for (const c of EVENT_CATS) if (!knownCats.includes(c) && !prefs.eventCats.includes(c)) prefs.eventCats.push(c);
+prefs.knownCats = EVENT_CATS;
 
 function readPrefs() {
   try {

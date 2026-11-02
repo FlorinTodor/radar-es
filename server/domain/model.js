@@ -3,7 +3,7 @@
 /**
  * @typedef {'av'|'ld'|'md'|'cercanias'|'metro'|'tranvia'|'bus'|'otros'} Mode
  * @typedef {'baja'|'media'|'alta'|'muy alta'} Severity
- * @typedef {'ferroviario'|'carretera'|'sismo'|'meteo'|'incendio'|'catastrofe'} EventCategory
+ * @typedef {'ferroviario'|'carretera'|'sismo'|'meteo'|'incendio'|'catastrofe'|'emergencia'} EventCategory
  */
 
 /**
@@ -51,6 +51,12 @@
  * @property {number|null} [start]
  * @property {number|null} [end]
  * @property {{ type: 'Polygon'|'MultiPolygon', coordinates: number[][][]|number[][][][] }} [geometry]  Zona afectada (avisos).
+ * @property {boolean} [power]   Avisos oficiales (category 'emergencia'): habla de un corte de luz.
+ * @property {string} [area]     Isla, municipio, provincia o comunidad a la que se refiere.
+ * @property {'isla'|'municipio'|'provincia'|'comunidad'} [approx]  Con qué precisión está situado en el mapa
+ *   (el centro de la isla, del municipio…): los avisos oficiales no traen coordenadas.
+ * @property {string} [group]    Mismo aviso publicado para varios lugares (un evento por lugar).
+ * @property {string} [credit]   Atribución que pide la licencia de su fuente, para mostrarla junto al dato.
  */
 
 /**
@@ -80,6 +86,7 @@
  * @property {string} [vehicleId]
  * @property {string[]} [vehicleIds]
  * @property {string[]} [eventIds]   Sucesos (avisos, terremotos, focos…) que motivan la alerta.
+ * @property {string|null} [credit]  Atribución que pide la licencia de la fuente del aviso (avisos oficiales).
  * @property {number} [since]
  * @property {number} [updated]
  * @property {number} [resolvedAt]

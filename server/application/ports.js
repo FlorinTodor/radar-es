@@ -116,6 +116,15 @@
  */
 
 /**
+ * Sitúa en el mapa un lugar que sólo se conoce por su nombre (el municipio o la localidad de un aviso
+ * del 112). Lo usan las fuentes de avisos oficiales, que no traen coordenadas.
+ * @typedef {object} GeocoderPort
+ * @property {(place: string, scope?: { region?: string, province?: string }) => Promise<{ name: string, lat: number, lon: number } | null>} locate
+ *   region: código de comunidad autónoma del INE («01» Andalucía…), para no confundir pueblos con el
+ *   mismo nombre; province: nombre de la provincia. null si no lo encuentra o el servicio no responde.
+ */
+
+/**
  * @typedef {object} ClockPort
  * @property {() => number} now
  *
@@ -142,6 +151,7 @@ export const PORT_MEMBERS = {
     'pushKpiSample', 'kpiHistory'],
   History: ['append'],
   TileProvider: ['layers', 'cacheControl', 'tile', 'burntAreas'],
+  Geocoder: ['locate'],
   Clock: ['now'],
   Logger: ['info', 'warn', 'error'],
 };
