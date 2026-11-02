@@ -458,6 +458,10 @@ Ninguna por ahora.
   *Pendiente y conocido*).
 - Estadísticas de puntualidad por línea y franja horaria.
 - Pasos a nivel en el mapa.
+- Servidor más fluido al leer los autobuses por horario: en cada lectura guarda el historial de
+  posiciones de miles de vehículos a la vez y crea mucha memoria que luego hay que limpiar, y mientras
+  tanto tarda más en responder (alguna vez 1–3 s). Para los vehículos con posición estimada bastaría
+  con el recorrido que ya sale de su horario, o con repartir ese trabajo entre lecturas.
 - Estado oficial de la red de Adif, si llega a publicarse con licencia de reutilización.
 - Ouigo por la vía: su recorrido y lo que le queda por la red de Adif, pasando por las paradas de su
   horario, como ya se hace con AVE, Larga y Media Distancia (ahora va en línea recta entre estaciones).

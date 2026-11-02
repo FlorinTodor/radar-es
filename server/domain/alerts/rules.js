@@ -24,7 +24,8 @@ import { stationarySince } from '../tracking.js';
  * @typedef {{ v: import('../model.js').Vehicle, minutes: number, near: { station: import('../model.js').Station, km: number } | null }} StoppedVehicle
  */
 
-const madridTime = (ms) => new Date(ms).toLocaleString('es-ES', { timeZone: 'Europe/Madrid', dateStyle: 'short', timeStyle: 'short' });
+const MADRID_TIME = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', dateStyle: 'short', timeStyle: 'short' });
+const madridTime = (ms) => MADRID_TIME.format(ms);
 
 /** Trenes sin moverse fuera de estación. Calcula `ctx.stopped`, que usa la regla de bloqueos. */
 export function stoppedOutsideStation(ctx) {
