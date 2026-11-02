@@ -258,9 +258,6 @@ function* rowsOf(text, state) {
  */
 export const own = (s) => (s ? `${s} `.slice(0, -1) : s);
 
-/** wheelchair_boarding de GTFS: 1 accesible, 2 no accesible, vacío o 0 sin dato (null). */
-export const wheelchair = (v) => (v === '1' ? true : v === '2' ? false : null);
-
 /**
  * Filas de un CSV GTFS como arrays con las columnas `fields`, en ese orden y recortadas: '' si la
  * fila no llega a esa columna, undefined si el fichero no la trae (igual que las claves de csvRows).

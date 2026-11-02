@@ -6,10 +6,10 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { writeFileAtomic } from '../http/file-cache.js';
 import { distanceKm } from '../../../domain/geo.js';
-import { createPacer, csvColumns, csvColumnsStreamed, csvRows, openGtfs, own, wheelchair } from '../gtfs/gtfs-reader.js';
+import { createPacer, csvColumns, csvColumnsStreamed, csvRows, openGtfs, own } from '../gtfs/gtfs-reader.js';
 import { modeOf } from '../gtfs/gtfs-modes.js';
 import { DEFAULT_COLOR, NETWORKS, readableColor } from '../network/gtfs-network-catalog.js';
-import { RETIRED_PHOTOS_VERSION, loadNetworkStationExtras } from './station-extras.js';
+import { RETIRED_PHOTOS_VERSION, loadNetworkStationExtras, wheelchair } from './station-extras.js';
 
 const REFRESH_MS = 24 * 3600_000;
 // Si algo ha fallado al calcularlo (un GTFS, Wikidata, Commons), se vuelve a intentar a la hora y no

@@ -5,8 +5,8 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { writeFileAtomic } from '../http/file-cache.js';
 import { distanceKm } from '../../../domain/geo.js';
-import { csvRows, openGtfs, wheelchair } from '../gtfs/gtfs-reader.js';
-import { RETIRED_PHOTOS_VERSION, loadStationExtras, padCode } from './station-extras.js';
+import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
+import { RETIRED_PHOTOS_VERSION, loadStationExtras, padCode, wheelchair } from './station-extras.js';
 
 const REFRESH_MS = 24 * 3600_000;
 // Si algo ha fallado al rehacerlo (Wikidata, Commons, un GTFS), se vuelve a intentar a la hora y no
