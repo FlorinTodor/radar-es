@@ -24,7 +24,7 @@ export const CONSECUTIVE_MS = 15 * 60_000;
  * @property {number} best        El menor (para decir que la ha recuperado, también los dos).
  * @property {number} programmed  La programada para el último (0 si no hay).
  * @property {number} recent      Lo esperado: la programada o, si es mayor, lo que consumía en las dos últimas horas.
- * @property {number} before      Lo que consumía antes: lo mayor de todo lo leído.
+ * @property {number} before      Lo que consumía antes: lo mayor de todo lo leído y de lo esperado.
  */
 
 /**
@@ -46,11 +46,16 @@ export function gridReading(s, now, staleMinutes) {
 }
 
 /**
- * El sistema tiene luz: sus dos últimos datos, fiables, están por encima de la caída que da alerta
- * (`drop`, la mitad de lo esperado).
+ * El sistema ha recuperado la luz: sus dos últimos datos, fiables, pasan de `drop` (la mitad) de lo
+ * que consumía en las seis horas leídas (`before`), no de lo esperado ahora: justo después de un
+ * apagón la programada y las dos últimas horas están hundidas (el 2-11-2026 REE programó La Palma a
+ * 0, 6,6 y 9 MW), y 6,8 MW frente a 9 parecería normal cuando la isla consume unos 30. Así puede
+ * tardar en reconocer una luz que vuelve de noche (el valle frente al pico de horas antes): para eso
+ * está el tope de un día de los cortes. Para abrir la alerta se sigue usando lo esperado (`recent`):
+ * con `before` avisaría cada noche.
  * @param {GridReading|null} r
  */
-export const gridHasPower = (r, drop) => Boolean(r) && r.recent >= 1 && r.best / r.recent > drop;
+export const gridHasPower = (r, drop) => Boolean(r) && r.before >= 1 && r.best / r.before > drop;
 
 /** El sistema eléctrico que da luz a un lugar (una isla, Ceuta, Melilla); undefined si no es ninguno. */
 export const gridOfPlace = (name) => SISTEMAS_AISLADOS.find((p) => p.places.includes(name));

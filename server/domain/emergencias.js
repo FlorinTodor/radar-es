@@ -340,7 +340,7 @@ export const expiresAt = (n, maxAgeFor = maxAgeOf) => n.at + maxAgeFor(n);
  * como mucho CUT_MAX_AGE aunque el aviso siga en vigor: un plan activado por un apagón (el PLATECA por
  * el cero energético de La Palma) dura cuatro días, pero al día ya no se puede decir que siga el corte.
  * Y en una isla, Ceuta o Melilla, se sabe antes: si su sistema eléctrico (e·sios) da dos datos seguidos
- * y fiables, posteriores al aviso, con la demanda normal, la luz ha vuelto. Entonces un aviso que es
+ * y fiables, posteriores al aviso, por encima de la mitad de lo que consumía (gridHasPower), la luz ha vuelto. Entonces un aviso que es
  * también un plan queda como plan, y uno que sólo hablaba del corte deja de mostrarse.
  * @template {import('./model.js').IncidentEvent} E
  * @param {E[]} events

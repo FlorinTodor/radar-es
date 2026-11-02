@@ -467,7 +467,7 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
     no dice su riesgo ni su nivel no sustituye ni cierra los de los demás;
   - cada aviso deja el mapa y las alertas a su hora aunque su fuente deje de responder;
   - un plan activado por un apagón deja de mostrarse como «corte de luz» al día, o antes si es en una
-    isla y su demanda eléctrica vuelve a ser normal: el 2-11-2026, La Palma a las 09:20;
+    isla y su demanda eléctrica pasa de la mitad de lo que consumía: el 2-11-2026, La Palma a las 09:45;
   - la demanda de las islas no toma un dato vacío por 0 MW.
 
 **Interfaz**

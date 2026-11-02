@@ -149,7 +149,7 @@ test('el apagón de La Palma, dato a dato: una sola alerta, desde el segundo dat
   assert.ok(!timeline.slice(0, first).some((t) => t.alerta), 'el bajón de las 04:15 (12,1 MW de 17,9) no es un apagón');
 });
 
-test('2-11-2026: el aviso del cero energético de La Palma (07:49) es «corte de luz» hasta que e·sios da la demanda normal (09:20)', () => {
+test('2-11-2026: el aviso del cero energético de La Palma (07:49) es «corte de luz» hasta que e·sios da más de la mitad de lo que consumía (09:45)', () => {
   const stamp = (i) => new Date(Date.parse('2026-11-02T00:00:00Z') + i * 5 * 60_000).toISOString().replace('.000', '');
   const real = series(LA_PALMA_REAL).map((v, i) => value(8798, 'La Palma', stamp(i), v));
   const programmed = { indicator: { values: series(LA_PALMA_PROGRAMMED).map((v, i) => value(8798, 'La Palma', stamp(i), v)) } };
@@ -171,7 +171,9 @@ test('2-11-2026: el aviso del cero energético de La Palma (07:49) es «corte de
     return [...officialPowerCuts(ctx), ...officialEmergencyPlans(ctx)].map((a) => a.title);
   };
   assert.deepEqual(at('08:00'), ['Corte de luz · La Palma']);
-  assert.deepEqual(at('09:20'), ['Corte de luz · La Palma'], 'a las 09:10 aún no da la mitad de lo esperado');
-  assert.deepEqual(at('09:35'), ['El Gobierno de Canarias activa el PLATECA en situación de alerta por cero energético en La Palma'],
-    'con los datos de las 09:20 y las 09:25 (6,8 y 7,1 MW de 9 programados) la isla tiene luz: queda el plan');
+  assert.deepEqual(at('09:35'), ['Corte de luz · La Palma'],
+    '6,8 y 7,1 MW (09:20 y 09:25) superan los 9 programados tras el apagón, pero son un tercio de los 20,7 que consumía');
+  assert.deepEqual(at('09:50'), ['Corte de luz · La Palma'], '9,9 MW a las 09:35: aún no llega a la mitad');
+  assert.deepEqual(at('09:55'), ['El Gobierno de Canarias activa el PLATECA en situación de alerta por cero energético en La Palma'],
+    'con los datos de las 09:40 y las 09:45 (14 y 17,8 MW) la isla tiene luz: queda el plan');
 });

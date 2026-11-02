@@ -393,4 +393,8 @@ test('la demanda no cuenta si es anterior al aviso, vieja o de un solo dato', ()
   assert.equal(single[0].type, 'apagon');
   const half = withCurrentCuts([cutEvent('La Palma', 3)], { now: NOW, grid: [grid('la-palma', 7, 28.1)], thresholds: TH });
   assert.equal(half[0].type, 'apagon', 'con la cuarta parte de lo esperado sigue sin luz');
+  // Justo después del apagón: REE programa 9 MW y en dos horas no ha pasado de 7, pero antes consumía 20,7.
+  const sunk = { ...grid('la-palma', 6.8, 9), recentMax: 7, readMax: 20.7 };
+  assert.equal(withCurrentCuts([cutEvent('La Palma', 3)], { now: NOW, grid: [sunk], thresholds: TH })[0].type, 'apagon',
+    '6,8 MW frente a la programada hundida parece normal; frente a lo que consumía, es un tercio');
 });
