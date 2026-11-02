@@ -433,3 +433,10 @@ test('cada aviso lleva hasta cuándo está en vigor: así deja el mapa a su hora
   for (const e of events) assert.equal(e.expires, e.issued + (e.power && !/PLATECA/.test(e.title) ? CUT_MAX_AGE : PLAN_MAX_AGE), e.title);
   assert.ok(events.length > 0);
 });
+
+test('Cataluña: cada lectura da sus planes por vigentes dos horas más (si la fuente cae, no se quedan para siempre)', async () => {
+  const rows = [{ planom: 'INUNCAT', plafase: 'ALERTA', plaactivat: 'SI', fasedatahora: '02/11/2026 12:07' }];
+  const src = createCatalunaPlansSource({ http: fakeHttp((url) => (url.includes('/api/views/') ? {} : rows)), now: clock });
+  const { events } = await src.fetch();
+  assert.equal(events[0].expires, NOW + 2 * HOUR);
+});

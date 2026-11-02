@@ -83,24 +83,26 @@ export const COMUNIDADES = {
 function islaCanaria(name) {
   const isla = ISLAS_CANARIAS.find((p) => p.name === name);
   if (!isla) throw new Error(`lugares: «${name}» no está en ISLAS_CANARIAS`);
-  return { name, lat: isla.lat, lon: isla.lon };
+  return { name, lat: isla.lat, lon: isla.lon, places: [name] };
 }
 
 /**
  * Sistemas eléctricos aislados con su demanda en tiempo real (Red Eléctrica): cada isla o grupo de
  * islas conectadas de Canarias, Ceuta y Melilla. Baleares no publica su demanda real en tiempo real.
  * `id` es la clave con la que el adaptador de la fuente (e·sios) da la demanda de cada uno: el dominio
- * lo sitúa por ella, no por el nombre que traiga la fuente.
- * @type {Array<Place & { id: string }>}
+ * lo sitúa por ella, no por el nombre que traiga la fuente. `places`: los lugares (islas) a los que da
+ * luz, con el nombre con el que los citan los avisos oficiales.
+ * @type {Array<Place & { id: string, places: string[] }>}
  */
 export const SISTEMAS_AISLADOS = [
   { id: 'gran-canaria', ...islaCanaria('Gran Canaria') },
   // Dos islas conectadas entre sí: un solo sistema, situado entre las dos (no es ninguna de ISLAS_CANARIAS).
-  { id: 'lanzarote-fuerteventura', name: 'Lanzarote y Fuerteventura', lat: 28.75, lon: -13.85 },
+  // La Graciosa recibe la luz de Lanzarote.
+  { id: 'lanzarote-fuerteventura', name: 'Lanzarote y Fuerteventura', lat: 28.75, lon: -13.85, places: ['Lanzarote', 'Fuerteventura', 'La Graciosa'] },
   { id: 'tenerife', ...islaCanaria('Tenerife') },
   { id: 'la-palma', ...islaCanaria('La Palma') },
   { id: 'la-gomera', ...islaCanaria('La Gomera') },
   { id: 'el-hierro', ...islaCanaria('El Hierro') },
-  { id: 'ceuta', name: 'Ceuta', lat: 35.889, lon: -5.316 },
-  { id: 'melilla', name: 'Melilla', lat: 35.292, lon: -2.938 },
+  { id: 'ceuta', name: 'Ceuta', lat: 35.889, lon: -5.316, places: ['Ceuta'] },
+  { id: 'melilla', name: 'Melilla', lat: 35.292, lon: -2.938, places: ['Melilla'] },
 ];

@@ -1,6 +1,7 @@
 // Caso de uso: evaluar las reglas del dominio sobre el estado actual, actualizar las
 // alertas activas y registrar los cambios en el histórico.
-import { evaluateRules } from '../../domain/alerts/rules.js';
+import { GRID_METRICS, evaluateRules } from '../../domain/alerts/rules.js';
+import { withCurrentCuts } from '../../domain/emergencias.js';
 import { reconcileAlerts, sortAlerts } from '../../domain/alerts/lifecycle.js';
 import { DEFAULT_THRESHOLDS } from '../../domain/alerts/thresholds.js';
 import { computeKpis } from '../../domain/kpis.js';
@@ -24,13 +25,17 @@ export function makeDetectAlerts({ situation, stations, history, clock, threshol
     const vehicles = monitoredVehicles(all);
     const kpis = computeKpis(vehicles, now);
 
+    const metrics = situation.metrics();
+    // Los avisos que ya no están en vigor no dan alertas, aunque su fuente no haya vuelto a responder;
+    // y un corte de luz que ya no lo es (al día, o con la demanda de su isla normal) cuenta como plan.
+    const events = withCurrentCuts(situation.events().filter((e) => inForce(e, now)),
+      { now, grid: metrics[GRID_METRICS.aislados]?.systems, thresholds });
     const candidates = evaluateRules({
       now,
       vehicles,
       tracks: situation.tracks(),
-      // Los avisos que ya no están en vigor no dan alertas, aunque su fuente no haya vuelto a responder.
-      events: situation.events().filter((e) => inForce(e, now)),
-      metrics: situation.metrics(),
+      events,
+      metrics,
       health: situation.health(),
       kpis,
       kpiHistory: situation.kpiHistory(),

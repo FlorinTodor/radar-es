@@ -164,3 +164,14 @@ test('un aviso oficial que ya pasó de su vigencia no sale aunque su fuente no h
   assert.deepEqual(query.liveEvents().events.map((e) => e.id), ['corte-en-vigor', 'obra']);
   assert.deepEqual(query.snapshot().events.map((e) => e.id), ['corte-en-vigor', 'obra']);
 });
+
+test('un plan activado por un apagón se muestra como plan, no como corte de luz, pasado un día', () => {
+  const plateca = {
+    id: 'plateca', category: 'emergencia', type: 'apagon', power: true, severity: 'alta', area: 'La Palma',
+    title: 'El Gobierno de Canarias activa el PLATECA en situación de alerta por cero energético en La Palma',
+  };
+  const events = [{ ...plateca, issued: T0 - 25 * 60 * MIN, expires: T0 + 60 * 60 * MIN }];
+  const query = makeQuerySituation({ situation: fakeSituation({ events }), stations: {}, network: {}, clock: { now: () => T0 } });
+  assert.deepEqual(query.events().map((e) => [e.type, e.power]), [['plan', false]]);
+  assert.deepEqual(query.liveEvents().events.map((e) => e.type), ['plan'], 'también en el mapa');
+});

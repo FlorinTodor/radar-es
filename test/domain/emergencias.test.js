@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CUT_MAX_AGE, PLAN_MAX_AGE, currentNotices, expiresAt, illesIn, islandsIn, isEndNotice, isPlanNotice, maxAgeOf, mentionsPlan, mentionsPowerBack,
+  CUT_MAX_AGE, PLAN_MAX_AGE, currentNotices, expiresAt, illesIn, withCurrentCuts, islandsIn, isEndNotice, isPlanNotice, maxAgeOf, mentionsPlan, mentionsPowerBack,
   mentionsPowerCut, placeCandidates, powerClauses, provincesIn, severityOf, subjectsOf,
 } from '../../server/domain/emergencias.js';
 
@@ -352,4 +352,45 @@ test('vigencia en el suceso: lo que dura sin noticias de su fin, desde que se pu
   const at = NOW - 3 * HOUR;
   assert.equal(expiresAt({ at, power: true, title: 'Corte de luz en Toledo' }), at + CUT_MAX_AGE);
   assert.equal(expiresAt({ at, power: false, title: 'METEOCAM. Activada la alerta en Toledo' }), at + PLAN_MAX_AGE);
+});
+
+// ---------- Cortes de luz que ya no lo son ----------
+const TH = { isolatedGridDrop: 0.5, isolatedGridStaleMinutes: 60 };
+const PLATECA = 'El Gobierno de Canarias activa el PLATECA en situación de alerta por cero energético en La Palma';
+const cutEvent = (area, hoursAgo, title = PLATECA) => ({
+  id: `emergencias-canarias:899:${area}`, category: 'emergencia', type: 'apagon', power: true, severity: 'alta', title, area, issued: NOW - hoursAgo * HOUR,
+});
+// Dos datos seguidos de un sistema, `minutesAgo` el último.
+const grid = (id, real, programmed, minutesAgo = 10) => ({
+  id, real, programmed, recentMax: real, readMax: real, at: NOW - minutesAgo * 60_000, previous: { real, at: NOW - (minutesAgo + 5) * 60_000 },
+});
+
+test('un plan por un apagón deja de ser «corte de luz» al día aunque siga en vigor; uno que sólo era corte ya caducó', () => {
+  const [plan] = withCurrentCuts([cutEvent('La Palma', 25)], { now: NOW, thresholds: TH });
+  assert.equal(plan.power, false);
+  assert.equal(plan.type, 'plan');
+  assert.equal(plan.title, PLATECA, 'el aviso tal cual');
+  assert.deepEqual(withCurrentCuts([cutEvent('La Palma', 23)], { now: NOW, thresholds: TH }).map((e) => e.type), ['apagon']);
+});
+
+test('en una isla, la demanda normal de su sistema (dos datos posteriores al aviso) dice que la luz ha vuelto', () => {
+  const events = [cutEvent('La Palma', 3), cutEvent('Mallorca', 3, 'Corte de luz en Mallorca'), cutEvent('Lanzarote', 3, 'Corte de luz en Lanzarote')];
+  const out = withCurrentCuts(events, { now: NOW, grid: [grid('la-palma', 30.6, 28.1), grid('lanzarote-fuerteventura', 0, 160)], thresholds: TH });
+  assert.deepEqual(out.map((e) => `${e.area}:${e.type}`), ['La Palma:plan', 'Mallorca:apagon', 'Lanzarote:apagon'],
+    'La Palma tiene luz; Baleares no tiene demanda en tiempo real; Lanzarote sigue a cero');
+  const onlyCut = withCurrentCuts([cutEvent('La Palma', 3, 'Corte de luz en La Palma')], { now: NOW, grid: [grid('la-palma', 30.6, 28.1)], thresholds: TH });
+  assert.deepEqual(onlyCut, [], 'un aviso que sólo hablaba del corte deja de mostrarse');
+  const fuerteventura = withCurrentCuts([cutEvent('Fuerteventura', 3, 'Corte de luz en Fuerteventura')], { now: NOW, grid: [grid('lanzarote-fuerteventura', 160, 158)], thresholds: TH });
+  assert.deepEqual(fuerteventura, [], 'Lanzarote y Fuerteventura son un solo sistema');
+});
+
+test('la demanda no cuenta si es anterior al aviso, vieja o de un solo dato', () => {
+  const fresh = cutEvent('La Palma', 0.1); // publicado hace 6 min: los datos de hace 10 y 15 son de antes
+  assert.equal(withCurrentCuts([fresh], { now: NOW, grid: [grid('la-palma', 30.6, 28.1)], thresholds: TH })[0].type, 'apagon');
+  const old = withCurrentCuts([cutEvent('La Palma', 3)], { now: NOW, grid: [grid('la-palma', 30.6, 28.1, 90)], thresholds: TH });
+  assert.equal(old[0].type, 'apagon', 'dato de hace hora y media');
+  const single = withCurrentCuts([cutEvent('La Palma', 3)], { now: NOW, grid: [{ ...grid('la-palma', 30.6, 28.1), previous: null }], thresholds: TH });
+  assert.equal(single[0].type, 'apagon');
+  const half = withCurrentCuts([cutEvent('La Palma', 3)], { now: NOW, grid: [grid('la-palma', 7, 28.1)], thresholds: TH });
+  assert.equal(half[0].type, 'apagon', 'con la cuarta parte de lo esperado sigue sin luz');
 });

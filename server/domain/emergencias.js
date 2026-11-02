@@ -4,6 +4,7 @@
 // los planes de Cataluña se publican en catalán).
 // Puro: los adaptadores leen cada formato (RSS, JSON…) y le pasan el texto tal cual.
 import { GRUPOS_ISLAS, ILLES_BALEARS, ISLAS_CANARIAS, PROVINCIAS } from './lugares.js';
+import { gridHasPower, gridOfPlace, gridReading } from './red-aislada.js';
 
 /** Minúsculas y sin tildes, para comparar textos de distintas fuentes. */
 export const fold = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -333,6 +334,36 @@ export const isExpired = (n, now, maxAgeFor = maxAgeOf) => !(now - n.at <= maxAg
  * último corte de luz que leyó se quedaría en el mapa mientras la fuente siga caída.
  */
 export const expiresAt = (n, maxAgeFor = maxAgeOf) => n.at + maxAgeFor(n);
+
+/**
+ * Los avisos oficiales con un corte de luz, tal y como están ahora. La parte de corte de un aviso dura
+ * como mucho CUT_MAX_AGE aunque el aviso siga en vigor: un plan activado por un apagón (el PLATECA por
+ * el cero energético de La Palma) dura cuatro días, pero al día ya no se puede decir que siga el corte.
+ * Y en una isla, Ceuta o Melilla, se sabe antes: si su sistema eléctrico (e·sios) da dos datos seguidos
+ * y fiables, posteriores al aviso, con la demanda normal, la luz ha vuelto. Entonces un aviso que es
+ * también un plan queda como plan, y uno que sólo hablaba del corte deja de mostrarse.
+ * @template {import('./model.js').IncidentEvent} E
+ * @param {E[]} events
+ * @param {{ now: number, grid?: import('./red-aislada.js').GridSystem[],
+ *           thresholds: { isolatedGridDrop: number, isolatedGridStaleMinutes: number } }} opts
+ * @returns {E[]}
+ */
+export function withCurrentCuts(events, { now, grid = [], thresholds }) {
+  const powerBack = (e) => {
+    const system = gridOfPlace(e.area);
+    const s = system && grid.find((g) => g.id === system.id);
+    const r = s ? gridReading(s, now, thresholds.isolatedGridStaleMinutes) : null;
+    return gridHasPower(r, thresholds.isolatedGridDrop) && Number.isFinite(e.issued) && r.prevAt > e.issued;
+  };
+  // Sin fecha de publicación (Cataluña puede no traerla) se toma como reciente.
+  const cutOver = (e) => (Number.isFinite(e.issued) && now - e.issued > CUT_MAX_AGE) || powerBack(e);
+  const out = [];
+  for (const e of events) {
+    if (e.category !== 'emergencia' || !e.power || !cutOver(e)) out.push(e);
+    else if (isPlanNotice(e.title)) out.push({ ...e, power: false, type: 'plan' });
+  }
+  return out;
+}
 
 /**
  * Avisos que siguen en vigor, uno por lugar: del más nuevo al más viejo, el primero de cada riesgo y

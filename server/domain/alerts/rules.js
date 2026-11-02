@@ -7,6 +7,7 @@ import { distanceKm, pointInGeometry } from '../geo.js';
 import { vehicleLabel } from '../model.js';
 import { stationarySince } from '../tracking.js';
 import { SISTEMAS_AISLADOS } from '../lugares.js';
+import { gridReading } from '../red-aislada.js';
 
 /**
  * @typedef {object} RuleContext
@@ -282,9 +283,6 @@ export function officialEmergencyPlans(ctx) {
   });
 }
 
-// e·sios da un dato cada 5 minutos: dos con un hueco mayor entre ellos no son seguidos.
-const CONSECUTIVE_MS = 15 * 60_000;
-
 /**
  * Apagón de un sistema eléctrico aislado (una isla o un grupo de islas de Canarias, Ceuta, Melilla):
  * su demanda real cae muy por debajo de la esperada en dos datos seguidos (uno solo puede ser un dato
@@ -299,14 +297,10 @@ export function isolatedGridBlackouts(ctx) {
   const th = ctx.thresholds;
   const alerts = [];
   for (const s of ctx.metrics[GRID_METRICS.aislados]?.systems ?? []) {
-    if (!Number.isFinite(s.real)) continue;
-    if (!s.at || ctx.now - s.at > th.isolatedGridStaleMinutes * 60_000) continue; // dato viejo: no se sabe
-    const prev = s.previous;
-    if (!prev || !Number.isFinite(prev.real) || !(s.at - prev.at <= CONSECUTIVE_MS)) continue;
-    const worst = Math.max(s.real, prev.real); // los dos tienen que estar por debajo
-    const programmed = Number.isFinite(s.programmed) ? s.programmed : 0;
-    const recent = Math.max(programmed, Number.isFinite(s.recentMax) ? s.recentMax : 0);
-    const before = Math.max(recent, Number.isFinite(s.readMax) ? s.readMax : 0);
+    // Dato viejo o sin dos seguidos: no se sabe.
+    const r = gridReading(s, ctx.now, th.isolatedGridStaleMinutes);
+    if (!r) continue;
+    const { worst, programmed, recent, before } = r; // worst: los dos tienen que estar por debajo
     let expected;
     let basis;
     if (recent >= 1 && worst / recent <= th.isolatedGridDrop) {

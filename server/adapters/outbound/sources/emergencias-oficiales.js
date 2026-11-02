@@ -246,8 +246,12 @@ export function parseCatalunaPlans(rows) {
     });
 }
 
-/** @param {{ http: import('../http/http-client.js').HttpClient }} deps */
-export function createCatalunaPlansSource({ http }) {
+// El conjunto de Cataluña sólo trae los planes activos y no dice hasta cuándo: cada lectura los da por
+// vigentes dos horas más, para que no se queden en el mapa si la fuente deja de responder.
+const CATALUNA_TTL = 2 * 3_600_000;
+
+/** @param {{ http: import('../http/http-client.js').HttpClient, now?: () => number }} deps */
+export function createCatalunaPlansSource({ http, now = Date.now }) {
   return {
     id: 'emergencias-cataluna',
     name: 'Generalitat de Catalunya: plans de protecció civil activats',
@@ -257,7 +261,9 @@ export function createCatalunaPlansSource({ http }) {
     page: 'https://analisi.transparenciacatalunya.cat/d/wj9c-j6vf',
     license: `${CREDITS['emergencias-cataluna']} · Llicència oberta d'ús d'informació – Catalunya`,
     async fetch() {
-      const events = parseCatalunaPlans(await http.json(CATALUNA, { timeout: 30_000, maxBytes: SMALL_MAX_BYTES }));
+      const expires = now() + CATALUNA_TTL;
+      const events = parseCatalunaPlans(await http.json(CATALUNA, { timeout: 30_000, maxBytes: SMALL_MAX_BYTES }))
+        .map((e) => ({ ...e, expires }));
       // La licencia pide la fecha de la última actualización: la da la ficha del conjunto.
       const meta = await http.json(CATALUNA_META, { timeout: 30_000, maxBytes: SMALL_MAX_BYTES }).catch(() => null);
       const updated = Number(meta?.rowsUpdatedAt);

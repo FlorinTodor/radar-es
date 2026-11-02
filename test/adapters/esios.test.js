@@ -7,6 +7,8 @@ import { ESIOS_SYSTEMS, createEsiosSource, parseEsiosDemand } from '../../server
 import { GRID_METRICS, isolatedGridBlackouts } from '../../server/domain/alerts/rules.js';
 import { DEFAULT_THRESHOLDS } from '../../server/domain/alerts/thresholds.js';
 import { SISTEMAS_AISLADOS } from '../../server/domain/lugares.js';
+import { withCurrentCuts } from '../../server/domain/emergencias.js';
+import { officialEmergencyPlans, officialPowerCuts } from '../../server/domain/alerts/rules.js';
 
 const value = (geo_id, geo_name, utc, v) => ({ geo_id, geo_name, value: v, datetime_utc: utc, datetime: utc.replace('Z', '.000+01:00') });
 // Así llegó el apagón de La Palma del 2-11-2026 (05:35 y 05:40 «UTC» = 06:35 y 06:40 hora canaria).
@@ -145,4 +147,31 @@ test('el apagón de La Palma, dato a dato: una sola alerta, desde el segundo dat
   const first = timeline.indexOf(on[0]);
   assert.ok(timeline.slice(first, first + on.length).every((t) => t.alerta), 'sin cortes en medio: no se cierra y se vuelve a abrir');
   assert.ok(!timeline.slice(0, first).some((t) => t.alerta), 'el bajón de las 04:15 (12,1 MW de 17,9) no es un apagón');
+});
+
+test('2-11-2026: el aviso del cero energético de La Palma (07:49) es «corte de luz» hasta que e·sios da la demanda normal (09:20)', () => {
+  const stamp = (i) => new Date(Date.parse('2026-11-02T00:00:00Z') + i * 5 * 60_000).toISOString().replace('.000', '');
+  const real = series(LA_PALMA_REAL).map((v, i) => value(8798, 'La Palma', stamp(i), v));
+  const programmed = { indicator: { values: series(LA_PALMA_PROGRAMMED).map((v, i) => value(8798, 'La Palma', stamp(i), v)) } };
+  const notice = {
+    id: 'emergencias-canarias:899:la-palma', group: 'emergencias-canarias:899', category: 'emergencia', type: 'apagon', power: true, severity: 'alta',
+    title: 'El Gobierno de Canarias activa el PLATECA en situación de alerta por cero energético en La Palma', description: '', area: 'La Palma',
+    approx: 'isla', lat: 28.68, lon: -17.86, issued: Date.parse('2026-11-02T07:49:18Z'),
+  };
+  const at = (hhmm) => {
+    const now = Date.parse(`2026-11-02T${hhmm}:00Z`);
+    // Lo publicado por e·sios hasta 10 minutos antes (su retraso), en su hora (una menos en Canarias).
+    const known = real.filter((v) => Date.parse(v.datetime_utc) + 3_600_000 <= now - 10 * 60_000);
+    const systems = parseEsiosDemand({ indicator: { values: known } }, programmed);
+    const ctx = {
+      now, vehicles: [], tracks: new Map(), health: [], kpis: { vehicles: 0 }, kpiHistory: [], nearestStation: () => null,
+      thresholds: DEFAULT_THRESHOLDS, metrics: { [GRID_METRICS.aislados]: { systems } },
+    };
+    ctx.events = withCurrentCuts([notice], { now, grid: systems, thresholds: DEFAULT_THRESHOLDS });
+    return [...officialPowerCuts(ctx), ...officialEmergencyPlans(ctx)].map((a) => a.title);
+  };
+  assert.deepEqual(at('08:00'), ['Corte de luz · La Palma']);
+  assert.deepEqual(at('09:20'), ['Corte de luz · La Palma'], 'a las 09:10 aún no da la mitad de lo esperado');
+  assert.deepEqual(at('09:35'), ['El Gobierno de Canarias activa el PLATECA en situación de alerta por cero energético en La Palma'],
+    'con los datos de las 09:20 y las 09:25 (6,8 y 7,1 MW de 9 programados) la isla tiene luz: queda el plan');
 });
