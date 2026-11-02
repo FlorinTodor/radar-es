@@ -3,7 +3,7 @@
 // Operadora"): el GTFS-RT de gtfsrt.renfe.com y sus GTFS de horarios para saber el producto,
 // el origen y el destino de cada tren. Los endpoints internos de sus visores web no se usan:
 // no tienen licencia de reutilización.
-import { createPacer, csvColumns, csvColumnsStreamed, csvRows, openGtfs, own } from '../gtfs/gtfs-reader.js';
+import { createPacer, csvColumns, csvColumnsStreamed, csvRows, openGtfs, own, zipLocalDate } from '../gtfs/gtfs-reader.js';
 import { RENFE_FILES } from '../stations/renfe-station-catalog.js';
 import { num } from './parse.js';
 
@@ -38,8 +38,15 @@ export function createTimetables({ cache, stations, log }) {
   const loading = {};
   const once = (name, load) => (loading[name] ??= load().finally(() => { loading[name] = null; }));
 
-  const loadLd = () => once('ld', () => loadLdNow(TIMETABLE_TTL_MS));
-  const loadCercanias = () => once('cerc', loadCercaniasNow);
+  // Sólo se espera a la primera carga. Las siguientes (una vez al día) van en segundo plano y,
+  // mientras tanto, se sigue usando el horario anterior: si no, los trenes se quedarían quietos.
+  const firstOrBackground = (name, have, load) => {
+    if (have() && Date.now() - loadedAt[name] < TIMETABLE_TTL_MS) return Promise.resolve();
+    const run = once(name, load);
+    return have() ? Promise.resolve() : run;
+  };
+  const loadLd = () => firstOrBackground('ld', () => ld.size > 0, () => loadLdNow(TIMETABLE_TTL_MS));
+  const loadCercanias = () => firstOrBackground('cerc', () => cerc.size > 0, loadCercaniasNow);
   /** El tiempo real trae viajes que el horario guardado no tiene: se vuelve a leer, descargándolo si la
    * copia tiene más de una hora. Como mucho una vez por hora. */
   let ldRefreshedAt = 0;
@@ -102,7 +109,7 @@ export function createTimetables({ cache, stations, log }) {
       const pace = createPacer();
       let stopsOf = new Map();
       try {
-        stopsOf = await tripStops(zip, pace);
+        stopsOf = await cachedTripStops(cache, zip, pace);
       } catch (err) {
         log.warn(`[renfe] paradas de los viajes de Cercanías: ${err.message}; sólo el nombre de la línea`);
       }
@@ -158,6 +165,33 @@ export function routeEnds(longName) {
   const text = String(longName ?? '');
   const [origin, destination] = text[40] === '-' ? [text.slice(0, 40), text.slice(41)] : text.split(/\s+-/);
   return { origin: origin?.trim() || null, destination: destination?.trim() || null };
+}
+
+const STOPS_CACHE = 'renfe-cercanias-paradas.v8';
+
+/**
+ * Las paradas de cada viaje, guardadas en disco con la huella del GTFS del que salen: leer el
+ * stop_times cuesta minutos en el servidor al arrancar (compite con la carga de todos los demás
+ * horarios), y sólo cambia cuando Renfe publica un horario nuevo. Sin caché (tests), se calculan.
+ */
+async function cachedTripStops(cache, zip, pace) {
+  const key = `${zip.byteLength}|${zipLocalDate(zip)}`;
+  const saved = await cache.readValue?.(STOPS_CACHE);
+  if (saved?.key === key) {
+    const patterns = saved.patterns.map((stops, id) => Object.assign(stops, { id }));
+    const byTrip = new Map();
+    for (let i = 0; i < saved.trips.length; i += 2) byTrip.set(saved.trips[i], patterns[saved.trips[i + 1]]);
+    return byTrip;
+  }
+  const byTrip = await tripStops(zip, pace);
+  const patterns = [];
+  const trips = [];
+  for (const [tripId, stops] of byTrip) {
+    patterns[stops.id] ??= [...stops];
+    trips.push(tripId, stops.id);
+  }
+  await cache.writeValue?.(STOPS_CACHE, { key, patterns, trips });
+  return byTrip;
 }
 
 /**

@@ -35,6 +35,8 @@ function ldZip() {
 }
 
 const cacheWith = (zips) => ({ bytes: async (url, name) => zips[name] });
+// Las recargas van en segundo plano: tiempo real para que terminen (descomprimir va por el pool de libuv).
+const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
 
 test('el nombre de la línea son dos columnas de 40 caracteres, aunque un nombre lleve guion', () => {
   assert.deepEqual(routeEnds(`${pad('Chamartín - Clara Campoamor')}-Aranjuez       `), { origin: 'Chamartín - Clara Campoamor', destination: 'Aranjuez' });
@@ -110,14 +112,14 @@ test('Larga distancia: si muchos trenes no están en el horario guardado, se vue
   const [, ld] = createRenfeSources({ http, cache, stations, log });
   const first = await ld.fetch();
   assert.equal(first.vehicles[0].origin, 'València-Estació del Nord', 'mientras tanto, por número');
-  await new Promise((resolve) => setImmediate(resolve));
+  await settle();
   assert.deepEqual(reads, [24 * 3600_000, 3600_000], 'la copia de un día y, al ver que no están, una de menos de una hora');
   await ld.fetch();
-  await new Promise((resolve) => setImmediate(resolve));
+  await settle();
   assert.equal(reads.length, 2, 'no otra vez en la misma hora');
   t.mock.timers.tick(61 * 60_000);
   await ld.fetch();
-  await new Promise((resolve) => setImmediate(resolve));
+  await settle();
   assert.equal(reads.length, 3, 'pasada la hora, sí');
 });
 
@@ -148,4 +150,39 @@ test('un autobús de Renfe (route_type 3) va con los autobuses, no como tren de 
   const { vehicles: [v] } = await cercanias.fetch();
   assert.equal(v.mode, 'bus');
   assert.equal(v.service, 'Autobús de Renfe');
+});
+
+test('Cercanías: las paradas de cada viaje se guardan en disco y, con el mismo GTFS, se leen de ahí', async () => {
+  const zip = cercaniasZip();
+  const store = new Map();
+  const cache = { ...cacheWith({ 'renfe-fomento_transit.zip': zip }), readValue: async (n) => store.get(n) ?? null, writeValue: async (n, v) => store.set(n, structuredClone(v)) };
+  await createTimetables({ cache, stations, log }).loadCercanias();
+  const saved = store.get('renfe-cercanias-paradas.v8');
+  assert.ok(saved.key.startsWith(`${zip.byteLength}|`));
+  // Se cambia lo guardado: si el segundo arranque lo usa (y no relee el stop_times), el viaje acaba en Massanassa.
+  saved.patterns[saved.trips[saved.trips.indexOf('SUBE') + 1]] = ['64200', '64103'];
+  const t = createTimetables({ cache, stations, log });
+  await t.loadCercanias();
+  assert.equal(t.cercanias('SUBE').destination, 'Massanassa');
+  // Con otro GTFS (otra huella), se recalcula.
+  saved.key = 'otro';
+  const t2 = createTimetables({ cache, stations, log });
+  await t2.loadCercanias();
+  assert.equal(t2.cercanias('SUBE').destination, 'València-Estació del Nord');
+});
+
+test('Cercanías: la recarga diaria va en segundo plano; mientras, se sigue usando el horario anterior', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-01T10:00:00Z') });
+  let release;
+  let calls = 0;
+  const zip = cercaniasZip();
+  const cache = { bytes: async () => (++calls === 1 ? zip : new Promise((resolve) => { release = () => resolve(zip); })) };
+  const tt = createTimetables({ cache, stations, log });
+  await tt.loadCercanias();
+  t.mock.timers.tick(25 * 3600_000);
+  await tt.loadCercanias(); // no espera a la descarga nueva
+  assert.equal(calls, 2, 'la recarga ha empezado');
+  assert.equal(tt.cercanias('SUBE').destination, 'València-Estació del Nord', 'el horario anterior sigue');
+  release();
+  await settle();
 });
