@@ -2,7 +2,8 @@
 // datos: Renfe Operadora"): la lista oficial de estaciones (coordenadas, población) y, para
 // tener los nombres bien escritos, las paradas de sus GTFS de Cercanías y de AV/LD/MD.
 // Los códigos coinciden con los stopId del GTFS-RT. Se refresca una vez al día.
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
+import { writeFileAtomic } from '../http/file-cache.js';
 import { distanceKm } from '../../../domain/geo.js';
 import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
 import { RETIRED_PHOTOS_VERSION, loadStationExtras } from './station-extras.js';
@@ -141,7 +142,7 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
       version = CATALOG_VERSION;
       savedAt = Date.now();
       await mkdir(cacheDir, { recursive: true });
-      await writeFile(cacheFile, JSON.stringify({ version, savedAt, stations: list }));
+      await writeFileAtomic(cacheFile, JSON.stringify({ version, savedAt, stations: list }));
       log.info(`[estaciones] ${stations.size} estaciones de Renfe (lista oficial + paradas GTFS)`);
     } catch (err) {
       log.warn(`[estaciones] no se pudo descargar el catálogo (${err.message}); ${stations.size} en caché`);

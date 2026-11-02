@@ -1,7 +1,8 @@
 // Trazados de las redes de metro, tranvía y Cercanías a partir de los GTFS del NAP.
 // Si el GTFS trae shapes.txt se usan; si no, la línea une sus estaciones en orden.
 // El resultado se cachea en disco un día: la licencia del NAP exige mostrar datos actualizados.
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat } from 'node:fs/promises';
+import { writeFileAtomic } from '../http/file-cache.js';
 import { createPacer, csvColumns, csvRows, openGtfs, own } from '../gtfs/gtfs-reader.js';
 import { modeOf } from '../gtfs/gtfs-modes.js';
 
@@ -222,7 +223,7 @@ export function createGtfsNetworkCatalog({ nap, cache, cacheDir, log, pool }) {
       if (features.length) {
         collection = { type: 'FeatureCollection', features };
         await mkdir(cacheDir, { recursive: true });
-        await writeFile(cacheFile, JSON.stringify(collection));
+        await writeFileAtomic(cacheFile, JSON.stringify(collection));
         log.info(`[líneas] ${features.length} trazados de ${NETWORKS.length + 1} redes`);
       }
       return features.length;
