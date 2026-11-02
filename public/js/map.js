@@ -117,6 +117,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
   let selectedStation = null; // código de la estación cuya ficha está abierta
   let clicks = 0;         // contador de clics en el mapa, para descartar respuestas tardías de EFFIS
   let trackFetchedAt = 0;
+  let eventList = [];     // últimos sucesos: la ficha de un aviso oficial lista los demás del mismo sitio
   let lineFeatures = [];  // trazados de las líneas: el recorrido del tren seleccionado se pega a la suya
   let byShape = new Map(); // «red|shape_id» → trazado, para lo que le queda y la flecha de cada tren
   const shapeOf = (v) => (ROUTE_NETWORK[v.source] && v.shape && v.end ? byShape.get(`${ROUTE_NETWORK[v.source]}|${v.shape}`) : undefined);
@@ -137,7 +138,13 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     const shape = routeShapeOf(v);
     return shape ? pathBetween(shape.geometry.coordinates, [v.lon, v.lat], v.end) : null;
   };
-  const card = createDetailCard(map.getContainer().parentElement, (id) => onVehicleClick(id));
+  const card = createDetailCard(map.getContainer().parentElement, (id) => onVehicleClick(id), (id) => {
+    const e = eventList.find((x) => x.id === id);
+    if (e) card.show(eventDetail(e, samePlace(e)));
+  });
+  // Otros avisos oficiales del mismo sitio (en el mapa quedan unos encima de otros).
+  const samePlace = (e) => (e.category === 'emergencia' && e.area
+    ? eventList.filter((x) => x.category === 'emergencia' && x.id !== e.id && x.area === e.area) : []);
   let loaded = false;
   let modeFilter = null;
   let showObras = false;
@@ -225,7 +232,9 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
       map.addImage(`diamond-${sev}`, icon('diamond', color, '#0d0d0d'), { pixelRatio: 2 });
       map.addImage(`triangle-${sev}`, icon('triangle', color, '#f0efec'), { pixelRatio: 2 });
       map.addImage(`square-${sev}`, icon('square', color, '#0d0d0d'), { pixelRatio: 2 });
+      map.addImage(`emerg-plan-${sev}`, emergencyIcon('plan', color), { pixelRatio: 2 });
     }
+    map.addImage('emerg-luz', emergencyIcon('luz'), { pixelRatio: 2 });
 
     // Estaciones: punto blanco con borde oscuro, como en los planos de transporte, más grande al
     // acercar. Debajo, un círculo invisible más grande para poder pulsarlas con el dedo; de lejos,
@@ -325,18 +334,19 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
         'circle-stroke-color': ['match', ['get', 'severity'], 'muy alta', STATUS.critical, 'alta', STATUS.serious, '#6b6b66'],
       },
     });
-    // Avisos oficiales (protección civil, 112): los cortes de luz, un círculo apagado con borde
-    // amarillo; los planes activados, del color de su nivel. Van al centro de su isla, municipio,
-    // provincia o comunidad.
+    // Avisos oficiales (protección civil, 112): los cortes de luz, un rayo amarillo sobre fondo oscuro;
+    // los planes activados, un escudo con «!» del color de su nivel. Van al centro de su isla,
+    // municipio, provincia o comunidad: si en un mismo sitio hay corte de luz y plan, el rayo va a la
+    // izquierda y el escudo a la derecha, y entre varios planes queda encima el de más nivel.
     const isPowerCut = ['==', ['get', 'type'], 'apagon'];
     map.addLayer({
-      id: 'ev-emerg', type: 'circle', source: 'events',
-      paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 6, 9, 9, 13, 12],
-        'circle-color': ['case', isPowerCut, '#0d0d0d',
-          ['match', ['get', 'severity'], 'muy alta', STATUS.critical, 'alta', STATUS.serious, STATUS.warning]],
-        'circle-stroke-color': ['case', isPowerCut, '#ffd23f', '#0d0d0d'],
-        'circle-stroke-width': ['case', isPowerCut, 3, 2],
+      id: 'ev-emerg', type: 'symbol', source: 'events',
+      layout: {
+        'icon-image': ['case', isPowerCut, 'emerg-luz', ['concat', 'emerg-plan-', ['get', 'severity']]],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.85, 9, 1, 13, 1.2],
+        'icon-offset': ['case', isPowerCut, ['literal', [-9, 0]], ['literal', [9, 0]]],
+        'icon-allow-overlap': true, 'icon-ignore-placement': true,
+        'symbol-sort-key': ['case', isPowerCut, 10, ['match', ['get', 'severity'], 'muy alta', 3, 'alta', 2, 1]],
       },
     });
     // Focos de calor: halo difuminado + núcleo, para distinguirlos de los trenes (círculos nítidos).
@@ -636,6 +646,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     },
 
     setEvents(list) {
+      eventList = list;
       if (!loaded) return;
       const areas = list.filter((e) => e.geometry);
       map.getSource('areas').setData({
@@ -734,7 +745,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     showEvent(e) {
       setSelected(null);
       setStation(null);
-      card.show(eventDetail(e));
+      card.show(eventDetail(e, samePlace(e)));
     },
 
     /** Ficha de una estación con sus trenes (ver station-board.js); se repinta al llegar datos. */
@@ -811,8 +822,40 @@ export function icon(shape, fill, stroke) {
   return { width: size, height: size, data: g.getImageData(0, 0, size, size).data };
 }
 
+/**
+ * Iconos de los avisos oficiales: 'luz' (corte de luz), un rayo amarillo sobre un círculo oscuro;
+ * 'plan' (plan de emergencias), un escudo con «!» del color de su nivel.
+ */
+export function emergencyIcon(kind, color = '#ec835a') {
+  const size = 36;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const g = canvas.getContext('2d');
+  g.scale(2, 2);
+  g.lineJoin = 'round';
+  if (kind === 'luz') {
+    g.beginPath(); g.arc(9, 9, 7.9, 0, Math.PI * 2);
+    g.fillStyle = '#0d0d0d'; g.fill();
+    g.lineWidth = 1.4; g.strokeStyle = '#ffd23f'; g.stroke();
+    g.beginPath();
+    g.moveTo(10.4, 3.2); g.lineTo(5.6, 10); g.lineTo(8.7, 10); g.lineTo(7.6, 14.8); g.lineTo(12.4, 7.7); g.lineTo(9.3, 7.7);
+    g.closePath(); g.fillStyle = '#ffd23f'; g.fill();
+  } else {
+    g.beginPath();
+    g.moveTo(9, 1.4); g.lineTo(15.6, 3.9); g.lineTo(15.6, 8.6);
+    g.bezierCurveTo(15.6, 12.6, 12.8, 15.4, 9, 16.7); g.bezierCurveTo(5.2, 15.4, 2.4, 12.6, 2.4, 8.6);
+    g.lineTo(2.4, 3.9); g.closePath();
+    g.fillStyle = color; g.fill();
+    g.lineWidth = 1.4; g.strokeStyle = '#0d0d0d'; g.stroke();
+    g.fillStyle = '#0d0d0d';
+    g.beginPath(); g.roundRect(8.05, 4.6, 1.9, 6, 0.9); g.fill();
+    g.beginPath(); g.arc(9, 12.7, 1.1, 0, Math.PI * 2); g.fill();
+  }
+  return { width: size, height: size, data: g.getImageData(0, 0, size, size).data };
+}
+
 /** Ficha fija sobre el mapa (sustituye a las ventanas emergentes, que tapaban el recorrido). */
-function createDetailCard(host, onVehicle) {
+function createDetailCard(host, onVehicle, onEvent) {
   const el = document.createElement('div');
   el.className = 'card detail';
   el.hidden = true;
@@ -824,6 +867,8 @@ function createDetailCard(host, onVehicle) {
   el.addEventListener('click', (ev) => {
     const train = ev.target.closest('[data-vehicle]');
     if (train) onVehicle(train.dataset.vehicle);
+    const other = ev.target.closest('[data-event]');
+    if (other) onEvent?.(other.dataset.event);
   });
   host.appendChild(el);
   return {
@@ -1017,7 +1062,8 @@ const APPROX_LABEL = {
   comunidad: 'aproximada: el aviso no dice el lugar exacto (centro de la comunidad)',
 };
 
-function eventDetail(e) {
+/** @param {object} e  @param {object[]} [others] otros avisos oficiales del mismo sitio */
+function eventDetail(e, others = []) {
   const rows = [
     ['Gravedad', SEVERITY_LABEL[e.severity] ?? e.severity],
     e.issued && ['Emitido', fmtDateTime(e.issued)],
@@ -1029,6 +1075,8 @@ function eventDetail(e) {
   ].filter(Boolean);
   const url = safeUrl(e.url);
   const link = url ? `<div class="note"><a href="${esc(url)}" target="_blank" rel="noopener">Ficha oficial</a></div>` : '';
+  const more = others.length ? `<h4>Otros avisos oficiales en ${esc(e.area)}</h4><ul class="st-list">${others
+    .map((o) => `<li><button type="button" class="link" data-event="${esc(o.id)}">${o.power ? 'Corte de luz: ' : ''}${esc(o.title)}</button></li>`).join('')}</ul>` : '';
   return `<div class="pop"><h3>${esc(e.title)}</h3>${e.description ? `<p>${esc(e.description)}</p>` : ''}
-    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>${link}</div>`;
+    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>${link}${more}</div>`;
 }

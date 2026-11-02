@@ -299,8 +299,8 @@ export function renderLayers(el, prefs, countsByMode) {
     <i style="background:radial-gradient(circle,#ffd27a 25%,#ff5a1f 60%,transparent 75%)"></i><span>Foco de calor por satélite</span>
     <i style="background:rgba(180,140,255,.25);border:1.5px solid #b48cff"></i><span>Terremoto (tamaño = magnitud)</span>
     <i style="background:transparent;border:2.5px solid #ec835a"></i><span>Alerta GDACS (naranja o roja)</span>
-    <i style="background:#0d0d0d;border:3px solid #ffd23f"></i><span>Corte de luz (aviso oficial de protección civil o del 112), en el centro de su isla, municipio, provincia o comunidad</span>
-    <i style="background:#ec835a;border:2px solid #0d0d0d"></i><span>Plan de emergencias activado (aviso oficial; color = nivel: prealerta, alerta, emergencia)</span>
+    <svg viewBox="0 0 18 18" width="14" height="14" aria-hidden="true"><circle cx="9" cy="9" r="7.9" fill="#0d0d0d" stroke="#ffd23f" stroke-width="1.4"/><path d="M10.4 3.2L5.6 10H8.7L7.6 14.8L12.4 7.7H9.3Z" fill="#ffd23f"/></svg><span>Corte de luz (aviso oficial de protección civil o del 112), en el centro de su isla, municipio, provincia o comunidad</span>
+    <svg viewBox="0 0 18 18" width="14" height="14" aria-hidden="true"><path d="M9 1.4L15.6 3.9V8.6C15.6 12.6 12.8 15.4 9 16.7C5.2 15.4 2.4 12.6 2.4 8.6V3.9Z" fill="#ec835a" stroke="#0d0d0d" stroke-width="1.4" stroke-linejoin="round"/><rect x="8.05" y="4.6" width="1.9" height="6" rx="0.9" fill="#0d0d0d"/><circle cx="9" cy="12.7" r="1.1" fill="#0d0d0d"/></svg><span>Plan de emergencias activado (aviso oficial). Color = nivel: amarillo prealerta, naranja alerta, rojo emergencia</span>
     <i style="border-radius:2px;background:linear-gradient(90deg,#e8261c 33%,#f39c12 33% 66%,#1f6fd1 66%)"></i><span>Área quemada (EFFIS): rojo, último día; naranja, 7 días; azul, 30 días. Púlsala para ver su ficha</span></div>
     </details>`;
 }
