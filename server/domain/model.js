@@ -140,6 +140,20 @@
 
 export const SEVERITY_RANK = { 'muy alta': 4, alta: 3, media: 2, baja: 1 };
 
+// Código de estación. Renfe: 5 cifras («71801»). Las demás redes: la red y el código de su GTFS
+// («fgc:PC», «tmb:P.6660111»), con un tope de largo para que nadie pida claves enormes.
+const RENFE_CODE = /^\d{5}$/;
+const NETWORK_CODE = /^[a-z]+:[\w.:-]{1,64}$/;
+
+/**
+ * ¿Tiene `code` la forma de un código de estación? No dice si la estación existe: sólo que vale la
+ * pena buscarla (la API rechaza lo demás sin mirar los catálogos).
+ * @param {unknown} code @returns {boolean}
+ */
+export function isStationCode(code) {
+  return typeof code === 'string' && (RENFE_CODE.test(code) || NETWORK_CODE.test(code));
+}
+
 /**
  * Vehículos que vigila el motor de alertas ferroviarias y que cuentan en los KPIs: trenes,
  * metros y tranvías con posición real. Las posiciones estimadas por horario, los autobuses

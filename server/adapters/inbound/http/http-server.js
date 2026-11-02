@@ -1,6 +1,6 @@
 // Adaptador de entrada HTTP: API REST, teselas y ficheros estáticos. La web consulta el directo
-// (/api/live) cada pocos segundos. Sólo habla con casos de uso (query, serveTiles): no conoce los
-// puertos de salida ni las fuentes.
+// (/api/live) cada pocos segundos. Sólo habla con casos de uso (query, serveTiles) y, para saber si
+// lo que se pide tiene sentido, con las reglas puras del dominio: no conoce los puertos de salida ni las fuentes.
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
@@ -8,6 +8,7 @@ import { pipeline } from 'node:stream';
 import { extname, join, resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
+import { isStationCode } from '../../../domain/model.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -99,9 +100,8 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
       if (url.pathname === '/api/burnt-areas') return await sendBurntAreas(res, url.searchParams.get('bbox'));
       // Ficha completa de una estación: una búsqueda en memoria, sin cálculo que acotar.
       if (url.pathname.startsWith('/api/stations/')) {
-        // Renfe: 5 cifras. Otras redes: la red y el código de su GTFS («fgc:PC», «tmb:P.6660111»).
         const code = decodeOrNull(url.pathname.slice('/api/stations/'.length));
-        const station = code && (/^\d{5}$/.test(code) || /^[a-z]+:[\w.:-]{1,64}$/.test(code)) ? query.station(code) : null;
+        const station = isStationCode(code) ? query.station(code) : null;
         return station ? sendJson(req, res, 200, station, CATALOG_CACHE) : send(res, 404, { error: 'Estación no encontrada' });
       }
       if (url.pathname.startsWith('/api/ahead/')) {
