@@ -96,8 +96,9 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
       if (url.pathname === '/api/stream') return stream(req, res, url.searchParams.get('buses') === '1');
       // Ficha completa de una estación: una búsqueda en memoria, sin cálculo que acotar.
       if (url.pathname.startsWith('/api/stations/')) {
-        const code = url.pathname.slice('/api/stations/'.length);
-        const station = /^\d{5}$/.test(code) ? query.station(code) : null;
+        // Renfe: 5 cifras. Otras redes: la red y el código de su GTFS («fgc:PC», «tmb:P.6660111»).
+        const code = decodeOrNull(url.pathname.slice('/api/stations/'.length));
+        const station = code && (/^\d{5}$/.test(code) || /^[a-z]+:[\w.:-]{1,64}$/.test(code)) ? query.station(code) : null;
         return station ? sendJson(req, res, 200, station, CATALOG_CACHE) : send(res, 404, { error: 'Estación no encontrada' });
       }
       if (url.pathname.startsWith('/api/ahead/')) {

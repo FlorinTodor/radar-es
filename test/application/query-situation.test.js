@@ -28,6 +28,21 @@ test('generatedAt sale del reloj inyectado', () => {
   assert.equal(query.snapshot().generatedAt, T0);
 });
 
+test('la lista de estaciones junta las de Renfe y las de otras redes; la ficha se busca en las dos', () => {
+  const renfe = new Map([['71801', { code: '71801', name: 'Barcelona-Sants', place: 'Barcelona', lat: 41.38, lon: 2.14, photo: {} }]]);
+  const others = new Map([['tmb:1', { code: 'tmb:1', name: 'Sants Estació', network: 'Metro de Barcelona (TMB)', networkId: 'tmb', mode: 'metro', lat: 41.379, lon: 2.14, lines: [] }]]);
+  const catalog = (m) => ({ all: () => [...m.values()], get: (c) => m.get(c) });
+  const query = makeQuerySituation({ situation: fakeSituation(), stations: catalog(renfe), networkStations: catalog(others), network: {}, clock: { now: () => T0 } });
+  const list = query.stations();
+  assert.deepEqual(list.map((s) => s.code), ['71801', 'tmb:1']);
+  assert.equal('photo' in list[0], false, 'la lista va ligera: la foto, en la ficha');
+  assert.equal('network' in list[0], false);
+  assert.deepEqual([list[1].network, list[1].networkId, list[1].mode], ['Metro de Barcelona (TMB)', 'tmb', 'metro']);
+  assert.equal(query.station('tmb:1').name, 'Sants Estació');
+  assert.equal(query.station('71801').name, 'Barcelona-Sants');
+  assert.equal(query.station('tmb:9'), null);
+});
+
 test('las estelas cortan la ventana de minutos con el reloj inyectado', () => {
   const point = (minutesAgo, lon) => ({ t: T0 - minutesAgo * MIN, lat: 40, lon });
   const tracks = new Map([['a', [point(30, -3.9), point(20, -3.8), point(10, -3.7), point(0, -3.6)]]]);
