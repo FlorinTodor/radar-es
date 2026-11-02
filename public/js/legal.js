@@ -26,7 +26,8 @@ const json = (url) => fetch(url).then((r) => r.json());
 const lineSources = json('/api/lines/sources').catch(() => []);
 
 json('/api/health').then(async (health) => {
-  const lines = (await lineSources).map((l) => `<tr><td>Trazado: ${esc(l.name)}</td><td>${esc(l.credit)}</td>`
+  const sources = await lineSources;
+  const lines = (Array.isArray(sources) ? sources : []).map((l) => `<tr><td>Trazado: ${esc(l.name)}</td><td>${esc(l.credit)}</td>`
     + `<td>${l.updated ? `Horario actualizado el ${esc(when.format(l.updated))}` : '—'}</td><td>Operativa</td></tr>`);
   document.getElementById('estado-filas').innerHTML = health.map((s) => {
     // Fecha que da la propia fuente; en las posiciones estimadas, la de su horario en el NAP.

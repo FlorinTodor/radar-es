@@ -83,7 +83,7 @@ async function loadLines(attempt = 0) {
     if (lines.features?.length) {
       state.lines = lines.features;
       // De dónde sale cada trazado y su fecha, para la pestaña Fuentes.
-      fetch('/api/lines/sources').then((r) => r.json()).then((list) => { state.lineSources = list; render('health'); }).catch(() => {});
+      fetch('/api/lines/sources').then((r) => r.json()).then((list) => { state.lineSources = Array.isArray(list) ? list : []; render('health'); }).catch(() => {});
       return map.setLines(lines);
     }
   } catch { /* reintenta */ }

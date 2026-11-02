@@ -38,8 +38,8 @@ test('cada red lleva la atribución y la fecha de su horario en el NAP', async (
   const catalog = createGtfsNetworkCatalog({ nap, cache: { bytes: async () => { throw new Error('sin red'); } }, cacheDir: pathToFileURL(`${dir}/`), log: quiet });
   await catalog.load();
   assert.deepEqual(catalog.sources(), [
-    { name: cercanias, credit: 'Powered by MITRAMS (Punto de Acceso Nacional) · Origen de los datos: Renfe Operadora', updated: madridLocalToMs('2026-11-02T06:21:27') },
-    { name: ligero, credit: 'Powered by MITRAMS (Punto de Acceso Nacional) · Powered by CRTM', updated: null },
+    { name: cercanias, credit: 'Powered by MITRAMS (Punto de Acceso Nacional) · Origen de los datos: Renfe Operadora · Trazado simplificado (dato explotado)', updated: madridLocalToMs('2026-11-02T06:21:27') },
+    { name: ligero, credit: 'Powered by MITRAMS (Punto de Acceso Nacional) · Powered by CRTM · Trazado simplificado (dato explotado)', updated: null },
   ], 'sólo las redes que se dibujan; sin fecha, null');
   assert.ok(asked.some(([dataset, id]) => dataset === cercaniasDataset && id === cercaniasId), 'pregunta por su conjunto de datos');
   const saved = JSON.parse(await readFile(join(dir, 'trazados-red-v3.json'), 'utf8'));
@@ -58,6 +58,16 @@ test('una copia guardada sin fechas las pide al NAP sin rehacer los trazados', a
   const catalog = createGtfsNetworkCatalog({ nap, cache: {}, cacheDir: pathToFileURL(`${dir}/`), log: quiet });
   await catalog.load();
   assert.deepEqual(catalog.sources().map((s) => [s.name, s.updated]), [[cercanias, madridLocalToMs('2026-10-30T10:00:00')]]);
+  const saved = JSON.parse(await readFile(join(dir, 'trazados-red-v3.json'), 'utf8'));
+  assert.equal(saved.updated[cercanias], '2026-10-30T10:00:00', 'y se guardan, sin esperar a rehacer los trazados');
+});
+
+test('mientras falte la fecha de alguna red, /api/lines/sources no se guarda en caché', async (t) => {
+  const server = createHttpServer({ query: { lineSources: () => [{ name: cercanias, credit: 'x', updated: null }] }, log: { error() {} }, publicDir: '/nonexistent', vendorDirs: {} });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => server.close());
+  const res = await fetch(`http://127.0.0.1:${server.address().port}/api/lines/sources`);
+  assert.equal(res.headers.get('cache-control'), 'no-store');
 });
 
 test('/api/lines/sources sirve el origen de los trazados con la caché de los catálogos', async (t) => {

@@ -245,13 +245,21 @@ export function createGtfsNetworkCatalog({ nap, cache, cacheDir, log, pool }) {
           updated = saved.updated ?? {};
         } catch { /* sin caché */ }
       }
-      // Una copia de antes de guardar las fechas: se piden ahora, sin rehacer los trazados.
-      if (nap.enabled) {
+      // Una copia de antes de guardar las fechas (o con alguna que faltó): se piden ahora, sin rehacer
+      // los trazados, y se guardan.
+      const stale = Date.now() - builtAt >= MAX_AGE_MS;
+      if (nap.enabled && !stale) {
+        let filled = false;
         for (const [, name] of NETWORKS) {
-          if (!(name in updated) && collection.features.some((f) => f.properties.network === name)) updated[name] = await updatedOf(name);
+          if (updated[name] || !collection.features.some((f) => f.properties.network === name)) continue;
+          updated[name] = await updatedOf(name);
+          filled ||= Boolean(updated[name]);
+        }
+        if (filled) {
+          await mkdir(cacheDir, { recursive: true });
+          await writeFileAtomic(cacheFile, JSON.stringify({ ...collection, builtAt, failed, updated }));
         }
       }
-      const stale = Date.now() - builtAt >= MAX_AGE_MS;
       if (!stale && !failed.length) return collection.features.length;
       if (!nap.enabled) {
         log.warn('[líneas] sin NAP_API_KEY no se pueden descargar los trazados');
@@ -284,12 +292,16 @@ export function createGtfsNetworkCatalog({ nap, cache, cacheDir, log, pool }) {
       return features.length;
     },
     lines: () => collection,
-    /** De dónde sale el trazado de cada red: su atribución y su fecha de actualización (ms; null si no se sabe). */
+    /**
+     * De dónde sale el trazado de cada red: su atribución y la fecha de actualización de su horario en el
+     * NAP (ms; null si aún no se sabe). El de Tenerife no viene del NAP y su licencia no pide fecha: no la lleva.
+     */
     sources: () => [
       ...NETWORKS.map(([, name, , credit]) => ({
-        name, credit: `Powered by MITRAMS (Punto de Acceso Nacional) · ${credit}`, updated: madridLocalToMs(updated[name]),
+        name, credit: `Powered by MITRAMS (Punto de Acceso Nacional) · ${credit} · Trazado simplificado (dato explotado)`,
+        updated: madridLocalToMs(updated[name]),
       })),
-      { name: TENERIFE, credit: 'Metropolitano de Tenerife, S.A. · Portal de Datos Abiertos del Cabildo de Tenerife (CC BY)', updated: null },
+      { name: TENERIFE, credit: 'Metropolitano de Tenerife, S.A. · Portal de Datos Abiertos del Cabildo de Tenerife (CC BY) · Trazado simplificado' },
     ].filter(({ name }) => collection.features.some((f) => f.properties.network === name)),
   };
 }
