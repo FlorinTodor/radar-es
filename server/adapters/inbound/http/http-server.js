@@ -53,6 +53,10 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     '/api/kpis': { fn: () => query.kpis(), ttl: 5_000, cache: REVALIDATE },
     '/api/metrics': { fn: () => query.metrics(), ttl: 5_000, cache: REVALIDATE },
     '/api/about': { fn: () => about, ttl: 60_000, cache: REVALIDATE },
+    // De dónde sale cada trazado, con su fecha de actualización (la piden su licencia; la enseñan
+    // /legal y la pestaña Fuentes). Aparte de /api/lines, que pesa 1 MB. Mientras falte alguna fecha
+    // cuenta como vacía: ni el navegador ni Cloudflare la guardan una hora sin ella.
+    '/api/lines/sources': { fn: () => query.lineSources(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.length || b.some((s) => s.updated === null) },
   };
   const memo = createJsonMemo({ now });
   // Las rutas con parámetros tienen memo y presupuesto propios: quien pide variantes sin fin no

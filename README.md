@@ -239,6 +239,7 @@ Lo que no se puede dibujar por falta de datos públicos:
 | `GET /api/burnt-areas?bbox=…` | ficha de las áreas quemadas (EFFIS) bajo un punto del mapa |
 | `GET /tiles/<capa>/<z>/<x>/<y>.png` | teselas de la red ferroviaria (IGN) y de las áreas quemadas (EFFIS) |
 | `GET /api/about` | titular y contacto para el aviso legal |
+| `GET /api/lines/sources` | de dónde sale el trazado de cada red: atribución y fecha de actualización |
 
 Las alertas y los KPIs por minuto se guardan en `data/history/*.jsonl` para analizarlos
 después (con jq, DuckDB o pandas).
