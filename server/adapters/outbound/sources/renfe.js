@@ -15,6 +15,9 @@ const GTFSRT = 'https://gtfsrt.renfe.com';
 // va de camino (un Media Distancia «parado en Ferrol» a 9,4 km, saliendo de Pontedeume): ver ldReading.
 const FAR_FROM_STOP_KM = 1.5;
 const ATTRIBUTION = 'Origen de los datos: Renfe Operadora (CC BY 4.0; datos modificados: normalizados, depurados y combinados con sus horarios)';
+// Cercanías: lo que le queda se dibuja con el trazado de su viaje del horario de Renfe en el Punto de
+// Acceso Nacional (ver domain/route-ahead.js).
+const ATTRIBUTION_CERCANIAS = `${ATTRIBUTION} · trazado: Powered by MITRAMS (dato explotado)`;
 // AV/LD/MD: además, el recorrido y lo que le queda se dibujan sobre la red de Adif (ver domain/rail-match.js).
 const ATTRIBUTION_LD = 'Origen de los datos: Renfe Operadora (CC BY 4.0; datos modificados: normalizados, depurados, '
   + 'combinados con sus horarios y dibujados sobre la red de Adif, © Administrador de infraestructuras ferroviarias)';
@@ -353,7 +356,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
     interval: 20_000,
     url: `${GTFSRT}/vehicle_positions.json`,
     page: 'https://data.renfe.com/dataset/ubicacion-vehiculos',
-    license: ATTRIBUTION,
+    license: ATTRIBUTION_CERCANIAS,
     // CC BY 4.0 permite modificar indicándolo: a veces repite posiciones viejas o da saltos imposibles.
     cleanPositions: true,
     // Red de /api/lines cuyos trazados (shape_id) usan sus viajes.

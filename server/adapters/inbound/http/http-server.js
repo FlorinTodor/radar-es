@@ -106,12 +106,12 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
       }
       if (url.pathname.startsWith('/api/ahead/')) {
         const id = decodeOrNull(url.pathname.slice('/api/ahead/'.length));
-        if (id === null) return send(res, 400, { error: 'Ruta inválida' });
+        if (id === null || id.length > MAX_VEHICLE_ID) return send(res, 400, { error: 'Ruta inválida' });
         return sendTrain(req, res, `ahead:${id}`, () => query.ahead(id) ?? null, 'Sin recorrido previsto');
       }
       if (url.pathname.startsWith('/api/tracks/')) {
         const id = decodeOrNull(url.pathname.slice('/api/tracks/'.length));
-        if (id === null) return send(res, 400, { error: 'Ruta inválida' });
+        if (id === null || id.length > MAX_VEHICLE_ID) return send(res, 400, { error: 'Ruta inválida' });
         return sendTrain(req, res, `track:${id}`, () => query.track(id) ?? null, 'Vehículo sin historial');
       }
       if (url.pathname.startsWith('/api/')) return send(res, 404, { error: 'Ruta no encontrada' });
@@ -248,6 +248,9 @@ const TRAIN_MEMO_MAX = 2_000; // más que todos los vehículos que puede haber a
 const TRAIN_MEMO_BYTES = 32 * 1024 * 1024;
 const PARAMS_MEMO_BYTES = 48 * 1024 * 1024;
 const TRAIN_BUDGET = { perSecond: 4, burst: 20 };
+// Los ids de vehículo llevan el trip_id de su operador (los más largos, unos 80 caracteres). Más de esto
+// no es un vehículo: así nadie llena el memo con claves enormes.
+const MAX_VEHICLE_ID = 256;
 const CATALOG_CACHE = 'public, max-age=600, s-maxage=3600';
 /** Directo: Cloudflare lo guarda `edge` s y, si el servidor no responde, sirve la última copia 15 min. */
 const liveCache = (edge) => `public, max-age=0, s-maxage=${edge}, stale-while-revalidate=${edge * 3}, stale-if-error=900`;

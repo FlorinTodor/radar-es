@@ -95,7 +95,8 @@ export function createSources(deps) {
       url: `${MOVEUSKADI}/metro_bilbao/gtfsrt_metro_bilbao_vehicle_positions.pb`,
       mode: 'metro',
       operator: 'Metro Bilbao',
-      license: 'Open Data Euskadi · MoveUskadi (CC BY 4.0): posiciones y horario (nombres de estación). Formato adaptado, contenido sin alterar',
+      license: 'Open Data Euskadi · MoveUskadi (CC BY 4.0): posiciones y horario (nombres de estación). Formato adaptado, contenido sin alterar'
+        + ' · trazado: Powered by MITRAMS (dato explotado)',
       line: () => null, // el feed sólo trae routeId "MB"
       staticUrl: `${MOVEUSKADI}/metro_bilbao/gtfs_metro_bilbao.zip`,
       describe: metroBilbao,
