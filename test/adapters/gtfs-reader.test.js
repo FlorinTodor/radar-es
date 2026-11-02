@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { zipSync, strToU8 } from 'fflate';
 import { createPacer, csvColumns, csvColumnsStreamed, csvRows, openGtfs, own, zipLocalDate } from '../../server/adapters/outbound/gtfs/gtfs-reader.js';
+// Vacía las colas del bucle (promesas y vueltas de E/S): lo que no tiene que pasar ya habría pasado.
+const flush = async () => { for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve)); };
 
 const text = (bytes) => new TextDecoder().decode(bytes);
 
@@ -45,7 +47,7 @@ test('un ZIP dañado es un error normal y no deja promesas sin capturar que tumb
     zip = patchCentral(zip, 'trips.txt', 10, 12);
     await assert.rejects(openGtfs(zip, ['stops.txt', 'trips.txt']), /trips\.txt: compresión 12 no soportada/);
     await assert.rejects(openGtfs(patchCentral(zip, 'trips.txt', 10, 8), ['stops.txt', 'trips.txt']), /./, 'deflate roto: rechaza');
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await flush();
     assert.deepEqual(unhandled, []);
   } finally {
     process.off('unhandledRejection', onUnhandled);

@@ -35,9 +35,9 @@ function ldZip() {
 }
 
 const cacheWith = (zips) => ({ bytes: async (url, name) => zips[name] });
-// Sólo para comprobar que algo NO pasa (en una máquina lenta, como mucho no lo vería): lo que sí
-// tiene que pasar se espera con señales, nunca con un tiempo fijo.
-const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+// Sólo para comprobar que algo NO pasa: vacía las colas del bucle (promesas y vueltas de E/S), sin
+// tiempo fijo. Lo que sí tiene que pasar se espera con señales.
+const settle = async () => { for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve)); };
 
 test('el nombre de la línea son dos columnas de 40 caracteres, aunque un nombre lleve guion', () => {
   assert.deepEqual(routeEnds(`${pad('Chamartín - Clara Campoamor')}-Aranjuez       `), { origin: 'Chamartín - Clara Campoamor', destination: 'Aranjuez' });

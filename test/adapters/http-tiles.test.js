@@ -4,6 +4,8 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHttpServer } from '../../server/adapters/inbound/http/http-server.js';
 import { makeServeTiles } from '../../server/application/use-cases/serve-tiles.js';
+// Vacía las colas del bucle (promesas y vueltas de E/S): lo que no tiene que pasar ya habría pasado.
+const flush = async () => { for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve)); };
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
 const provider = {
@@ -104,7 +106,7 @@ test('un fallo inesperado al leer una tesela es un 500, no una promesa sin recog
   try {
     const res = await fetch(`${base}/tiles/ign-rail/14/8023/6178.png`);
     assert.equal(res.status, 500);
-    await new Promise((r) => setTimeout(r, 20));
+    await flush();
     assert.deepEqual(unhandled, []);
   } finally {
     provider.broken = false;

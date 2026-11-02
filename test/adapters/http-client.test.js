@@ -18,17 +18,11 @@ before(async () => {
       res.writeHead(200, { 'Content-Length': String(3 * MB) });
       return res.end(Buffer.alloc(3 * MB));
     }
-    // Sin Content-Length: 1 MB cada 10 ms hasta 50 MB, si nadie corta antes.
+    // Sin Content-Length: 3 MB y la respuesta abierta. Si el cliente no cortara al pasar del tope, se
+    // quedaría esperando más datos hasta su propio timeout y el test fallaría por el mensaje.
     res.writeHead(200);
-    const timer = setInterval(() => {
-      if (res.destroyed || sent.chunked >= 50) return clearInterval(timer), res.end();
-      sent.chunked++;
-      res.write(Buffer.alloc(MB));
-    }, 10);
-    res.on('close', () => {
-      clearInterval(timer);
-      chunkedClosed();
-    });
+    for (; sent.chunked < 3; sent.chunked++) res.write(Buffer.alloc(MB));
+    res.on('close', chunkedClosed);
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${server.address().port}`;
@@ -50,6 +44,6 @@ test('si el Content-Length pasa del tope, falla sin descargar el cuerpo', async 
 
 test('sin Content-Length, corta la descarga en cuanto pasa del tope', async () => {
   await assert.rejects(createHttpClient().bytes(`${base}/sin-longitud`, { maxBytes: 2 * MB }), /Respuesta de más de 2 MB/);
-  await chunkedDone;
-  assert.ok(sent.chunked < 10, `el servidor llegó a mandar ${sent.chunked} MB`);
+  await chunkedDone; // el cliente ha cerrado la conexión
+  assert.equal(sent.chunked, 3);
 });
