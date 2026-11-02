@@ -20,11 +20,7 @@ const DETOUR_EXTRA_M = 1500;
  */
 export function pathThroughStops(coords, at, stops) {
   if (!coords || coords.length < 2 || !at || !stops?.length) return null;
-  const kx = 111_320 * Math.cos((at[1] * Math.PI) / 180);
-  const ky = 110_540;
-  const xy = coords.map(([lon, lat]) => [lon * kx, lat * ky]);
-  const cum = [0];
-  for (let i = 1; i < xy.length; i++) cum.push(cum[i - 1] + Math.hypot(xy[i][0] - xy[i - 1][0], xy[i][1] - xy[i - 1][1]));
+  const { kx, ky, xy, cum } = prepared(coords);
 
   const start = project(xy, cum, at, kx, ky);
   if (start.d > NEAR_M) return null;
@@ -46,6 +42,25 @@ export function pathThroughStops(coords, at, stops) {
     prev = { m: hit.m, p: stop };
   }
   return path.length > 1 ? path : null;
+}
+
+// El trazado en metros (x, y) y la distancia acumulada en cada vértice, guardados por trazado: sólo
+// cambian si cambia el trazado, y cada lectura de Renfe pide lo que le queda a cientos de Cercanías
+// con los mismos. La escala de la longitud, la de la latitud media del trazado (un núcleo de
+// Cercanías no pasa de un par de grados: el error es de milésimas).
+const preparedShapes = new WeakMap();
+function prepared(coords) {
+  let p = preparedShapes.get(coords);
+  if (!p) {
+    const lat = coords.reduce((sum, c) => sum + c[1], 0) / coords.length;
+    const kx = 111_320 * Math.cos((lat * Math.PI) / 180);
+    const ky = 110_540;
+    const xy = coords.map(([lon, lat]) => [lon * kx, lat * ky]);
+    const cum = [0];
+    for (let i = 1; i < xy.length; i++) cum.push(cum[i - 1] + Math.hypot(xy[i][0] - xy[i - 1][0], xy[i][1] - xy[i - 1][1]));
+    preparedShapes.set(coords, (p = { kx, ky, xy, cum }));
+  }
+  return p;
 }
 
 /**

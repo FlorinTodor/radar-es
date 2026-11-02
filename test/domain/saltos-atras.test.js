@@ -60,3 +60,26 @@ test('«parado en» una estación lejos de su posición: el tren se queda donde 
   recordPositions(tracks, [solo], T0, CLEAN);
   assert.equal(tracks.get('renfe-ld:12692').length, 1);
 });
+
+test('un Alvia que da la vuelta en una estación tras minutos parado sale hacia atrás sin perder su recorrido', () => {
+  // Llega a Monforte desde el sur, para 6 min y sale hacia el sur (mismo viaje).
+  const alvia = (lat, lon) => ({ id: 'renfe-ld:00621', mode: 'ld', delay: 0, lat, lon });
+  const tracks = new Map();
+  const llegada = [[42.4900, -7.5100], [42.5000, -7.5070], [42.5100, -7.5040], [42.5200, -7.5010]];
+  llegada.forEach(([lat, lon], i) => recordPositions(tracks, [alvia(lat, lon)], T0 + i * 20 * SEC, CLEAN));
+  for (let k = 1; k <= 18; k++) recordPositions(tracks, [alvia(42.5200, -7.5010)], T0 + (60 + k * 20) * SEC, CLEAN); // 6 min parado
+  const salida = alvia(42.5140, -7.5028); // 0,7 km hacia el sur
+  recordPositions(tracks, [salida], T0 + 440 * SEC, CLEAN);
+  assert.equal(salida.lat, 42.5140, 'el tren sale: no se queda clavado en la estación');
+  recordPositions(tracks, [alvia(42.5070, -7.5049)], T0 + 460 * SEC, CLEAN);
+  assert.deepEqual(tracks.get('renfe-ld:00621').map((p) => p.lat), [42.49, 42.5, 42.51, 42.52, 42.514, 42.507], 'con lo que traía antes de dar la vuelta');
+});
+
+test('sin parada, un salto atrás de un tren de Larga Distancia en marcha se sigue reteniendo', () => {
+  const md = (lat, lon) => ({ id: 'renfe-ld:18010', mode: 'md', delay: 0, lat, lon });
+  const tracks = new Map();
+  [[41.9000, -4.5000], [41.9100, -4.5000], [41.9200, -4.5000]].forEach(([lat, lon], i) => recordPositions(tracks, [md(lat, lon)], T0 + i * 20 * SEC, CLEAN));
+  const atras = md(41.9120, -4.5000);
+  recordPositions(tracks, [atras], T0 + 60 * SEC, CLEAN);
+  assert.equal(atras.lat, 41.92, 'se queda donde estaba hasta ver el punto siguiente');
+});

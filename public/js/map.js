@@ -116,18 +116,26 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
   let trackFetchedAt = 0;
   let lineFeatures = [];  // trazados de las líneas: el recorrido del tren seleccionado se pega a la suya
   let byShape = new Map(); // «red|shape_id» → trazado, para lo que le queda y la flecha de cada tren
+  let byNetwork = new Map(); // red → sus trazados de línea (LineString), para LINE_NETWORK
+  const lineShapes = new Map(); // id del vehículo → { key, shape }: el trazado elegido, hasta que se mueva
   const shapeOf = (v) => (ROUTE_NETWORK[v.source] && v.shape && v.end ? byShape.get(`${ROUTE_NETWORK[v.source]}|${v.shape}`) : undefined);
   const routeShapeOf = (v) => {
     const trip = shapeOf(v);
     if (trip || !LINE_NETWORK[v.source] || !v.line || !v.end) return trip;
-    const network = lineFeatures.filter((f) => f.properties.network === LINE_NETWORK[v.source] && f.geometry?.type === 'LineString');
+    // Se elige otra vez sólo cuando el tren se mueve o cambia su final: la flecha lo pide en cada lectura.
+    const key = `${v.lon},${v.lat},${v.end},${v.line}`;
+    const memo = lineShapes.get(v.id);
+    if (memo?.key === key) return memo.shape;
+    const network = byNetwork.get(LINE_NETWORK[v.source]) ?? [];
     const fits = (f) => pathBetween(f.geometry.coordinates, [v.lon, v.lat], v.end);
     // Su línea; si no, la línea de la que es refuerzo (R5R → R5); si no, cualquiera de su red que pase
     // por el tren y por su final (la cremallera de Montserrat sale en las posiciones como M1/M2 y su
     // trazado es MM). Entre el tren y su final, todas las que pasan por los dos van por la misma vía.
-    return network.find((f) => f.properties.line === v.line && fits(f))
+    const shape = network.find((f) => f.properties.line === v.line && fits(f))
       ?? network.find((f) => v.line.startsWith(f.properties.line) && fits(f))
       ?? network.find(fits);
+    lineShapes.set(v.id, { key, shape });
+    return shape;
   };
   /** Lo que le queda hasta el final de su viaje, por su vía; null si no se sabe. */
   const routeAhead = (v) => {
@@ -520,9 +528,12 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
    * calcula el servidor.
    */
   const setRoute = (coords) => map.getSource('route')?.setData(coords?.length > 1 ? { type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} } : EMPTY);
+  /** Dibuja lo que le queda si se calcula aquí, y lo devuelve (null si no se sabe o lo calcula el servidor). */
   function drawRoute(v) {
-    if (v.estimated || v.ahead) return; // lo calcula el servidor: llega con loadTrack
-    setRoute(routeAhead(v));
+    if (v.estimated || v.ahead) return null; // lo calcula el servidor: llega con loadTrack
+    const route = routeAhead(v);
+    setRoute(route);
+    return route;
   }
 
   /**
@@ -614,6 +625,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
         next.set(v.id, { from: jump ? to : from, to, t0: now, props });
       }
       anims = next;
+      for (const id of lineShapes.keys()) if (!next.has(id)) lineShapes.delete(id); // trenes que ya no están
       kick();
     },
 
@@ -640,7 +652,14 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     setLines(collection) {
       lineFeatures = collection.features ?? [];
       byShape = new Map();
-      for (const f of lineFeatures) for (const id of f.properties.shapes ?? []) byShape.set(`${f.properties.network}|${id}`, f);
+      byNetwork = new Map();
+      lineShapes.clear();
+      for (const f of lineFeatures) {
+        for (const id of f.properties.shapes ?? []) byShape.set(`${f.properties.network}|${id}`, f);
+        if (f.geometry?.type !== 'LineString') continue;
+        if (!byNetwork.has(f.properties.network)) byNetwork.set(f.properties.network, []);
+        byNetwork.get(f.properties.network).push(f);
+      }
       if (loaded) map.getSource('lines').setData(collection);
     },
 
@@ -698,16 +717,16 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     /** Selecciona un tren: anillo, recorrido reciente y ficha. La × de la ficha sólo la cierra. */
     showVehicle(v) {
       setSelected(v.id);
-      card.show(vehicleDetail(v, !!routeAhead(v)));
-      drawRoute(v);
+      const route = drawRoute(v);
+      card.show(vehicleDetail(v, !!route));
       loadTrack(v);
     },
 
     /** Actualiza la ficha y, cada 15 s, el recorrido del tren seleccionado cuando llegan datos. */
     refreshVehicle(v) {
       if (selectedId !== v.id) return;
-      if (card.open) card.show(vehicleDetail(v, !!routeAhead(v)));
-      drawRoute(v);
+      const route = drawRoute(v);
+      if (card.open) card.show(vehicleDetail(v, !!route));
       if (Date.now() - trackFetchedAt > 15_000) loadTrack(v);
     },
 

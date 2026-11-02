@@ -4,32 +4,39 @@ import { headingOf } from '../../domain/tracking.js';
 import { headingOfPath, pathThroughStops } from '../../domain/route-ahead.js';
 import { gaugeFactors, matchToRail, routeAhead } from '../../domain/rail-match.js';
 
-// Recorridos por la vía que se guardan (uno por tren pedido, ~30 KB cada uno): el mapa pide los del
-// tren seleccionado cada 15 s, y sólo cambian cuando el tren da una posición nueva. Caben todos los
-// trenes de la red general a la vez, con margen: si fueran menos que los que se miran, cada cálculo
-// nuevo echaría otro y el memo se vaciaría en bucle.
-const RAIL_MEMO_MAX = 1_000;
+// Cálculos por tren que se guardan (recorrido por la vía, ~30 KB cada uno; lo que le queda): el mapa
+// pide los del tren seleccionado cada 15 s, /api/live la flecha de cada Cercanías, y sólo cambian
+// cuando el tren da una posición nueva. Caben todos los trenes de cada memo a la vez, con margen: si
+// fueran menos que los que se miran, cada cálculo nuevo echaría otro y el memo se vaciaría en bucle.
+const TRAIN_MEMO_MAX = 1_000;
+const SWEEP_MIN = 64; // por debajo de esto no se barre: es poca memoria
 const round5 = (x) => Math.round(x * 1e5) / 1e5;
 
 /**
  * Cálculos por tren guardados mientras no cambien `key` ni la red: `get(id, net, key, compute)`. Sin
- * memoria de más: al guardar uno nuevo salen los trenes que ya no tienen recorrido (`live`) y, si aun
- * así son muchos, los calculados hace más.
+ * memoria de más: cuando el memo dobla lo que tenía tras el último barrido, salen los trenes que ya no
+ * tienen recorrido (`live`) y, si aun así son muchos, los calculados hace más. Barrer en cada cálculo
+ * nuevo costaba recorrer el memo entero cientos de veces por lectura (la flecha de cada Cercanías).
  */
-function makeRailMemo(live) {
-  const memo = new Map(); // id → { key, value }
+function makeTrainMemo(live) {
+  const memo = new Map(); // id → { key, value }, del calculado hace más al más reciente
   let memoNet = null;
+  let sweepAt = SWEEP_MIN;
   return (id, net, key, compute) => {
-    if (net !== memoNet) { // red nueva (la recarga mensual): lo calculado con la anterior no vale
+    if (net !== memoNet) { // red o trazados nuevos (al recargarlos): lo calculado con los anteriores no vale
       memo.clear();
       memoNet = net;
     }
     const hit = memo.get(id);
     if (hit?.key === key) return hit.value;
     const value = compute();
-    const tracks = live();
     memo.delete(id);
-    for (const old of memo.keys()) if (!tracks.has(old) || memo.size >= RAIL_MEMO_MAX) memo.delete(old);
+    if (memo.size >= sweepAt) {
+      const tracks = live();
+      for (const old of memo.keys()) if (!tracks.has(old)) memo.delete(old);
+      for (const old of memo.keys()) if (memo.size >= TRAIN_MEMO_MAX) memo.delete(old); else break;
+      sweepAt = Math.min(TRAIN_MEMO_MAX, Math.max(SWEEP_MIN, memo.size * 2));
+    }
     memo.set(id, { key, value });
     return value;
   };
@@ -59,20 +66,27 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
     }
     return shapes.get(`${net}|${id}`);
   };
-  const stopsMemo = new Map(); // id → { key, path }: se recalcula cuando cambia la posición o las paradas
-  const stopsPath = (v) => {
+  // Se recalcula cuando cambian la posición o las paradas, o se recargan los trazados; los trenes que
+  // ya no tienen recorrido (viajes acabados) salen del memo al guardar otro.
+  const stopsMemo = makeTrainMemo(() => situation.tracks());
+  const headingMemo = makeTrainMemo(() => situation.tracks());
+  /** Lo que le queda por las paradas que le quedan; con `upTo`, sólo hasta esa parada (para la flecha). */
+  const stopsPath = (v, memo = stopsMemo, upTo = Infinity) => {
     const s = withStops.get(v.source);
-    const stops = s && v.shape ? s.stopsAhead(v.id) : null;
-    if (!stops) return null;
+    const all = s && v.shape ? s.stopsAhead(v.id) : null;
+    if (!all) return null;
+    const stops = all.length > upTo ? all.slice(0, upTo) : all;
     const key = `${v.lon},${v.lat},${stops.length},${stops[0]}`;
-    const memo = stopsMemo.get(v.id);
-    if (memo?.key === key) return memo.path;
-    const coords = shapeCoords(s.shapeNetwork, v.shape);
-    const path = coords ? pathThroughStops(coords, [v.lon, v.lat], stops) : null;
-    if (stopsMemo.size > 5000) stopsMemo.clear();
-    stopsMemo.set(v.id, { key, path });
-    return path;
+    return memo(v.id, network.lines(), key, () => {
+      const coords = shapeCoords(s.shapeNetwork, v.shape);
+      return coords ? pathThroughStops(coords, [v.lon, v.lat], stops) : null;
+    });
   };
+  // La flecha de cada Cercanías en /api/live sólo mira los primeros metros de lo que le queda: basta
+  // con llegar a sus próximas paradas, no a su destino (en cada lectura de Renfe se calcula para cada
+  // tren que se ha movido; hasta el destino, el trabajo de /api/live se multiplicaba por veinte).
+  const HEADING_STOPS = 3;
+  const stopsHeading = (v) => headingOfPath(stopsPath(v, headingMemo, HEADING_STOPS));
   const railSources = sources.filter((s) => s.onRailNetwork);
   const railPrefixes = railSources.map((s) => `${s.id}:`);
   const onRails = (id) => railPrefixes.some((prefix) => id.startsWith(prefix));
@@ -85,8 +99,8 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
     }
     return undefined;
   };
-  const trackMemo = makeRailMemo(() => situation.tracks());
-  const aheadMemo = makeRailMemo(() => situation.tracks());
+  const trackMemo = makeTrainMemo(() => situation.tracks());
+  const aheadMemo = makeTrainMemo(() => situation.tracks());
 
   /**
    * Recorrido de un tren por la vía, como lista de { lon, lat } (lo mismo que dibuja el mapa con las
@@ -130,7 +144,7 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
     return list.map((v) => {
       if (Number.isFinite(v.heading)) return v; // la fuente sabe por dónde va (su recorrido): mejor que el rastro
       // Por su vía hacia su próxima parada: mejor que el rastro (Renfe va a veces adelante y atrás).
-      const along = withStops.has(v.source) ? headingOfPath(stopsPath(v)) : null;
+      const along = withStops.has(v.source) ? stopsHeading(v) : null;
       if (along !== null) return { ...v, heading: along };
       const heading = headingOf(tracks.get(v.id));
       return heading === null ? v : { ...v, heading };
@@ -184,7 +198,11 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
       }
       const trip = railTripOf(id);
       if (trip !== undefined) return railAhead(id, trip);
-      const v = withStops.size ? situation.vehicles().find((x) => x.id === id) : null;
+      // Sólo si una fuente sabe sus paradas (una búsqueda en su Map) se busca el vehículo: la lista de
+      // vehículos se monta entera en cada consulta (miles, con los autobuses), y un id inventado no
+      // debe costar eso (ni gasta el presupuesto de /api/ahead, porque no da nada).
+      if (![...withStops.values()].some((s) => s.stopsAhead(id))) return null;
+      const v = situation.vehicles().find((x) => x.id === id);
       const path = v ? stopsPath(v) : null;
       return path && path.length > 1 ? path.map(([lon, lat]) => [Math.round(lon * 1e5) / 1e5, Math.round(lat * 1e5) / 1e5]) : null;
     },
