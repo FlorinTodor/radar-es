@@ -87,9 +87,11 @@ before(async () => {
     vehicles: (filter) => { calls.vehicles.push(filter); return []; },
     events: (filter) => { calls.events.push(filter.category); return []; },
   };
+  // Reloj fijo: el memo no caduca ni el presupuesto recupera fichas mientras corre el test, vaya
+  // la máquina lo rápido que vaya (en el VPS, construyendo la imagen, 20 peticiones tardan lo suyo).
   server = createHttpServer({
     query, log: { error() {}, info() {}, warn() {} },
-    publicDir: '/nonexistent', vendorDirs: {}, about: {},
+    publicDir: '/nonexistent', vendorDirs: {}, about: {}, now: () => 0,
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${server.address().port}`;
@@ -148,7 +150,7 @@ test('pedir muchas variantes distintas a la vez da 503 en vez de calcularlas tod
       assert.equal(res.headers.get('cache-control'), 'no-store');
     }
   }
-  assert.ok(calls.events.length <= 11, `calculadas ${calls.events.length}`);
+  assert.ok(calls.events.length <= 10, `calculadas ${calls.events.length}: la ráfaga es de 10`);
   assert.ok(statuses.includes(503));
   assert.equal((await fetch(`${base}/api/events?category=c0`)).status, 200, 'una variante ya calculada se sirve igual');
 });

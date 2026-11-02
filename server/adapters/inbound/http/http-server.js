@@ -28,9 +28,11 @@ const SSE_HEALTH_EVERY_MS = 15_000;
  *           watchSituation?: ReturnType<typeof import('../../../application/use-cases/watch-situation.js').makeWatchSituation>,
  *           serveTiles?: ReturnType<typeof import('../../../application/use-cases/serve-tiles.js').makeServeTiles>,
  *           log: import('../../../application/ports.js').LoggerPort,
- *           publicDir: string, vendorDirs: Record<string, string>, about?: object }} deps
+ *           publicDir: string, vendorDirs: Record<string, string>, about?: object, now?: () => number }} deps
+ *   now: reloj de los memos y de los presupuestos de cálculo (los tests lo fijan: no pueden depender de
+ *   lo rápida que sea la máquina).
  */
-export function createHttpServer({ query, watchSituation, serveTiles, log, publicDir, vendorDirs, about = {} }) {
+export function createHttpServer({ query, watchSituation, serveTiles, log, publicDir, vendorDirs, about = {}, now = Date.now }) {
   // Todas las respuestas JSON se calculan, comprimen y firman (ETag) como mucho una vez cada `ttl`,
   // así que pedirlas mil veces cuesta lo mismo que pedirlas una. Sin esto, /api/lines (1 MB)
   // saturaba un núcleo con unas 20 peticiones por segundo. `key` separa las variantes por parámetros.
@@ -58,13 +60,13 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
     '/api/metrics': { fn: () => query.metrics(), ttl: 5_000, cache: REVALIDATE },
     '/api/about': { fn: () => about, ttl: 60_000, cache: REVALIDATE },
   };
-  const memo = createJsonMemo();
+  const memo = createJsonMemo({ now });
   // Las rutas con parámetros tienen memo y presupuesto propios: quien pide variantes sin fin no
   // expulsa del memo a /api/lines ni a /api/live, y no puede forzar más de unos pocos cálculos
   // por segundo (sin esto, /api/vehicles?minDelay=<cada vez otro> costaba ~36 ms de CPU por
   // petición: un núcleo saturado con 28 peticiones por segundo).
-  const memoParams = createJsonMemo({ max: 100 });
-  const budgets = new Map(Object.keys(routes).filter((path) => routes[path].key).map((path) => [path, createBudget()]));
+  const memoParams = createJsonMemo({ max: 100, now });
+  const budgets = new Map(Object.keys(routes).filter((path) => routes[path].key).map((path) => [path, createBudget({ now })]));
 
   const security = Object.entries(securityHeaders(about));
   // El directo SSE sólo lo usan ya las pestañas abiertas antes del cambio a consultas periódicas:

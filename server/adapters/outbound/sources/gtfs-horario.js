@@ -2,14 +2,21 @@
 // - Sin tiempo real (Ouigo, metros, tranvías, autobuses): se colocan donde dice el horario.
 // - Con trip updates GTFS-RT (Euskotren): sólo los viajes en curso, desplazados por su retraso real.
 // Las posiciones se marcan `estimated` (anillo hueco en el mapa) y no cuentan para alertas.
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { decodeFeed } from './gtfs-rt.js';
 import { activeFrequencyOffsets, pointAlong, scheduledPosition, serviceRuns, stopsAlongShape } from '../../../domain/schedule.js';
 import { madridLocalToMs } from './parse.js';
 import { bearingDeg } from '../../../domain/geo.js';
 import { napDatasetPage } from '../nap/nap-client.js';
 import { createCpuPool } from '../workers/cpu-pool.js';
+import { packSchedule, unpackSchedule } from '../gtfs/gtfs-schedule.js';
 
 const RELOAD_MS = 24 * 3600_000;
+const sha1 = (data) => createHash('sha1').update(data).digest('hex');
+// Huella del código que calcula los horarios: un despliegue que lo cambie no reutiliza lo guardado.
+const PARSER = sha1(['../gtfs/gtfs-schedule.js', '../gtfs/gtfs-reader.js', '../gtfs/gtfs-modes.js', '../../../domain/schedule.js']
+  .map((f) => readFileSync(new URL(f, import.meta.url), 'utf8')).join('\n')).slice(0, 12);
 const PATH_WINDOW_S = 45 * 60; // el mismo tramo que el recorrido de los vehículos con GPS
 // Sin trazado, lo que le queda se dibuja uniendo paradas sólo en estos modos (paradas cercanas).
 const STRAIGHT_AHEAD = new Set(['metro', 'tranvia', 'cercanias']);
@@ -95,7 +102,7 @@ function stretch(shape, from, to) {
  * @typedef {{ ficheroId: number, dataset: number, operator: string, excludeAgency?: RegExp, excludeRoute?: RegExp }} Feed
  * @returns {import('../../../application/ports.js').DataSourcePort}
  */
-export function createGtfsScheduleSource({ nap, http, log, pool = inlinePool }, options) {
+export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlinePool }, options) {
   const { id, name, mode, tripUpdatesUrl, interval = 30_000 } = options;
   const feeds = options.feeds ?? [{ ficheroId: options.ficheroId, dataset: options.dataset, operator: options.operator }];
   const loaded = new Map(); // índice del fichero → { schedule, updatedAt }
@@ -170,12 +177,29 @@ export function createGtfsScheduleSource({ nap, http, log, pool = inlinePool }, 
     };
   }
 
+  /**
+   * El horario de un fichero para hoy y ayer. Leerlo cuesta mucha CPU (en el servidor, más de tres
+   * minutos todos juntos al arrancar), así que se guarda en disco con la huella del ZIP, los días y
+   * el código que lo calcula: tras un despliegue o un reinicio, el mismo día, se lee de ahí.
+   */
+  async function scheduleOf(feed, days) {
+    const zip = await nap.gtfs(feed.ficheroId, RELOAD_MS);
+    if (!cache?.readValue) return pool.run('schedule', [zip, mode, days, feed]);
+    const name = `horario-${feed.ficheroId}-${sha1(`${id}|${mode}|${feed.excludeAgency}|${feed.excludeRoute}`).slice(0, 8)}.v8`;
+    const key = [PARSER, sha1(zip), days.today.ymd, days.yesterday.ymd].join('|');
+    const saved = await cache.readValue(name);
+    if (saved?.key === key) return unpackSchedule(saved.schedule);
+    const schedule = await pool.run('schedule', [zip, mode, days, feed]);
+    await cache.writeValue(name, { key, schedule: packSchedule(schedule).value });
+    return schedule;
+  }
+
   /** Carga los horarios (de uno en uno en todo el servidor); si falla un fichero de un grupo, el resto sigue. */
   async function load(today) {
     const days = { today: madridServiceDay(Date.now(), 0), yesterday: madridServiceDay(Date.now(), -1) };
     for (const [fi, feed] of feeds.entries()) {
       try {
-        const schedule = await pool.queue(async () => pool.run('schedule', [await nap.gtfs(feed.ficheroId, RELOAD_MS), mode, days, feed]));
+        const schedule = await pool.queue(() => scheduleOf(feed, days));
         const updatedAt = await nap.updatedAt(feed.dataset, feed.ficheroId).then(madridLocalToMs).catch(() => loaded.get(fi)?.updatedAt ?? null);
         loaded.set(fi, { schedule, updatedAt });
       } catch (err) {

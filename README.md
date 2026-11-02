@@ -300,9 +300,15 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Arranque sin bloquear el servidor mientras carga los horarios de más de cien redes, y menos
   memoria al leerlos. Los horarios más grandes se leen por partes, sin cargarlos enteros.
 - Al arrancar, el mapa no se queda sin líneas aunque las pida antes de que estén listas.
+- Tras una actualización, los Cercanías aparecen en segundos: lo que se calcula de su horario se
+  guarda en disco, y la renovación diaria de los horarios de Renfe ya no detiene los trenes.
+- Los horarios de metros, tranvías y autobuses también se guardan ya leídos: tras una
+  actualización o un reinicio el mapa vuelve completo en segundos, no en minutos.
 - Cálculos pesados en hilos aparte y reintentos rápidos de las fuentes que fallan.
 - Protección frente a sobrecarga: peticiones costosas acotadas, colas con tope y fallos aislados,
   para que ni un pico de tráfico ni una fuente que responda mal tumben el servidor.
+- El servidor arranca en segundos aunque haya que rehacer el catálogo de estaciones (fotos,
+  fichas): arranca con la copia guardada y lo rehace después.
 
 **Despliegue y seguridad**
 - La aplicación funciona aislada, en un contenedor con recursos limitados y cabeceras de
@@ -312,6 +318,12 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Entorno de pruebas privado: cada cambio se prueba con datos reales antes de llegar a producción.
 - Pipeline en GitHub Actions (tests → pruebas → aprobación manual → producción), y producción sólo
   publica la misma versión que se ha probado.
+- Despliegues sin cortes: la versión nueva arranca al lado de la que funciona y sólo recibe visitas
+  cuando ya ha cargado los datos. Si algún día el servidor no respondiera, se ve un aviso de que se
+  está actualizando en vez de un error.
+- Las subidas se detectan en unos segundos y el pipeline avanza en cuanto cada paso termina.
+- Pruebas automáticas que no dependen de la velocidad de la máquina: dan lo mismo en el servidor,
+  más lento y ocupado, que en un ordenador rápido.
 - Limpieza automática del servidor.
 - Estadísticas de visitas sin cookies.
 
@@ -329,7 +341,6 @@ Ninguna por ahora.
 ## Posibles mejoras
 
 - Botón en el mapa para cambiar entre español e inglés.
-- Despliegues sin ningún corte, con dos contenedores que se relevan.
 - Más fuentes: TMB y EMT Madrid (con clave gratuita) y posiciones estimadas para las redes que
   sólo publican tiempos de llegada (ver *Pendiente y conocido*).
 - Estadísticas de puntualidad por línea y franja horaria.

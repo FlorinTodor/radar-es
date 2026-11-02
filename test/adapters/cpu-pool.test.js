@@ -87,10 +87,9 @@ test('los dos hilos trabajan a la vez y el resultado llega con sus arrays tipado
     // arrancar un hilo puede tardar más de 250 ms y no debe contar como trabajo en serie.
     const [e1, e2] = await Promise.all([pool.run('echo', [1]), pool.run('echo', [2])]);
     assert.notEqual(e1.threadId, e2.threadId, 'cada trabajo va a un hilo distinto');
-    const t = performance.now();
-    const [a, b] = await Promise.all([pool.run('slow', ['a', 300]), pool.run('slow', ['b', 300])]);
-    assert.deepEqual([a, b], ['a', 'b']);
-    assert.ok(performance.now() - t < 550, 'en paralelo, no uno detrás de otro');
+    const shared = new SharedArrayBuffer(4);
+    const met = await Promise.all([pool.run('meet', [shared]), pool.run('meet', [shared])]);
+    assert.deepEqual(met, [true, true], 'en paralelo: cada hilo ve llegar al otro');
     const data = await pool.run('typed', [1000]);
     assert.ok(data instanceof Float32Array);
     assert.equal(data.length, 1000);

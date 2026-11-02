@@ -10,9 +10,13 @@
 const EVERY = { live: 15_000, events: 60_000, buses: 20_000, health: 60_000 };
 const RETRY_MAX_MS = 60_000;
 const STALE_MS = 120_000; // datos con más de 2 min: el servidor no se está actualizando
+const UPDATING_MAX_MS = 10 * 60_000; // tanto rato sin servidor ya no es una actualización
+// 502-504 (y los 52x de Cloudflare): el servidor no responde, casi siempre porque se está
+// actualizando (unos segundos); delante, nginx responde 503 «actualizando».
+const isUpdating = (status) => (status >= 502 && status <= 504) || (status >= 520 && status <= 530);
 
 /**
- * @param {{ status: (s: 'live'|'connecting'|'error'|'stale', ageMs?: number) => void, live: Function, events: Function,
+ * @param {{ status: (s: 'live'|'connecting'|'updating'|'error'|'stale', ageMs?: number) => void, live: Function, events: Function,
  *           buses: Function, health: Function }} handlers
  * @param {{ buses?: boolean }} [options]  buses: pedir también los autobuses (sólo si su capa está activa).
  * @returns {{ setBuses: (on: boolean) => void }}
@@ -25,6 +29,7 @@ export function connect(handlers, { buses = false } = {}) {
     health: { url: '/api/health', on: true },
   };
   let lastOk = 0;
+  let failingSince = 0; // primera consulta fallida del directo seguida
 
   async function poll(name) {
     const feed = feeds[name];
@@ -38,13 +43,14 @@ export function connect(handlers, { buses = false } = {}) {
     let wait = EVERY[name] * (0.9 + Math.random() * 0.2); // algo de azar para no llegar todos a la vez
     try {
       const res = await fetch(feed.url, { cache: 'no-cache' }); // el navegador revalida con ETag (304)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
       const data = await res.json();
       if (gen !== feed.gen || !feed.on) return; // respuesta tardía de una consulta ya sustituida
       feed.failures = 0;
       handlers[name](data);
       if (name === 'live') {
         lastOk = Date.now();
+        failingSince = 0;
         const age = Date.now() - (data.generatedAt ?? Date.now());
         handlers.status(age > STALE_MS ? 'stale' : 'live', age);
       }
@@ -52,7 +58,11 @@ export function connect(handlers, { buses = false } = {}) {
       if (gen !== feed.gen) return;
       feed.failures = (feed.failures ?? 0) + 1;
       wait = Math.min(5000 * 2 ** (feed.failures - 1), RETRY_MAX_MS) * (0.75 + Math.random() / 2);
-      if (name === 'live') handlers.status(Date.now() - lastOk > 60_000 ? 'error' : 'connecting');
+      if (name === 'live') {
+        failingSince ||= Date.now();
+        handlers.status(isUpdating(err.status) && Date.now() - failingSince < UPDATING_MAX_MS ? 'updating'
+          : Date.now() - lastOk > 60_000 ? 'error' : 'connecting');
+      }
       console.warn(`[directo] ${feed.url}: ${err.message}`);
     }
     if (feed.on) feed.timer = setTimeout(() => poll(name), wait);
