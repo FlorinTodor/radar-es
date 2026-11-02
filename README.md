@@ -249,11 +249,12 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - El recorrido de los trenes de Renfe ya no da saltos atrás: una posición que vuelve por detrás del
   tren se descarta si el siguiente dato sigue hacia delante, y si un viaje empieza con la posición de
   otra estación, el recorrido empieza donde está de verdad.
-- Si Renfe da un tren parado en una estación pero con una posición a kilómetros (a veces deja de
-  actualizarla durante minutos), la ficha lo avisa y el tren no salta en el mapa.
+- Si Renfe da un tren de Cercanías parado en una estación pero con una posición a kilómetros (a veces
+  deja de actualizarla durante minutos), la ficha lo avisa y el tren no salta en el mapa. En Alta
+  Velocidad, Larga y Media Distancia ese «parado» lejos de la estación es que ya ha salido: se muestra
+  en camino, con su próxima parada.
 - FGC con nombres de estación en el recorrido, la parada y la próxima, en vez de sus códigos, y con
   lo que le queda a cada tren hasta su destino, por el trazado de su línea.
-- Metro Bilbao con el recorrido pegado a la vía de su viaje.
 - Lista y buscador con todos los trenes.
 
 **Estaciones**

@@ -14,6 +14,9 @@ const ROUTE_NETWORK = { 'renfe-cercanias': 'Cercanías Renfe', 'metro-bilbao': '
 // Fuentes que no dicen el trazado de su viaje, pero sí su línea y dónde acaba: vale el trazado de su
 // línea que pase por el tren y por su final (en FGC, las líneas con ramales tienen varios).
 const LINE_NETWORK = { fgc: 'FGC' };
+// Posiciones reales cuya licencia pide no alterar el contenido (Open Data Euskadi): su recorrido reciente
+// se dibuja con las posiciones tal y como llegan, sin llevarlas al trazado.
+const AS_PUBLISHED = new Set(['metro-bilbao']);
 const SEV_COLORS = { 'muy alta': STATUS.critical, alta: STATUS.serious, media: STATUS.warning, baja: STATUS.none };
 const IS_EST = ['==', ['get', 'est'], 1];
 const NOT_EST = ['!=', ['get', 'est'], 1];
@@ -520,9 +523,10 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
       .then((r) => (r.ok ? r.json() : []))
       .then((track) => {
         if (selectedId !== v.id) return;
-        // Los trazados de su línea y el de su propio viaje: Metro Bilbao no dice su línea, pero sí su viaje.
-        const own = v.line ? lineFeatures.filter((f) => f.properties.line === v.line && f.properties.mode === v.mode) : [];
-        const trip = routeShapeOf(v);
+        // Los trazados de su línea y el de su propio viaje, salvo si su licencia pide no alterar el contenido.
+        const asPublished = AS_PUBLISHED.has(v.source);
+        const own = v.line && !asPublished ? lineFeatures.filter((f) => f.properties.line === v.line && f.properties.mode === v.mode) : [];
+        const trip = asPublished ? null : routeShapeOf(v);
         if (trip && !own.includes(trip)) own.push(trip);
         const parts = matchTrack(trackParts(track), own).filter((part) => part.length > 1);
         map.getSource('track').setData(parts.length ? { type: 'Feature', geometry: { type: 'MultiLineString', coordinates: parts }, properties: {} } : EMPTY);
