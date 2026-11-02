@@ -3,7 +3,7 @@
 // las que caen en mitad de un tramo), no da rodeos imposibles y deja tal cual lo que está lejos de la vía.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRailNetwork, matchToRail, meters, nearestOnRail } from '../../server/domain/rail-match.js';
+import { GAUGE, buildRailNetwork, gaugeFactors, matchToRail, meters, nearestOnRail, routeAhead } from '../../server/domain/rail-match.js';
 
 const KX = 111_320 * Math.cos((40 * Math.PI) / 180);
 const KY = 110_540;
@@ -107,4 +107,73 @@ test('sin red, las posiciones tal cual; parado, sin puntos repetidos', () => {
   const p = at(J, 1000, 3);
   assert.deepEqual(matchToRail(null, [pos(p), pos(p, 1)]), [[p]]);
   assert.equal(matchToRail(net, [pos(p), pos(p, 1)])[0].length, 1);
+});
+
+const MIN = 60_000;
+const near = (line, p, m = 20) => line.some(([lon, lat]) => meters(lon, lat, p[0], p[1]) < m);
+
+test('una vía de montaña que da la vuelta: con un hueco de minutos se sigue, con 20 s no', () => {
+  // Lazo: 1 km hacia el este, una vuelta de ~9 km y vuelta a 900 m del principio (como cerca de Ponferrada).
+  const O = [-6.3, 42.6];
+  const lazo = buildRailNetwork([[O, at(O, 1000, 0), at(O, 4000, 3000), at(O, 4000, 4000), at(O, 1000, 1000), at(O, 0, 900)]]);
+  const a = at(O, 100, 0);
+  const b = at(O, 50, 950);
+  assert.equal(matchToRail(lazo, [pos(a, 0), pos(b, 20_000)])[0].length, 2, 'en 20 s no ha podido dar la vuelta: la recta');
+  const [line] = matchToRail(lazo, [pos(a, 0), pos(b, 8 * MIN)]);
+  assert.ok(near(line, at(O, 4000, 3000)), 'en 8 min, sí: por el lazo');
+});
+
+test('entre dos vías paralelas de distinto ancho, cada tren por la suya', () => {
+  const O = [-1.0, 41.6];
+  const P = at(O, 0, 0);
+  const Q = at(O, 10_000, 0);
+  const lines = [[at(O, -3000, 0), P], [P, Q], [P, at(O, 5000, 1500), Q], [Q, at(O, 13_000, 0)]];
+  const gauges = [GAUGE.mixed, GAUGE.iberian, GAUGE.standard, GAUGE.mixed];
+  const parallel = buildRailNetwork(lines, { gauges });
+  const track = [pos(at(O, -1000, 0), 0), pos(at(O, 11_000, 0), 6 * MIN)];
+  const curva = at(O, 5000, 1500);
+  assert.ok(near(matchToRail(parallel, track, { factors: gaugeFactors('standard') })[0], curva), 'un AVE, por la de ancho estándar');
+  assert.ok(!near(matchToRail(parallel, track, { factors: gaugeFactors('iberian') })[0], curva, 500), 'un Regional, por la ibérica');
+  assert.ok(!near(matchToRail(parallel, track, { factors: gaugeFactors(null) })[0], curva, 500), 'un Alvia, por la más corta');
+});
+
+test('los extremos con el mismo código de estación se unen aunque estén a 45 m; la vía métrica, nunca', () => {
+  const O = [-6.09, 36.93];
+  const lines = [[at(O, -5000, 0), at(O, 0, 0)], [at(O, 45, 0), at(O, 5000, 0)]];
+  const track = [pos(at(O, -1000, 0), 0), pos(at(O, 1000, 0), 2 * MIN)];
+  const unida = buildRailNetwork(lines, { codes: [[null, '51203'], ['51203', null]] });
+  assert.ok(matchToRail(unida, track)[0].length > 2, 'Lebrija: un camino por la vía');
+  assert.equal(unida.nodes, 3);
+  assert.equal(buildRailNetwork(lines, { codes: [[null, '51203'], ['51204', null]] }).nodes, 4, 'otro código: sin unir');
+  const metrica = buildRailNetwork(lines, { codes: [[null, '51203'], ['51203', null]], gauges: [GAUGE.iberian, GAUGE.metric] });
+  assert.equal(metrica.nodes, 4, 'una vía métrica no se une con la ibérica');
+});
+
+test('lo que le queda: por la vía, pasando por sus paradas en orden, hasta el destino', () => {
+  const tren = at(C1, 5000 * Math.cos((170 * Math.PI) / 180), 5000 * Math.sin((170 * Math.PI) / 180)); // en T1
+  const parada = at(C3, 4000 * Math.cos((300 * Math.PI) / 180), 4000 * Math.sin((300 * Math.PI) / 180) + 30); // junto a T3
+  const destino = at(C3, 4000, 0); // final de T3
+  const lejos = at(J, 50_000, 50_000); // parada fuera de la red: se salta
+  const path = routeAhead(net, tren, [parada, lejos, destino]);
+  assert.ok(maxOff(net, path) < 12, 'por la vía');
+  assert.ok(near(path, J, 1) && near(path, parada, 40), 'por la bifurcación y la parada');
+  assert.ok(meters(...path.at(-1), ...destino) < 1, 'acaba en el destino');
+  assert.equal(routeAhead(net, at(J, 2000, 800), [destino]), null, 'tren fuera de la red');
+  const otra = buildRailNetwork([[T1[0], at(T1[0], 0, -100)], [at(J, 0, 30_000), at(J, 1000, 30_000)]]);
+  assert.equal(routeAhead(otra, T1[0], [at(J, 500, 30_000)]), null, 'sin camino por la vía hasta la parada');
+});
+
+test('lo que le queda: la vía de cada estación se elige mirando las paradas siguientes', () => {
+  // En S paran dos vías: la de arriba acaba en X; la de abajo sigue hasta Y, la parada siguiente.
+  // Desde el tren, la de arriba se alcanza 6 m antes, pero seguir por ella obligaría a volver atrás.
+  const O = [-3.69, 40.44];
+  const K = at(O, 0, 0);
+  const lines = [[at(O, -3000, 0), K], [K, at(O, 5000, 0)], [K, at(O, 200, -60), at(O, 6000, -60)]];
+  const red = buildRailNetwork(lines);
+  const S = at(O, 3000, -20);
+  const Y = at(O, 6000, -60);
+  const path = routeAhead(red, at(O, -1000, 0), [S, Y]);
+  assert.ok(!near(path, at(O, 5000, 0), 500), 'no entra en la vía que acaba en X');
+  const len = path.slice(1).reduce((sum, p, i) => sum + meters(...path[i], ...p), 0);
+  assert.ok(Math.abs(len - 7000) < 50, `sin volver atrás: ${len.toFixed(0)} m`);
 });

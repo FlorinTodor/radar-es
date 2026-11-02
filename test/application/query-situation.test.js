@@ -72,3 +72,20 @@ test('mientras no hay red (o sin ella) el recorrido son las posiciones tal cual'
   assert.equal(makeQuerySituation({ ...deps, railNetwork: { network: () => null } }).track('renfe-ld:00123'), track);
   assert.equal(makeQuerySituation(deps).track('renfe-ld:00123'), track);
 });
+
+test('lo que le queda a un tren de la red general: por la vía hasta su destino, calculado una vez por posición', () => {
+  const track = [{ t: T0, lat: 43.3601, lon: -5.81 }];
+  const tracks = new Map([['renfe-ld:00123', track]]);
+  const destino = [-5.80, 43.375];
+  const trips = { 'renfe-ld:00123': { gauge: 'iberian', stops: [destino] }, 'renfe-ld:00456': null };
+  const source = { ...LD, railTrip: (id) => (id.startsWith('renfe-ld:') ? trips[id] ?? null : undefined) };
+  const deps = { situation: fakeSituation({ tracks }), stations: {}, network: {}, clock: { now: () => T0 }, sources: [source] };
+  const query = makeQuerySituation({ ...deps, railNetwork: { network: () => railNet } });
+  const ahead = query.ahead('renfe-ld:00123');
+  assert.ok(ahead.some(([lon, lat]) => lon === ESQUINA[0] && lat === ESQUINA[1]), 'dobla la esquina por la vía');
+  assert.deepEqual(ahead.at(-1), destino);
+  assert.equal(query.ahead('renfe-ld:00123'), ahead, 'sin posición nueva, el mismo cálculo');
+  assert.equal(query.ahead('renfe-ld:00456'), null, 'viaje desconocido');
+  assert.equal(query.ahead('renfe-cercanias:C1'), null);
+  assert.equal(makeQuerySituation({ ...deps, railNetwork: { network: () => null } }).ahead('renfe-ld:00123'), null, 'sin red, nada');
+});

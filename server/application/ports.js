@@ -24,6 +24,10 @@
  * @property {(vehicleId: string) => number[][]|null|undefined} [path]  Sólo fuentes de posiciones
  *   estimadas: tramo de trazado ([lon, lat]) que el vehículo ha recorrido según su horario, para
  *   dibujarlo por la calle. null = sin trazado; undefined = vehículo desconocido para la fuente.
+ * @property {(vehicleId: string) => { gauge: 'standard'|'iberian'|null, stops: number[][]|null }|null|undefined} [railTrip]
+ *   Sólo fuentes con onRailNetwork: ancho de vía por el que va el tren (null: cualquiera) y paradas que
+ *   le quedan ([lon, lat], en orden, desde la próxima; null si no se saben), para dibujar por la vía su
+ *   recorrido y lo que le queda hasta su destino. null = viaje desconocido; undefined = tren de otra fuente.
  */
 
 /**

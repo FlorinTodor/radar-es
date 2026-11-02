@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createFileCache } from '../../server/adapters/outbound/http/file-cache.js';
 import { ADIF_TRAMOS_URL, createAdifRailNetwork, parseTramos } from '../../server/adapters/outbound/network/adif-rail-network.js';
+import { GAUGE } from '../../server/domain/rail-match.js';
 
 const FIXTURE = new URL('./fixtures/adif-tramos-mini.geojson', import.meta.url);
 const bytes = (obj) => new TextEncoder().encode(JSON.stringify(obj));
@@ -15,9 +16,11 @@ const quiet = { info() {}, warn() {}, error() {} };
 
 test('lee los tramos (también los de varias partes) y rechaza lo que no es la red', async () => {
   const fixture = new Uint8Array(await readFile(FIXTURE));
-  const { lines, truncated } = parseTramos(fixture, 3);
+  const { lines, gauges, codes, truncated } = parseTramos(fixture, 3);
   assert.equal(lines.length, 4, '2 tramos simples y uno de dos partes');
   assert.deepEqual(lines[0][0], [-3.1, 40.0]);
+  assert.deepEqual(gauges, [GAUGE.iberian, GAUGE.standard, GAUGE.mixed, GAUGE.mixed]);
+  assert.deepEqual(codes, [['10000', null], [null, '20000'], [null, null], [null, '30000']], '«0» es sin código; en varias partes, sólo los extremos del tramo');
   assert.equal(truncated, false);
   assert.throws(() => parseTramos(fixture), /llega con 4 tramos/, 'la red de verdad tiene más de mil');
   assert.throws(() => parseTramos(bytes({ error: { code: 400, message: 'Invalid query' } }), 1), /error 400/);
@@ -37,7 +40,7 @@ test('descarga, guarda, no repite la preparación y sigue con la copia si Adif f
     const http = { bytes: async (url) => { asked.push(url); return reply(); } };
     const cache = createFileCache({ http, dir: pathToFileURL(`${dir}/`), log: quiet });
     const rail = createAdifRailNetwork({ cache, log: quiet, minTramos: 3 });
-    const file = join(dir, 'adif-tramos-en-servicio.geojson');
+    const file = join(dir, 'adif-tramos-en-servicio-v2.geojson');
 
     // ArcGIS contesta el error con un 200: no se guarda y no hay red (los recorridos, con rectas).
     await assert.rejects(rail.load(), /error 500/);

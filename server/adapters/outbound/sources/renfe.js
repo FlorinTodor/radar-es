@@ -15,11 +15,15 @@ const TIMETABLE_TTL_MS = 24 * 3600_000;
 const LD_REFRESH_MS = 3600_000;
 const INCIDENT_WORDS = /suspend|interrump|cortad|incidencia|avería|accidente/i;
 
-// route_short_name del GTFS de AV/LD/MD → [nombre comercial, modo].
+// route_short_name del GTFS de AV/LD/MD → [nombre comercial, modo, ancho de vía si sólo va por uno]. Los
+// AVE y Avlo sólo van por vía de ancho estándar y los regionales por la de ancho ibérico; Avant (en Galicia
+// va por vía ibérica), Alvia (cambia de ancho) y los demás, por cualquiera.
 const PRODUCTS = {
-  AVE: ['AVE', 'av'], 'AVE INT': ['AVE Internacional', 'av'], AVLO: ['Avlo', 'av'], AVANT: ['Avant', 'av'], 'AVANT EXP': ['Avant Exprés', 'av'],
+  AVE: ['AVE', 'av', 'standard'], 'AVE INT': ['AVE Internacional', 'av', 'standard'], AVLO: ['Avlo', 'av', 'standard'],
+  AVANT: ['Avant', 'av'], 'AVANT EXP': ['Avant Exprés', 'av'],
   ALVIA: ['Alvia', 'ld'], INTERCITY: ['Intercity', 'ld'], EUROMED: ['Euromed', 'ld'], TRENCELTA: ['Trencelta', 'ld'],
-  MD: ['Media Distancia', 'md'], REGIONAL: ['Regional', 'md'], 'REG.EXP.': ['Regional Exprés', 'md'], PROXIMDAD: ['Proximidad', 'md'],
+  MD: ['Media Distancia', 'md', 'iberian'], REGIONAL: ['Regional', 'md', 'iberian'], 'REG.EXP.': ['Regional Exprés', 'md', 'iberian'],
+  PROXIMDAD: ['Proximidad', 'md', 'iberian'],
 };
 const product = (short) => PRODUCTS[(short ?? '').toUpperCase()] ?? [short || 'Renfe', 'ld'];
 
@@ -29,7 +33,7 @@ const madridIso = (epochSec) => new Intl.DateTimeFormat('sv-SE', {
 
 /** Horarios oficiales de Renfe, cargados una vez al día y compartidos por las dos fuentes. */
 export function createTimetables({ cache, stations, log }) {
-  let ld = new Map();   // trip_id → { service, mode, origin, destination }
+  let ld = new Map();   // trip_id → { service, mode, gauge, origin, destination, stops }
   let ldByNumber = new Map(); // número de tren → lo mismo, del periodo vigente
   let cerc = new Map(); // trip_id → { line, origin, destination, shape, end, stops }
   const loadedAt = { ld: 0, cerc: 0 };
@@ -55,16 +59,18 @@ export function createTimetables({ cache, stations, log }) {
     try {
       const f = await openGtfs(await cache.bytes(RENFE_FILES.largaDistancia, 'renfe-google_transit.zip', maxAgeMs), ['routes.txt', 'trips.txt', 'stop_times.txt']);
       const routes = new Map([...csvRows(f['routes.txt'])].map((r) => [r.route_id, r.route_short_name]));
-      const ends = new Map(); // trip_id → [primera parada, última parada]
+      const ends = new Map(); // trip_id → [primera parada, última parada, todas las paradas]
       const pace = createPacer();
       for (const [tripId, stopId, stopSequence] of csvColumns(f['stop_times.txt'], ['trip_id', 'stop_id', 'stop_sequence'])) {
         if (pace.due()) await pace.pause();
         const seq = +stopSequence;
         let e = ends.get(tripId);
-        if (!e) ends.set(own(tripId), (e = [[Infinity], [-Infinity]]));
+        if (!e) ends.set(own(tripId), (e = [[Infinity], [-Infinity], []]));
         if (seq < e[0][0]) e[0] = [seq, own(stopId)];
         if (seq > e[1][0]) e[1] = [seq, own(stopId)];
+        e[2].push([seq, stopId]);
       }
+      const stopsOf = tripStopsPatterns();
       const next = new Map();
       const byNumber = new Map(); // número → [fecha de inicio del periodo, viaje]
       const today = new Date().toISOString().slice(0, 10);
@@ -72,9 +78,9 @@ export function createTimetables({ cache, stations, log }) {
       const current = (a, b) => ((a <= today) === (b <= today) ? (a <= today ? a > b : a < b) : a <= today);
       for (const t of csvRows(f['trips.txt'])) {
         if (pace.due()) await pace.pause();
-        const [service, mode] = product(routes.get(t.route_id));
+        const [service, mode, gauge = null] = product(routes.get(t.route_id));
         const e = ends.get(t.trip_id);
-        const trip = { service, mode, origin: e ? stations.name(e[0][1]) : null, destination: e ? stations.name(e[1][1]) : null };
+        const trip = { service, mode, gauge, origin: e ? stations.name(e[0][1]) : null, destination: e ? stations.name(e[1][1]) : null, stops: e ? stopsOf(e[2]) : null };
         next.set(t.trip_id, trip);
         const number = t.trip_short_name || t.trip_id.slice(0, 5);
         const from = /\d{4}-\d{2}-\d{2}$/.exec(t.trip_id)?.[0] ?? '';
@@ -158,6 +164,21 @@ export function routeEnds(longName) {
   const text = String(longName ?? '');
   const [origin, destination] = text[40] === '-' ? [text.slice(0, 40), text.slice(41)] : text.split(/\s+-/);
   return { origin: origin?.trim() || null, destination: destination?.trim() || null };
+}
+
+/**
+ * Paradas de un viaje de AV/LD/MD, en orden, a partir de sus filas [stop_sequence, stop_id]: los ~8.500
+ * viajes repiten unos pocos cientos de recorridos y cada uno se guarda una vez (con copia propia de los
+ * códigos, sin retener el texto entero del stop_times).
+ */
+function tripStopsPatterns() {
+  const patterns = new Map();
+  return (rows) => {
+    const ids = rows.sort((a, b) => a[0] - b[0]).map((r) => r[1]);
+    const key = ids.join('>');
+    if (!patterns.has(key)) patterns.set(own(key), ids.map(own));
+    return patterns.get(key);
+  };
 }
 
 /**
@@ -305,6 +326,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
     },
   };
 
+  let railTrips = new Map(); // id del tren → { gauge, left: códigos de las paradas que le quedan } (última lectura)
   const largaDistancia = {
     id: 'renfe-ld',
     name: 'Renfe Alta Velocidad, Larga y Media Distancia (GTFS-RT)',
@@ -315,6 +337,17 @@ export function createRenfeSources({ http, cache, stations, log }) {
     license: ATTRIBUTION,
     cleanPositions: true,
     onRailNetwork: true, // sus posiciones caen sobre los tramos de Adif: el recorrido se dibuja por la vía
+    /**
+     * Ancho de vía por el que va un tren (null: cualquiera) y paradas que le quedan, en orden y como
+     * [lon, lat]: desde su próxima parada (stopId, la estación en la que está si está parado) hasta su
+     * destino (null si no se saben). null si no se sabe su viaje; undefined si no es de esta fuente.
+     */
+    railTrip(vehicleId) {
+      const trip = railTrips.get(vehicleId);
+      if (!trip) return vehicleId.startsWith('renfe-ld:') ? null : undefined;
+      const stops = trip.left?.map((code) => stations.get(code)).filter(Boolean).map((st) => [st.lon, st.lat]) ?? null;
+      return { gauge: trip.gauge, stops };
+    },
     async fetch() {
       await timetables.loadLd();
       const [positions, updates] = await Promise.allSettled([http.json(this.url), http.json(`${GTFSRT}/trip_updates_LD.json`)]);
@@ -322,6 +355,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
       const delays = tripUpdates(updates.status === 'fulfilled' ? updates.value : null);
       const vehicles = [];
       const seen = new Set();
+      const trips = new Map();
       let unknown = 0;
       for (const e of positions.value.entity ?? []) {
         const v = e.vehicle;
@@ -332,6 +366,8 @@ export function createRenfeSources({ http, cache, stations, log }) {
         seen.add(number);
         if (!timetables.ldExact(tripId)) unknown++;
         const trip = timetables.ld(tripId, number);
+        const next = trip?.stops?.indexOf(v.stopId) ?? -1;
+        if (trip) trips.set(`renfe-ld:${number}`, { gauge: trip.gauge, left: next >= 0 ? trip.stops.slice(next) : null });
         vehicles.push({
           id: `renfe-ld:${number}`,
           mode: trip?.mode ?? 'ld',
@@ -341,9 +377,11 @@ export function createRenfeSources({ http, cache, stations, log }) {
           label: number,
           origin: trip?.origin ?? null,
           destination: trip?.destination ?? null,
+          ...(next >= 0 ? { ahead: true } : {}), // lo que le queda, por la vía: /api/ahead
           ...base(v, delays.get(tripId)),
         });
       }
+      railTrips = trips;
       // Mientras tanto vale el mismo número de tren del horario guardado; pero si muchos no están, es de ayer.
       if (unknown > vehicles.length / 4) timetables.refreshLd();
       return { vehicles, sourceTime: freshest(positions.value, updates.status === 'fulfilled' ? updates.value : null) };

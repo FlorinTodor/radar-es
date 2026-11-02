@@ -7,23 +7,27 @@
 // petición). Si la descarga falla se sigue con la copia guardada y, sin ella, sin red: el recorrido
 // vuelve a dibujarse con rectas.
 import { createHash } from 'node:crypto';
-import { buildRailNetwork } from '../../../domain/rail-match.js';
+import { GAUGE, buildRailNetwork } from '../../../domain/rail-match.js';
 
 export const ADIF_TRAMOS_URL = 'https://services7.arcgis.com/XTupIrLX53AjaJqO/arcgis/rest/services/'
-  + 'Tramos_en_servicio_Adif_p%C3%BAblico/FeatureServer/0/query?where=1%3D1&outFields=CODTRAMO'
+  + 'Tramos_en_servicio_Adif_p%C3%BAblico/FeatureServer/0/query?where=1%3D1&outFields=CODTRAMO,COD_ANCHO_,DEPORIGEN,DEPDESTINO'
   + '&outSR=4326&geometryPrecision=5&maxAllowableOffset=0.00002&f=geojson';
-const CACHE_NAME = 'adif-tramos-en-servicio.geojson';
+const CACHE_NAME = 'adif-tramos-en-servicio-v2.geojson'; // v2: con el ancho de vía y las estaciones de cada extremo
 const MAX_AGE_MS = 30 * 24 * 3600_000;
 // La red tiene ~1.200 tramos: muchos menos es una respuesta rota (ArcGIS contesta los errores con un
 // 200 y un JSON de error) y no se guarda.
 const MIN_TRAMOS = 500;
+// COD_ANCHO_ de Adif: I ibérico (1.668 mm), U estándar o internacional (1.435 mm), MI mixto (tercer
+// carril, para los dos) y ME métrico (1.000 mm, la antigua Feve).
+const GAUGES = { I: GAUGE.iberian, U: GAUGE.standard, MI: GAUGE.mixed, ME: GAUGE.metric };
 
 /**
- * Tramos del GeoJSON de Adif como líneas [lon, lat]. Lanza si la respuesta no es la red. `truncated`:
- * ArcGIS ha cortado la respuesta en su máximo de registros (hoy 2.000), y faltan tramos.
+ * Tramos del GeoJSON de Adif como líneas [lon, lat], con el ancho de vía de cada una y el código de la
+ * estación o bifurcación de cada extremo (los de Renfe; «0» es sin código). Lanza si la respuesta no es
+ * la red. `truncated`: ArcGIS ha cortado la respuesta en su máximo de registros (hoy 2.000), y faltan tramos.
  * @param {Uint8Array} bytes
  * @param {number} [minTramos]
- * @returns {{ lines: Array<Array<[number, number]>>, truncated: boolean }}
+ * @returns {{ lines: Array<Array<[number, number]>>, gauges: number[], codes: Array<[string|null, string|null]>, truncated: boolean }}
  */
 export function parseTramos(bytes, minTramos = MIN_TRAMOS) {
   let data;
@@ -34,13 +38,21 @@ export function parseTramos(bytes, minTramos = MIN_TRAMOS) {
   }
   if (data?.error) throw new Error(`Adif responde con error ${data.error.code ?? ''}`.trim());
   const lines = [];
+  const gauges = [];
+  const codes = [];
+  const code = (c) => (c && c !== '0' ? String(c) : null);
   for (const f of data?.features ?? []) {
     const g = f?.geometry;
-    if (g?.type === 'LineString') lines.push(g.coordinates);
-    else if (g?.type === 'MultiLineString') lines.push(...g.coordinates);
+    const parts = g?.type === 'LineString' ? [g.coordinates] : g?.type === 'MultiLineString' ? g.coordinates : [];
+    parts.forEach((part, i) => {
+      lines.push(part);
+      gauges.push(GAUGES[f.properties?.COD_ANCHO_] ?? GAUGE.unknown);
+      // De un tramo en varias partes, sólo el principio de la primera y el final de la última son sus estaciones.
+      codes.push([i === 0 ? code(f.properties?.DEPORIGEN) : null, i === parts.length - 1 ? code(f.properties?.DEPDESTINO) : null]);
+    });
   }
   if (lines.length < minTramos) throw new Error(`la red de Adif llega con ${lines.length} tramos`);
-  return { lines, truncated: Boolean(data.properties?.exceededTransferLimit ?? data.exceededTransferLimit) };
+  return { lines, gauges, codes, truncated: Boolean(data.properties?.exceededTransferLimit ?? data.exceededTransferLimit) };
 }
 
 /**
@@ -61,9 +73,9 @@ export function createAdifRailNetwork({ cache, log, url = ADIF_TRAMOS_URL, minTr
       });
       const hash = createHash('sha256').update(bytes).digest('hex');
       if (network && hash === digest) return tramos;
-      const { lines, truncated } = parseTramos(bytes, minTramos);
+      const { lines, gauges, codes, truncated } = parseTramos(bytes, minTramos);
       if (truncated) log.warn('[red ferroviaria] Adif ha cortado la respuesta: faltan tramos (hay que pedirla por partes)');
-      network = buildRailNetwork(lines);
+      network = buildRailNetwork(lines, { gauges, codes });
       tramos = lines.length;
       digest = hash;
       log.info(`[red ferroviaria] ${tramos} tramos de Adif: ${network.edges} piezas y ${network.nodes} nudos`

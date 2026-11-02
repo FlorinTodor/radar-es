@@ -469,7 +469,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
    */
   const setRoute = (coords) => map.getSource('route')?.setData(coords?.length > 1 ? { type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} } : EMPTY);
   function drawRoute(v) {
-    if (v.estimated) return; // llega con loadTrack
+    if (v.estimated || v.ahead) return; // la calcula el servidor: llega con loadTrack
     const shape = shapeOf(v);
     setRoute(shape ? pathBetween(shape.geometry.coordinates, [v.lon, v.lat], v.end) : null);
   }

@@ -1,12 +1,36 @@
 // Casos de uso de consulta: lo que los adaptadores de entrada (API, SSE...) pueden preguntar.
 import { sortAlerts } from '../../domain/alerts/lifecycle.js';
 import { headingOf } from '../../domain/tracking.js';
-import { matchToRail } from '../../domain/rail-match.js';
+import { gaugeFactors, matchToRail, routeAhead } from '../../domain/rail-match.js';
 
-// Recorridos ya pegados a la vía que se guardan (uno por tren pedido, ~30 KB cada uno): el mapa pide
-// el del tren seleccionado cada 15 s, y sólo cambia cuando el tren da una posición nueva.
+// Recorridos por la vía que se guardan (uno por tren pedido, ~30 KB cada uno): el mapa pide los del
+// tren seleccionado cada 15 s, y sólo cambian cuando el tren da una posición nueva.
 const RAIL_MEMO_MAX = 200;
 const round5 = (x) => Math.round(x * 1e5) / 1e5;
+
+/**
+ * Cálculos por tren guardados mientras no cambien `key` ni la red: `get(id, net, key, compute)`. Sin
+ * memoria de más: al guardar uno nuevo salen los trenes que ya no tienen recorrido (`live`) y, si aun
+ * así son muchos, los calculados hace más.
+ */
+function makeRailMemo(live) {
+  const memo = new Map(); // id → { key, value }
+  let memoNet = null;
+  return (id, net, key, compute) => {
+    if (net !== memoNet) { // red nueva (la recarga mensual): lo calculado con la anterior no vale
+      memo.clear();
+      memoNet = net;
+    }
+    const hit = memo.get(id);
+    if (hit?.key === key) return hit.value;
+    const value = compute();
+    const tracks = live();
+    memo.delete(id);
+    for (const old of memo.keys()) if (!tracks.has(old) || memo.size >= RAIL_MEMO_MAX) memo.delete(old);
+    memo.set(id, { key, value });
+    return value;
+  };
+}
 
 /**
  * @param {{ situation: import('../ports.js').SituationRepositoryPort, stations: import('../ports.js').StationCatalogPort,
@@ -16,10 +40,20 @@ const round5 = (x) => Math.round(x * 1e5) / 1e5;
  */
 export function makeQuerySituation({ situation, stations, network, clock, sources = [], railNetwork }) {
   const withPaths = sources.filter((s) => typeof s.path === 'function');
-  const railPrefixes = sources.filter((s) => s.onRailNetwork).map((s) => `${s.id}:`);
+  const railSources = sources.filter((s) => s.onRailNetwork);
+  const railPrefixes = railSources.map((s) => `${s.id}:`);
   const onRails = (id) => railPrefixes.some((prefix) => id.startsWith(prefix));
-  const railMemo = new Map(); // id → { key, path }, calculados con la red memoNet
-  let memoNet = null;
+  const withTrips = railSources.filter((s) => typeof s.railTrip === 'function');
+  /** Viaje de un tren de la red general ({ gauge, stops }); null si no se sabe; undefined si no es de ninguna. */
+  const railTripOf = (id) => {
+    for (const s of withTrips) {
+      const trip = s.railTrip(id);
+      if (trip !== undefined) return trip;
+    }
+    return undefined;
+  };
+  const trackMemo = makeRailMemo(() => situation.tracks());
+  const aheadMemo = makeRailMemo(() => situation.tracks());
 
   /**
    * Recorrido de un tren por la vía, como lista de { lon, lat } (lo mismo que dibuja el mapa con las
@@ -28,21 +62,25 @@ export function makeQuerySituation({ situation, stations, network, clock, source
   const railTrack = (id, track) => {
     const net = railNetwork?.network();
     if (!net || track.length < 2) return null;
-    if (net !== memoNet) { // red nueva (la recarga mensual): lo calculado con la anterior no vale
-      railMemo.clear();
-      memoNet = net;
-    }
     // Cambia al llegar una posición nueva o al salir de la ventana de 45 min la más antigua.
     const key = `${track.length}:${track[0].t}:${track.at(-1).t}`;
-    const memo = railMemo.get(id);
-    if (memo?.key === key) return memo.path;
-    const path = matchToRail(net, track).flat().map(([lon, lat]) => ({ lon: round5(lon), lat: round5(lat) }));
-    // Fuera los trenes que ya no tienen recorrido y, si aun así son muchos, los calculados hace más.
-    const live = situation.tracks();
-    railMemo.delete(id);
-    for (const old of railMemo.keys()) if (!live.has(old) || railMemo.size >= RAIL_MEMO_MAX) railMemo.delete(old);
-    railMemo.set(id, { key, path });
-    return path;
+    // Entre dos posiciones lejanas, mejor la vía de su ancho que una paralela del otro.
+    const factors = gaugeFactors(railTripOf(id)?.gauge);
+    return trackMemo(id, net, key, () => matchToRail(net, track, { factors }).flat().map(([lon, lat]) => ({ lon: round5(lon), lat: round5(lat) })));
+  };
+
+  /**
+   * Lo que le queda a un tren de la red general, por la vía: desde su última posición, pasando por las
+   * paradas que le quedan. null si no hay red, el tren no está en ella o no hay un camino razonable.
+   */
+  const railAhead = (id, trip) => {
+    const net = railNetwork?.network();
+    const at = situation.tracks().get(id)?.at(-1);
+    const stops = trip?.stops;
+    if (!net || !at || !stops?.length) return null;
+    const key = `${at.lon},${at.lat}|${stops.length}|${stops[0]}`;
+    const factors = gaugeFactors(trip.gauge);
+    return aheadMemo(id, net, key, () => routeAhead(net, [at.lon, at.lat], stops, { factors })?.map(([lon, lat]) => [round5(lon), round5(lat)]) ?? null);
   };
   const alerts = () => sortAlerts(situation.activeAlerts().values());
   // Los autobuses (miles en hora punta) sólo se envían a quien tiene activada su capa.
@@ -97,15 +135,17 @@ export function makeQuerySituation({ situation, stations, network, clock, source
       return (track && onRails(id) && railTrack(id, track)) || track;
     },
     /**
-     * Lo que le queda a un vehículo de posición estimada hasta el final de su viaje, por su trazado.
-     * Los de GPS (Cercanías) lo calcula el mapa con el trazado de su viaje; null si no se sabe.
+     * Lo que le queda a un vehículo de posición estimada hasta el final de su viaje, por su trazado, y a
+     * los trenes de la red general (AVE, Larga y Media Distancia), por la vía hasta su destino. Los de
+     * Cercanías lo calcula el mapa con el trazado de su viaje; null si no se sabe.
      */
     ahead(id) {
       for (const s of withPaths) {
         const path = s.ahead?.(id);
         if (path !== undefined) return path && path.length > 1 ? path : null;
       }
-      return null;
+      const trip = railTripOf(id);
+      return trip === undefined ? null : railAhead(id, trip);
     },
 
     /** Estelas de todos los trenes (sin autobuses) en los últimos `minutes` minutos, como GeoJSON. */

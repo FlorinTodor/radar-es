@@ -1,5 +1,5 @@
 {"type":"FeatureCollection","crs":{"type":"name","properties":{"name":"EPSG:4326"}},"features":[
-{"type":"Feature","id":1,"geometry":{"type":"LineString","coordinates":[[-3.1,40.0],[-3.05,40.01],[-3.0,40.0]]},"properties":{"CODTRAMO":"000000010"}},
-{"type":"Feature","id":2,"geometry":{"type":"LineString","coordinates":[[-3.0,40.0],[-2.95,40.0],[-2.9,40.0]]},"properties":{"CODTRAMO":"000000020"}},
-{"type":"Feature","id":3,"geometry":{"type":"MultiLineString","coordinates":[[[-3.0,40.0],[-2.99,40.02]],[[-2.99,40.02],[-2.97,40.05]]]},"properties":{"CODTRAMO":"000000030"}}
+{"type":"Feature","id":1,"geometry":{"type":"LineString","coordinates":[[-3.1,40.0],[-3.05,40.01],[-3.0,40.0]]},"properties":{"CODTRAMO":"000000010","COD_ANCHO_":"I","DEPORIGEN":"10000","DEPDESTINO":"0"}},
+{"type":"Feature","id":2,"geometry":{"type":"LineString","coordinates":[[-3.0,40.0],[-2.95,40.0],[-2.9,40.0]]},"properties":{"CODTRAMO":"000000020","COD_ANCHO_":"U","DEPORIGEN":"0","DEPDESTINO":"20000"}},
+{"type":"Feature","id":3,"geometry":{"type":"MultiLineString","coordinates":[[[-3.0,40.0],[-2.99,40.02]],[[-2.99,40.02],[-2.97,40.05]]]},"properties":{"CODTRAMO":"000000030","COD_ANCHO_":"MI","DEPORIGEN":"0","DEPDESTINO":"30000"}}
 ]}

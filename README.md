@@ -147,7 +147,7 @@ Todas son públicas. Solo las marcadas con 🔑 necesitan `NAP_API_KEY`, una cla
 | 🔑 ~70 horarios de autobús del NAP (`autobuses-nap.js`) | **posición estimada** de Avanza, Sagalés, Moventis, Grupo Ruiz, AISA, Vectalia, urbanos de ciudades, interurbanos autonómicos e insulares y otras empresas | 60 s |
 | EMT Madrid (GTFS-RT del NAP) | avisos de servicio | 5 min |
 | 🔑 GTFS de 16 redes en el NAP + líneas del tranvía de Tenerife (Cabildo de Tenerife) | trazados de Cercanías, metros, tranvías, FGC y Euskotren | 24 h |
-| Adif, «Tramos en servicio» ([datos abiertos de Adif en ArcGIS](https://www.arcgis.com/home/item.html?id=4ec7c0fb3cab42b0b488d65e65eeb7aa)) | vías en servicio, para dibujar por la vía el recorrido de AVE, Larga y Media Distancia | 30 días |
+| Adif, «Tramos en servicio» ([datos abiertos de Adif en ArcGIS](https://www.arcgis.com/home/item.html?id=4ec7c0fb3cab42b0b488d65e65eeb7aa)) | vías en servicio, para dibujar por la vía el recorrido de AVE, Larga y Media Distancia y lo que les queda | 30 días |
 | DGT DATEX II v3.7 (`nap.dgt.es`) | ~1.000 incidencias de tráfico | 5 min |
 | Servei Català de Trànsit (GML) | incidencias de carreteras catalanas | 5 min |
 | Tráfico Euskadi (API Trafikoa) | incidencias de carreteras vascas | 5 min |
@@ -173,7 +173,7 @@ las alertas ni para los KPIs**.
 | `GET /api/events?category=carretera` | incidencias (`ferroviario`, `carretera`, `meteo`, `incendio`, `sismo`) |
 | `GET /api/alerts` | alertas activas y resueltas |
 | `GET /api/tracks/:id` | recorrido de un vehículo en los últimos 45 min |
-| `GET /api/ahead/:id` | lo que le queda a un vehículo con posición estimada hasta su destino |
+| `GET /api/ahead/:id` | lo que le queda a un vehículo hasta su destino (posiciones estimadas y AVE, Larga y Media Distancia) |
 | `GET /api/stations/:código` | ficha de una estación (trenes, avisos, líneas, conexiones, datos y foto) |
 | `GET /api/lines` | trazados de las líneas (GeoJSON) |
 | `GET /api/trails?min=15` | estela de cada tren en los últimos minutos (GeoJSON, máx. 45) |
@@ -231,7 +231,9 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   ferroviaria que publica Adif: aunque el tren pase un rato sin dar su posición (túneles, zonas sin
   cobertura), la línea ya no corta por el mar ni por el monte.
 - Lo que le queda a cada tren hasta su destino, dibujado por su vía: en Cercanías y Metro Bilbao
-  con el trazado de su viaje, y en metros y tranvías estimados con su horario.
+  con el trazado de su viaje, en metros y tranvías estimados con su horario, y en Alta Velocidad,
+  Larga y Media Distancia por la red de Adif, pasando por las paradas que le quedan (comprobado con
+  todos los recorridos de su horario).
 - Flecha de hacia dónde va cada vehículo al acercar el mapa, por su vía cuando se conoce su
   recorrido.
 - En Cercanías, el origen, el destino y la próxima parada salen de las paradas de cada viaje: ni el
