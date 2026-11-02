@@ -52,7 +52,7 @@ fi
 # data/ la escribe el usuario node (uid 1000) del contenedor.
 mkdir -p "$DIR/data"
 chown 1000:1000 "$DIR/data"
-[[ -f $DIR/.env ]] || echo "Aviso: falta $DIR/.env (NAP_API_KEY, claves de EMT Madrid…); cópialo con scp" >&2
+[[ -f $DIR/.env ]] || echo "Aviso: falta $DIR/.env (NAP_API_KEY, ESIOS_TOKEN, claves de EMT Madrid…); cópialo con scp" >&2
 
 install -m 644 "$DIR/deploy/radar-actualizar.service" "$DIR/deploy/radar-actualizar.timer" /etc/systemd/system/
 systemctl daemon-reload

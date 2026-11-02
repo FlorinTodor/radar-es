@@ -111,6 +111,7 @@ export function renderEvents(el, events, sel = NO_SELECTION) {
       <div class="title">${esc(e.title)}</div>
       ${e.description && e.category !== 'sismo' ? `<div class="desc">${esc(e.description.length > 220 ? `${e.description.slice(0, 220)}…` : e.description)}</div>` : ''}
       <div class="meta">
+        ${e.issued && e.issued !== e.start ? `<span>publicado el ${fmtDateTime(e.issued)}</span>` : ''}
         ${e.start ? `<span>${fmtDateTime(e.start)}</span>` : ''}
         ${e.end ? `<span>hasta ${fmtDateTime(e.end)}</span>` : ''}
         ${e.lat === null || e.lat === undefined ? '<span>sin ubicación</span>' : ''}
