@@ -6,6 +6,7 @@
 import { distanceKm, pointInGeometry } from '../geo.js';
 import { vehicleLabel } from '../model.js';
 import { stationarySince } from '../tracking.js';
+import { SISTEMAS_AISLADOS } from '../lugares.js';
 
 /**
  * @typedef {object} RuleContext
@@ -262,6 +263,42 @@ export function officialEmergencyPlans(ctx) {
   });
 }
 
+const mw = (v) => v.toLocaleString('es-ES', { maximumFractionDigits: 1 });
+
+/**
+ * Apagón de un sistema eléctrico aislado (una isla o un grupo de islas de Canarias, Ceuta, Melilla):
+ * su demanda real cae muy por debajo de la esperada, que es la programada para ese momento o, si es
+ * mayor, la que tenía en las dos últimas horas (tras un apagón REE reprograma la prevista, en La Palma
+ * a 0 durante una hora, y el corte parecería normal). Llega minutos después del corte, antes que los
+ * avisos oficiales: el 2-11-2026 en La Palma, a los 3 minutos; el Gobierno de Canarias, a la hora.
+ */
+export function isolatedGridBlackouts(ctx) {
+  const th = ctx.thresholds;
+  const alerts = [];
+  for (const s of ctx.metrics['esios-sistemas-aislados']?.systems ?? []) {
+    if (!Number.isFinite(s.real)) continue;
+    if (!s.at || ctx.now - s.at > th.isolatedGridStaleMinutes * 60_000) continue; // dato viejo: no se sabe
+    const programmed = Number.isFinite(s.programmed) ? s.programmed : 0;
+    const expected = Math.max(programmed, Number.isFinite(s.recentMax) ? s.recentMax : 0);
+    if (expected < 1) continue; // sin referencia (o un sistema minúsculo): no se puede decir nada
+    const ratio = s.real / expected;
+    if (ratio > th.isolatedGridDrop) continue;
+    const zero = ratio <= th.isolatedGridZero;
+    const place = SISTEMAS_AISLADOS.find((p) => p.name === s.name);
+    alerts.push({
+      id: `red-aislada:${s.id}`, type: 'red-electrica', severity: zero ? 'muy alta' : 'alta',
+      lat: place?.lat, lon: place?.lon,
+      title: zero ? `Posible apagón total en ${s.name}: demanda a ${mw(s.real)} MW`
+        : `Demanda eléctrica de ${s.name} un ${Math.round((1 - ratio) * 100)} % por debajo de lo esperado`,
+      description: `Real ${mw(s.real)} MW a las ${madridTime(s.at)} (hora peninsular) frente a ${mw(expected)} MW `
+        + `${expected === programmed ? 'programados' : 'que consumía en las dos últimas horas'}. `
+        + 'Estimación de Radar España con datos de Red Eléctrica: confírmalo con los avisos oficiales.',
+      credit: 'Fuente: Red Eléctrica',
+    });
+  }
+  return alerts;
+}
+
 /** Desaparición masiva de trenes del mapa. */
 export function fleetDrop(ctx) {
   const ref = ctx.kpiHistory.find((k) => ctx.now - k.t <= 12 * 60_000 && ctx.now - k.t >= 8 * 60_000);
@@ -313,6 +350,7 @@ export const RULES = [
   officialPowerCuts,
   officialEmergencyPlans,
   gridDemandDrop,
+  isolatedGridBlackouts,
   fleetDrop,
   feedHealth,
 ];

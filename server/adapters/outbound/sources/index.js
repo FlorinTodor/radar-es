@@ -16,6 +16,7 @@ import { createIgnSismosSource } from './ign-sismos.js';
 import { createAemetAvisosSource } from './aemet-avisos.js';
 import { createFirmsSource } from './firms.js';
 import { createReeSource } from './ree.js';
+import { createEsiosSource } from './esios.js';
 import { createGdacsSource } from './emergencias-extra.js';
 import {
   createAndaluciaEmergenciasSource, createCanariasAlertasSource, createCatalunaPlansSource, createClmPlansSource,
@@ -164,5 +165,6 @@ export function createSources(deps) {
     createRiojaSosSource(deps),
     createCyl112Source(deps),
     createReeSource(deps),
+    createEsiosSource(deps), // con ESIOS_TOKEN: apagón de una isla, de Ceuta o de Melilla
   ];
 }

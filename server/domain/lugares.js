@@ -59,3 +59,18 @@ export const COMUNIDADES = {
   cataluna: { name: 'Cataluña', lat: 41.8, lon: 1.53 },
   'la-rioja': { name: 'La Rioja', lat: 42.27, lon: -2.52 },
 };
+
+/**
+ * Sistemas eléctricos aislados con su demanda en tiempo real (Red Eléctrica): cada isla o grupo de
+ * islas conectadas de Canarias, Ceuta y Melilla. Baleares no publica su demanda real en tiempo real.
+ */
+export const SISTEMAS_AISLADOS = [
+  { name: 'Gran Canaria', lat: 27.96, lon: -15.6 },
+  { name: 'Lanzarote y Fuerteventura', lat: 28.75, lon: -13.85 },
+  { name: 'Tenerife', lat: 28.29, lon: -16.62 },
+  { name: 'La Palma', lat: 28.68, lon: -17.86 },
+  { name: 'La Gomera', lat: 28.11, lon: -17.23 },
+  { name: 'El Hierro', lat: 27.74, lon: -18.02 },
+  { name: 'Ceuta', lat: 35.889, lon: -5.316 },
+  { name: 'Melilla', lat: 35.292, lon: -2.938 },
+];

@@ -7,13 +7,14 @@ de trenes, metros, tranvías y autobuses de España, cruzado con incidencias de 
 avisos meteorológicos, incendios, el estado de la red eléctrica y los avisos oficiales de protección
 civil (planes de emergencia activados y cortes de luz). Los vehículos salen en su posición
 en directo cuando el operador la publica y, si solo publica su horario, en una posición estimada
-marcada como tal. Todo a partir de **datos públicos**: de sus 51 fuentes, 26 no piden nada y 25
-necesitan la clave gratuita del Punto de Acceso Nacional (NAP).
+marcada como tal. Todo a partir de **datos públicos**: de sus 52 fuentes, 26 no piden nada, 25
+necesitan la clave gratuita del Punto de Acceso Nacional (NAP) y 1 la de e·sios (Red Eléctrica).
 
 Un motor de reglas vigila situaciones que merecen atención humana: trenes detenidos en
 plena vía, varios trenes parados en la misma zona, saltos bruscos de retraso, desapariciones
 masivas de trenes del mapa, terremotos, incendios o avisos naranja y rojo cerca de trenes en
-circulación, alertas de catástrofes naranja o roja, caídas de la demanda eléctrica, cortes de luz y
+circulación, alertas de catástrofes naranja o roja, caídas de la demanda eléctrica (de toda España y
+de cada isla de Canarias, Ceuta y Melilla), cortes de luz y
 planes de emergencia en alerta que publican protección civil y los 112, y fuentes de datos caídas.
 
 > **Límites.** Los datos públicos llegan con decenas de segundos o minutos de retraso y no
@@ -37,7 +38,9 @@ horario hace falta `NAP_API_KEY` en `.env` (clave gratuita del Punto de Acceso N
 se desactivan las 25 fuentes que la necesitan, y el registro lo avisa al arrancar. El primer
 arranque descarga los horarios GTFS en `data/` y tarda unos minutos; los siguientes los leen de ahí.
 Para contar visitas en producción se pone `GOATCOUNTER_URL` (GoatCounter, sin cookies); sin ella
-no se carga ningún contador y la página de privacidad lo indica.
+no se carga ningún contador y la página de privacidad lo indica. Con `ESIOS_TOKEN` (clave gratuita de
+Red Eléctrica, [esios.ree.es/es/token](https://www.esios.ree.es/es/token)) se vigila la demanda de cada
+isla de Canarias, Ceuta y Melilla; sin ella esa fuente se desactiva.
 
 ## Ramas
 
@@ -155,8 +158,9 @@ tras revisar sus avisos legales. Del tranvía de Tenerife solo se dibuja el traz
 publica con licencia CC BY en el portal del Cabildo. La licencia y la atribución de cada fuente están
 en `/legal`.
 
-Todas son públicas. Solo las marcadas con 🔑 necesitan `NAP_API_KEY`, una clave gratuita del NAP. En
-total son 51 fuentes (34 de vehículos, 16 de incidencias y 1 de métricas): 26 sin clave y 25 con ella.
+Todas son públicas. Las marcadas con 🔑 necesitan `NAP_API_KEY`, una clave gratuita del NAP, y la de
+e·sios, `ESIOS_TOKEN`. En total son 52 fuentes (34 de vehículos, 16 de incidencias y 2 de métricas):
+26 sin clave, 25 con la del NAP y 1 con la de e·sios.
 
 | Fuente | Qué aporta | Refresco |
 |---|---|---|
@@ -187,6 +191,7 @@ total son 51 fuentes (34 de vehículos, 16 de incidencias y 1 de métricas): 26 
 | GDACS (ONU / Comisión Europea) | alertas de catástrofes en la zona (verde, naranja, roja) | 15 min |
 | Copernicus EFFIS (WMS, servido por `/tiles` con copia de 3 h) | capa de áreas quemadas en los últimos 30 días y su ficha | — |
 | Red Eléctrica REData | demanda real frente a prevista | 5 min |
+| 🔑 Red Eléctrica e·sios (`ESIOS_TOKEN`) | demanda real y programada de cada isla o grupo de islas de Canarias, Ceuta y Melilla | 5 min |
 | Gobierno de Canarias (alertas del PLATECA, CC BY 4.0) | prealerta, alerta y emergencia por isla, incluidos los ceros energéticos | 5 min |
 | Generalitat de Catalunya (planes de protección civil activados) | planes en prealerta, alerta o emergencia | 5 min |
 | Junta de Andalucía (noticias de Emergencias 112, CC BY 4.0) | planes activados y cortes de luz en los pueblos que citan | 10 min |
@@ -291,6 +296,9 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   cual, con la atribución de cada administración; se sitúan en el centro de su isla, pueblo,
   provincia o comunidad, y dejan de verse cuando se publica su fin. Los cortes de luz y los planes en
   alerta o emergencia dan alerta.
+- Apagón total de una isla de Canarias, de Ceuta o de Melilla: alerta a los pocos minutos cuando su
+  demanda real cae muy por debajo de la esperada (datos de Red Eléctrica). Con los datos del
+  2-11-2026 habría avisado del apagón de La Palma a los 3 minutos, una hora antes que el aviso oficial.
 - Red ferroviaria, líneas de metro, tranvía y Cercanías, y estaciones.
 - Nombres del mapa base en español.
 - Se descartan los retrasos imposibles que a veces llegan en los datos.
@@ -500,8 +508,8 @@ Ninguna por ahora.
   quien abre la ficha.
 - Guía para quien quiera proponer cambios.
 - Cortes de luz en el resto de España:
-  - detectar el apagón de una isla, de Baleares, de Ceuta o de Melilla en minutos con la demanda de
-    cada sistema eléctrico en e·sios (Red Eléctrica), que pide una clave gratuita;
+  - Baleares: Red Eléctrica sólo publica en tiempo real su demanda programada, no la real, así que su
+    apagón no se puede detectar como el de las islas de Canarias, Ceuta o Melilla;
   - avisos de las comunidades que no tienen un canal que se pueda leer con su licencia (Galicia,
     Baleares, Comunidad Valenciana, Aragón, Extremadura, Asturias, Navarra, Ceuta y Melilla): pedirles
     permiso o que lo publiquen como datos abiertos;
