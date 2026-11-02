@@ -398,6 +398,24 @@ Ninguna por ahora.
   de kilómetros (tres regionales la mañana del 2-nov); quedarse con la que sigue al tren.
 - Capa discreta con las vías subterráneas de FGC y de los metros: el mapa base oscuro no dibuja las
   vías en túnel, y el recorrido parece pasar por encima de los edificios.
+- Obras en carretera con su fecha de fin y su última actualización. Ahora solo se muestra cuándo
+  empezaron, pero el DATEX II de la DGT trae más:
+  - la fecha prevista de fin (409 de las 496 obras del 2-nov);
+  - la fecha de la última actualización de cada obra (algunas no se han actualizado desde 2023 o
+    2024).
+
+  Mostrar las dos en la ficha y marcar o esconder las que lleven mucho sin actualizarse o hayan pasado
+  su fecha de fin. Son datos oficiales de la DGT, pero que una obra siga activa depende de que quien la
+  gestiona la dé por terminada.
+- Aviones y aeropuertos. Para los aviones hace falta una fuente de posiciones con licencia de
+  reutilización: adsb.lol se quitó en su día, y otras, como OpenSky Network, son solo para uso no
+  comercial (revisar sus condiciones). Los aeropuertos, con datos abiertos: su ubicación y, si se
+  publica, su estado.
+- Balizas V16 conectadas. La DGT ya las publica en el mismo DATEX II, con la fuente «DGT3.0» (60
+  activas la mañana del 2-nov), y el radar ya las muestra, pero como «Vehículo detenido u obstáculo».
+  Pendiente:
+  - identificarlas como baliza V16, con icono propio, filtro y cuánto llevan encendidas;
+  - confirmar con la DGT la licencia del conjunto (consulta pendiente a nap@dgt.es).
 - Accesibilidad de las estaciones con más detalle:
   - en Madrid, qué accesos y andenes son accesibles, con los datos abiertos del
     [Consorcio de Transportes](https://www.crtm.es/licencia-de-uso/), cuando se revise su calidad;
