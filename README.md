@@ -286,6 +286,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Cálculos pesados en hilos aparte y reintentos rápidos de las fuentes que fallan.
 - Protección frente a sobrecarga: peticiones costosas acotadas, colas con tope y fallos aislados,
   para que ni un pico de tráfico ni una fuente que responda mal tumben el servidor.
+- El servidor arranca en segundos aunque haya que rehacer el catálogo de estaciones (fotos,
+  fichas): arranca con la copia guardada y lo rehace después.
 
 **Despliegue y seguridad**
 - La aplicación funciona aislada, en un contenedor con recursos limitados y cabeceras de

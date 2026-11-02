@@ -128,26 +128,42 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
     return withExtras(stations, await loadStationExtras({ cache, log, maxAgeMs: REFRESH_MS, stations }));
   }
 
+  let version = null;
+  let savedAt = 0;
+  let refreshing = null;
+
+  async function refresh() {
+    try {
+      const list = await download();
+      if (!list.length) throw new Error('lista vacía');
+      stations.clear();
+      for (const s of list) stations.set(s.code, s);
+      version = CATALOG_VERSION;
+      savedAt = Date.now();
+      await mkdir(cacheDir, { recursive: true });
+      await writeFile(cacheFile, JSON.stringify({ version, savedAt, stations: list }));
+      log.info(`[estaciones] ${stations.size} estaciones de Renfe (lista oficial + paradas GTFS)`);
+    } catch (err) {
+      log.warn(`[estaciones] no se pudo descargar el catálogo (${err.message}); ${stations.size} en caché`);
+    }
+  }
+
   return {
     async load() {
-      let cached = null;
-      try {
-        cached = JSON.parse(await readFile(cacheFile, 'utf8'));
-        for (const s of cached.stations) stations.set(s.code, s);
-      } catch { /* todavía no hay caché */ }
-      if (cached?.version === CATALOG_VERSION && Date.now() - cached.savedAt < REFRESH_MS) return stations.size;
-
-      try {
-        const list = await download();
-        if (!list.length) throw new Error('lista vacía');
-        stations.clear();
-        for (const s of list) stations.set(s.code, s);
-        await mkdir(cacheDir, { recursive: true });
-        await writeFile(cacheFile, JSON.stringify({ version: CATALOG_VERSION, savedAt: Date.now(), stations: list }));
-        log.info(`[estaciones] ${stations.size} estaciones de Renfe (lista oficial + paradas GTFS)`);
-      } catch (err) {
-        log.warn(`[estaciones] no se pudo descargar el catálogo (${err.message}); ${stations.size} en caché`);
+      if (!stations.size) {
+        try {
+          const cached = JSON.parse(await readFile(cacheFile, 'utf8'));
+          for (const s of cached.stations) stations.set(s.code, s);
+          ({ version = null, savedAt = 0 } = cached);
+        } catch { /* todavía no hay caché */ }
       }
+      if (version === CATALOG_VERSION && Date.now() - savedAt < REFRESH_MS) return stations.size;
+
+      // Recalcular son minutos (Wikidata, las fotos de Commons, las fichas de Renfe) y el servidor
+      // no escucha hasta que hay estaciones: con una copia guardada, aunque sea de otra versión o
+      // de hace días, se arranca con ella y se recalcula detrás. Sólo se espera si no hay ninguna.
+      refreshing ??= refresh().finally(() => { refreshing = null; });
+      if (!stations.size) await refreshing;
       return stations.size;
     },
 
