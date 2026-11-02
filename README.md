@@ -324,6 +324,9 @@ después (con jq, DuckDB o pandas).
 
 ## Pendiente y conocido
 
+- **Avisos oficiales de Cataluña, Andalucía, Castilla-La Mancha, La Rioja, Castilla y León y Baleares**:
+  en pausa mientras se revisa cómo se leen sus avisos (frases que no son un corte de luz, notas que no
+  son emergencias). Siguen citados en `/legal`; los de Canarias y el apagón por isla (e·sios), activos.
 - **Adif (estado de la red, incidencias, circulaciones)**: su web responde 403 a cualquier
   cliente automatizado y no publica nada en el NAP. No se esquiva el bloqueo; se pide acceso
   formalmente.
