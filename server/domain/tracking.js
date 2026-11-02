@@ -22,6 +22,11 @@ const SPIKE_KMH = { cercanias: 200 };
 // (A, B, B, A, B, B…; medido en 1 de cada 10 Cercanías): es una posición vieja repetida.
 const ECHO_MS = 10 * 60_000;
 const ECHO_BACK = 4;
+// Renfe también da a veces una posición de cientos de metros o kilómetros por detrás, a velocidad
+// posible (C2 en Madrid: 1,7 km atrás en 81 s y luego 2,8 km adelante): contra el sentido en que iba
+// el tren y más lejos que esto, se retiene como un salto imposible hasta ver el punto siguiente.
+const BACK_KM = 0.4;
+const BACK_DEG = 150;
 
 const tooFast = (a, b, km, maxKmh = MAX_SPEED_KMH) => km / (Math.max(a.fix && b.fix ? b.fix - a.fix : b.t - (a.seen ?? a.t), 1000) / 3_600_000) > maxKmh;
 
@@ -45,6 +50,14 @@ export function isEcho(track, p, now) {
     if (q.lat === p.lat && q.lon === p.lon) return track.slice(j + 1).some((r) => distanceKm(r.lat, r.lon, q.lat, q.lon) > 0.05);
   }
   return false;
+}
+
+const angleDiff = (a, b) => Math.abs(((a - b + 540) % 360) - 180);
+
+/** ¿Va `b` hacia atrás desde `a`, más de BACK_KM y contra `heading` (hacia dónde se movía el vehículo)? */
+export function isBackJump(a, b, heading) {
+  if (heading === null || heading === undefined || distanceKm(a.lat, a.lon, b.lat, b.lon) < BACK_KM) return false;
+  return angleDiff(heading, bearingDeg(a.lat, a.lon, b.lat, b.lon)) > BACK_DEG;
 }
 
 const held = new WeakMap(); // historial → { point, since }: salto corto a la espera del punto siguiente
@@ -77,30 +90,50 @@ export function recordPositions(tracks, vehicles, now, { windowMs = TRACK_WINDOW
     };
     // Las posiciones estimadas las calcula el radar con el horario: si retroceden (sube el retraso) es a propósito.
     const gps = clean && !v.estimated;
+    // La fuente dice que está parado en una estación que queda lejos de esta posición: la posición no
+    // está al día (Renfe deja a veces de renovarla durante minutos mientras el tren sigue) o es de
+    // relleno (a veces, la del origen del viaje). Se queda donde estaba.
+    if (gps && last && v.farFromStop) {
+      stay();
+      continue;
+    }
     if (gps && last && isEcho(track, point, now)) {
       stay();
       continue;
     }
-    if (gps && last && isSpike(last, point, v.mode) && !(pending && now - pending.since > HOLD_MAX_MS)) {
+    const heading = gps && last ? headingOf(track) : null;
+    const odd = gps && last && (isSpike(last, point, v.mode) || isBackJump(last, point, heading));
+    if (odd && !(pending && now - pending.since > HOLD_MAX_MS)) {
       const from = pending?.point;
-      if (!from || isSpike(from, point, v.mode) || distanceKm(from.lat, from.lon, point.lat, point.lon) >= MIN_JUMP_KM) {
+      // El punto sigue desde el retenido si se puede llegar a él desde allí y le queda más cerca que
+      // donde estaba el tren; si vuelve hacia allí, el retenido era un punto suelto.
+      const follows = from && !isSpike(from, point, v.mode)
+        && distanceKm(from.lat, from.lon, point.lat, point.lon) < Math.min(MIN_JUMP_KM, distanceKm(last.lat, last.lon, point.lat, point.lon));
+      if (!follows) {
         held.set(track, { point, since: pending?.since ?? now });
         stay();
         continue;
       }
+      // El salto era de verdad. Hacia delante, la fuente se estaba poniendo al día: se unen. Hacia
+      // atrás, o desde la primera posición del viaje con horas de GPS que lo hacen imposible, lo que
+      // estaba mal era lo de antes (Renfe da a veces, al empezar un viaje, la posición de otra
+      // estación: un C3 «en Atocha» y 20 s después en El Casar, a 10 km): el recorrido empieza ahí.
+      const firstWrong = track.length === 1 && last.fix && from.fix && isSpike(last, from, v.mode);
+      if (firstWrong || isBackJump(last, from, heading)) track.length = 0;
       track.push(from);
     }
     // Lo anterior a un salto imposible era otro viaje: no se une con una recta en el mapa ni se
     // compara su retraso con el de ahora (daría un «el retraso sube N min de golpe» falso).
     if (last && isTeleport(last, point)) track.length = 0;
     // Sólo se añade un punto si algo cambia; así "detenido" se mide como tiempo sin puntos nuevos.
-    if (!track.length || last.lat !== v.lat || last.lon !== v.lon || last.delay !== v.delay) {
+    const tail = track.at(-1);
+    if (!tail || tail.lat !== v.lat || tail.lon !== v.lon || tail.delay !== v.delay) {
       track.push(point);
     } else {
-      last.seen = now;
+      tail.seen = now;
       // Misma posición con GPS nuevo: el tren sigue ahí de verdad. Si la hora no cambia, la fuente
       // está repitiendo la última posición conocida (un túnel) y se queda la de entonces.
-      if (v.fixTime && v.fixTime > (last.fix ?? 0)) last.fix = v.fixTime;
+      if (v.fixTime && v.fixTime > (tail.fix ?? 0)) tail.fix = v.fixTime;
     }
   }
   for (const [id, track] of tracks) {

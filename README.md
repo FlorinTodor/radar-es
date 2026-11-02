@@ -71,7 +71,7 @@ superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`]
                                   ▼
                    ┌──────────────── domain ──────────────┐
                    │ model.js · geo.js · tracking.js      │  puro: sin red, sin disco,
-                   │ kpis.js · tiles.js                   │  sin dependencias externas
+                   │ kpis.js · tiles.js · rail-match.js   │  sin dependencias externas
                    │ alerts/{rules,lifecycle}             │
                    └──────────────────────────────────────┘
                                   ▲ implementan los puertos
@@ -79,6 +79,7 @@ superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`]
                    │ sources/*        Renfe, FGC, Ouigo, DGT, SCT, AEMET, FIRMS…│
                    │ stations/        catálogo de estaciones de Renfe           │
                    │ network/, gtfs/, nap/   trazados de líneas desde el NAP    │
+                   │                         y red ferroviaria de Adif          │
                    │ persistence/     estado en memoria + histórico JSONL       │
                    │ events/          bus de eventos en proceso                 │
                    │ tiles/           teselas de IGN y EFFIS con copia en disco │
@@ -146,6 +147,7 @@ Todas son públicas. Solo las marcadas con 🔑 necesitan `NAP_API_KEY`, una cla
 | 🔑 ~70 horarios de autobús del NAP (`autobuses-nap.js`) | **posición estimada** de Avanza, Sagalés, Moventis, Grupo Ruiz, AISA, Vectalia, urbanos de ciudades, interurbanos autonómicos e insulares y otras empresas | 60 s |
 | EMT Madrid (GTFS-RT del NAP) | avisos de servicio | 5 min |
 | 🔑 GTFS de 16 redes en el NAP + líneas del tranvía de Tenerife (Cabildo de Tenerife) | trazados de Cercanías, metros, tranvías, FGC y Euskotren | 24 h |
+| Adif, «Tramos en servicio» ([datos abiertos de Adif en ArcGIS](https://www.arcgis.com/home/item.html?id=4ec7c0fb3cab42b0b488d65e65eeb7aa)) | vías en servicio, para dibujar por la vía el recorrido de AVE, Larga y Media Distancia y lo que les queda | 30 días |
 | DGT DATEX II v3.7 (`nap.dgt.es`) | ~1.000 incidencias de tráfico | 5 min |
 | Servei Català de Trànsit (GML) | incidencias de carreteras catalanas | 5 min |
 | Tráfico Euskadi (API Trafikoa) | incidencias de carreteras vascas | 5 min |
@@ -161,6 +163,37 @@ El mapa base es de OpenFreeMap (datos de OpenStreetMap), sin clave.
 Las posiciones estimadas (`estimated: true`) se dibujan como un anillo hueco y **no cuentan para
 las alertas ni para los KPIs**.
 
+### Qué recorrido se ve de cada tren
+
+Al pulsar un tren, el mapa dibuja dos líneas: la **discontinua**, por donde ha pasado en los últimos
+45 minutos, y la **continua**, lo que le queda hasta su destino. No todas las redes las tienen
+completas: depende de lo que publica cada operador, y donde no hay datos públicos no se inventan.
+
+| Red | Recorrido reciente (discontinua) | Lo que le queda (continua) |
+|---|---|---|
+| Cercanías / Rodalies de Renfe | sus posiciones, por el trazado de su línea | por el trazado de su viaje, pasando por las paradas que le quedan |
+| AVE, Larga y Media Distancia | sus posiciones, por la vía (tramos de Adif) | por la vía hasta su destino, pasando por las paradas de su horario |
+| FGC | sus posiciones, por el trazado de su línea | por el trazado de su línea |
+| Metro Bilbao | sus posiciones tal y como llegan: Open Data Euskadi pide no alterar el contenido | por el trazado de su viaje |
+| Euskotren, metros y tranvías con posición estimada | la posición estimada, por su trazado | por su trazado, según su horario |
+| Ouigo | la posición estimada, en línea recta entre estaciones | no se dibuja |
+
+Lo que no se puede dibujar por falta de datos públicos:
+
+- **Ouigo** solo publica su horario, sin trazado: ni lo que le queda ni el recorrido por la vía.
+- **Iryo y los trenes de mercancías** no publican nada: no salen en el mapa.
+- **Adif** no publica las circulaciones ni el estado de la red (ver «Pendiente y conocido»).
+- **Trenes que no están en el horario publicado** (servicios especiales, números que Renfe no
+  incluye): sin paradas no se sabe lo que les queda.
+- **AVE internacionales mientras van por Francia**: la red de Adif solo cubre España.
+- **Cercanías cuyo trazado publicado no coincide con su viaje** (algún C5 de Sevilla, Rodalies a
+  Reus, Bilbao la Concordia–Karrantza): el trazado que publica Renfe no pasa por el tren o por sus
+  paradas, y el dibujo se corta donde se aparta en vez de ir por donde no pasa el tren.
+- **Metro Bilbao** no publica la línea de cada tren, solo «MB».
+- **Trenes sin moverse**: si el tren está parado o el operador repite la misma posición, no hay
+  recorrido reciente que dibujar. Renfe repite a veces la misma posición durante mucho rato: la
+  mañana del 2-nov, 85 de 421 viajes de Cercanías pasaron más de 30 minutos con la misma.
+
 ## API
 
 | Ruta | Devuelve |
@@ -171,7 +204,7 @@ las alertas ni para los KPIs**.
 | `GET /api/events?category=carretera` | incidencias (`ferroviario`, `carretera`, `meteo`, `incendio`, `sismo`) |
 | `GET /api/alerts` | alertas activas y resueltas |
 | `GET /api/tracks/:id` | recorrido de un vehículo en los últimos 45 min |
-| `GET /api/ahead/:id` | lo que le queda a un vehículo con posición estimada hasta su destino |
+| `GET /api/ahead/:id` | lo que le queda a un vehículo hasta su destino (posiciones estimadas y AVE, Larga y Media Distancia) |
 | `GET /api/stations/:código` | ficha de una estación (trenes, avisos, líneas, conexiones, datos y foto) |
 | `GET /api/lines` | trazados de las líneas (GeoJSON) |
 | `GET /api/trails?min=15` | estela de cada tren en los últimos minutos (GeoJSON, máx. 45) |
@@ -225,8 +258,15 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Recorrido de los últimos 45 minutos del tren seleccionado y, como capa opcional, la estela de
   todos los trenes.
 - En Cercanías, metro y tranvía, el recorrido va pegado a la vía de su línea, con sus curvas.
-- Lo que le queda a cada tren hasta su destino, dibujado por su vía: en Cercanías y Metro Bilbao
-  con el trazado de su viaje, y en metros y tranvías estimados con su horario.
+- En Alta Velocidad, Larga y Media Distancia, el recorrido también va por la vía, con la red
+  ferroviaria que publica Adif: aunque el tren pase un rato sin dar su posición (túneles, zonas sin
+  cobertura), la línea ya no corta por el mar ni por el monte.
+- Lo que le queda a cada tren hasta su destino, dibujado por su vía y pasando por las paradas que le
+  quedan: en Cercanías por el trazado de su viaje (el que publica Renfe no siempre es el del viaje:
+  donde se aparta, el dibujo se corta en vez de ir por donde no pasa el tren); en Alta Velocidad,
+  Larga y Media Distancia por la red de Adif; en Metro Bilbao con el trazado de su viaje, en FGC con
+  el de su línea y en metros y tranvías estimados con su horario. Comprobado con todos los viajes de
+  sus horarios.
 - Flecha de hacia dónde va cada vehículo al acercar el mapa, por su vía cuando se conoce su
   recorrido.
 - En Cercanías, el origen, el destino y la próxima parada salen de las paradas de cada viaje: ni el
@@ -237,6 +277,18 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Cuando el operador pasa el número de un tren a otro convoy, lo anterior cuenta como otro viaje:
   ni se une con una recta en el mapa ni da alertas de retraso falsas. Los túneles no cuentan como
   salto.
+- El recorrido de los trenes de Renfe ya no da saltos atrás: una posición que vuelve por detrás del
+  tren se descarta si el siguiente dato sigue hacia delante, y si un viaje empieza con la posición de
+  otra estación, el recorrido empieza donde está de verdad.
+- Si Renfe da un tren de Cercanías parado en una estación pero con una posición a kilómetros (a veces
+  deja de actualizarla durante minutos), la ficha lo avisa y el tren no salta en el mapa. En Alta
+  Velocidad, Larga y Media Distancia ese «parado» lejos de la estación es que ya ha salido: se muestra
+  en camino, con su próxima parada.
+- FGC con nombres de estación en el recorrido, la parada y la próxima, en vez de sus códigos, y con
+  lo que le queda a cada tren hasta su destino, por el trazado de su línea (también los refuerzos,
+  como el R5R, y la cremallera de Montserrat).
+- Apartado «Qué recorrido se ve de cada tren» en este README: qué líneas se dibujan en cada red y
+  cuáles no se pueden dibujar por falta de datos públicos.
 - Lista y buscador con todos los trenes.
 
 **Estaciones**
@@ -334,16 +386,36 @@ Ninguna por ahora.
 
 ## Posibles mejoras
 
-- Recorrido pegado a la vía también en AVE, Larga y Media Distancia, con los
-  [tramos en servicio de Adif](https://www.arcgis.com/home/item.html?id=4ec7c0fb3cab42b0b488d65e65eeb7aa)
-  (red vectorial con licencia abierta, que cita a Adif). Cada tramo une dos estaciones con los
-  mismos códigos que usa Renfe.
 - Botón en el mapa para cambiar entre español e inglés.
 - Más fuentes: TMB y EMT Madrid (con clave gratuita) y posiciones estimadas para las redes que
   sólo publican tiempos de llegada (ver *Pendiente y conocido*).
 - Estadísticas de puntualidad por línea y franja horaria.
 - Pasos a nivel en el mapa.
 - Estado oficial de la red de Adif, si llega a publicarse con licencia de reutilización.
+- Ouigo por la vía: su recorrido y lo que le queda por la red de Adif, pasando por las paradas de su
+  horario, como ya se hace con AVE, Larga y Media Distancia (ahora va en línea recta entre estaciones).
+- Renfe AV/LD/MD: algunos números de tren salen dos veces en el tiempo real con posiciones a decenas
+  de kilómetros (tres regionales la mañana del 2-nov); quedarse con la que sigue al tren.
+- Capa discreta con las vías subterráneas de FGC y de los metros: el mapa base oscuro no dibuja las
+  vías en túnel, y el recorrido parece pasar por encima de los edificios.
+- Obras en carretera con su fecha de fin y su última actualización. Ahora solo se muestra cuándo
+  empezaron, pero el DATEX II de la DGT trae más:
+  - la fecha prevista de fin (409 de las 496 obras del 2-nov);
+  - la fecha de la última actualización de cada obra (algunas no se han actualizado desde 2023 o
+    2024).
+
+  Mostrar las dos en la ficha y marcar o esconder las que lleven mucho sin actualizarse o hayan pasado
+  su fecha de fin. Son datos oficiales de la DGT, pero que una obra siga activa depende de que quien la
+  gestiona la dé por terminada.
+- Aviones y aeropuertos. Para los aviones hace falta una fuente de posiciones con licencia de
+  reutilización: adsb.lol se quitó en su día, y otras, como OpenSky Network, son solo para uso no
+  comercial (revisar sus condiciones). Los aeropuertos, con datos abiertos: su ubicación y, si se
+  publica, su estado.
+- Balizas V16 conectadas. La DGT ya las publica en el mismo DATEX II, con la fuente «DGT3.0» (60
+  activas la mañana del 2-nov), y el radar ya las muestra, pero como «Vehículo detenido u obstáculo».
+  Pendiente:
+  - identificarlas como baliza V16, con icono propio, filtro y cuánto llevan encendidas;
+  - confirmar con la DGT la licencia del conjunto (consulta pendiente a nap@dgt.es).
 - Accesibilidad de las estaciones con más detalle:
   - en Madrid, qué accesos y andenes son accesibles, con los datos abiertos del
     [Consorcio de Transportes](https://www.crtm.es/licencia-de-uso/), cuando se revise su calidad;

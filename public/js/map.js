@@ -11,6 +11,12 @@ const MAX_ANIM_DEG = 0.2; // saltos mayores (cambio de servicio, GPS erróneo) n
 const EMPTY = { type: 'FeatureCollection', features: [] };
 // Fuentes cuyos vehículos traen su trazado (`shape`) y el final de su viaje (`end`) → red del catálogo de trazados.
 const ROUTE_NETWORK = { 'renfe-cercanias': 'Cercanías Renfe', 'metro-bilbao': 'Metro Bilbao' };
+// Fuentes que no dicen el trazado de su viaje, pero sí su línea y dónde acaba: vale el trazado de su
+// línea que pase por el tren y por su final (en FGC, las líneas con ramales tienen varios).
+const LINE_NETWORK = { fgc: 'FGC' };
+// Posiciones reales cuya licencia pide no alterar el contenido (Open Data Euskadi): su recorrido reciente
+// se dibuja con las posiciones tal y como llegan, sin llevarlas al trazado.
+const AS_PUBLISHED = new Set(['metro-bilbao']);
 const SEV_COLORS = { 'muy alta': STATUS.critical, alta: STATUS.serious, media: STATUS.warning, baja: STATUS.none };
 const IS_EST = ['==', ['get', 'est'], 1];
 const NOT_EST = ['!=', ['get', 'est'], 1];
@@ -65,6 +71,7 @@ const ATTRIBUTION = [
   'Powered by <a href="https://www.crtm.es/" target="_blank" rel="noopener">CRTM</a>',
   'Powered by <a href="https://www.tram.cat/" target="_blank" rel="noopener">TRAM Barcelona</a>',
   'Origen de los datos: Renfe Operadora',
+  '© Administrador de infraestructuras ferroviarias',
   `Obra derivada de Catálogo de terremotos IGN ${today} · CC-BY 4.0 <a href="https://www.ign.es" target="_blank" rel="noopener">ign.es</a>`,
   '© AEMET',
   'Fuente: DGT',
@@ -108,6 +115,23 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
   let lineFeatures = [];  // trazados de las líneas: el recorrido del tren seleccionado se pega a la suya
   let byShape = new Map(); // «red|shape_id» → trazado, para lo que le queda y la flecha de cada tren
   const shapeOf = (v) => (ROUTE_NETWORK[v.source] && v.shape && v.end ? byShape.get(`${ROUTE_NETWORK[v.source]}|${v.shape}`) : undefined);
+  const routeShapeOf = (v) => {
+    const trip = shapeOf(v);
+    if (trip || !LINE_NETWORK[v.source] || !v.line || !v.end) return trip;
+    const network = lineFeatures.filter((f) => f.properties.network === LINE_NETWORK[v.source] && f.geometry?.type === 'LineString');
+    const fits = (f) => pathBetween(f.geometry.coordinates, [v.lon, v.lat], v.end);
+    // Su línea; si no, la línea de la que es refuerzo (R5R → R5); si no, cualquiera de su red que pase
+    // por el tren y por su final (la cremallera de Montserrat sale en las posiciones como M1/M2 y su
+    // trazado es MM). Entre el tren y su final, todas las que pasan por los dos van por la misma vía.
+    return network.find((f) => f.properties.line === v.line && fits(f))
+      ?? network.find((f) => v.line.startsWith(f.properties.line) && fits(f))
+      ?? network.find(fits);
+  };
+  /** Lo que le queda hasta el final de su viaje, por su vía; null si no se sabe. */
+  const routeAhead = (v) => {
+    const shape = routeShapeOf(v);
+    return shape ? pathBetween(shape.geometry.coordinates, [v.lon, v.lat], v.end) : null;
+  };
   const card = createDetailCard(map.getContainer().parentElement, (id) => onVehicleClick(id));
   let loaded = false;
   let modeFilter = null;
@@ -484,15 +508,15 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
   }
 
   /**
-   * Recorrido que le queda hasta el final de su viaje. Cercanías y Metro Bilbao: el trazado de su viaje
-   * entre donde está y donde acaba, aquí mismo. Posiciones estimadas (metro, tranvía…): lo calcula el
-   * servidor con su horario.
+   * Recorrido que le queda hasta el final de su viaje. Metro Bilbao y FGC: el trazado de su viaje o de
+   * su línea entre donde está y donde acaba, aquí mismo. Cercanías de Renfe (pasando por sus paradas,
+   * porque su trazado no siempre es el de su viaje) y posiciones estimadas (con su horario): lo
+   * calcula el servidor.
    */
   const setRoute = (coords) => map.getSource('route')?.setData(coords?.length > 1 ? { type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} } : EMPTY);
   function drawRoute(v) {
-    if (v.estimated) return; // llega con loadTrack
-    const shape = shapeOf(v);
-    setRoute(shape ? pathBetween(shape.geometry.coordinates, [v.lon, v.lat], v.end) : null);
+    if (v.estimated || v.ahead) return; // lo calcula el servidor: llega con loadTrack
+    setRoute(routeAhead(v));
   }
 
   function loadTrack(v) {
@@ -507,7 +531,11 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
       .then((r) => (r.ok ? r.json() : []))
       .then((track) => {
         if (selectedId !== v.id) return;
-        const own = v.line ? lineFeatures.filter((f) => f.properties.line === v.line && f.properties.mode === v.mode) : [];
+        // Los trazados de su línea y el de su propio viaje, salvo si su licencia pide no alterar el contenido.
+        const asPublished = AS_PUBLISHED.has(v.source);
+        const own = v.line && !asPublished ? lineFeatures.filter((f) => f.properties.line === v.line && f.properties.mode === v.mode) : [];
+        const trip = asPublished ? null : routeShapeOf(v);
+        if (trip && !own.includes(trip)) own.push(trip);
         const parts = matchTrack(trackParts(track), own).filter((part) => part.length > 1);
         map.getSource('track').setData(parts.length ? { type: 'Feature', geometry: { type: 'MultiLineString', coordinates: parts }, properties: {} } : EMPTY);
       })
@@ -549,7 +577,8 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
         const to = [v.lon, v.lat];
         const prev = anims.get(v.id);
         // Con su trazado, la flecha va por la vía hacia donde acaba; si no, la del servidor (su movimiento).
-        const shape = shapeOf(v);
+        // Si lo que le queda lo calcula el servidor (Cercanías, con sus paradas), su flecha también.
+        const shape = v.ahead ? null : routeShapeOf(v);
         const heading = (shape && headingAlong(shape.geometry.coordinates, to, v.end)) ?? v.heading;
         const props = {
           id: v.id, mode: v.mode, cls: v.cls, line: v.line ?? '', alert: alertIds.has(v.id) ? 1 : 0, est: v.estimated ? 1 : 0, picto: pictoFor(v.mode),
@@ -650,7 +679,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     /** Selecciona un tren: anillo, recorrido reciente y ficha. La × de la ficha sólo la cierra. */
     showVehicle(v) {
       setSelected(v.id);
-      card.show(vehicleDetail(v));
+      card.show(vehicleDetail(v, !!routeAhead(v)));
       drawRoute(v);
       loadTrack(v);
     },
@@ -658,7 +687,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     /** Actualiza la ficha y, cada 15 s, el recorrido del tren seleccionado cuando llegan datos. */
     refreshVehicle(v) {
       if (selectedId !== v.id) return;
-      if (card.open) card.show(vehicleDetail(v));
+      if (card.open) card.show(vehicleDetail(v, !!routeAhead(v)));
       drawRoute(v);
       if (Date.now() - trackFetchedAt > 15_000) loadTrack(v);
     },
@@ -815,7 +844,8 @@ function stationDetail(st, { stopped, arriving, notices, lines, connections = []
       Pulsa un tren para ver su ficha.</div></div>`;
 }
 
-function vehicleDetail(v) {
+/** @param {object} v  @param {boolean} [onRoute] se dibuja lo que le queda hasta su final */
+function vehicleDetail(v, onRoute = false) {
   // La vía es la de una estación (en la que está parado o a la que llega), nunca la del trayecto:
   // va pegada a esa estación para que no se lea como la vía por la que circula.
   const via = v.platform ? ` · vía ${v.platform}` : '';
@@ -824,6 +854,8 @@ function vehicleDetail(v) {
     (v.origin || v.destination) && ['Recorrido', `${v.origin ?? '?'} → ${v.destination ?? '?'}`],
     ['Retraso', fmtDelay(v)],
     v.current && [v.stopped ? 'Parado en' : v.mode === 'bus' ? 'Última parada' : 'Última estación', `${v.current}${v.stopped ? via : ''}`],
+    // El operador lo da parado en una estación lejos de su posición: la del mapa no está al día.
+    v.farFromStop && v.current && ['Posición', `${v.source?.startsWith('renfe') ? 'Renfe' : 'El operador'} la da a ${v.farFromStop.toLocaleString('es-ES', { maximumFractionDigits: 1 })} km de ${v.current}: puede que no esté al día`],
     v.next && ['Próxima', `${v.next}${v.nextEta ? ` (${fmtLocalHour(v.nextEta)})` : v.nextInMinutes !== undefined && v.nextInMinutes !== null ? ` (en ${v.nextInMinutes} min)` : ''}${v.stopped ? '' : via}`],
     v.area && ['Núcleo', v.area],
     v.rollingStock && ['Material', v.rollingStock],
@@ -831,7 +863,7 @@ function vehicleDetail(v) {
     ['Fuente', v.source],
   ].filter(Boolean);
   const aheadText = (how) => `La <strong>línea azul clara continua</strong> (con borde oscuro) es lo que le queda hasta ${esc(v.destination ?? 'su destino')}${how}. `;
-  const ahead = (v.shape && v.end) || v.ahead ? aheadText('') : '';
+  const ahead = onRoute || v.ahead ? aheadText('') : '';
   const note = !v.estimated
     ? `${ahead}La <strong>línea azul discontinua</strong> es el recorrido de este tren en los últimos 45 min (desde que el radar lo sigue). `
       + 'La × sólo cierra esta ficha; pulsa en una zona vacía del mapa para quitar el recorrido y «Ver todo» para volver a verlo todo.'
