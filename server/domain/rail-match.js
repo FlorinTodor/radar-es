@@ -78,6 +78,34 @@ export function gaugeFactors(gauge) {
   return factors;
 }
 
+/**
+ * Por cuánto se multiplican los topes de la búsqueda de caminos, que van en coste: el mayor de los anchos
+ * por los que el tren puede pasar. La métrica no cuenta: no se une con la red general, así que ningún
+ * camino de un tren de la red general va por ella (contándola, los topes de todos se triplicaban).
+ * @param {number[]} [factors]
+ */
+export function boundFactor(factors) {
+  return Math.max(1, ...(factors ?? []).filter((_, g) => g !== GAUGE.metric));
+}
+
+// Coste por ancho para un tren que va por la red métrica (la antigua Feve). Renfe da a sus regionales el
+// mismo producto que a los de ancho ibérico: se sabe que van por ella porque su posición cae en la vía
+// métrica (ver onMetric). La vía de ancho desconocido puede ser de las dos redes.
+const METRIC_FACTORS = [1, WRONG_GAUGE, WRONG_GAUGE, WRONG_GAUGE, 1];
+
+/** ¿La mayoría de estas posiciones ([lon, lat]) caen en vía métrica? Entonces el tren va por la red métrica. */
+function onMetric(net, points) {
+  let metric = 0;
+  let rail = 0;
+  for (const [lon, lat] of points) {
+    const site = nearestOnRail(net, lon, lat, NEAR_M);
+    if (!site) continue;
+    rail++;
+    if (net.gauge[site.edge] === GAUGE.metric) metric++;
+  }
+  return rail > 0 && metric * 2 > rail;
+}
+
 /** ¿Pueden dos tramos de estos anchos tocarse en un nudo? La vía métrica sólo con la métrica. */
 const joinable = (g1, g2) => (g1 === GAUGE.metric) === (g2 === GAUGE.metric) || !g1 || !g2;
 
@@ -458,26 +486,6 @@ function heap() {
 }
 
 /**
- * Camino más corto por la vía desde el sitio `a` hasta el primero que alcance de los sitios `targets`
- * (cada uno, un punto de un tramo), si no mide más de `capM` (ver explore).
- * @param {RailNetwork} net
- * @param {{ edge: number, m: number }} a
- * @param {Array<{ edge: number, m: number }>} targets
- * @param {number} capM
- * @param {number[]} [factors]
- * @returns {{ length: number, cost: number, path: Array<[number, number]>, target: object } | null}
- */
-function route(net, a, targets, capM, factors) {
-  const bound = capM * Math.max(1, ...(factors ?? [])); // en coste: la longitud se comprueba al final
-  const { goals, via } = explore(net, a, targets, bound, factors, false);
-  let i = -1;
-  goals.forEach((g, j) => { if (g && (i < 0 || g.cost < goals[i].cost)) i = j; });
-  if (i < 0 || !(goals[i].cost <= bound)) return null;
-  const { length, path } = assemble(net, a, targets[i], goals[i], via);
-  return length <= capM ? { length, cost: goals[i].cost, path, target: targets[i] } : null;
-}
-
-/**
  * Dijkstra entre los nudos desde el sitio `a`: empieza por los dos extremos de su tramo y llega a cada
  * destino al entrar por un extremo en su tramo (o directamente, si está en el mismo tramo). El coste de
  * cada tramo es su longitud por `factors[ancho del tramo]` (1 si no se da): así se evita sin prohibirla
@@ -569,18 +577,25 @@ function assemble(net, a, target, goal, via) {
 
 /**
  * Puntos de la red junto a una estación (o una posición): en cada tramo a menos de `maxM`, su punto más
- * cercano; sólo los que están a menos de `spreadM` más que el más cercano de todos (el primero).
+ * cercano; sólo los que están a menos de `spreadM` más que el más cercano de todos (el primero). Con
+ * `factors` (coste por ancho, ver gaugeFactors), sólo los de las vías más baratas para el tren que haya
+ * a menos de `maxM`: en una estación con vías de los dos anchos o con la antigua Feve al lado, un AVE no
+ * busca camino hacia las de ancho ibérico ni un tren de la red general hacia las métricas, a las que no
+ * puede llegar (buscar un destino inalcanzable recorre la red hasta el tope).
  * @returns {Array<{ edge: number, m: number, lon: number, lat: number, d: number }>}
  */
-export function sitesNear(net, lon, lat, maxM = STOP_M, spreadM = STOP_SPREAD_M) {
+export function sitesNear(net, lon, lat, maxM = STOP_M, spreadM = STOP_SPREAD_M, factors = null) {
   const byEdge = new Map();
   nearPieces(net.index, lon, lat, (g) => {
     const p = project(net, g, lon, lat);
     const e = net.lineOf[g];
     if (p.d <= maxM && !(byEdge.get(e)?.d <= p.d)) byEdge.set(e, { g, ...p });
   });
-  const near = Math.min(...[...byEdge.values()].map((h) => h.d));
-  return [...byEdge.values()].filter((h) => h.d <= near + spreadM).sort((x, y) => x.d - y.d).map((h) => siteAt(net, h.g, h.t, h.d));
+  const cost = (e) => factors?.[net.gauge[e]] ?? 1;
+  const cheapest = Math.min(...[...byEdge.keys()].map(cost));
+  const usable = [...byEdge].filter(([e]) => cost(e) === cheapest).map(([, h]) => h);
+  const near = Math.min(...usable.map((h) => h.d));
+  return usable.filter((h) => h.d <= near + spreadM).sort((x, y) => x.d - y.d).map((h) => siteAt(net, h.g, h.t, h.d));
 }
 
 /**
@@ -599,24 +614,27 @@ export function sitesNear(net, lon, lat, maxM = STOP_M, spreadM = STOP_SPREAD_M)
 export function routeAhead(net, at, stops, { factors } = {}) {
   const start = net && at ? nearestOnRail(net, at[0], at[1], NEAR_M) : null;
   if (!start) return null;
+  if (net.gauge[start.edge] === GAUGE.metric) factors = METRIC_FACTORS;
   const layers = [{ point: [start.lon, start.lat], sites: [start] }]; // el tren y, por parada, las vías de la estación
   for (const [lon, lat] of stops ?? []) {
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
-    const sites = sitesNear(net, lon, lat);
+    const sites = sitesNear(net, lon, lat, STOP_M, STOP_SPREAD_M, factors);
     if (sites.length) layers.push({ point: [lon, lat], sites });
   }
   if (layers.length < 2) return null;
   const capOf = (k) => LEG_DETOUR * meters(...layers[k - 1].point, ...layers[k].point) + LEG_EXTRA_M;
-  const maxFactor = Math.max(1, ...(factors ?? []));
+  const maxFactor = boundFactor(factors);
   let costs = [0]; // coste mínimo hasta cada vía de la capa anterior
   const back = []; // back[k - 1][j]: vía de la capa k - 1 desde la que se llega mejor a la vía j de la capa k
+  const found = []; // found[k - 1][i]: la búsqueda desde la vía i de la capa k - 1, para dibujar el camino elegido
   for (let k = 1; k < layers.length; k++) {
     const next = layers[k].sites.map(() => Infinity);
     const from = layers[k].sites.map(() => -1);
+    const searches = [];
     layers[k - 1].sites.forEach((u, i) => {
       if (!Number.isFinite(costs[i])) return;
-      const { goals } = explore(net, u, layers[k].sites, capOf(k) * maxFactor, factors, true);
-      goals.forEach((g, j) => {
+      searches[i] = explore(net, u, layers[k].sites, capOf(k) * maxFactor, factors, true);
+      searches[i].goals.forEach((g, j) => {
         if (g && costs[i] + g.cost < next[j]) {
           next[j] = costs[i] + g.cost;
           from[j] = i;
@@ -626,14 +644,17 @@ export function routeAhead(net, at, stops, { factors } = {}) {
     if (!next.some(Number.isFinite)) return null;
     costs = next;
     back.push(from);
+    found.push(searches);
   }
   const chosen = [];
   chosen[layers.length - 1] = costs.indexOf(Math.min(...costs));
   for (let k = layers.length - 1; k >= 1; k--) chosen[k - 1] = back[k - 1][chosen[k]];
   const path = [layers[0].point];
   for (let k = 1; k < layers.length; k++) {
-    const leg = route(net, layers[k - 1].sites[chosen[k - 1]], [layers[k].sites[chosen[k]]], capOf(k), factors);
-    if (!leg) return null; // el coste no mide la longitud: más largo que el tope
+    // El camino elegido ya lo encontró la búsqueda de la programación dinámica: se dibuja sin repetirla.
+    const { goals, via } = found[k - 1][chosen[k - 1]];
+    const leg = assemble(net, layers[k - 1].sites[chosen[k - 1]], layers[k].sites[chosen[k]], goals[chosen[k]], via);
+    if (leg.length > capOf(k)) return null; // el coste no mide la longitud: más largo que el tope
     append(path, leg.path);
   }
   return path.length > 1 ? path : null;
@@ -682,9 +703,10 @@ export function matchToRail(net, track, { nearM = NEAR_M, factors } = {}) {
 
 /** Un trozo de recorrido sin huecos de más de GAP_KM (ver matchToRail). */
 function matchGroup(net, positions, nearM, factors) {
-  const maxFactor = Math.max(1, ...(factors ?? []));
-  // Por posición, sus vías cercanas; fuera de la red, ninguna (se queda donde está).
-  const layers = positions.map((p) => (net ? sitesNear(net, p.lon, p.lat, nearM, SNAP_SLACK_M) : []));
+  if (net && onMetric(net, positions.map((p) => [p.lon, p.lat]))) factors = METRIC_FACTORS;
+  const maxFactor = boundFactor(factors);
+  // Por posición, sus vías cercanas (las del ancho más barato para el tren); fuera de la red, ninguna (se queda donde está).
+  const layers = positions.map((p) => (net ? sitesNear(net, p.lon, p.lat, nearM, SNAP_SLACK_M, factors) : []));
   const capOf = (k, a, b) => {
     const straight = meters(a.lon, a.lat, b.lon, b.lat);
     const ms = positions[k].t - positions[k - 1].t;

@@ -1,11 +1,13 @@
 // Ferrocarrils de la Generalitat de Catalunya: posición de los trenes en servicio.
 // Portal de datos abiertos de FGC (Opendatasoft), sin clave.
 import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
+import { madridLocalToMs } from './parse.js';
 
 const BASE = 'https://dadesobertes.fgc.cat/api/explore/v2.1/catalog/datasets/posicionament-dels-trens/records?limit=100';
 // Horario GTFS de FGC en el Punto de Acceso Nacional: el mismo fichero del que salen los trazados de
 // sus líneas. Sus stop_id son los códigos que da la posición de cada tren ("PE", "AL"…).
 const FGC_GTFS = 1571;
+const FGC_DATASET = 1373; // su conjunto de datos en el NAP: de él sale la fecha de actualización
 const DAY_MS = 24 * 3600_000;
 // La copia en disco la renueva cada semana el catálogo de líneas: aquí sólo se lee y, si falta, se descarga.
 const GTFS_MAX_AGE_MS = 30 * DAY_MS;
@@ -30,11 +32,15 @@ export function createFgcSource({ http, nap, log }) {
   // responde), se muestran los códigos y no se sabe dónde acaba cada tren.
   let stations = null;
   let namesAt = 0;
+  // Fecha de actualización del horario del NAP: su licencia pide conservarla y mostrarla con lo que sale de él.
+  let gtfsUpdated = null;
   async function loadNames() {
     if (!nap?.enabled || Date.now() - namesAt < DAY_MS) return;
     namesAt = Date.now(); // aunque falle, no reintentar en cada lectura
     try {
       stations = fgcStations((await openGtfs(await nap.gtfs(FGC_GTFS, GTFS_MAX_AGE_MS), ['stops.txt']))['stops.txt']);
+      const updated = nap.updatedAt ? await nap.updatedAt(FGC_DATASET, FGC_GTFS).catch(() => null) : null;
+      gtfsUpdated = madridLocalToMs(updated) ?? gtfsUpdated;
     } catch (err) {
       log?.warn(`[fgc] nombres de estación: ${err.message}`);
     }
@@ -47,7 +53,8 @@ export function createFgcSource({ http, nap, log }) {
     kind: 'vehicles',
     interval: 30_000,
     url: BASE,
-    license: 'Ferrocarrils de la Generalitat de Catalunya (CC BY 4.0), con los nombres de estación de su horario GTFS. Formato adaptado',
+    license: 'Ferrocarrils de la Generalitat de Catalunya (CC BY 4.0). Formato adaptado. Nombres de estación y trazados de su '
+      + 'horario GTFS del Punto de Acceso Nacional: Powered by MITRAMS (dato explotado)',
     async fetch() {
       await loadNames();
       const vehicles = [];
@@ -84,7 +91,7 @@ export function createFgcSource({ http, nap, log }) {
         }
         if ((d.results?.length ?? 0) < 100) break;
       }
-      return { vehicles };
+      return { vehicles, ...(stations && gtfsUpdated ? { datasetUpdated: gtfsUpdated } : {}) };
     },
   };
 }

@@ -49,3 +49,15 @@ test('un registro con las columnas descolocadas (sin unidad, id ni línea) no es
   const { vehicles } = await source.fetch();
   assert.deepEqual(vehicles.map((v) => v.id), ['fgc:1c2cc4fd0375']);
 });
+
+test('con los nombres del horario del NAP, la fecha de actualización de ese horario (su licencia la pide)', async () => {
+  const nap = {
+    enabled: true,
+    gtfs: async () => zipSync({ 'stops.txt': strToU8(STOPS) }),
+    updatedAt: async (dataset, fichero) => (dataset === 1373 && fichero === 1571 ? '2026-10-28T09:15:00' : null),
+  };
+  const result = await createFgcSource({ http, nap }).fetch();
+  assert.equal(new Date(result.datasetUpdated).toISOString(), '2026-10-28T08:15:00.000Z');
+  const sinFecha = await createFgcSource({ http, nap: { ...nap, updatedAt: async () => { throw new Error('NAP caído'); } } }).fetch();
+  assert.equal(sinFecha.datasetUpdated, undefined);
+});

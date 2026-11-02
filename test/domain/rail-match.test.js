@@ -3,7 +3,7 @@
 // las que caen en mitad de un tramo), no da rodeos imposibles y deja tal cual lo que está lejos de la vía.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GAUGE, buildRailNetwork, gaugeFactors, matchToRail, meters, nearestOnRail, routeAhead } from '../../server/domain/rail-match.js';
+import { GAUGE, boundFactor, buildRailNetwork, gaugeFactors, matchToRail, meters, nearestOnRail, routeAhead, sitesNear } from '../../server/domain/rail-match.js';
 
 const KX = 111_320 * Math.cos((40 * Math.PI) / 180);
 const KY = 110_540;
@@ -176,4 +176,35 @@ test('lo que le queda: la vía de cada estación se elige mirando las paradas si
   assert.ok(!near(path, at(O, 5000, 0), 500), 'no entra en la vía que acaba en X');
   const len = path.slice(1).reduce((sum, p, i) => sum + meters(...path[i], ...p), 0);
   assert.ok(Math.abs(len - 7000) < 50, `sin volver atrás: ${len.toFixed(0)} m`);
+});
+
+test('los topes de la búsqueda no cuentan la vía métrica, a la que un tren de la red general no llega', () => {
+  assert.equal(boundFactor(gaugeFactors(null)), 1, 'un Alvia puede ir por cualquier ancho de la red general');
+  assert.equal(boundFactor(gaugeFactors('standard')), 3, 'un AVE, por la ibérica sólo si no hay otra');
+  assert.equal(boundFactor(undefined), 1);
+});
+
+test('junto a una estación con vías de varios anchos, cada tren busca sólo las suyas', () => {
+  const O = [-3.8, 43.46];
+  const lines = [[at(O, -2000, 0), at(O, 2000, 0)], [at(O, -2000, 40), at(O, 2000, 40)], [at(O, -2000, 80), at(O, 2000, 80)]];
+  const red = buildRailNetwork(lines, { gauges: [GAUGE.metric, GAUGE.iberian, GAUGE.standard] });
+  const gauge = (s) => red.gauge[s.edge];
+  const estacion = at(O, 0, 10);
+  assert.equal(sitesNear(red, ...estacion).length, 3, 'sin decir el tren, todas');
+  assert.deepEqual(sitesNear(red, ...estacion, 600, 100, gaugeFactors('iberian')).map(gauge), [GAUGE.iberian], 'un Regional: no la métrica ni la estándar');
+  assert.deepEqual(sitesNear(red, ...estacion, 600, 100, gaugeFactors('standard')).map(gauge), [GAUGE.standard]);
+  assert.deepEqual(sitesNear(red, ...estacion, 600, 100, gaugeFactors(null)).map(gauge).sort(), [GAUGE.iberian, GAUGE.standard].sort());
+});
+
+test('un regional de la antigua Feve (mismo producto que los de ancho ibérico) va por la red métrica', () => {
+  // Estación compartida: la vía ibérica pasa a 30 m de la métrica; el tren va por la métrica hasta su destino.
+  const O = [-5.85, 43.36];
+  const lines = [[at(O, -5000, 0), at(O, 0, 0), at(O, 5000, 0)], [at(O, -5000, 30), at(O, 5000, 30)]];
+  const red = buildRailNetwork(lines, { gauges: [GAUGE.metric, GAUGE.iberian] });
+  const tren = at(O, -3000, 0);
+  const path = routeAhead(red, tren, [at(O, 0, 25), at(O, 4000, 0)], { factors: gaugeFactors('iberian') });
+  assert.ok(path, 'lo que le queda se dibuja');
+  assert.ok(path.every(([lon, lat]) => red.gauge[nearestOnRail(red, lon, lat, 10)?.edge] !== GAUGE.iberian), 'todo por la métrica');
+  const [line] = matchToRail(red, [pos(tren, 0), pos(at(O, -1000, 0), 2 * MIN), pos(at(O, 1000, 0), 4 * MIN)], { factors: gaugeFactors('iberian') });
+  assert.ok(line.length > 2 && maxOff(red, line) < 5, 'su recorrido, por la vía');
 });

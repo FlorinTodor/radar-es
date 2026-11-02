@@ -34,6 +34,10 @@ export function stoppedOutsideStation(ctx) {
   for (const v of vehicles) {
     const track = tracks.get(v.id);
     if (!track?.length) continue;
+    // La fuente lo da parado en una estación que queda lejos de su posición: la posición no está al día
+    // y el recorrido se queda en la última buena (ver domain/tracking.js). Que no se mueva no dice nada
+    // de dónde está el tren: no se avisa de que está detenido en plena vía.
+    if (v.farFromStop) continue;
 
     // Con hora de GPS podemos distinguir "parado" de "sin señal".
     if (v.fixTime && now - v.fixTime > th.staleFixMinutes * 60_000) {

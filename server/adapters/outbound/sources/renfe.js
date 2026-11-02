@@ -9,11 +9,15 @@ import { num } from './parse.js';
 import { distanceKm } from '../../../domain/geo.js';
 
 const GTFSRT = 'https://gtfsrt.renfe.com';
-// Una estación con andenes largos no pasa de unos cientos de metros: parado más lejos que esto de
-// la estación que dice Renfe, su posición no es la del tren (medido: 2,2 km en un C1 de Madrid con
-// la posición de T4 y «parado en Valdebebas»; 9,4 km en un Media Distancia «parado en Ferrol»).
+// Una estación con andenes largos no pasa de unos cientos de metros: «parado» más lejos que esto de
+// la estación que dice Renfe no es estar parado en ella. En Cercanías, la posición no es la del tren
+// (2,2 km en un C1 de Madrid con la posición de T4 y «parado en Valdebebas»); en AV/LD/MD, el tren ya
+// va de camino (un Media Distancia «parado en Ferrol» a 9,4 km, saliendo de Pontedeume): ver ldReading.
 const FAR_FROM_STOP_KM = 1.5;
 const ATTRIBUTION = 'Origen de los datos: Renfe Operadora (CC BY 4.0; datos modificados: normalizados, depurados y combinados con sus horarios)';
+// AV/LD/MD: además, el recorrido y lo que le queda se dibujan sobre la red de Adif (ver domain/rail-match.js).
+const ATTRIBUTION_LD = 'Origen de los datos: Renfe Operadora (CC BY 4.0; datos modificados: normalizados, depurados, '
+  + 'combinados con sus horarios y dibujados sobre la red de Adif, © Administrador de infraestructuras ferroviarias)';
 const TIMETABLE_TTL_MS = 24 * 3600_000;
 // Renfe vuelve a publicar el GTFS de AV/LD/MD cada día y el id de viaje lleva la fecha de su periodo
 // ("0515212026-10-31"): si el tiempo real ya usa los nuevos y la copia es de ayer, se descarga antes.
@@ -440,7 +444,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
     interval: 20_000,
     url: `${GTFSRT}/vehicle_positions_LD.json`,
     page: 'https://data.renfe.com/dataset/posicion-vehiculos-av-ld-md',
-    license: ATTRIBUTION,
+    license: ATTRIBUTION_LD,
     cleanPositions: true,
     onRailNetwork: true, // sus posiciones caen sobre los tramos de Adif: el recorrido se dibuja por la vía
     /**

@@ -32,7 +32,8 @@
  * @property {number|null} [fixTime]  Epoch ms del último GPS, si la fuente lo da.
  * @property {number} [farFromStop] Km entre la posición y la estación en la que la fuente dice que está parado, si pasa de 1,5: la posición no está al día (Cercanías).
  * @property {boolean} [estimated]    Posición calculada a partir del horario, no GPS. No cuenta para alertas ni KPIs.
- * @property {boolean} [ahead]        Posición estimada con recorrido hasta su final (/api/ahead/<id>).
+ * @property {boolean} [ahead]        Lo que le queda hasta su final lo calcula el servidor (/api/ahead/<id>): posiciones
+ *   estimadas (con su horario), Cercanías (por las paradas que le quedan) y AV/LD/MD (por la vía de Adif).
  */
 
 /**

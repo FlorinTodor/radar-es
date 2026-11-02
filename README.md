@@ -204,7 +204,7 @@ Lo que no se puede dibujar por falta de datos públicos:
 | `GET /api/events?category=carretera` | incidencias (`ferroviario`, `carretera`, `meteo`, `incendio`, `sismo`) |
 | `GET /api/alerts` | alertas activas y resueltas |
 | `GET /api/tracks/:id` | recorrido de un vehículo en los últimos 45 min |
-| `GET /api/ahead/:id` | lo que le queda a un vehículo hasta su destino (posiciones estimadas y AVE, Larga y Media Distancia) |
+| `GET /api/ahead/:id` | lo que le queda a un vehículo hasta su destino (posiciones estimadas, Cercanías y AVE, Larga y Media Distancia) |
 | `GET /api/stations/:código` | ficha de una estación (trenes, avisos, líneas, conexiones, datos y foto) |
 | `GET /api/lines` | trazados de las líneas (GeoJSON) |
 | `GET /api/trails?min=15` | estela de cada tren en los últimos minutos (GeoJSON, máx. 45) |
@@ -324,6 +324,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Al pulsar una alerta, el mapa muestra sólo lo suyo; se pueden combinar varias.
 - Las capas que enciende una alerta se marcan como temporales y se pueden apagar sin perder la
   selección.
+- Un Cercanías que Renfe da parado en una estación lejana (su posición no está al día) ya no da un
+  aviso falso de tren detenido en plena vía.
 
 **Interfaz**
 - Vista para el móvil, con el mapa a pantalla completa y un panel que sube desde abajo.
@@ -355,6 +357,12 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Si una parte de los datos falla al cargar (el horario de un operador, una red de líneas, las fotos
   de las estaciones), se reintenta en minutos y sólo esa parte, en vez de esperar al día siguiente.
 - Una fuente nunca deja de leerse por un fallo inesperado.
+- El recorrido y lo que le queda de cada tren se calculan como mucho una vez cada pocos segundos, se
+  comparten entre todas las visitas (también en Cloudflare) y tienen su propio tope de cálculos: si
+  muchas visitas abren trenes distintos a la vez, el mapa vuelve a pedirlos solo un momento después.
+- La búsqueda del camino por la vía de AVE, Larga y Media Distancia sólo mira las vías del ancho del
+  tren y no busca en la red métrica, a la que no puede llegar; los regionales de la antigua Feve van
+  por la suya.
 
 **Despliegue y seguridad**
 - La aplicación funciona aislada, en un contenedor con recursos limitados y cabeceras de
@@ -379,6 +387,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Revisión de todas las fuentes, horarios, fotos y librerías: licencia vigente de cada conjunto,
   fecha de actualización de cada horario, enlace a la licencia de cada librería y, en privacidad,
   qué webs externas contacta el navegador y cuándo.
+- Atribuciones al día de lo que se dibuja con la red de Adif y con los horarios del Punto de Acceso
+  Nacional de FGC y Metro Bilbao (dato explotado y fecha de actualización).
 
 ### Preparadas, pendientes de subir
 
