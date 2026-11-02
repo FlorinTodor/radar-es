@@ -66,7 +66,8 @@ export function metroBilbao(e, gtfs) {
  * @param {{ http: import('../http/http-client.js').HttpClient, stations: import('../../../application/ports.js').StationCatalogPort,
  *           nap: ReturnType<typeof import('../nap/nap-client.js').createNapClient>,
  *           log: import('../../../application/ports.js').LoggerPort, env: Record<string, string|undefined>,
- *           pool?: import('../workers/cpu-pool.js').CpuPool }} deps  pool: hilos de cálculo (horarios, XML de la DGT).
+ *           pool?: import('../workers/cpu-pool.js').CpuPool, xmlPool?: import('../workers/cpu-pool.js').CpuPool }} deps
+ *   pool: hilos de cálculo (horarios). xmlPool: el del XML de la DGT, si es otro (sin hilos de cálculo, uno propio).
  * @returns {import('../../../application/ports.js').DataSourcePort[]}
  */
 export function createSources(deps) {
@@ -142,7 +143,7 @@ export function createSources(deps) {
       url: 'https://api.control.optibus.co/opendata/v1/gtfs-rt/vehicle-positions?uid=c-5cfcd2d1',
     }),
     // Carreteras
-    createDgtSource(deps),
+    createDgtSource({ ...deps, pool: deps.xmlPool ?? deps.pool }),
     createEmtMadridAlertsSource(deps),
     createSctSource(deps),
     createTraficoEuskadiSource(deps),

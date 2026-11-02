@@ -33,6 +33,9 @@ const http = createHttpClient({ userAgent: config.userAgent });
 // Hilos para el trabajo de CPU (horarios GTFS, trazados, XML de la DGT): desactivados salvo que
 // WORKER_THREADS diga cuántos (ver parseThreads: falta medir su pico de memoria en el peor caso).
 const pool = createCpuPool({ threads: parseThreads(config.env.WORKER_THREADS), log });
+// El XML de la DGT (unos 4 MB cada 5 min) tardaba más de 2 s en el hilo principal y paraba la web
+// mientras tanto: sin hilos de cálculo, va a uno propio, pequeño (no carga horarios).
+const xmlPool = pool.threads() ? pool : createCpuPool({ threads: 1, heapMb: 192, log });
 const cacheDir = new URL('cache/', config.dataDir);
 const cache = createFileCache({ http, dir: cacheDir, log });
 const nap = createNapClient({ cache, apiKey: config.env.NAP_API_KEY });
@@ -45,7 +48,7 @@ const situation = assertPort('SituationRepository', createInMemorySituation(), P
 const history = assertPort('History', createJsonlHistory({ dir: new URL('history/', config.dataDir), log }), PORT_MEMBERS.History);
 const tiles = assertPort('TileProvider', createWmsTiles({ http, dir: fileURLToPath(new URL('tiles/', config.dataDir)), log }), PORT_MEMBERS.TileProvider);
 
-const sources = createSources({ http, cache, stations, nap, log, env: config.env, pool })
+const sources = createSources({ http, cache, stations, nap, log, env: config.env, pool, xmlPool })
   .map((s) => assertPort(`DataSource(${s.id})`, s, PORT_MEMBERS.DataSource));
 
 const enabledSources = [];
@@ -87,6 +90,7 @@ function shutdown() {
   log.info('Cerrando…');
   scheduler.stop();
   pool.close();
+  if (xmlPool !== pool) xmlPool.close();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 3000).unref();
 }

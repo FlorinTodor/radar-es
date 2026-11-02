@@ -36,9 +36,10 @@ const PRODUCTS = {
 };
 const product = (short) => PRODUCTS[(short ?? '').toUpperCase()] ?? [short || 'Renfe', 'ld'];
 
-const madridIso = (epochSec) => new Intl.DateTimeFormat('sv-SE', {
+const MADRID_ISO = new Intl.DateTimeFormat('sv-SE', {
   timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
-}).format(epochSec * 1000).replace(' ', 'T');
+});
+const madridIso = (epochSec) => MADRID_ISO.format(epochSec * 1000).replace(' ', 'T');
 
 /** Horarios oficiales de Renfe, cargados una vez al día y compartidos por las dos fuentes. */
 export function createTimetables({ cache, stations, log }) {
