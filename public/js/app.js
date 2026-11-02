@@ -187,6 +187,12 @@ const stationDetails = new Map();
 async function openStation(code, fly = false) {
   const st = state.stations.get(code);
   if (!st) return;
+  // Como con los trenes de las listas: si la capa de estaciones está apagada, se enciende (y se marca
+  // en Capas) para que se vea la estación; vuelve a como estaba al marcar otra cosa o al tocar la casilla.
+  if (!onInPrefs('group:stations') && !state.forced.has('group:stations')) {
+    state.forced.add('group:stations');
+    applyLayerPrefs();
+  }
   map.showStation(stationDetails.get(code) ?? st, boardFor(st));
   if (fly) map.flyTo(st.lon, st.lat, 14);
   if (stationDetails.has(code)) return;
