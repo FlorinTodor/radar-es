@@ -46,6 +46,36 @@ test('el memo guarda como mucho `max` variantes y descarta la más antigua', () 
   assert.equal(calls, 4, '«a» se había descartado');
 });
 
+test('las copias caducadas se tiran al calcular otra: una variante que nadie pide no ocupa memoria', () => {
+  let t = 0;
+  let calls = 0;
+  const memo = createJsonMemo({ now: () => t });
+  const compute = () => ({ n: ++calls });
+  memo('vieja', 1_000, compute);
+  const otra = memo('otra', 60_000, compute);
+  t = 5_000;
+  memo('nueva', 1_000, compute); // al calcular «nueva», «vieja» (caducada) se tira; «otra» sigue
+  assert.equal(memo('otra', 60_000, compute), otra);
+  memo('vieja', 1_000, compute);
+  assert.equal(calls, 4, '«vieja» se ha vuelto a calcular');
+});
+
+test('el memo nunca guarda más de `maxBytes` entre todas las variantes', () => {
+  let calls = 0;
+  const memo = createJsonMemo({ maxBytes: 2_500, now: () => 0 });
+  const big = () => ({ n: ++calls, data: 'x'.repeat(1_000) }); // ~1 KB de JSON (y poco gzip)
+  memo('a', 60_000, big);
+  memo('b', 60_000, big);
+  memo('c', 60_000, big); // no caben las tres: se descarta «a», la más antigua
+  memo('c', 60_000, big);
+  memo('b', 60_000, big);
+  assert.equal(calls, 3, '«b» y «c» siguen guardadas');
+  memo('a', 60_000, big);
+  assert.equal(calls, 4, '«a» se había descartado');
+  const huge = memo('enorme', 60_000, () => ({ data: 'y'.repeat(10_000) }));
+  assert.equal(memo('enorme', 60_000, () => { throw new Error('no debería recalcular'); }), huge, 'una sola más grande que el tope se guarda igual');
+});
+
 test('un catálogo vacío (aún cargando) sólo se guarda unos segundos', () => {
   let t = 0;
   let features = [];
@@ -109,9 +139,9 @@ test('/api/lines se calcula una sola vez aunque lo pidan muchos, con caché púb
   assert.equal(again.status, 304);
 });
 
-test('/api/trails acota los minutos y no crea una variante por cada valor raro', async () => {
-  for (const min of ['15', 'abc', '-3', '9999', '15.4']) await fetch(`${base}/api/trails?min=${min}`);
-  assert.deepEqual(calls.trails, [15, 1, 45], '15, abc→15 (misma variante), -3→1, 9999→45, 15.4→15 (misma variante)');
+test('/api/trails sólo tiene tres variantes: 15, 30 y 45 minutos', async () => {
+  for (const min of ['15', 'abc', '-3', '15.4', '20', '30', '9999', '44']) await fetch(`${base}/api/trails?min=${min}`);
+  assert.deepEqual(calls.trails, [15, 30, 45], '15, abc, -3 y 15.4 → 15; 20 y 30 → 30; 9999 y 44 → 45');
 });
 
 test('/api/vehicles acota sus filtros: los valores raros comparten variante', async () => {
