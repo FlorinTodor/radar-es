@@ -7,7 +7,8 @@ const BASE = 'https://dadesobertes.fgc.cat/api/explore/v2.1/catalog/datasets/pos
 // sus líneas. Sus stop_id son los códigos que da la posición de cada tren ("PE", "AL"…).
 const FGC_GTFS = 1571;
 const DAY_MS = 24 * 3600_000;
-// La copia en disco la renueva cada semana el catálogo de líneas: aquí sólo se lee y, si falta, se descarga.
+// La copia en disco la renueva cada día el catálogo de líneas: aquí sólo se lee y, si falta o tiene más de
+// 30 días, se descarga.
 const GTFS_MAX_AGE_MS = 30 * DAY_MS;
 
 /** Códigos de estación de FGC → { name, at: [lon, lat] }, del stops.txt de su GTFS (sin los andenes). */

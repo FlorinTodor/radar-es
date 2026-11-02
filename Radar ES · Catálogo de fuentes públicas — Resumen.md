@@ -4,9 +4,9 @@
 > (`flota.json`, `flotaLD.json`, `estaciones.geojson`, `trenesConEstacionesLD.json`), la API del
 > tranvía de Tenerife (`tranviaonline`), la API de la app de Rodalies (`serveisgrs`), adsb.lol e IODA.
 > Este documento recoge la exploración inicial; las fuentes vigentes y sus licencias están en
-> [radarespaña.es/legal](https://radarespaña.es/legal).
+> [radarespaña.es/legal](https://radarespaña.es/legal). EMSC, OpenSky y MeteoAlarm no llegaron a integrarse.
 
-Oct 30, 2026 · @Backend-GestionaSistemas
+30 de octubre de 2026
 
 ## Alcance y método
 
