@@ -3,13 +3,12 @@
 // by MITRAMS», dato actualizado, fecha de actualización) y la de cada operador, que se cita en la
 // ficha de cada estación. Va aparte del catálogo de Renfe: las alertas y Rodalies buscan «la
 // estación más cercana» y tiene que ser una de Renfe. Se refresca una vez al día.
-import { mkdir, readFile } from 'node:fs/promises';
-import { writeFileAtomic } from '../http/file-cache.js';
 import { distanceKm } from '../../../domain/geo.js';
 import { createPacer, csvColumns, csvColumnsStreamed, csvRows, openGtfs, own } from '../gtfs/gtfs-reader.js';
 import { modeOf } from '../gtfs/gtfs-modes.js';
 import { DEFAULT_COLOR, NETWORKS, readableColor } from '../network/gtfs-network-catalog.js';
 import { RETIRED_PHOTOS_VERSION, loadNetworkStationExtras, wheelchair } from './station-extras.js';
+import { createStationStore } from './station-store.js';
 
 const REFRESH_MS = 24 * 3600_000;
 // Si algo ha fallado al calcularlo (un GTFS, Wikidata, Commons), se vuelve a intentar a la hora y no
@@ -194,8 +193,6 @@ export function createNetworkStationCatalog({ nap, cache, cacheDir, log, renfe }
   // Versión de lo que se calcula: si cambia, se recalcula aunque la caché sea de hoy (como en Renfe,
   // la huella de las fotos retiradas va detrás).
   const CATALOG_VERSION = `1-${RETIRED_PHOTOS_VERSION}`;
-  /** @type {Map<string, object>} */
-  const stations = new Map();
 
   async function download(log) {
     const list = [];
@@ -222,56 +219,22 @@ export function createNetworkStationCatalog({ nap, cache, cacheDir, log, renfe }
     return withNetworkExtras(list, extras);
   }
 
-  let version = null;
-  let savedAt = 0;
-  let refreshing = null;
-
-  async function refresh() {
-    try {
-      // Cualquier aviso mientras se calcula quiere decir que falta algo (una red, fotos).
-      let incomplete = false;
-      const watched = { ...log, warn: (msg) => { incomplete = true; log.warn(msg); } };
-      const list = await download(watched);
-      if (!list.length) throw new Error('lista vacía');
-      stations.clear();
-      for (const s of list) stations.set(s.code, s);
-      version = CATALOG_VERSION;
-      savedAt = incomplete ? Date.now() - REFRESH_MS + RETRY_MS : Date.now();
-      await mkdir(cacheDir, { recursive: true });
-      await writeFileAtomic(cacheFile, JSON.stringify({ version, savedAt, stations: list }));
-      log.info(`[estaciones de otras redes] ${stations.size} estaciones de ${STATION_NETWORKS.length} redes`);
-    } catch (err) {
-      log.warn(`[estaciones de otras redes] no se pudo calcular el catálogo (${err.message}); ${stations.size} en caché`);
-    }
-  }
+  // Cualquier aviso mientras se calcula quiere decir que falta algo (una red, fotos): se reintenta a
+  // la hora. load() sólo espera a leer la copia guardada (milisegundos): recalcular son minutos
+  // (Wikidata, fotos de Commons) y va siempre detrás. Así la primera lista de estaciones que se sirve
+  // ya las lleva; sin copia (el primer despliegue), la pestaña sólo tiene las de Renfe hasta que termina.
+  const store = createStationStore({
+    cacheFile, cacheDir, version: CATALOG_VERSION, refreshMs: REFRESH_MS, retryMs: RETRY_MS, log, download,
+    saved: (count) => `[estaciones de otras redes] ${count} estaciones de ${STATION_NETWORKS.length} redes`,
+    failed: (err, count) => `[estaciones de otras redes] no se pudo calcular el catálogo (${err.message}); ${count} en caché`,
+  });
+  const { stations } = store;
 
   return {
-    // Sólo espera a leer la copia guardada (milisegundos): recalcular son minutos (Wikidata, fotos de
-    // Commons) y va siempre detrás. Así la primera lista de estaciones que se sirve ya las lleva; sin
-    // copia (el primer despliegue), la pestaña sólo tiene las de Renfe hasta que termina.
-    async load() {
-      if (!stations.size) {
-        try {
-          const cached = JSON.parse(await readFile(cacheFile, 'utf8'));
-          for (const s of cached.stations) stations.set(s.code, s);
-          ({ version = null, savedAt = 0 } = cached);
-        } catch { /* todavía no hay caché */ }
-      }
-      if (version === CATALOG_VERSION && Date.now() - savedAt < REFRESH_MS) return stations.size;
-      refreshing ??= refresh().finally(() => { refreshing = null; });
-      return stations.size;
-    },
+    load: store.load,
     get: (code) => (code ? stations.get(code) : undefined),
     name: (code) => (code ? stations.get(code)?.name ?? null : null),
-    nearest(lat, lon, maxKm = 50) {
-      let best = null;
-      let bestKm = Infinity;
-      for (const s of stations.values()) {
-        const km = distanceKm(lat, lon, s.lat, s.lon);
-        if (km < bestKm && km <= maxKm) { bestKm = km; best = s; }
-      }
-      return best ? { station: best, km: bestKm } : null;
-    },
+    nearest: store.nearest,
     all: () => [...stations.values()],
   };
 }
