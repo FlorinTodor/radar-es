@@ -311,7 +311,8 @@ export function createRenfeSources({ http, cache, stations, log }) {
     // Algunas horas de los trip updates son de paradas ya pasadas: sólo vale si es futura.
     const eta = update?.arrivals.get(nextId);
     const futureEta = eta && eta * 1000 > Date.now() - 60_000 ? eta : null;
-    // Parado en una estación lejos de la posición que da: la posición no está al día o es de relleno.
+    // Parado en una estación lejos de la posición que da: la posición no está al día o es de relleno
+    // (Cercanías; en AV/LD/MD es que ya va de camino y llega aquí como tal: ver ldReading).
     const stop = stopped ? stations.get(v.stopId) : null;
     const far = stop ? distanceKm(v.position.latitude, v.position.longitude, stop.lat, stop.lon) : 0;
     return {
@@ -401,6 +402,36 @@ export function createRenfeSources({ http, cache, stations, log }) {
     },
   };
 
+  /**
+   * En el feed de AV/LD/MD, «STOPPED_AT» no siempre es «parado»: al salir de una estación da durante
+   * minutos la siguiente como «parado en», con el tren ya en marcha y a kilómetros de ella (mañana del
+   * 2-nov: un tercio de sus lecturas). Lejos de la estación, el tren va de camino: hacia ella si está
+   * entre la parada anterior y ella; si ya la ha dejado atrás (entre ella y la siguiente), es la última
+   * estación y la próxima es la siguiente. La posición sí es buena: cae sobre la vía y se mueve.
+   * @returns {{ reading: object, nextId: string, from: number }} la lectura como «en camino» si hace
+   *   falta, la próxima parada y desde qué parada del viaje (índice) le queda el recorrido (-1: no se sabe)
+   */
+  function ldReading(v, stops) {
+    const k = stops?.indexOf(v.stopId) ?? -1;
+    const stop = v.currentStatus === 'STOPPED_AT' ? stations.get(v.stopId) : null;
+    const { latitude: lat, longitude: lon } = v.position;
+    if (!stop || distanceKm(lat, lon, stop.lat, stop.lon) <= FAR_FROM_STOP_KM) return { reading: v, nextId: v.stopId, from: k };
+    const moving = { ...v, currentStatus: 'IN_TRANSIT_TO' };
+    // La parada con coordenadas más cercana en el viaje, hacia atrás (-1) o hacia delante (+1).
+    const near = (i, step) => {
+      for (; i >= 0 && i < stops.length; i += step) if (stations.get(stops[i])) return { i, st: stations.get(stops[i]) };
+      return null;
+    };
+    const onLeg = (a, b) => a && b && distanceKm(a.st.lat, a.st.lon, lat, lon) + distanceKm(lat, lon, b.st.lat, b.st.lon)
+      <= 1.25 * distanceKm(a.st.lat, a.st.lon, b.st.lat, b.st.lon) + 2;
+    if (k >= 0) {
+      const here = { i: k, st: stop };
+      const after = near(k + 1, 1);
+      if (!onLeg(near(k - 1, -1), here) && onLeg(here, after)) return { reading: moving, nextId: stops[k + 1], from: k + 1 };
+    }
+    return { reading: moving, nextId: v.stopId, from: k };
+  }
+
   let railTrips = new Map(); // id del tren → { gauge, left: códigos de las paradas que le quedan } (última lectura)
   const largaDistancia = {
     id: 'renfe-ld',
@@ -441,8 +472,9 @@ export function createRenfeSources({ http, cache, stations, log }) {
         seen.add(number);
         if (!timetables.ldExact(tripId)) unknown++;
         const trip = timetables.ld(tripId, number);
-        const next = trip?.stops?.indexOf(v.stopId) ?? -1;
-        if (trip) trips.set(`renfe-ld:${number}`, { gauge: trip.gauge, left: next >= 0 ? trip.stops.slice(next) : null });
+        const { reading, nextId, from } = ldReading(v, trip?.stops);
+        const rest = from >= 0 ? trip.stops.slice(from) : [];
+        if (trip) trips.set(`renfe-ld:${number}`, { gauge: trip.gauge, left: rest.length ? rest : null });
         vehicles.push({
           id: `renfe-ld:${number}`,
           mode: trip?.mode ?? 'ld',
@@ -452,8 +484,8 @@ export function createRenfeSources({ http, cache, stations, log }) {
           label: number,
           origin: trip?.origin ?? null,
           destination: trip?.destination ?? null,
-          ...(next >= 0 ? { ahead: true } : {}), // lo que le queda, por la vía: /api/ahead
-          ...base(v, delays.get(tripId)),
+          ...(rest.length ? { ahead: true } : {}), // lo que le queda, por la vía: /api/ahead
+          ...base(reading, delays.get(tripId), nextId),
         });
       }
       railTrips = trips;
