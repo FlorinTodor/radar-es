@@ -60,9 +60,6 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
   // petición: un núcleo saturado con 28 peticiones por segundo).
   const memoParams = createJsonMemo({ max: 100, now });
   const budgets = new Map(Object.keys(routes).filter((path) => routes[path].key).map((path) => [path, createBudget({ now })]));
-  // Cada caja de áreas quemadas que no está en la caché de Cloudflare es una consulta a EFFIS: como
-  // mucho unas pocas por segundo, para no cargarles y que una ráfaga no deje esperando a las demás.
-  const burntBudget = createBudget({ perSecond: 2, burst: 10, now });
 
   const security = Object.entries(securityHeaders(about));
   // Dominio canónico (PUBLIC_URL): www.<dominio> redirige a él para que los buscadores no vean dos
@@ -168,6 +165,10 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': tile.png.length, 'Cache-Control': tile.cacheControl });
     res.end(tile.png);
   }
+
+  // Cada caja de áreas quemadas que no está en la caché de Cloudflare es una consulta a EFFIS: como
+  // mucho unas pocas por segundo, para no cargarles y que una ráfaga no deje esperando a las demás.
+  const burntBudget = createBudget({ perSecond: 2, burst: 10, now });
 
   /** Áreas quemadas en una caja lon/lat pequeña (lo que hay bajo un clic en el mapa). */
   async function sendBurntAreas(res, bboxParam) {
