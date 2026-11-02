@@ -5,18 +5,31 @@ import { mkdir, readFile, stat } from 'node:fs/promises';
 import { writeFileAtomic } from '../http/file-cache.js';
 import { createPacer, csvColumns, csvRows, openGtfs, own } from '../gtfs/gtfs-reader.js';
 import { modeOf } from '../gtfs/gtfs-modes.js';
+import { madridLocalToMs } from '../sources/parse.js';
 
 const MAX_AGE_MS = 24 * 3600_000;
 const TOLERANCE_DEG = 0.00008; // ~8 m: suficiente para el mapa y reduce mucho el tamaño
 
-// ficheroId del NAP → nombre de la red. Para encontrar más: API /Fichero/GetListByType/2.
+// [ficheroId del NAP, nombre de la red, conjunto de datos del NAP (para su fecha de actualización),
+// lo que pide citar el operador además del NAP]. Para encontrar más: API /Fichero/GetListByType/2.
 // Sin Metro de Madrid: su GTFS en el NAP caducó en mayo de 2026 y no hay versión nueva.
 export const NETWORKS = [
-  [1130, 'Cercanías Renfe'], [1427, 'Metro Ligero y Tranvía de Madrid'],
-  [1328, 'Metro de Barcelona (TMB)'], [1329, 'TRAM Baix'], [1330, 'TRAM Besòs'], [1571, 'FGC'],
-  [1168, 'Metrovalencia'], [1167, "TRAM d'Alacant"], [1583, 'Metro de Sevilla'], [1567, 'Tranvía de Sevilla'],
-  [1497, 'Metro de Málaga'], [1568, 'Metro de Granada'], [1687, 'Tranvía de Zaragoza'], [1569, 'Tranvía de Murcia'],
-  [1267, 'Metro Bilbao'], [1263, 'Euskotren'],
+  [1130, 'Cercanías Renfe', 929, 'Origen de los datos: Renfe Operadora'],
+  [1427, 'Metro Ligero y Tranvía de Madrid', 1226, 'Powered by CRTM'],
+  [1328, 'Metro de Barcelona (TMB)', 1127, 'Fuente: TMB'],
+  [1329, 'TRAM Baix', 1128, 'Powered by TRAM Barcelona'],
+  [1330, 'TRAM Besòs', 1129, 'Powered by TRAM Barcelona'],
+  [1571, 'FGC', 1373, 'Ferrocarrils de la Generalitat de Catalunya (FGC)'],
+  [1168, 'Metrovalencia', 967, 'Ferrocarrils de la Generalitat Valenciana (FGV)'],
+  [1167, "TRAM d'Alacant", 966, 'Ferrocarrils de la Generalitat Valenciana (FGV)'],
+  [1583, 'Metro de Sevilla', 1385, 'Metro de Sevilla'],
+  [1567, 'Tranvía de Sevilla', 1369, 'TUSSAM'],
+  [1497, 'Metro de Málaga', 1296, 'Metro de Málaga'],
+  [1568, 'Metro de Granada', 1370, 'Agencia de Obra Pública de la Junta de Andalucía'],
+  [1687, 'Tranvía de Zaragoza', 1394, 'Tranvía de Zaragoza'],
+  [1569, 'Tranvía de Murcia', 1371, 'Tranvía de Murcia'],
+  [1267, 'Metro Bilbao', 1066, 'Metro Bilbao'],
+  [1263, 'Euskotren', 1062, 'Euskotren'],
 ];
 
 // El tranvía de Tenerife no sale del NAP (su GTFS allí caducó en julio de 2025), sino del trazado
@@ -196,12 +209,28 @@ export function createGtfsNetworkCatalog({ nap, cache, cacheDir, log, pool }) {
   // Redes que fallaron en la última construcción: se reintentan en la siguiente recarga (cada hora)
   // sin rehacer las demás, y no un día entero después.
   let failed = [];
+  // Fecha de actualización en el NAP del horario del que sale cada red («2026-11-02T06:21:27», hora de
+  // Madrid): la licencia del NAP pide conservarla y mostrarla junto a los datos.
+  let updated = {};
+
+  /** Fecha de actualización de una red en el NAP; si no la da, la anterior (y se avisa). */
+  async function updatedOf(name) {
+    const [ficheroId, , dataset] = NETWORKS.find(([, n]) => n === name);
+    try {
+      return await nap.updatedAt(dataset, ficheroId);
+    } catch (err) {
+      log.warn(`[líneas] ${name}: sin fecha de actualización del NAP (${err.message})`);
+      return updated[name] ?? null;
+    }
+  }
 
   /** Trazados de una red, por su nombre. */
   async function build(name) {
     if (name === TENERIFE) return buildTenerife(await cache.bytes(TENERIFE_LINES, 'tenerife-lineas-tranvia.geojson', MAX_AGE_MS));
     const zip = await nap.gtfs(NETWORKS.find(([, n]) => n === name)[0], MAX_AGE_MS);
-    return pool ? pool.run('network', [zip, name]) : buildNetwork(zip, name);
+    const features = await (pool ? pool.run('network', [zip, name]) : buildNetwork(zip, name));
+    updated[name] = await updatedOf(name);
+    return features;
   }
 
   return {
@@ -213,7 +242,14 @@ export function createGtfsNetworkCatalog({ nap, cache, cacheDir, log, pool }) {
           builtAt = saved.builtAt ?? (await stat(cacheFile)).mtimeMs;
           collection = { type: 'FeatureCollection', features: saved.features };
           failed = saved.failed ?? [];
+          updated = saved.updated ?? {};
         } catch { /* sin caché */ }
+      }
+      // Una copia de antes de guardar las fechas: se piden ahora, sin rehacer los trazados.
+      if (nap.enabled) {
+        for (const [, name] of NETWORKS) {
+          if (!(name in updated) && collection.features.some((f) => f.properties.network === name)) updated[name] = await updatedOf(name);
+        }
       }
       const stale = Date.now() - builtAt >= MAX_AGE_MS;
       if (!stale && !failed.length) return collection.features.length;
@@ -242,11 +278,18 @@ export function createGtfsNetworkCatalog({ nap, cache, cacheDir, log, pool }) {
       failed = nowFailed;
       if (stale) builtAt = Date.now();
       await mkdir(cacheDir, { recursive: true });
-      await writeFileAtomic(cacheFile, JSON.stringify({ ...collection, builtAt, failed }));
+      await writeFileAtomic(cacheFile, JSON.stringify({ ...collection, builtAt, failed, updated }));
       log.info(`[líneas] ${features.length} trazados de ${NETWORKS.length + 1 - failed.length} redes`
         + (failed.length ? `; se reintentarán: ${failed.join(', ')}` : ''));
       return features.length;
     },
     lines: () => collection,
+    /** De dónde sale el trazado de cada red: su atribución y su fecha de actualización (ms; null si no se sabe). */
+    sources: () => [
+      ...NETWORKS.map(([, name, , credit]) => ({
+        name, credit: `Powered by MITRAMS (Punto de Acceso Nacional) · ${credit}`, updated: madridLocalToMs(updated[name]),
+      })),
+      { name: TENERIFE, credit: 'Metropolitano de Tenerife, S.A. · Portal de Datos Abiertos del Cabildo de Tenerife (CC BY)', updated: null },
+    ].filter(({ name }) => collection.features.some((f) => f.properties.network === name)),
   };
 }

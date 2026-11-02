@@ -200,8 +200,18 @@ export function renderVehicles(el, vehicles, total, sel = NO_SELECTION) {
   el.innerHTML = `${selectionBar(sel, { one: 'un tren', plural: 'los trenes' })}<div class="section-title">${fmtNum(vehicles.length)} trenes · ordenados por retraso</div>${rows}${more}`;
 }
 
-export function renderSources(el, health) {
+/**
+ * @param {object[]} health  estado de cada fuente (/api/health)
+ * @param {Array<{ name: string, credit: string, updated: number|null }>} [lineSources]  de dónde sale el
+ *   trazado de cada red, con su fecha de actualización (/api/lines/sources)
+ */
+export function renderSources(el, health, lineSources = []) {
   const now = Date.now();
+  const lines = lineSources.length ? `<div class="section-title">Trazados de las líneas</div>${lineSources.map((l) => `
+    <div class="src">
+      <div class="row"><span class="name">${esc(l.name)}</span></div>
+      <div class="stat">${l.updated ? `<span>horario actualizado el ${fmtDateTime(l.updated)}</span>` : ''}<span>${esc(l.credit)}</span></div>
+    </div>`).join('')}` : '';
   el.innerHTML = health.map((s) => {
     const [cls, label] = !s.enabled ? ['off', 'Desactivada'] : s.ok === null ? ['wait', 'Pendiente'] : s.ok ? ['ok', 'Operativa'] : ['ko', 'Con errores'];
     return `
@@ -222,7 +232,7 @@ export function renderSources(el, health) {
       ${s.license ? `<div class="stat"><span>${esc(s.license)}</span></div>` : ''}
       ${safeUrl(s.url) ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url)}</a>` : ''}
     </div>`;
-  }).join('');
+  }).join('') + lines;
 }
 
 export const MODE_ITEMS = ['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'bus', 'otros'];

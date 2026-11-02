@@ -21,7 +21,13 @@ fetch('/api/about').then((r) => r.json()).then((about) => {
   for (const el of document.querySelectorAll('[data-analitica]')) el.hidden = (el.dataset.analitica === 'si') !== Boolean(about.goatcounter);
 }).catch(() => {});
 
-fetch('/api/health').then((r) => r.json()).then((health) => {
+const json = (url) => fetch(url).then((r) => r.json());
+// Los trazados de las líneas no se leen como las fuentes, pero también llevan su fecha de actualización.
+const lineSources = json('/api/lines/sources').catch(() => []);
+
+json('/api/health').then(async (health) => {
+  const lines = (await lineSources).map((l) => `<tr><td>Trazado: ${esc(l.name)}</td><td>${esc(l.credit)}</td>`
+    + `<td>${l.updated ? `Horario actualizado el ${esc(when.format(l.updated))}` : '—'}</td><td>Operativa</td></tr>`);
   document.getElementById('estado-filas').innerHTML = health.map((s) => {
     // Fecha que da la propia fuente; en las posiciones estimadas, la de su horario en el NAP.
     const last = s.sourceTime ? when.format(s.sourceTime)
@@ -30,7 +36,7 @@ fetch('/api/health').then((r) => r.json()).then((health) => {
         : s.lastOk ? `Leída el ${when.format(s.lastOk)}` : '—';
     const status = !s.enabled ? 'Desactivada' : s.ok === null ? 'Pendiente' : s.ok ? 'Operativa' : 'Con errores';
     return `<tr><td>${esc(s.name)}</td><td>${esc(s.license)}</td><td>${esc(last)}</td><td>${status}</td></tr>`;
-  }).join('');
+  }).concat(lines).join('');
   labelCells(document.getElementById('estado-filas').closest('table'));
 }).catch(() => {
   document.getElementById('estado-filas').innerHTML = '<tr><td colspan="4">No se pudo cargar el estado.</td></tr>';

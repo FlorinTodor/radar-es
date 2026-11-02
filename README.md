@@ -234,6 +234,7 @@ Lo que no se puede dibujar por falta de datos públicos:
 | `GET /api/ahead/:id` | lo que le queda a un vehículo hasta su destino (posiciones estimadas, Cercanías y AVE, Larga y Media Distancia) |
 | `GET /api/stations/:código` | ficha de una estación (trenes, avisos, líneas, conexiones, datos y foto) |
 | `GET /api/lines` | trazados de las líneas (GeoJSON) |
+| `GET /api/lines/sources` | de dónde sale el trazado de cada red: atribución y fecha de actualización |
 | `GET /api/trails?min=15` | estela de cada tren en los últimos minutos (GeoJSON, máx. 45) |
 | `GET /api/health`, `/api/kpis`, `/api/metrics`, `/api/stations` | salud de fuentes (con su licencia y su fecha de actualización), KPIs, métricas y estaciones |
 | `GET /api/burnt-areas?bbox=…` | ficha de las áreas quemadas (EFFIS) bajo un punto del mapa |

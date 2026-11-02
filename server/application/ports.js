@@ -47,6 +47,8 @@
  * @typedef {object} NetworkCatalogPort
  * @property {() => Promise<number>} load
  * @property {() => { type: 'FeatureCollection', features: object[] }} lines
+ * @property {() => Array<{ name: string, credit: string, updated: number | null }>} sources
+ *   De dónde sale el trazado de cada red: la atribución y la fecha de actualización que pide su licencia.
  */
 
 /**
@@ -125,7 +127,7 @@ export function assertPort(name, impl, members) {
 export const PORT_MEMBERS = {
   DataSource: ['id', 'name', 'kind', 'interval', 'fetch'],
   StationCatalog: ['load', 'get', 'name', 'nearest', 'all'],
-  NetworkCatalog: ['load', 'lines'],
+  NetworkCatalog: ['load', 'lines', 'sources'],
   RailNetwork: ['load', 'network'],
   SituationRepository: ['registerSource', 'saveResult', 'saveFailure', 'source', 'vehicles', 'events', 'metrics', 'health',
     'tracks', 'updateTracks', 'activeAlerts', 'updateActiveAlerts', 'addResolved', 'resolvedAlerts', 'setKpis', 'kpis',
