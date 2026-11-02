@@ -19,8 +19,8 @@ import { createReeSource } from './ree.js';
 import { createEsiosSource } from './esios.js';
 import { createGdacsSource } from './emergencias-extra.js';
 import {
-  createAndaluciaEmergenciasSource, createBalearsPremsaSource, createCanariasAlertasSource, createCatalunaPlansSource,
-  createClmPlansSource, createCyl112Source, createRiojaSosSource,
+  createAndaluciaEmergenciasSource, createBalearsPremsaSource, createCanariasAlertasSource, createCantabriaNewsSource, createCatalunaPlansSource,
+  createClmPlansSource, createCyl112Source, createGaliciaNewsSource, createMadridNewsSource, createMurciaNewsSource, createRiojaSosSource,
 } from './emergencias-oficiales.js';
 import { createEmtMadridAlertsSource } from './emt-madrid.js';
 import { busGroupSources } from './autobuses-nap.js';
@@ -168,6 +168,11 @@ export function createSources(deps) {
     createRiojaSosSource(deps),
     createCyl112Source(deps),
     createBalearsPremsaSource(deps),
+    // Sin 112 con licencia: las notas de prensa de su gobierno (sólo planes con nombre y cortes de luz).
+    createMadridNewsSource(deps),
+    createMurciaNewsSource(deps),
+    createCantabriaNewsSource(deps),
+    createGaliciaNewsSource(deps),
     createReeSource(deps),
     createEsiosSource(deps), // con ESIOS_TOKEN: apagón de una isla, de Ceuta o de Melilla
   ];

@@ -63,6 +63,9 @@ const MONTHS = 'enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|set
 const WEEKDAYS = 'dia|lunes|martes|miercoles|jueves|viernes|sabado|domingo';
 const NOT_NOW_AFTER = new RegExp(`^\\s*(?:(?:del?|de la|d')\\s*(?:pasado|passat|ano pasado|(?:(?:${WEEKDAYS}) )?\\d{1,2}(?:-a\\b| de (?:${MONTHS})\\b| d'(?:${MONTHS})\\b)|(?:${MONTHS})\\b|\\d{4}\\b)`
   + '|[^.]{0,40}\\ben (?:el|un) (?:edificio|inmueble|local|vivienda|nave)\\b)');
+// Un suceso más de una lista que empieza antes, en la misma frase («con acontecimientos como la DANA, el
+// apagón o las lluvias»): es un balance, no un corte de ahora, aunque la coma lo deje fuera de wordsBefore.
+const LISTED = /\b(?:cuestiones|asuntos|temas|problemas|acontecimientos|episodios|sucesos|situaciones|emergencias) como\b[^.;:!?]*$/;
 // Un simulacro habla de cortes que no existen: si lo es, nada de lo que diga es un corte de luz.
 const DRILL = words(['simulacro', 'simulacre', 'simulad[oa]s?', 'simulacion', 'simulacio']);
 
@@ -80,7 +83,7 @@ function saysNow(clause, re, { negationOnly = false } = {}) {
     const before = wordsBefore(t, m.index);
     if (NEGATION.test(before)) continue;
     if (negationOnly) return true;
-    if (NOT_NOW.test(before) || NOT_NOW_AFTER.test(t.slice(m.index + m[0].length))) continue;
+    if (NOT_NOW.test(before) || LISTED.test(t.slice(0, m.index)) || NOT_NOW_AFTER.test(t.slice(m.index + m[0].length))) continue;
     return true;
   }
   return false;
@@ -103,20 +106,32 @@ export const isEndNotice = (title) => END.test(fold(title));
 
 // Activación o cambio de un plan de protección civil o de su nivel (prealerta, alerta, emergencia…).
 // «Plan» a secas no vale: «el V Plan de Fosas» o un plan de igualdad no son emergencias.
-const PLAN_WORD = words([
-  // Planes de emergencias con nombre (siglas autonómicas y los que se citan por su riesgo).
+// Planes de emergencias con nombre (siglas autonómicas y los que se citan por su riesgo).
+const PLAN_NAMES = [
   'plateca', 'platecam', 'meteocam', 'pricam', 'infocam', 'infoca', 'procicat', 'inuncat', 'neucat', 'ventcat', 'infocat',
   'platerbal', 'meteobal', 'inunbal', 'infobal', 'sismibal',
+  'platercam', 'platemur', 'inunmur', 'platercant?', 'infocant', 'platerga',
   'plan (?:territorial |especial )?de emergencias?', 'plan (?:de )?(?:infoca|sismico|inundaciones|emergencia por incendios)',
   'plan (?:territorial )?de proteccion civil', 'pla (?:territorial |especial )?de proteccio civil',
+];
+const PLAN_WORD = words([
+  ...PLAN_NAMES,
   // Niveles.
   'prealerta', 'alerta', 'alerta maxima', 'preemergencia', 'situacion (?:operativa )?[0-3]', 'fase de emergencia',
   'situacion de emergencia', 'nivell [0-3]', "situacio (?:operativa )?[0-3]", "situacio d'emergencia", "fase d'emergencia",
 ]);
+// En las notas de prensa de un gobierno (no de su 112), «alerta» suelta también es un verbo («alerta de
+// las estafas») y «sube», «baja» o «mantiene» salen en cualquier noticia: sólo cuentan si nombran el plan,
+// su fase o un nivel con su color.
+const PRESS_PLAN_WORD = words([
+  ...PLAN_NAMES,
+  'prealerta', 'alerta maxima', 'preemergencia', 'situacion (?:operativa )?[0-3]', 'fase de (?:pre)?(?:alerta|emergencia)',
+  'situacion de (?:alerta|emergencia)', 'alerta (?:roja|naranja|amarilla)', 'nivel [0-3]',
+]);
 const PLAN_ACTION = words([
   'activa', 'activad[oa]s?', 'activat', 'activacion', 'activacio', 'declara', 'declarad[oa]', 'declarar', 'declaracion', 'eleva',
   'elevad[oa]', 'sube', 'mantiene', 'mante', 'actualiza', 'actualitza', 'amplia', 'pasa', 'passa', 'pasando', 'desciende', 'baja',
-  'baixa', 'rebaja', 'rebaixa', 'decreta', 'decretat',
+  'baixa', 'rebaja', 'rebaixa', 'decreta', 'decretat', 'desescala', 'desescalad[oa]',
 ]);
 // Noticias que nombran un plan o un nivel sin declararlo.
 const NOT_A_NOTICE = words([
@@ -131,7 +146,7 @@ const HAZARDS = [
   [`cero energetico|zero energetic|${BLACKOUT}|apagada`, 'luz'],
   ['suministros? basicos?', 'suministros'],
   ['infoca|infobal|infocat|infocam|incendi|forestal', 'incendio'],
-  ['inundaci|inunbal|inuncat|lluvia|pluj|pluge|precipitaci|dana|riada|avenida', 'lluvia'],
+  ['inundaci|inunbal|inuncat|inunmur|lluvia|pluj|pluge|precipitaci|dana|riada|avenida', 'lluvia'],
   ['sismic|sismo|terremoto|terratremol|sismibal', 'sismo'],
   ['nevada|nieve|helada|neu\\b|neucat|glacada', 'nieve'],
   ['tormenta|tempest', 'tormenta'],
@@ -171,6 +186,8 @@ export function isPlanNotice(title) {
   const t = fold(title);
   return mentionsPlan(title) && (PLAN_ACTION.test(t) || END.test(t));
 }
+/** Lo mismo en una nota de prensa del gobierno, que mezcla todos los temas: tiene que nombrar el plan, su fase o el color del nivel. */
+export const isPressPlanNotice = (title) => isPlanNotice(title) && PRESS_PLAN_WORD.test(fold(title));
 
 /**
  * Gravedad según el nivel que declara el aviso: prealerta → media, alerta → alta, alerta máxima o
@@ -252,15 +269,17 @@ export function provincesIn(text, region = null) {
 }
 
 // Nombres de lugar: palabras con mayúscula unidas por «de», «del», «la»… («San José del Valle»).
-const CAP = "[A-ZÁÉÍÓÚÑÜ][a-záéíóúñüçàèìòù'·-]+";
+// «Rivas-Vaciamadrid», «Vilanova-i-la-Geltrú»: las partes tras un guion pueden ir en mayúscula.
+const CAP = "[A-ZÁÉÍÓÚÑÜ][a-záéíóúñüçàèìòù'·]+(?:-[A-ZÁÉÍÓÚÑÜa-záéíóúñüçàèìòù][a-záéíóúñüçàèìòù'·]*)*";
 const LINK = '(?:de|del|de la|de las|de los|la|las|los|el|d\'|de l\')';
 const NAME = `${CAP}(?:\\s+(?:${LINK}\\s+)?${CAP})*`;
 const LIST = new RegExp(`^(${NAME})((?:\\s*,\\s*${NAME})*)(?:\\s+(?:y|e|i)\\s+(${NAME}))?`);
-const INTRO = /(?:^|[\s(])(?:en|afecta(?:n|do|da|ndo)? (?:a|al)|de los vecinos de|vecinos de|localidad de|municipio de|pueblo de|poblacion de|población de|pedania de|pedanía de|núcleo de|nucleo de|barriada de|zona de)\s+(?:la localidad de |el municipio de |los municipios de |las localidades de |la población de |la poblacion de )?/gi;
+const INTRO = /(?:^|[\s(])(?:en|afecta(?:n|do|da|ndo)? (?:a|al)|de los vecinos de|vecinos de|localidad de|municipio de|pueblo de|poblacion de|población de|pedania de|pedanía de|núcleo de|nucleo de|barriada de|barrios? de|parroquias? de|concellos? de|zona de)\s+(?:la localidad de |el municipio de |los municipios de |las localidades de |la población de |la poblacion de )?/gi;
 // Palabras con mayúscula que no son lugares (empiezan frase, organismos…).
 const NOT_PLACES = new Set(['el', 'la', 'los', 'las', 'este', 'esta', 'endesa', 'iberdrola', 'ema', 'sos', 'junta', 'gobierno',
   'guardia civil', 'policia local', 'protección civil', 'proteccion civil', 'andalucia', 'españa', 'espana', 'canarias',
-  'castilla y leon', 'castilla-la mancha', 'la rioja', 'cataluña', 'cataluna', 'centro coordinador', 'urgencias']);
+  'castilla y leon', 'castilla-la mancha', 'la rioja', 'cataluña', 'cataluna', 'centro coordinador', 'urgencias',
+  'comunidad de madrid', 'comunidad', 'region de murcia', 'region', 'cantabria', 'galicia', 'xunta', 'asem', 'axega']);
 
 /**
  * Lugares que cita un texto tras «en», «localidad de», etc. («Hay falta de suministro eléctrico en

@@ -51,6 +51,7 @@
  * @property {number|null} [start]
  * @property {number|null} [end]
  * @property {number|null} [issued]  Epoch ms en que se emitió el aviso (AEMET pide mostrarlo; avisos oficiales).
+ * @property {boolean} [issuedDayOnly]  La fuente sólo da el día de emisión, sin hora (notas de prensa de Cantabria).
  * @property {string|null} [url]     Página del aviso o del suceso en su fuente (el mapa la enlaza con safeLink).
  * @property {'verde'|'amarillo'|'naranja'|'rojo'} [level]  Nivel del aviso: meteorológicos de AEMET (amarillo a
  *   rojo) y catástrofes de GDACS (verde a rojo). Las reglas sólo avisan de los naranja y rojo.

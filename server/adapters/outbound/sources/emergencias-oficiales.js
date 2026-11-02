@@ -20,11 +20,19 @@
 //   robots.txt prohíbe la ruta del RSS, en contra de su propio catálogo: se usa la URL exacta que publica
 //   el catálogo de datos.gob.es (la sala de prensa en catalán, lang=ca), cada 15 minutos y avisándoles
 //   (decisión del titular de Radar España, 2-11-2026).
+// - Comunidad de Madrid (aviso legal del portal): reutilización sin alterar ni desnaturalizar, citando
+//   la fuente y la fecha de extracción y sin dar a entender que la Comunidad patrocina el uso. Su
+//   robots.txt pide 10 s entre peticiones (aquí, una cada 15 minutos).
+// - Región de Murcia: conjunto de datos abiertos (aviso legal del portal): «Origen de los datos» y la
+//   fecha de la última actualización, sin desnaturalizar ni sugerir patrocinio.
+// - Cantabria: CC BY 3.0 ES (pie de www.cantabria.es), sin logotipos.
+// - Xunta de Galicia (aviso legal del portal): reutilización citando la fuente y sin desnaturalizar;
+//   sin logotipos (no se usan las fotos). Distinto del de la AXEGA (el 112), que no se usa.
 //
 // Cada descarga lleva su tope (maxBytes): los feeds pesan de unos cientos de bytes a 800 KB y se leen
 // en el hilo principal.
 import {
-  NOTICE_MAX_AGE, currentNotices, expiresAt, fold, illesIn, isEndNotice, isPlanNotice, islandsIn, mentionsPlan, mentionsPowerBack,
+  NOTICE_MAX_AGE, currentNotices, expiresAt, fold, illesIn, isEndNotice, isPlanNotice, isPressPlanNotice, islandsIn, mentionsPlan, mentionsPowerBack,
   mentionsPowerCut, placeCandidates, powerClauses, provincesIn, severityOf, subjectsOf,
 } from '../../../domain/emergencias.js';
 import { COMUNIDADES, ILLES_BALEARS, ISLAS_CANARIAS, PROVINCIAS } from '../../../domain/lugares.js';
@@ -39,10 +47,14 @@ export const CREDITS = {
   'emergencias-la-rioja': 'Fuente: Gobierno de La Rioja (SOS Rioja 112)',
   'emergencias-castilla-y-leon': 'Origen de los datos: Junta de Castilla y León',
   'emergencias-illes-balears': 'Font de les dades: Govern de les Illes Balears',
+  'emergencias-madrid': 'Fuente: Comunidad de Madrid',
+  'emergencias-murcia': 'Origen de los datos: Comunidad Autónoma de la Región de Murcia (CARM)',
+  'emergencias-cantabria': 'Fuente: Gobierno de Cantabria',
+  'emergencias-galicia': 'Fuente: Xunta de Galicia',
 };
 
 // Códigos de comunidad del INE, los que usa CartoCiudad (sólo las fuentes que geocodifican).
-const REGION = { andalucia: '01', 'castilla-y-leon': '07', 'la-rioja': '17' };
+const REGION = { andalucia: '01', cantabria: '06', 'castilla-y-leon': '07', galicia: '12', madrid: '13', murcia: '14', 'la-rioja': '17' };
 // Topes de descarga, muy por encima de lo que pesa hoy cada feed (como mucho, unos 150 KB).
 const FEED_MAX_BYTES = 2 * 1024 * 1024;
 const SMALL_MAX_BYTES = 1024 * 1024;
@@ -89,6 +101,7 @@ function toEvent(sourceId, notice, place, where, expires = null) {
     issued: notice.at,
     url: notice.url,
     credit: CREDITS[sourceId],
+    ...(notice.dayOnly ? { issuedDayOnly: true } : {}), // la fuente sólo da el día, sin hora
     ...(expires ? { expires } : {}),
   };
 }
@@ -296,10 +309,10 @@ export function parseAndaluciaNews(json) {
     const url = typeof r.path === 'object' ? r.path?.uri : r.path;
     const base = { at, url: url ? String(url) : null };
     const id = String(r.id ?? slug(title));
-    const province = provincesIn(title)[0] ?? null;
+    const province = provincesIn(title, 'andalucia')[0] ?? null;
     if (isPlanNotice(title)) {
       out.push({
-        ...base, id: `${id}:plan`, end: isEndNotice(title), subjects: subjectsOf(title), places: provincesIn(title),
+        ...base, id: `${id}:plan`, end: isEndNotice(title), subjects: subjectsOf(title), places: provincesIn(title, 'andalucia'),
         title, description: subtitle, power: mentionsPowerCut(title), severity: severityOf(title) ?? 'media',
       });
     }
@@ -603,4 +616,223 @@ export function createBalearsPremsaSource({ http, now = Date.now }) {
       return { sourceTime: updated, events };
     },
   };
+}
+
+// ---------- Notas de prensa de los gobiernos: Madrid, Murcia, Cantabria y Galicia ----------
+// Ninguno tiene un 112 que publique sus avisos con licencia: se leen las notas de prensa del gobierno,
+// que mezclan todos los temas. Por eso sólo cuentan los títulos, y sólo los que declaran, cambian o
+// terminan un plan nombrándolo (isPressPlanNotice), los que dicen que hay un corte de luz y los que dicen
+// que ha vuelto. Se citan el título y la entradilla sin alterar; no se usan fotos ni logotipos.
+
+/** El primer párrafo de un texto (la entradilla de una nota), sin etiquetas. */
+const firstParagraph = (html) => htmlText(html).split('\n')[0] ?? '';
+
+/**
+ * Avisos de las notas de prensa de una comunidad (`region`, clave de COMUNIDADES). Un plan va a las
+ * provincias que nombra; un corte de luz, a los pueblos que cita (candidatos para el geocodificador).
+ * @param {{ id: string, at: number, title: string, summary?: string, url: string|null, dayOnly?: boolean }[]} items
+ * @returns {OfficialNotice[]}
+ */
+export function pressNotices(items, region) {
+  const out = [];
+  for (const { id, at, title, summary = '', url, dayOnly = false } of items) {
+    if (!title) continue;
+    const plan = isPressPlanNotice(title);
+    const cut = !plan && mentionsPowerCut(title);
+    const back = !plan && !cut && mentionsPowerBack(title);
+    if (!plan && !cut && !back) continue;
+    const subjects = plan ? subjectsOf(title) : ['luz'];
+    if (subjects[0] === 'sin-riesgo') continue;
+    const provinces = provincesIn(title, region);
+    out.push({
+      id, at, end: back || (plan && isEndNotice(title)), subjects,
+      places: plan ? provinces : [],
+      ...(plan ? {} : { candidates: placeCandidates(title), province: provinces[0] ?? null }),
+      title, description: summary, url, power: plan ? mentionsPowerCut(title) : true,
+      severity: back ? 'baja' : (severityOf(title) ?? 'media'),
+      ...(dayOnly ? { dayOnly } : {}),
+    });
+  }
+  return out;
+}
+
+/** Fuente de notas de prensa: descarga, lee, sitúa los pueblos de los cortes y da los avisos en vigor. */
+function pressSource({ id, name, interval, url, page, license, region, read, geocoder, now, sourceTime = (updated) => updated }) {
+  return {
+    id, name, kind: 'events', interval, url, page, license,
+    async fetch() {
+      const t = now();
+      const { notices, updated } = await read(t);
+      const where = await locateNotices(notices.filter((n) => n.candidates), geocoder, REGION[region]);
+      for (const n of notices) {
+        if (n.candidates) continue;
+        for (const p of n.places) {
+          const prov = placeByName(PROVINCIAS, p);
+          if (prov) where.set(p, { ...prov, approx: 'provincia' });
+        }
+      }
+      return { sourceTime: sourceTime(updated), events: eventsFrom(id, notices, { now: t, region, where }) };
+    },
+  };
+}
+
+// Comunidad de Madrid: «Últimas noticias» de comunidad.madrid (su página de sindicación), unas 20 notas.
+const MADRID = 'https://www.comunidad.madrid/rss/latest-news.xml';
+
+/** @returns {{ notices: OfficialNotice[], updated: number|null }} */
+export function parseMadridNews(xml) {
+  const doc = xmlParser.parse(xml);
+  const items = arr(doc.rss?.channel?.item).map((it) => {
+    const title = htmlText(text(it.title));
+    const link = text(it.link);
+    // pubDate es cuándo se redactó: una nota publicada el lunes puede llevar la del viernes. El día de
+    // su enlace («/noticias/2026/11/02/…») es el de publicación.
+    const day = String(link ?? '').match(/\/noticias\/(\d{4})\/(\d{2})\/(\d{2})\//);
+    const at = Math.max(Date.parse(text(it.pubDate)) || 0, (day && madridLocalToMs(`${day[1]}-${day[2]}-${day[3]}T00:00:00`)) || 0);
+    // La descripción trae la nota entera (con sus fotos): sólo su primer párrafo.
+    const body = String(text(it.description) ?? '').match(/field--name-body[^>]*>([\s\S]*)$/)?.[1] ?? '';
+    return { id: slug(lastSegment(link) ?? title), at, title, summary: firstParagraph(body), url: link || null };
+  });
+  return { notices: pressNotices(items, 'madrid'), updated: newest(items.map((i) => i.at)) };
+}
+
+/** @param {{ http: import('../http/http-client.js').HttpClient, geocoder: import('../geo/cartociudad-geocoder.js').Geocoder, now?: () => number }} deps */
+export function createMadridNewsSource({ http, geocoder, now = Date.now }) {
+  return pressSource({
+    id: 'emergencias-madrid',
+    name: 'Comunidad de Madrid: planes de emergencia y cortes de luz (últimas noticias)',
+    interval: 900_000,
+    url: MADRID,
+    page: 'https://www.comunidad.madrid/gobierno/digitalizacion/sindicacion-contenidos-portal-comunidad-madrid',
+    license: CREDITS['emergencias-madrid'],
+    region: 'madrid',
+    read: async () => parseMadridNews(await http.text(MADRID, { timeout: 30_000, maxBytes: FEED_MAX_BYTES })),
+    // Su aviso legal pide la fecha de extracción: sin sourceTime, la ficha da la hora a la que se leyó.
+    sourceTime: () => null,
+    geocoder, now,
+  });
+}
+
+// Región de Murcia: «Noticias de la CARM en los últimos 7 días» del portal de datos abiertos (datos.gob.es
+// a14002961), en XML (el JSON es de arrays sin nombres de campo).
+const MURCIA = 'https://datosabiertos.carm.es/rest-services/services/restFile/comunicaNoticiasOD.xml';
+
+/** @returns {{ notices: OfficialNotice[], updated: number|null }} */
+export function parseMurciaNews(xml) {
+  const doc = xmlParser.parse(xml);
+  const items = arr(doc.resultados?.resultado).map((r) => {
+    const title = htmlText(text(r.TITULO));
+    const day = String(text(r.FECHA_VIGENCIA_DESDE) ?? text(r.FECHANOTICIA) ?? '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    const hour = String(text(r.HORA_VIGENCIA_DESDE) ?? '').match(/^(\d{1,2}):(\d{2})/);
+    const at = day ? madridLocalToMs(`${day[3]}-${day[2]}-${day[1]}T${(hour?.[1] ?? '00').padStart(2, '0')}:${hour?.[2] ?? '00'}:00`) : 0;
+    // El enlace viene escapado dos veces («&amp;amp;»).
+    const link = htmlText(text(r.URL_NOTICIA_CARM)) || null;
+    return {
+      id: link?.match(/IDCONTENIDO=(\d+)/)?.[1] ?? slug(title), at: at || 0, title,
+      summary: firstParagraph(String(text(r.ENTRADILLA) ?? '').replace(/\r?\n\s*\r?\n/g, '</p>')), url: link,
+    };
+  });
+  return { notices: pressNotices(items, 'murcia'), updated: newest(items.map((i) => i.at)) };
+}
+
+/** @param {{ http: import('../http/http-client.js').HttpClient, geocoder: import('../geo/cartociudad-geocoder.js').Geocoder, now?: () => number }} deps */
+export function createMurciaNewsSource({ http, geocoder, now = Date.now }) {
+  return pressSource({
+    id: 'emergencias-murcia',
+    name: 'Región de Murcia: planes de emergencia y cortes de luz (noticias de la CARM)',
+    interval: 900_000,
+    url: MURCIA,
+    page: 'https://datos.gob.es/catalogo/a14002961-noticias-de-la-carm-en-los-ultimos-7-dias',
+    license: CREDITS['emergencias-murcia'],
+    region: 'murcia',
+    read: async () => parseMurciaNews(await http.text(MURCIA, { timeout: 30_000, maxBytes: FEED_MAX_BYTES })),
+    geocoder, now,
+  });
+}
+
+// Cantabria: notas de prensa del Gobierno (índice oficial www.cantabria.es/enlaces_rss), las 50 últimas.
+// Sólo traen el título y el día (sin hora ni texto).
+const CANTABRIA = 'https://www.cantabria.es/o/GOBIERNO/feed/group16413/eid4008216/size50';
+
+/**
+ * Sin hora, una nota del día cuenta desde que se lee hasta el mediodía y, después, desde el mediodía:
+ * así un corte de luz se ve hasta el mediodía siguiente. La ficha sólo da el día (`dayOnly`).
+ * @returns {{ notices: OfficialNotice[], updated: number|null }}
+ */
+export function parseCantabriaNews(xml, now) {
+  const doc = xmlParser.parse(xml);
+  const items = arr(doc.rss?.channel?.item).map((it) => {
+    const title = htmlText(text(it.title));
+    const link = text(it.link);
+    const day = String(text(it.modDate) ?? '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const noon = day ? madridLocalToMs(`${day[1]}-${day[2]}-${day[3]}T12:00:00`) : null;
+    return { id: lastSegment(link) ?? slug(title), at: noon ? Math.min(now, noon) : 0, title, url: link || null, dayOnly: true };
+  });
+  return { notices: pressNotices(items, 'cantabria'), updated: newest(items.map((i) => i.at)) };
+}
+
+/** @param {{ http: import('../http/http-client.js').HttpClient, geocoder: import('../geo/cartociudad-geocoder.js').Geocoder, now?: () => number }} deps */
+export function createCantabriaNewsSource({ http, geocoder, now = Date.now }) {
+  return pressSource({
+    id: 'emergencias-cantabria',
+    name: 'Gobierno de Cantabria: planes de emergencia y cortes de luz (notas de prensa)',
+    interval: 900_000,
+    url: CANTABRIA,
+    page: 'https://www.cantabria.es/enlaces_rss',
+    license: `${CREDITS['emergencias-cantabria']} · CC BY 3.0 ES`,
+    region: 'cantabria',
+    read: async (t) => parseCantabriaNews(await http.text(CANTABRIA, { timeout: 30_000, maxBytes: SMALL_MAX_BYTES }), t),
+    geocoder, now,
+  });
+}
+
+// Galicia: notas de prensa de la Xunta en castellano, las del área «Emerxencias» y las últimas de todas
+// (la etiqueta no siempre se pone: la activación del PLATERGA por el eclipse no la llevaba). Cada RSS
+// trae 15; el general, unas cuatro horas de un día laborable.
+const GALICIA_EMERGENCIAS = 'https://www.xunta.gal/es/novas_rss.htm?category=Taxonomias/Web/Novas/Areas_tematicas/Emerxencias/';
+const GALICIA = 'https://www.xunta.gal/es/novas_rss.htm';
+
+/** @returns {{ notices: OfficialNotice[], updated: number|null }} */
+export function parseGaliciaNews(xml) {
+  const doc = xmlParser.parse(xml);
+  const items = arr(doc.rss?.channel?.item).map((it) => {
+    const title = htmlText(text(it.title));
+    const link = text(it.link);
+    return {
+      id: String(link ?? '').match(/\/nova\/(\d+)\//)?.[1] ?? slug(title), at: Date.parse(text(it.pubDate)) || 0, title,
+      summary: firstParagraph(text(it.description)), url: link || null,
+    };
+  });
+  return { notices: pressNotices(items, 'galicia'), updated: newest(items.map((i) => i.at)) };
+}
+
+/** @param {{ http: import('../http/http-client.js').HttpClient, geocoder: import('../geo/cartociudad-geocoder.js').Geocoder, now?: () => number }} deps */
+export function createGaliciaNewsSource({ http, geocoder, now = Date.now }) {
+  // El RSS general sólo trae unas horas: se guardan los avisos de los últimos días para que un corte no
+  // desaparezca del mapa en cuanto la Xunta publica otras notas (como en Castilla y León).
+  const kept = new Map();
+  return pressSource({
+    id: 'emergencias-galicia',
+    name: 'Xunta de Galicia: planes de emergencia y cortes de luz (notas de prensa)',
+    interval: 600_000,
+    url: GALICIA_EMERGENCIAS,
+    page: 'https://www.xunta.gal/es/notas-de-prensa',
+    license: CREDITS['emergencias-galicia'],
+    region: 'galicia',
+    read: async (t) => {
+      const feeds = await Promise.allSettled([GALICIA_EMERGENCIAS, GALICIA].map((u) => http.text(u, { timeout: 30_000, maxBytes: SMALL_MAX_BYTES })));
+      if (feeds.every((f) => f.status === 'rejected')) throw feeds[0].reason;
+      let updated = null;
+      for (const f of feeds) {
+        if (f.status !== 'fulfilled') continue;
+        const read = parseGaliciaNews(f.value);
+        for (const n of read.notices) kept.set(n.id, n);
+        updated = Math.max(updated ?? 0, read.updated ?? 0) || null;
+      }
+      for (const [key, n] of kept) if (t - n.at > NOTICE_MAX_AGE) kept.delete(key);
+      // Copias: locateNotices rellena `places` de cada aviso en cada lectura.
+      return { notices: [...kept.values()].map((n) => ({ ...n })), updated };
+    },
+    geocoder, now,
+  });
 }
