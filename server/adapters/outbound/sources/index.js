@@ -17,6 +17,10 @@ import { createAemetAvisosSource } from './aemet-avisos.js';
 import { createFirmsSource } from './firms.js';
 import { createReeSource } from './ree.js';
 import { createGdacsSource } from './emergencias-extra.js';
+import {
+  createAndaluciaEmergenciasSource, createCanariasAlertasSource, createCatalunaPlansSource, createClmPlansSource,
+  createCyl112Source, createRiojaSosSource,
+} from './emergencias-oficiales.js';
 import { createEmtMadridAlertsSource } from './emt-madrid.js';
 import { busGroupSources } from './autobuses-nap.js';
 
@@ -66,6 +70,7 @@ export function metroBilbao(e, gtfs) {
  * @param {{ http: import('../http/http-client.js').HttpClient, stations: import('../../../application/ports.js').StationCatalogPort,
  *           nap: ReturnType<typeof import('../nap/nap-client.js').createNapClient>,
  *           log: import('../../../application/ports.js').LoggerPort, env: Record<string, string|undefined>,
+ *           geocoder: import('../../../application/ports.js').GeocoderPort,
  *           pool?: import('../workers/cpu-pool.js').CpuPool }} deps  pool: hilos de cálculo (horarios, XML de la DGT).
  * @returns {import('../../../application/ports.js').DataSourcePort[]}
  */
@@ -151,6 +156,13 @@ export function createSources(deps) {
     createFirmsSource(deps),
     createIgnSismosSource(deps),
     createGdacsSource(deps),
+    // Avisos oficiales de protección civil y de los 112 (planes activados y cortes de luz).
+    createCanariasAlertasSource(deps),
+    createCatalunaPlansSource(deps),
+    createAndaluciaEmergenciasSource(deps),
+    createClmPlansSource(deps),
+    createRiojaSosSource(deps),
+    createCyl112Source(deps),
     createReeSource(deps),
   ];
 }

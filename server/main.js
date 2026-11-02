@@ -22,6 +22,7 @@ import { createSources } from './adapters/outbound/sources/index.js';
 import { startPolling } from './adapters/inbound/scheduler/polling-scheduler.js';
 import { createHttpServer } from './adapters/inbound/http/http-server.js';
 import { createWmsTiles } from './adapters/outbound/tiles/wms-tiles.js';
+import { createCartoCiudadGeocoder } from './adapters/outbound/geo/cartociudad-geocoder.js';
 import { createCpuPool, parseThreads } from './adapters/outbound/workers/cpu-pool.js';
 
 const config = loadConfig();
@@ -45,7 +46,10 @@ const situation = assertPort('SituationRepository', createInMemorySituation(), P
 const history = assertPort('History', createJsonlHistory({ dir: new URL('history/', config.dataDir), log }), PORT_MEMBERS.History);
 const tiles = assertPort('TileProvider', createWmsTiles({ http, dir: fileURLToPath(new URL('tiles/', config.dataDir)), log }), PORT_MEMBERS.TileProvider);
 
-const sources = createSources({ http, cache, stations, nap, log, env: config.env, pool })
+// Sitúa los municipios que citan los avisos del 112 (no traen coordenadas).
+const geocoder = assertPort('Geocoder', createCartoCiudadGeocoder({ http, log }), PORT_MEMBERS.Geocoder);
+
+const sources = createSources({ http, cache, stations, nap, log, env: config.env, pool, geocoder })
   .map((s) => assertPort(`DataSource(${s.id})`, s, PORT_MEMBERS.DataSource));
 
 const enabledSources = [];

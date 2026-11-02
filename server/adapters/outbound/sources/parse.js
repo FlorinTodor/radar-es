@@ -58,3 +58,38 @@ export function madridLocalToMs(s) {
 
 /** Fecha de hoy en Madrid, "YYYY-MM-DD". */
 export const madridToday = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Madrid' }).format(new Date());
+
+// Entidades HTML con nombre que usan los avisos de las webs autonómicas (el resto llegan como &#nnn;).
+const ENTITIES = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', hellip: '…', laquo: '«', raquo: '»', ndash: '–', mdash: '—',
+  iexcl: '¡', iquest: '¿', ordm: 'º', ordf: 'ª', middot: '·', euro: '€', deg: '°', lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”',
+  aacute: 'á', eacute: 'é', iacute: 'í', oacute: 'ó', uacute: 'ú', Aacute: 'Á', Eacute: 'É', Iacute: 'Í', Oacute: 'Ó', Uacute: 'Ú',
+  agrave: 'à', egrave: 'è', ograve: 'ò', Agrave: 'À', Egrave: 'È', Ograve: 'Ò', ntilde: 'ñ', Ntilde: 'Ñ', uuml: 'ü', Uuml: 'Ü',
+  iuml: 'ï', ccedil: 'ç', Ccedil: 'Ç',
+};
+
+/** Decodifica entidades HTML («&oacute;», «&#243;», «&#x27;»); las desconocidas se dejan como están. */
+export function decodeEntities(s) {
+  return String(s ?? '').replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (all, e) => {
+    if (e[0] === '#') {
+      const code = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+      return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : all;
+    }
+    return lookup(ENTITIES, e) ?? all;
+  });
+}
+
+/**
+ * Texto de un fragmento HTML (descripción de un RSS, cuerpo de una noticia): sin etiquetas ni
+ * comentarios, con las entidades decodificadas (también las escapadas dos veces, «&amp;oacute;») y
+ * los espacios juntos. Los párrafos se separan con un salto de línea.
+ */
+export function htmlText(html) {
+  const withBreaks = String(html ?? '')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<\/(p|div|li|h[1-6])>|<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]*>/g, ' ');
+  return decodeEntities(decodeEntities(withBreaks))
+    .split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n');
+}

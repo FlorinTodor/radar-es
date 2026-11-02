@@ -4,16 +4,17 @@
 
 **[radarespaña.es](https://radarespaña.es)** (también [radarespana.es](https://radarespana.es)) · Mapa
 de trenes, metros, tranvías y autobuses de España, cruzado con incidencias de tráfico, terremotos,
-avisos meteorológicos, incendios y el estado de la red eléctrica. Los vehículos salen en su posición
+avisos meteorológicos, incendios, el estado de la red eléctrica y los avisos oficiales de protección
+civil (planes de emergencia activados y cortes de luz). Los vehículos salen en su posición
 en directo cuando el operador la publica y, si solo publica su horario, en una posición estimada
-marcada como tal. Todo a partir de **datos públicos**: de sus 45 fuentes, 20 no piden nada y 25
+marcada como tal. Todo a partir de **datos públicos**: de sus 51 fuentes, 26 no piden nada y 25
 necesitan la clave gratuita del Punto de Acceso Nacional (NAP).
 
 Un motor de reglas vigila situaciones que merecen atención humana: trenes detenidos en
 plena vía, varios trenes parados en la misma zona, saltos bruscos de retraso, desapariciones
 masivas de trenes del mapa, terremotos, incendios o avisos naranja y rojo cerca de trenes en
-circulación, alertas de catástrofes naranja o roja, caídas de la demanda eléctrica y fuentes de
-datos caídas.
+circulación, alertas de catástrofes naranja o roja, caídas de la demanda eléctrica, cortes de luz y
+planes de emergencia en alerta que publican protección civil y los 112, y fuentes de datos caídas.
 
 > **Límites.** Los datos públicos llegan con decenas de segundos o minutos de retraso y no
 > incluyen señalización, estado de la vía ni comunicaciones con el maquinista. Esta
@@ -81,6 +82,7 @@ superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`]
                    │ model.js · geo.js · tracking.js      │  puro: sin red, sin disco,
                    │ kpis.js · tiles.js · rail-match.js   │  sin dependencias externas
                    │ schedule.js · route-ahead.js         │
+                   │ emergencias.js · lugares.js          │
                    │ alerts/{rules,lifecycle,thresholds}  │
                    └──────────────────────────────────────┘
                                   ▲ implementan los puertos
@@ -92,6 +94,7 @@ superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`]
                    │                         y red ferroviaria de Adif          │
                    │ persistence/     estado en memoria + histórico JSONL       │
                    │ tiles/           teselas de IGN y EFFIS con copia en disco │
+                   │ geo/             sitúa pueblos por su nombre (CartoCiudad) │
                    │ workers/         hilos para leer GTFS y XML (CPU)          │
                    │ http/, logging/                                            │
                    └────────────────────────────────────────────────────────────┘
@@ -123,6 +126,7 @@ Los puertos están en `server/application/ports.js`:
 | `SituationRepository` | `persistence/in-memory-situation.js` | estado actual: último dato de cada fuente, recorridos, alertas, KPIs |
 | `History` | `persistence/jsonl-history.js` | histórico de alertas y KPIs |
 | `TileProvider` | `tiles/wms-tiles.js` | teselas de IGN y EFFIS con copia en disco |
+| `Geocoder` | `geo/cartociudad-geocoder.js` | situar el municipio que cita un aviso del 112 (no traen coordenadas) |
 
 `Clock` (la hora, para poder simularla en los tests) y `Logger` (el registro) también son puertos.
 
@@ -152,7 +156,7 @@ publica con licencia CC BY en el portal del Cabildo. La licencia y la atribució
 en `/legal`.
 
 Todas son públicas. Solo las marcadas con 🔑 necesitan `NAP_API_KEY`, una clave gratuita del NAP. En
-total son 45 fuentes (34 de vehículos, 10 de incidencias y 1 de métricas): 20 sin clave y 25 con ella.
+total son 51 fuentes (34 de vehículos, 16 de incidencias y 1 de métricas): 26 sin clave y 25 con ella.
 
 | Fuente | Qué aporta | Refresco |
 |---|---|---|
@@ -183,6 +187,13 @@ total son 45 fuentes (34 de vehículos, 10 de incidencias y 1 de métricas): 20 
 | GDACS (ONU / Comisión Europea) | alertas de catástrofes en la zona (verde, naranja, roja) | 15 min |
 | Copernicus EFFIS (WMS, servido por `/tiles` con copia de 3 h) | capa de áreas quemadas en los últimos 30 días y su ficha | — |
 | Red Eléctrica REData | demanda real frente a prevista | 5 min |
+| Gobierno de Canarias (alertas del PLATECA, CC BY 4.0) | prealerta, alerta y emergencia por isla, incluidos los ceros energéticos | 5 min |
+| Generalitat de Catalunya (planes de protección civil activados) | planes en prealerta, alerta o emergencia | 5 min |
+| Junta de Andalucía (noticias de Emergencias 112, CC BY 4.0) | planes activados y cortes de luz en los pueblos que citan | 10 min |
+| 112 Castilla-La Mancha (RSS de planes) | PLATECAM, METEOCAM… activados por provincia | 10 min |
+| SOS Rioja 112 (RSS) | averías del suministro eléctrico por pueblo y cuándo vuelve la luz | 10 min |
+| 112 Castilla y León (RSS de última hora) | cortes de luz por localidad | 3 min |
+| CartoCiudad (IGN-CNIG, CC BY 4.0) | ubicación de los pueblos que citan esos avisos | al leerlos |
 
 El mapa base es de OpenFreeMap (datos de OpenStreetMap), sin clave.
 
@@ -275,6 +286,11 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Contexto y emergencias: incidencias de tráfico y obras en carretera (capas separadas), avisos
   meteorológicos, focos de calor por satélite, áreas quemadas con su ficha, terremotos, alertas
   de catástrofes y demanda eléctrica.
+- Avisos oficiales de emergencias: planes de protección civil activados y cortes de luz que publican
+  Canarias, Cataluña, Andalucía, Castilla-La Mancha, La Rioja y Castilla y León. Su texto se cita tal
+  cual, con la atribución de cada administración; se sitúan en el centro de su isla, pueblo,
+  provincia o comunidad, y dejan de verse cuando se publica su fin. Los cortes de luz y los planes en
+  alerta o emergencia dan alerta.
 - Red ferroviaria, líneas de metro, tranvía y Cercanías, y estaciones.
 - Nombres del mapa base en español.
 - Se descartan los retrasos imposibles que a veces llegan en los datos.
@@ -483,6 +499,15 @@ Ninguna por ahora.
   Wikimedia Commons: Commons lo permite pero no lo recomienda, y así Wikimedia no recibiría la IP de
   quien abre la ficha.
 - Guía para quien quiera proponer cambios.
+- Cortes de luz en el resto de España:
+  - detectar el apagón de una isla, de Baleares, de Ceuta o de Melilla en minutos con la demanda de
+    cada sistema eléctrico en e·sios (Red Eléctrica), que pide una clave gratuita;
+  - avisos de las comunidades que no tienen un canal que se pueda leer con su licencia (Galicia,
+    Baleares, Comunidad Valenciana, Aragón, Extremadura, Asturias, Navarra, Ceuta y Melilla): pedirles
+    permiso o que lo publiquen como datos abiertos;
+  - noticias oficiales de Murcia, País Vasco, Galicia y Madrid, que sólo cuentan los grandes apagones;
+  - los cortes por barrio o por calle sólo los tienen las distribuidoras eléctricas, que no los
+    publican con licencia de reutilización.
 
 ## Licencia
 

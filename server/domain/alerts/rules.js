@@ -209,6 +209,59 @@ export function gridDemandDrop(ctx) {
   }];
 }
 
+/** Atribución de la fuente de un suceso, que su licencia pide citar también en las alertas. */
+const creditOf = (ctx, e) => e.credit ?? ctx.health.find((s) => s.id === e.source)?.license ?? null;
+
+/**
+ * Avisos oficiales agrupados por aviso: uno que declara lo mismo en tres islas o tres pueblos es una
+ * sola alerta que señala los tres puntos.
+ */
+function byNotice(events) {
+  const groups = new Map();
+  for (const e of events) {
+    const key = e.group ?? e.id;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(e);
+  }
+  return [...groups.entries()];
+}
+const areasOf = (list) => [...new Set(list.map((e) => e.area).filter(Boolean))].join(', ');
+
+/**
+ * Cortes de luz que publican los avisos oficiales de protección civil y de los 112 autonómicos. Su
+ * texto se cita tal cual; Radar España sólo añade dónde situarlo.
+ */
+export function officialPowerCuts(ctx) {
+  const cuts = ctx.events.filter((e) => e.category === 'emergencia' && e.power);
+  return byNotice(cuts).map(([key, list]) => {
+    const e = list[0];
+    return {
+      id: `apagon:${key}`, type: 'apagon', severity: e.severity === 'baja' ? 'media' : e.severity,
+      eventIds: list.map((x) => x.id), lat: e.lat ?? undefined, lon: e.lon ?? undefined,
+      title: `Corte de luz · ${areasOf(list)}`,
+      description: `Aviso oficial: «${e.description || e.title}»${list.every((x) => x.approx === 'comunidad') ? ' (el aviso no dice el lugar exacto)' : ''}.`,
+      credit: creditOf(ctx, e),
+    };
+  });
+}
+
+/** Planes de protección civil en alerta o emergencia (las prealertas se quedan en el mapa, sin alerta). */
+export function officialEmergencyPlans(ctx) {
+  const plans = ctx.events.filter((e) => e.category === 'emergencia' && !e.power && e.type === 'plan'
+    && (e.severity === 'alta' || e.severity === 'muy alta'));
+  return byNotice(plans).map(([key, list]) => {
+    const e = list[0];
+    const areas = areasOf(list);
+    return {
+      id: `emergencia:${key}`, type: 'emergencia', severity: e.severity,
+      eventIds: list.map((x) => x.id), lat: e.lat ?? undefined, lon: e.lon ?? undefined,
+      title: areas && !e.title.includes(areas) ? `${e.title} · ${areas}` : e.title,
+      description: e.description ?? '',
+      credit: creditOf(ctx, e),
+    };
+  });
+}
+
 /** Desaparición masiva de trenes del mapa. */
 export function fleetDrop(ctx) {
   const ref = ctx.kpiHistory.find((k) => ctx.now - k.t <= 12 * 60_000 && ctx.now - k.t >= 8 * 60_000);
@@ -257,6 +310,8 @@ export const RULES = [
   severeWeather,
   firesNearTrains,
   disasterAlerts,
+  officialPowerCuts,
+  officialEmergencyPlans,
   gridDemandDrop,
   fleetDrop,
   feedHealth,

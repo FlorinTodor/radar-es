@@ -42,6 +42,7 @@ export const LAYER_GROUPS = {
   sismos: ['ev-quake'],
   'renfe-avisos': ['ev-rail'],
   gdacs: ['ev-gdacs'],
+  emergencias: ['ev-emerg'],
   effis: ['effis-burnt', 'burnt-sel-line'],
 };
 
@@ -78,6 +79,8 @@ const ATTRIBUTION = [
   '© AEMET',
   'Fuente: DGT',
   '<a href="https://www.gdacs.org" target="_blank" rel="noopener">GDACS</a>',
+  // La licencia del portal de la Junta pide esta fórmula «en un lugar visible».
+  'Información obtenida del Portal de la Junta de Andalucía',
   'NASA FIRMS',
 ];
 
@@ -155,6 +158,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     'ev-road-major': () => roadFilter(true),
     'ev-works': ['all', category('carretera'), ['==', ['get', 'type'], 'roadMaintenance']],
     'ev-gdacs': category('catastrofe'),
+    'ev-emerg': category('emergencia'),
     'ev-fire-glow': category('incendio'),
     'ev-fire-core': category('incendio'),
     'ev-quake': category('sismo'),
@@ -321,6 +325,20 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
         'circle-stroke-color': ['match', ['get', 'severity'], 'muy alta', STATUS.critical, 'alta', STATUS.serious, '#6b6b66'],
       },
     });
+    // Avisos oficiales (protección civil, 112): los cortes de luz, un círculo apagado con borde
+    // amarillo; los planes activados, del color de su nivel. Van al centro de su isla, municipio,
+    // provincia o comunidad.
+    const isPowerCut = ['==', ['get', 'type'], 'apagon'];
+    map.addLayer({
+      id: 'ev-emerg', type: 'circle', source: 'events',
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 6, 9, 9, 13, 12],
+        'circle-color': ['case', isPowerCut, '#0d0d0d',
+          ['match', ['get', 'severity'], 'muy alta', STATUS.critical, 'alta', STATUS.serious, STATUS.warning]],
+        'circle-stroke-color': ['case', isPowerCut, '#ffd23f', '#0d0d0d'],
+        'circle-stroke-width': ['case', isPowerCut, 3, 2],
+      },
+    });
     // Focos de calor: halo difuminado + núcleo, para distinguirlos de los trenes (círculos nítidos).
     map.addLayer({
       id: 'ev-fire-glow', type: 'circle', source: 'events',
@@ -405,7 +423,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     });
 
     // Por orden de prioridad: si un tren está encima de su estación, se pulsa el tren.
-    const clickable = ['vehicles', 'veh-est', 'ev-rail', 'ev-quake', 'ev-gdacs', 'ev-road', 'ev-road-major', 'ev-works', 'stations-hit', 'netst-hit', 'ev-fire-glow', 'meteo-fill'];
+    const clickable = ['vehicles', 'veh-est', 'ev-rail', 'ev-quake', 'ev-emerg', 'ev-gdacs', 'ev-road', 'ev-road-major', 'ev-works', 'stations-hit', 'netst-hit', 'ev-fire-glow', 'meteo-fill'];
     for (const id of clickable) {
       map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
@@ -991,12 +1009,22 @@ function burntAreaDetail(p) {
 
 const fmtArea = (ha) => new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(Number(ha));
 
+// Los avisos oficiales no traen coordenadas: se sitúan en el centro de lo que nombran.
+const APPROX_LABEL = {
+  isla: 'aproximada: el centro de la isla',
+  municipio: 'aproximada: el centro de la localidad (CartoCiudad CC BY 4.0 scne.es)',
+  provincia: 'aproximada: el centro de la provincia',
+  comunidad: 'aproximada: el aviso no dice el lugar exacto (centro de la comunidad)',
+};
+
 function eventDetail(e) {
   const rows = [
     ['Gravedad', SEVERITY_LABEL[e.severity] ?? e.severity],
     e.issued && ['Emitido', fmtDateTime(e.issued)],
     e.start && ['Inicio', fmtDateTime(e.start)],
     e.end && ['Fin previsto', fmtDateTime(e.end)],
+    e.area && ['Lugar', e.area],
+    e.approx && ['Ubicación', APPROX_LABEL[e.approx] ?? 'aproximada'],
     ...sourceRows(e.source),
   ].filter(Boolean);
   const url = safeUrl(e.url);
