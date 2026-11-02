@@ -115,10 +115,18 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
   let lineFeatures = [];  // trazados de las líneas: el recorrido del tren seleccionado se pega a la suya
   let byShape = new Map(); // «red|shape_id» → trazado, para lo que le queda y la flecha de cada tren
   const shapeOf = (v) => (ROUTE_NETWORK[v.source] && v.shape && v.end ? byShape.get(`${ROUTE_NETWORK[v.source]}|${v.shape}`) : undefined);
-  const routeShapeOf = (v) => shapeOf(v) ?? (LINE_NETWORK[v.source] && v.line && v.end
-    ? lineFeatures.find((f) => f.properties.network === LINE_NETWORK[v.source] && f.properties.line === v.line
-      && f.geometry?.type === 'LineString' && pathBetween(f.geometry.coordinates, [v.lon, v.lat], v.end))
-    : undefined);
+  const routeShapeOf = (v) => {
+    const trip = shapeOf(v);
+    if (trip || !LINE_NETWORK[v.source] || !v.line || !v.end) return trip;
+    const network = lineFeatures.filter((f) => f.properties.network === LINE_NETWORK[v.source] && f.geometry?.type === 'LineString');
+    const fits = (f) => pathBetween(f.geometry.coordinates, [v.lon, v.lat], v.end);
+    // Su línea; si no, la línea de la que es refuerzo (R5R → R5); si no, cualquiera de su red que pase
+    // por el tren y por su final (la cremallera de Montserrat sale en las posiciones como M1/M2 y su
+    // trazado es MM). Entre el tren y su final, todas las que pasan por los dos van por la misma vía.
+    return network.find((f) => f.properties.line === v.line && fits(f))
+      ?? network.find((f) => v.line.startsWith(f.properties.line) && fits(f))
+      ?? network.find(fits);
+  };
   /** Lo que le queda hasta el final de su viaje, por su vía; null si no se sabe. */
   const routeAhead = (v) => {
     const shape = routeShapeOf(v);

@@ -163,6 +163,37 @@ El mapa base es de OpenFreeMap (datos de OpenStreetMap), sin clave.
 Las posiciones estimadas (`estimated: true`) se dibujan como un anillo hueco y **no cuentan para
 las alertas ni para los KPIs**.
 
+### Qué recorrido se ve de cada tren
+
+Al pulsar un tren, el mapa dibuja dos líneas: la **discontinua**, por donde ha pasado en los últimos
+45 minutos, y la **continua**, lo que le queda hasta su destino. No todas las redes las tienen
+completas: depende de lo que publica cada operador, y donde no hay datos públicos no se inventan.
+
+| Red | Recorrido reciente (discontinua) | Lo que le queda (continua) |
+|---|---|---|
+| Cercanías / Rodalies de Renfe | sus posiciones, por el trazado de su línea | por el trazado de su viaje, pasando por las paradas que le quedan |
+| AVE, Larga y Media Distancia | sus posiciones, por la vía (tramos de Adif) | por la vía hasta su destino, pasando por las paradas de su horario |
+| FGC | sus posiciones, por el trazado de su línea | por el trazado de su línea |
+| Metro Bilbao | sus posiciones tal y como llegan: Open Data Euskadi pide no alterar el contenido | por el trazado de su viaje |
+| Euskotren, metros y tranvías con posición estimada | la posición estimada, por su trazado | por su trazado, según su horario |
+| Ouigo | la posición estimada, en línea recta entre estaciones | no se dibuja |
+
+Lo que no se puede dibujar por falta de datos públicos:
+
+- **Ouigo** solo publica su horario, sin trazado: ni lo que le queda ni el recorrido por la vía.
+- **Iryo y los trenes de mercancías** no publican nada: no salen en el mapa.
+- **Adif** no publica las circulaciones ni el estado de la red (ver «Pendiente y conocido»).
+- **Trenes que no están en el horario publicado** (servicios especiales, números que Renfe no
+  incluye): sin paradas no se sabe lo que les queda.
+- **AVE internacionales mientras van por Francia**: la red de Adif solo cubre España.
+- **Cercanías cuyo trazado publicado no coincide con su viaje** (algún C5 de Sevilla, Rodalies a
+  Reus, Bilbao la Concordia–Karrantza): el trazado que publica Renfe no pasa por el tren o por sus
+  paradas, y el dibujo se corta donde se aparta en vez de ir por donde no pasa el tren.
+- **Metro Bilbao** no publica la línea de cada tren, solo «MB».
+- **Trenes sin moverse**: si el tren está parado o el operador repite la misma posición, no hay
+  recorrido reciente que dibujar. Renfe repite a veces la misma posición durante mucho rato: la
+  mañana del 2-nov, 85 de 421 viajes de Cercanías pasaron más de 30 minutos con la misma.
+
 ## API
 
 | Ruta | Devuelve |
@@ -254,7 +285,10 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   Velocidad, Larga y Media Distancia ese «parado» lejos de la estación es que ya ha salido: se muestra
   en camino, con su próxima parada.
 - FGC con nombres de estación en el recorrido, la parada y la próxima, en vez de sus códigos, y con
-  lo que le queda a cada tren hasta su destino, por el trazado de su línea.
+  lo que le queda a cada tren hasta su destino, por el trazado de su línea (también los refuerzos,
+  como el R5R, y la cremallera de Montserrat).
+- Apartado «Qué recorrido se ve de cada tren» en este README: qué líneas se dibujan en cada red y
+  cuáles no se pueden dibujar por falta de datos públicos.
 - Lista y buscador con todos los trenes.
 
 **Estaciones**
