@@ -7,7 +7,7 @@ de trenes, metros, tranvías y autobuses de España, cruzado con incidencias de 
 avisos meteorológicos, incendios, el estado de la red eléctrica y los avisos oficiales de protección
 civil (planes de emergencia activados y cortes de luz). Los vehículos salen en su posición
 en directo cuando el operador la publica y, si solo publica su horario, en una posición estimada
-marcada como tal. Todo a partir de **datos públicos**: de sus 52 fuentes, 26 no piden nada, 25
+marcada como tal. Todo a partir de **datos públicos**: de sus 53 fuentes, 27 no piden nada, 25
 necesitan la clave gratuita del Punto de Acceso Nacional (NAP) y 1 la de e·sios (Red Eléctrica).
 
 Un motor de reglas vigila situaciones que merecen atención humana: trenes detenidos en
@@ -159,8 +159,8 @@ publica con licencia CC BY en el portal del Cabildo. La licencia y la atribució
 en `/legal`.
 
 Todas son públicas. Las marcadas con 🔑 necesitan `NAP_API_KEY`, una clave gratuita del NAP, y la de
-e·sios, `ESIOS_TOKEN`. En total son 52 fuentes (34 de vehículos, 16 de incidencias y 2 de métricas):
-26 sin clave, 25 con la del NAP y 1 con la de e·sios.
+e·sios, `ESIOS_TOKEN`. En total son 53 fuentes (34 de vehículos, 17 de incidencias y 2 de métricas):
+27 sin clave, 25 con la del NAP y 1 con la de e·sios.
 
 | Fuente | Qué aporta | Refresco |
 |---|---|---|
@@ -198,6 +198,7 @@ e·sios, `ESIOS_TOKEN`. En total son 52 fuentes (34 de vehículos, 16 de inciden
 | 112 Castilla-La Mancha (RSS de planes) | PLATECAM, METEOCAM… activados por provincia | 10 min |
 | SOS Rioja 112 (RSS) | averías del suministro eléctrico por pueblo y cuándo vuelve la luz | 10 min |
 | 112 Castilla y León (RSS de última hora) | cortes de luz por localidad | 3 min |
+| Govern de les Illes Balears (RSS de la sala de prensa, CC BY) | alertas y emergencias por isla y su fin, cortes de luz | 15 min |
 | CartoCiudad (IGN-CNIG, CC BY 4.0) | ubicación de los pueblos que citan esos avisos | al leerlos |
 
 El mapa base es de OpenFreeMap (datos de OpenStreetMap), sin clave.
@@ -292,8 +293,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   meteorológicos, focos de calor por satélite, áreas quemadas con su ficha, terremotos, alertas
   de catástrofes y demanda eléctrica.
 - Avisos oficiales de emergencias: planes de protección civil activados y cortes de luz que publican
-  Canarias, Cataluña, Andalucía, Castilla-La Mancha, La Rioja y Castilla y León. Su texto se cita tal
-  cual, con la atribución de cada administración; se sitúan en el centro de su isla, pueblo,
+  Canarias, Baleares, Cataluña, Andalucía, Castilla-La Mancha, La Rioja y Castilla y León. Su texto se
+  cita tal cual, con la atribución de cada administración; se sitúan en el centro de su isla, pueblo,
   provincia o comunidad, y dejan de verse cuando se publica su fin. Los cortes de luz y los planes en
   alerta o emergencia dan alerta.
 - Apagón total de una isla de Canarias, de Ceuta o de Melilla: alerta a los pocos minutos cuando su
@@ -511,8 +512,8 @@ Ninguna por ahora.
   - Baleares: Red Eléctrica sólo publica en tiempo real su demanda programada, no la real, así que su
     apagón no se puede detectar como el de las islas de Canarias, Ceuta o Melilla;
   - avisos de las comunidades que no tienen un canal que se pueda leer con su licencia (Galicia,
-    Baleares, Comunidad Valenciana, Aragón, Extremadura, Asturias, Navarra, Ceuta y Melilla): pedirles
-    permiso o que lo publiquen como datos abiertos;
+    Comunidad Valenciana, Aragón, Extremadura, Asturias, Navarra, Ceuta y Melilla): pedirles permiso o
+    que lo publiquen como datos abiertos;
   - noticias oficiales de Murcia, País Vasco, Galicia y Madrid, que sólo cuentan los grandes apagones;
   - los cortes por barrio o por calle sólo los tienen las distribuidoras eléctricas, que no los
     publican con licencia de reutilización.

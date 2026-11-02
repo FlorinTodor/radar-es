@@ -19,8 +19,8 @@ import { createReeSource } from './ree.js';
 import { createEsiosSource } from './esios.js';
 import { createGdacsSource } from './emergencias-extra.js';
 import {
-  createAndaluciaEmergenciasSource, createCanariasAlertasSource, createCatalunaPlansSource, createClmPlansSource,
-  createCyl112Source, createRiojaSosSource,
+  createAndaluciaEmergenciasSource, createBalearsPremsaSource, createCanariasAlertasSource, createCatalunaPlansSource,
+  createClmPlansSource, createCyl112Source, createRiojaSosSource,
 } from './emergencias-oficiales.js';
 import { createEmtMadridAlertsSource } from './emt-madrid.js';
 import { busGroupSources } from './autobuses-nap.js';
@@ -164,6 +164,7 @@ export function createSources(deps) {
     createClmPlansSource(deps),
     createRiojaSosSource(deps),
     createCyl112Source(deps),
+    createBalearsPremsaSource(deps),
     createReeSource(deps),
     createEsiosSource(deps), // con ESIOS_TOKEN: apagón de una isla, de Ceuta o de Melilla
   ];

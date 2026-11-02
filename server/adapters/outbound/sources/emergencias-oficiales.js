@@ -13,11 +13,15 @@
 // - Castilla-La Mancha: aviso legal (Ley 37/2007): citar la fuente y la fecha de publicación.
 // - La Rioja: «Se autoriza la reproducción siempre que se haga referencia a la fuente»; sin incrustar su web.
 // - Castilla y León: «Origen de los datos: Junta de Castilla y León» y la fecha de actualización.
+// - Govern de les Illes Balears: conjunto «Actualidad Informativa - Comunicaciones» del catálogo de datos
+//   abiertos (CC BY): «Font de les dades: Govern de les Illes Balears», sin alterar, con la fecha. Su
+//   robots.txt prohíbe la ruta del RSS, en contra de su propio catálogo: se usa la URL del catálogo, cada
+//   15 minutos y avisándoles (decisión del titular de Radar España, 2-11-2026).
 import {
-  currentNotices, fold, isEndNotice, isPlanNotice, islandsIn, mentionsPlan, mentionsPowerBack, mentionsPowerCut,
+  currentNotices, fold, illesIn, isEndNotice, isPlanNotice, islandsIn, mentionsPlan, mentionsPowerBack, mentionsPowerCut,
   placeCandidates, powerClauses, provincesIn, severityOf, subjectsOf,
 } from '../../../domain/emergencias.js';
-import { COMUNIDADES, ISLAS_CANARIAS, PROVINCIAS } from '../../../domain/lugares.js';
+import { COMUNIDADES, ILLES_BALEARS, ISLAS_CANARIAS, PROVINCIAS } from '../../../domain/lugares.js';
 import { arr, htmlText, madridLocalToMs, text, xmlParser } from './parse.js';
 
 const HOUR = 3_600_000;
@@ -32,6 +36,7 @@ export const CREDITS = {
   'emergencias-castilla-la-mancha': 'Fuente: Junta de Comunidades de Castilla-La Mancha (112 Castilla-La Mancha)',
   'emergencias-la-rioja': 'Fuente: Gobierno de La Rioja (SOS Rioja 112)',
   'emergencias-castilla-y-leon': 'Origen de los datos: Junta de Castilla y León',
+  'emergencias-illes-balears': 'Font de les dades: Govern de les Illes Balears',
 };
 
 // Códigos de comunidad del INE, los que usa CartoCiudad.
@@ -452,6 +457,79 @@ export function createCyl112Source({ http, geocoder }) {
       const notices = [...kept.values()];
       const where = await locateNotices(notices, geocoder, REGION['castilla-y-leon']);
       return { sourceTime: updated, events: eventsFrom('emergencias-castilla-y-leon', notices, where, 'castilla-y-leon', now, maxAge, { wholeNotice: true }) };
+    },
+  };
+}
+
+// ---------- Govern de les Illes Balears: sala de prensa (emergencias y cortes de luz) ----------
+// El RSS de «Noticias» del mismo catálogo está parado desde abril de 2024: se usa el de la sala de prensa.
+const BALEARES = 'https://www.caib.es/pidip2front/pidipRSS?opcio=getRSS&grup=salaDePremsa&lang=es';
+
+/** El RSS viene en ISO-8859-1 (lo dice su cabecera XML): se decodifica con la codificación que declara. */
+export function decodeXml(bytes) {
+  const head = new TextDecoder('latin1').decode(bytes.subarray(0, 200));
+  const declared = head.match(/encoding=["']([\w-]+)["']/i)?.[1]?.toLowerCase() ?? 'utf-8';
+  try {
+    return new TextDecoder(declared).decode(bytes);
+  } catch {
+    return new TextDecoder('utf-8').decode(bytes);
+  }
+}
+
+/**
+ * Sólo trae títulos (sin texto): se quedan las declaraciones de alerta o emergencia, su fin y los
+ * cortes de luz. Las reuniones del CECOPI, las obras «de emergencia» o los protocolos no son avisos.
+ * @returns {{ notices: OfficialNotice[], updated: number|null }}
+ */
+export function parseBalearsPremsa(xml) {
+  const doc = xmlParser.parse(xml);
+  const out = [];
+  for (const it of arr(doc.rss?.channel?.item)) {
+    const title = htmlText(text(it.title));
+    if (!title) continue;
+    const t = fold(title);
+    // «Decretado el fin de la emergencia en Ibiza» no nombra plan ni nivel; «finaliza las excavaciones
+    // del Plan de Fosas» no es una emergencia.
+    const end = isEndNotice(title) && /\b(?:emergencia|alerta|prealerta|platerbal|meteobal|inunbal|infobal)\b/.test(t);
+    if (!isPlanNotice(title) && !end && !mentionsPowerCut(title)) continue;
+    const illes = illesIn(title);
+    // Sus enlaces apuntan a intranet.caib.es, que redirige; la misma ficha está en www.caib.es.
+    const link = String(text(it.link) ?? '').replace(/^https?:\/\/intranet\.caib\.es\//, 'https://www.caib.es/');
+    out.push({
+      id: String(text(it.guid) ?? slug(title)),
+      at: Date.parse(text(it.pubDate)) || 0,
+      end: isEndNotice(title),
+      subjects: subjectsOf(title),
+      places: illes.includes('*') ? [] : illes,
+      title,
+      description: '',
+      url: link || null,
+      power: mentionsPowerCut(title),
+      severity: severityOf(title) ?? 'media',
+    });
+  }
+  return { notices: out, updated: newest(rssDates(doc)) };
+}
+
+/** @param {{ http: import('../http/http-client.js').HttpClient }} deps */
+export function createBalearsPremsaSource({ http }) {
+  return {
+    id: 'emergencias-illes-balears',
+    name: 'Govern de les Illes Balears: emergencias y cortes de luz (sala de prensa)',
+    kind: 'events',
+    interval: 900_000, // unos 800 KB por lectura y sin caché: cada 15 minutos
+    url: BALEARES,
+    page: 'https://datos.gob.es/catalogo/a04003003-actualidad-informativa-comunicaciones-del-gobierno-de-las-islas-baleares1',
+    license: `${CREDITS['emergencias-illes-balears']} · CC BY`,
+    async fetch() {
+      const { notices, updated } = parseBalearsPremsa(decodeXml(await http.bytes(BALEARES, { timeout: 60_000, maxBytes: 8 * 1024 * 1024 })));
+      const now = Date.now();
+      const events = currentNotices(notices, { now, maxAgeMs: PLAN_MAX_AGE }).map(({ notice, place }) => {
+        const illa = place && placeByName(ILLES_BALEARS, place);
+        return toEvent('emergencias-illes-balears', notice, place,
+          illa ? { ...illa, approx: 'isla' } : { ...COMUNIDADES['illes-balears'], approx: 'comunidad' });
+      });
+      return { sourceTime: updated, events };
     },
   };
 }

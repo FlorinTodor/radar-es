@@ -1,7 +1,7 @@
 // Avisos oficiales de emergencias (protección civil y 112 de las comunidades autónomas): si hablan
 // de un corte de luz, qué nivel declaran, de qué riesgo y dónde, y cuáles siguen en vigor.
 // Puro: los adaptadores leen cada formato (RSS, JSON…) y le pasan el texto tal cual.
-import { GRUPOS_ISLAS, ISLAS_CANARIAS, PROVINCIAS } from './lugares.js';
+import { GRUPOS_ISLAS, ILLES_BALEARS, ISLAS_CANARIAS, PROVINCIAS } from './lugares.js';
 
 /** Minúsculas y sin tildes, para comparar textos de distintas fuentes. */
 export const fold = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -44,19 +44,28 @@ const END = words([
 export const isEndNotice = (title) => END.test(fold(title));
 
 // Activación o cambio de un plan de protección civil o de su nivel (prealerta, alerta, emergencia…).
+// «Plan» a secas no vale: «el V Plan de Fosas» o un plan de igualdad no son emergencias.
 const PLAN_WORD = words([
-  'plan', 'plateca', 'platecam', 'meteocam', 'pricam', 'infocam', 'infoca', 'procicat', 'prealerta', 'alerta',
-  'alerta maxima', 'preemergencia', 'situacion (?:operativa )?[0-3]', 'fase de emergencia', 'situacion de emergencia',
+  // Planes de emergencias con nombre (siglas autonómicas y los que se citan por su riesgo).
+  'plateca', 'platecam', 'meteocam', 'pricam', 'infocam', 'infoca', 'procicat', 'inuncat', 'neucat', 'ventcat', 'infocat',
+  'platerbal', 'meteobal', 'inunbal', 'infobal', 'sismibal',
+  'plan (?:territorial |especial )?de emergencias?', 'plan (?:de )?(?:infoca|sismico|inundaciones|emergencia por incendios)',
+  'plan (?:territorial )?de proteccion civil', 'pla (?:territorial |especial )?de proteccio civil',
+  // Niveles.
+  'prealerta', 'alerta', 'alerta maxima', 'preemergencia', 'situacion (?:operativa )?[0-3]', 'fase de emergencia',
+  'situacion de emergencia', 'nivell [0-3]',
 ]);
 const PLAN_ACTION = words([
-  'activa', 'activad[oa]', 'activat', 'declara', 'declarad[oa]', 'declarar', 'eleva', 'elevad[oa]', 'sube', 'mantiene',
-  'actualiza', 'amplia', 'pasa', 'pasando', 'desciende', 'baja', 'rebaja', 'decreta', 'fase', 'situacion',
+  'activa', 'activad[oa]s?', 'activat', 'activacion', 'declara', 'declarad[oa]', 'declarar', 'declaracion', 'eleva',
+  'elevad[oa]', 'sube', 'mantiene', 'actualiza', 'amplia', 'pasa', 'pasando', 'desciende', 'baja', 'rebaja', 'decreta',
 ]);
+// Noticias que nombran un plan o un nivel sin declararlo.
+const NOT_A_NOTICE = words(['simulacro', 'ayudas?', 'subvencion(?:es)?', 'jornadas?', 'protocolo', 'presentacion', 'curso', 'formacion']);
 /** Nombra un plan de protección civil o un nivel (aunque no diga «activa»: «METEOCAM. Toledo»). */
-export const mentionsPlan = (title) => PLAN_WORD.test(fold(title)) && !/\bsimulacro/.test(fold(title));
+export const mentionsPlan = (title) => PLAN_WORD.test(fold(title)) && !NOT_A_NOTICE.test(fold(title));
 export function isPlanNotice(title) {
   const t = fold(title);
-  if (/\bsimulacro/.test(t)) return false;
+  if (NOT_A_NOTICE.test(t)) return false;
   return PLAN_WORD.test(t) && (PLAN_ACTION.test(t) || END.test(t));
 }
 
@@ -68,9 +77,13 @@ export function isPlanNotice(title) {
 export function severityOf(text) {
   // «Plan de Emergencia(s)», «Emergencias 112»… son nombres, no el nivel declarado.
   const t = fold(text).replace(/\bplan(?:es)? (?:territorial |especial )?de emergencias?\b/g, 'plan');
+  // Niveles por color («eleva a roja la alerta», «alerta naranja»), como en Baleares.
+  if (/\balerta\b/.test(t) && /\broj[ao]s?\b/.test(t)) return 'muy alta';
+  if (/\balerta\b/.test(t) && /\bnaranjas?\b/.test(t)) return 'alta';
+  if (/\balerta\b/.test(t) && /\bamarill[ao]s?\b/.test(t)) return 'media';
   if (/\b(?:alerta maxima|emergencia|situacion (?:operativa )?[23]|nivel [23])\b/.test(t)) return 'muy alta';
-  if (/\b(?:alerta|preemergencia|situacion (?:operativa )?1|nivel 1)\b/.test(t)) return 'alta';
-  if (/\b(?:prealerta|situacion (?:operativa )?0|nivel 0)\b/.test(t)) return 'media';
+  if (/\b(?:alerta|preemergencia|situacion (?:operativa )?1|nivel 1|nivell 1)\b/.test(t)) return 'alta';
+  if (/\b(?:prealerta|situacion (?:operativa )?0|nivel 0|nivell 0)\b/.test(t)) return 'media';
   return null;
 }
 
@@ -96,7 +109,8 @@ const HAZARDS = [
 
 /**
  * Claves de lo que trata el aviso: el riesgo que aparece antes en el título (o, si no dice ninguno,
- * el nombre del plan) y «luz» si habla de un corte de luz o de que ha vuelto.
+ * el nombre del plan) y «luz» si habla de un corte de luz o de que ha vuelto. Si no dice ni riesgo ni
+ * plan («Decretado el fin de la emergencia en Ibiza»), '*': un fin así cierra todo lo de sus lugares.
  */
 export function subjectsOf(title, text = '') {
   const t = fold(title);
@@ -104,7 +118,7 @@ export function subjectsOf(title, text = '') {
   const out = found.length ? [found[0][1]] : [];
   if (!out.length) {
     const plan = String(title).match(/\b([A-Z]{5,})\b/); // PLATECAM, METEOCAM…
-    out.push(plan ? plan[1].toLowerCase() : t);
+    out.push(plan ? plan[1].toLowerCase() : '*');
   }
   const all = `${title} ${text}`;
   if (mentionsPowerCut(all) || mentionsPowerBack(all)) out.push('luz');
@@ -120,6 +134,17 @@ export function islandsIn(text) {
   if (/\bislas orientales\b/.test(t)) GRUPOS_ISLAS.orientales.forEach((n) => out.add(n));
   for (const isla of ISLAS_CANARIAS) if (new RegExp(`\\b${fold(isla.name)}\\b`).test(t)) out.add(isla.name);
   // «La Palma» no cuenta como «Gran Canaria» ni al revés; «Canaria» suelta no es una isla.
+  return [...out];
+}
+
+/** Islas de Baleares que nombra un texto; ['*'] si habla de todas; [] si no nombra ninguna. */
+export function illesIn(text) {
+  const t = fold(text);
+  if (/\b(?:todas las islas|illes balears|islas baleares|baleares|totes les illes|el archipielago|l'arxipelag)\b/.test(t)) return ['*'];
+  const out = new Set();
+  if (/\b(?:pitiusas|pitiuses)\b/.test(t)) { out.add('Ibiza'); out.add('Formentera'); }
+  if (/\beivissa\b/.test(t)) out.add('Ibiza');
+  for (const illa of ILLES_BALEARS) if (new RegExp(`\\b${fold(illa.name)}\\b`).test(t)) out.add(illa.name);
   return [...out];
 }
 
@@ -209,12 +234,15 @@ export function currentNotices(notices, { now, maxAgeMs, wholeNotice = false }) 
       for (const s of n.subjects) for (const p of places) closed.add(`${s}|${p}`);
       continue;
     }
-    const isShut = (p) => n.subjects.some((s) => closed.has(`${s}|${p}`) || closed.has(`${s}|*`));
+    const isShut = (p) => closed.has(`*|${p}`) || closed.has('*|*')
+      || n.subjects.some((s) => closed.has(`${s}|${p}`) || closed.has(`${s}|*`));
     if (wholeNotice && places.some(isShut)) continue;
     for (const p of places) {
       const shut = isShut(p);
       const key = `${n.subjects[0]}|${p}`;
-      if (shut || seen.has(key)) continue;
+      // Un aviso general sobre los niveles de un lugar («rebaja los niveles de alerta», clave '*')
+      // sustituye a todos los anteriores de ese lugar.
+      if (shut || seen.has(key) || seen.has(`*|${p}`)) continue;
       seen.add(key);
       out.push({ notice: n, place: p === '*' ? null : p });
     }

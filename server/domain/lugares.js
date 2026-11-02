@@ -22,6 +22,14 @@ export const GRUPOS_ISLAS = {
   orientales: ['Gran Canaria', 'Fuerteventura', 'Lanzarote', 'La Graciosa'],
 };
 
+/** Islas de Baleares, con el nombre en castellano con el que las cita la sala de prensa del Govern. */
+export const ILLES_BALEARS = [
+  { name: 'Mallorca', lat: 39.62, lon: 2.98 },
+  { name: 'Menorca', lat: 39.95, lon: 4.08 },
+  { name: 'Ibiza', lat: 38.98, lon: 1.43 },
+  { name: 'Formentera', lat: 38.7, lon: 1.45 },
+];
+
 /** Provincias de las comunidades con avisos integrados. */
 export const PROVINCIAS = [
   // Andalucía
@@ -57,6 +65,7 @@ export const COMUNIDADES = {
   'castilla-la-mancha': { name: 'Castilla-La Mancha', lat: 39.58, lon: -3.0 },
   'castilla-y-leon': { name: 'Castilla y León', lat: 41.75, lon: -4.78 },
   cataluna: { name: 'Cataluña', lat: 41.8, lon: 1.53 },
+  'illes-balears': { name: 'Illes Balears', lat: 39.5, lon: 2.75 },
   'la-rioja': { name: 'La Rioja', lat: 42.27, lon: -2.52 },
 };
 

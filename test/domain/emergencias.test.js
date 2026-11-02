@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  currentNotices, islandsIn, isEndNotice, isPlanNotice, mentionsPlan, mentionsPowerBack, mentionsPowerCut,
+  currentNotices, illesIn, islandsIn, isEndNotice, isPlanNotice, mentionsPlan, mentionsPowerBack, mentionsPowerCut,
   placeCandidates, powerClauses, provincesIn, severityOf, subjectsOf,
 } from '../../server/domain/emergencias.js';
 
@@ -134,4 +134,34 @@ test('en vigor: en una incidencia del 112 (un solo suceso), la vuelta de la luz 
     notice('otra-averia', 1, { subjects: ['luz'], places: ['Ezcaray'] }),
   ], { now: NOW, maxAgeMs: 24 * HOUR, wholeNotice: true });
   assert.deepEqual(list.map(({ place }) => place), ['Ezcaray']);
+});
+
+test('en vigor: «rebaja los niveles de alerta» (sin riesgo) sustituye a la alerta roja anterior; «fin de la emergencia» lo cierra todo', () => {
+  const avisos = [
+    notice('naranja', 50, { places: ['Ibiza', 'Formentera'] }),
+    notice('roja', 30, { places: ['Mallorca', 'Ibiza', 'Formentera'] }),
+    notice('rebaja', 20, { subjects: ['*'], places: ['Mallorca', 'Ibiza', 'Formentera'] }),
+  ];
+  const now = currentNotices(avisos, { now: NOW, maxAgeMs: 96 * HOUR });
+  assert.deepEqual(now.map(({ notice: n, place }) => `${n.id}@${place}`), ['rebaja@Mallorca', 'rebaja@Ibiza', 'rebaja@Formentera']);
+  const after = currentNotices([...avisos, notice('fin', 10, { end: true, subjects: ['*'], places: ['Mallorca', 'Ibiza', 'Formentera'] })],
+    { now: NOW, maxAgeMs: 96 * HOUR });
+  assert.deepEqual(after, []);
+});
+
+test('planes: «Plan» a secas no es una emergencia, ni las ayudas o las jornadas sobre una', () => {
+  assert.ok(!isPlanNotice('El Govern finaliza las excavaciones del V Plan de Fosas en Son Servera'));
+  assert.ok(!isPlanNotice('CONSELL DE GOVERN: El Govern amplía las funciones de las comisiones del Plan de Igualdad'));
+  assert.ok(!isPlanNotice('Presentación de las ayudas para dar respuesta a la situación de emergencia provocada por la DANA'));
+  assert.ok(isPlanNotice('La presidenta Prohens anuncia la activación del Plan INUNBAL en fase de prealerta'));
+  assert.ok(isPlanNotice('Emergencias eleva a roja la alerta por lluvias y tormentas en Mallorca, Ibiza y Formentera'));
+  assert.equal(severityOf('Emergencias eleva a roja la alerta por lluvias'), 'muy alta');
+  assert.equal(severityOf('Emergencias activa la alerta naranja por lluvias'), 'alta');
+});
+
+test('islas de Baleares: por su nombre, las Pitiusas y todo el archipiélago', () => {
+  assert.deepEqual(illesIn('alerta roja en Ibiza y Formentera, naranja en Mallorca').sort(), ['Formentera', 'Ibiza', 'Mallorca']);
+  assert.deepEqual(illesIn('la DANA en las Pitiusas').sort(), ['Formentera', 'Ibiza']);
+  assert.deepEqual(illesIn('alerta en Eivissa'), ['Ibiza']);
+  assert.deepEqual(illesIn('prealerta en todas las islas'), ['*']);
 });

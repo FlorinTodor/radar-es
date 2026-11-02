@@ -248,7 +248,7 @@ export const GROUP_ITEMS = [
   ['effis', 'Áreas quemadas', 'Áreas quemadas en los últimos 30 días (EFFIS)', 'Emergencias'],
   ['sismos', 'Terremotos', 'Terremotos', 'Emergencias'],
   ['gdacs', 'Catástrofes', 'Alertas de catástrofes (GDACS)', 'Emergencias'],
-  ['emergencias', 'Avisos oficiales', 'Cortes de luz y planes de emergencia activados que publican protección civil y los 112 (Canarias, Cataluña, Andalucía, Castilla-La Mancha, La Rioja y Castilla y León)', 'Emergencias'],
+  ['emergencias', 'Avisos oficiales', 'Cortes de luz y planes de emergencia activados que publican protección civil y los 112 (Canarias, Baleares, Cataluña, Andalucía, Castilla-La Mancha, La Rioja y Castilla y León)', 'Emergencias'],
   ['dgt', 'Tráfico', 'Incidencias de tráfico (las leves aparecen al acercar el mapa)', 'Carreteras'],
   ['obras', 'Obras', 'Obras en carretera', 'Carreteras'],
 ];

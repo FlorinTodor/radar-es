@@ -4,8 +4,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CREDITS, createAndaluciaEmergenciasSource, createCanariasAlertasSource, createCatalunaPlansSource, createClmPlansSource,
-  createCyl112Source, createRiojaSosSource, parseCanariasAlertas, parseCatalunaPlans,
+  CREDITS, createAndaluciaEmergenciasSource, createBalearsPremsaSource, createCanariasAlertasSource, createCatalunaPlansSource, createClmPlansSource,
+  createCyl112Source, createRiojaSosSource, decodeXml, parseCanariasAlertas, parseCatalunaPlans,
 } from '../../server/adapters/outbound/sources/emergencias-oficiales.js';
 
 const NOW = Date.parse('2026-11-02T12:00:00Z');
@@ -238,4 +238,42 @@ test('Castilla y León: guarda el corte aunque el feed (de una sola entrada) ya 
   t.mock.timers.tick(25 * 3_600_000);
   ({ events } = await src.fetch());
   assert.equal(events.length, 0, 'a las 24 h sin noticias se deja de mostrar');
+});
+
+// ---------- Illes Balears ----------
+const balearItem = (guid, title, date) => `<item><title>${title}</title><link>https://intranet.caib.es/pidip2front/jsp/es/ficha-convocatoria/${guid}</link>
+  <enclosure url="https://intranet.caib.es/pidip2front/image?codi=x.jpeg" length="1" type="image/jpeg" /><pubDate>${date}</pubDate>
+  <guid isPermaLink="false">${guid}</guid></item>`;
+// Como el real: ISO-8859-1 (con tildes y eñes en ese juego de caracteres) y sólo títulos.
+const balearFeed = (items) => new Uint8Array(Buffer.from(`<?xml version="1.0" encoding="ISO-8859-1"?><rss xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0"><channel><title>Comunicaciones GOIB - Sala de prensa</title>${items}</channel></rss>`, 'latin1'));
+const BALEAR_ITEMS = [
+  balearItem(1, 'Emergencias activa la alerta naranja por lluvias y tormentas en Ibiza y Formentera', 'Sun, 01 Nov 2026 12:04:00 +0100'),
+  balearItem(2, 'Emergencias eleva a roja la alerta por lluvias y tormentas en Mallorca, Ibiza y Formentera y suspende las clases mañana', 'Mon, 02 Nov 2026 08:59:00 +0100'),
+  balearItem(3, 'Reunión de seguimiento del CECOPI del Plan Meteobal y del Plan Inunbal', 'Mon, 02 Nov 2026 09:30:00 +0100'),
+  balearItem(4, 'El Govern finaliza las excavaciones del V Plan de Fosas en Son Servera', 'Mon, 02 Nov 2026 10:00:00 +0100'),
+  balearItem(5, 'Salut impulsa la investigación contra el cáncer con un convenio', 'Mon, 02 Nov 2026 12:39:00 +0100'),
+];
+
+test('Baleares: alertas por isla desde la sala de prensa del Govern (ISO-8859-1), enlazadas en www.caib.es', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: NOW });
+  const src = createBalearsPremsaSource({ http: { bytes: async () => balearFeed(BALEAR_ITEMS.join('')) } });
+  const { events, sourceTime } = await src.fetch();
+  assert.deepEqual(events.map((e) => `${e.area}:${e.severity}`).sort(), ['Formentera:muy alta', 'Ibiza:muy alta', 'Mallorca:muy alta'],
+    'la roja sustituye a la naranja; la reunión del CECOPI, el Plan de Fosas y lo demás no son avisos');
+  const mallorca = events.find((e) => e.area === 'Mallorca');
+  assert.equal(mallorca.title, 'Emergencias eleva a roja la alerta por lluvias y tormentas en Mallorca, Ibiza y Formentera y suspende las clases mañana',
+    'el título tal cual, con sus tildes y eñes');
+  assert.equal(mallorca.url, 'https://www.caib.es/pidip2front/jsp/es/ficha-convocatoria/2');
+  assert.equal(mallorca.approx, 'isla');
+  assert.equal(mallorca.credit, 'Font de les dades: Govern de les Illes Balears');
+  assert.equal(sourceTime, Date.parse('2026-11-02T11:39:00Z'), 'la nota más reciente, sea o no un aviso');
+  assert.equal(src.interval, 900_000);
+});
+
+test('Baleares: «Decretado el fin de la emergencia» cierra las alertas de sus islas', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: NOW });
+  const fin = balearItem(6, 'Decretado el fin de la emergencia en Ibiza, Formentera y Mallorca', 'Mon, 02 Nov 2026 12:00:00 +0100');
+  const { events } = await createBalearsPremsaSource({ http: { bytes: async () => balearFeed(BALEAR_ITEMS.join('') + fin) } }).fetch();
+  assert.deepEqual(events, []);
+  assert.equal(decodeXml(new Uint8Array(Buffer.from('<?xml version="1.0" encoding="UTF-8"?><a>ñ</a>', 'utf8'))), '<?xml version="1.0" encoding="UTF-8"?><a>ñ</a>');
 });
