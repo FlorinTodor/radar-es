@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { threadId } from 'node:worker_threads';
 import { zipSync, strToU8 } from 'fflate';
-import { createCpuPool, parseThreads } from '../../server/adapters/outbound/workers/cpu-pool.js';
+import { createCpuPool, defaultThreads, effectiveCpus, parseThreads } from '../../server/adapters/outbound/workers/cpu-pool.js';
 import { parseSchedule } from '../../server/adapters/outbound/gtfs/gtfs-schedule.js';
 
 const TEST_WORKER = new URL('./fixtures/test-worker.js', import.meta.url);
@@ -28,7 +28,18 @@ async function until(condition) {
   return condition();
 }
 
-test('WORKER_THREADS', () => {
+test('CPU efectivas: la cuota del contenedor (cpu.max) manda sobre los núcleos visibles', () => {
+  assert.equal(effectiveCpus({ cores: 16, cpuMax: '200000 100000\n' }), 2);
+  assert.equal(effectiveCpus({ cores: 4, cpuMax: '150000 100000' }), 2); // 1,5 CPU → 2 hilos de ejecución
+  assert.equal(effectiveCpus({ cores: 4, cpuMax: 'max 100000' }), 4);
+  assert.equal(effectiveCpus({ cores: 8, cpuMax: null }), 8); // fuera de un contenedor
+  assert.equal(effectiveCpus({ cores: 1, cpuMax: '400000 100000' }), 1);
+});
+
+test('hilos por defecto y WORKER_THREADS', () => {
+  assert.equal(defaultThreads(1), 0); // con 1 CPU no compensa
+  assert.equal(defaultThreads(2), 2);
+  assert.equal(defaultThreads(16), 4);
   assert.equal(parseThreads(undefined, 2), 2);
   assert.equal(parseThreads('', 2), 2);
   assert.equal(parseThreads(' 0 ', 2), 0);
