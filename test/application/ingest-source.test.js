@@ -10,7 +10,7 @@ function setup(fetch) {
   const situation = {
     saveResult: (id, result, at) => saved.push({ id, result, at }),
     saveFailure: (id, err, at) => failures.push({ id, message: err.message, at }),
-    tracks: () => new Map(),
+    updateTracks: (update) => update(new Map()),
   };
   const ingest = makeIngestSource({
     sources: [{ id: 'renfe', fetch }],

@@ -35,7 +35,7 @@ export function makeDetectAlerts({ situation, stations, history, clock, threshol
       thresholds,
     });
 
-    const { opened, escalated, resolved } = reconcileAlerts(situation.activeAlerts(), candidates, now);
+    const { opened, escalated, resolved } = situation.updateActiveAlerts((active) => reconcileAlerts(active, candidates, now));
     situation.addResolved(resolved);
     for (const a of opened) history.append('alerts', { ...a, event: 'nueva' });
     for (const a of escalated) history.append('alerts', { ...a, event: 'escalada' });

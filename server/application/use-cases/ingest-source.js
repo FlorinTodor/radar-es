@@ -21,7 +21,7 @@ export function makeIngestSource({ sources, situation, clock, log }) {
       const now = clock.now();
       // Antes de guardar: si la fuente lo permite, el historial deja en su sitio los vehículos con una
       // posición repetida o imposible.
-      if (result.vehicles) recordPositions(situation.tracks(), result.vehicles, now, { clean: source.cleanPositions === true });
+      if (result.vehicles) situation.updateTracks((tracks) => recordPositions(tracks, result.vehicles, now, { clean: source.cleanPositions === true }));
       situation.saveResult(source.id, result, now, now - started);
       return true;
     } catch (err) {

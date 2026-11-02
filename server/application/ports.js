@@ -60,6 +60,10 @@
 
 /**
  * Estado vivo del sistema (último dato de cada fuente, estelas, alertas, KPIs).
+ * Lo que devuelven las lecturas es sólo para leer. Los recorridos y las alertas activas los cambian
+ * las reglas del dominio, a través de `updateTracks` y `updateActiveAlerts`: el repositorio les da su
+ * estado, las reglas lo actualizan y el repositorio lo guarda. En memoria es el mismo objeto; otro
+ * almacén (Redis, Postgres) lo leería, lo pasaría a la función y guardaría lo que quede.
  * @typedef {object} SituationRepositoryPort
  * @property {(source: DataSourcePort, status: { enabled: boolean, reason?: string }) => void} registerSource
  * @property {(id: string, result: import('../domain/model.js').SourceResult, at: number, ms: number) => void} saveResult
@@ -69,13 +73,17 @@
  * @property {() => import('../domain/model.js').IncidentEvent[]} events
  * @property {() => Record<string, any>} metrics
  * @property {() => object[]} health
- * @property {() => Map<string, import('../domain/tracking.js').TrackPoint[]>} tracks
- * @property {() => Map<string, import('../domain/model.js').Alert>} activeAlerts
+ * @property {() => ReadonlyMap<string, readonly import('../domain/tracking.js').TrackPoint[]>} tracks
+ * @property {<T>(update: (tracks: Map<string, import('../domain/tracking.js').TrackPoint[]>) => T) => T} updateTracks
+ *   Un salto de posición retenido a la espera de la lectura siguiente (domain/tracking.js) va ligado a
+ *   cada recorrido: un almacén que los reconstruya en cada llamada sólo perdería esa espera.
+ * @property {() => ReadonlyMap<string, import('../domain/model.js').Alert>} activeAlerts
+ * @property {<T>(update: (active: Map<string, import('../domain/model.js').Alert>) => T) => T} updateActiveAlerts
  * @property {(alerts: import('../domain/model.js').Alert[]) => void} addResolved
  * @property {() => import('../domain/model.js').Alert[]} resolvedAlerts
  * @property {(kpis: object) => void} setKpis
  * @property {() => object|null} kpis
- * @property {(sample: object) => void} pushKpiSample
+ * @property {(sample: object, max?: number) => void} pushKpiSample  max: muestras que se guardan como mucho.
  * @property {() => object[]} kpiHistory
  */
 
@@ -120,7 +128,10 @@ export const PORT_MEMBERS = {
   NetworkCatalog: ['load', 'lines'],
   RailNetwork: ['load', 'network'],
   SituationRepository: ['registerSource', 'saveResult', 'saveFailure', 'source', 'vehicles', 'events', 'metrics', 'health',
-    'tracks', 'activeAlerts', 'addResolved', 'resolvedAlerts', 'setKpis', 'kpis', 'pushKpiSample', 'kpiHistory'],
+    'tracks', 'updateTracks', 'activeAlerts', 'updateActiveAlerts', 'addResolved', 'resolvedAlerts', 'setKpis', 'kpis',
+    'pushKpiSample', 'kpiHistory'],
   History: ['append'],
   TileProvider: ['layers', 'cacheControl', 'tile', 'burntAreas'],
+  Clock: ['now'],
+  Logger: ['info', 'warn', 'error'],
 };
