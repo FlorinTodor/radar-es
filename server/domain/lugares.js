@@ -67,6 +67,11 @@ export const PROVINCIAS = [
     { name: 'Valladolid', lat: 41.64, lon: -4.85 },
     { name: 'Zamora', lat: 41.73, lon: -6.05 },
   ]),
+  ...enComunidad('pais-vasco', [
+    { name: 'Álava', lat: 42.83, lon: -2.72 }, // Irekia, en castellano: «Álava», «Bizkaia», «Gipuzkoa»
+    { name: 'Bizkaia', lat: 43.24, lon: -2.85 },
+    { name: 'Gipuzkoa', lat: 43.14, lon: -2.17 },
+  ]),
   ...enComunidad('galicia', [
     { name: 'A Coruña', lat: 43.13, lon: -8.42 },
     { name: 'Lugo', lat: 43.01, lon: -7.56 },
@@ -87,6 +92,7 @@ export const COMUNIDADES = {
   murcia: { name: 'Región de Murcia', lat: 38.0, lon: -1.49 },
   cantabria: { name: 'Cantabria', lat: 43.2, lon: -4.03 },
   galicia: { name: 'Galicia', lat: 42.76, lon: -7.87 },
+  'pais-vasco': { name: 'País Vasco', lat: 43.04, lon: -2.62 },
 };
 
 /** Una isla de Canarias por su nombre, con sus coordenadas de ISLAS_CANARIAS (sin repetirlas). */

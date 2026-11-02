@@ -20,7 +20,7 @@ import { createEsiosSource } from './esios.js';
 import { createGdacsSource } from './emergencias-extra.js';
 import {
   createAndaluciaEmergenciasSource, createBalearsPremsaSource, createCanariasAlertasSource, createCantabriaNewsSource, createCatalunaPlansSource,
-  createClmPlansSource, createCyl112Source, createGaliciaNewsSource, createMadridNewsSource, createMurciaNewsSource, createRiojaSosSource,
+  createClmPlansSource, createCyl112Source, createGaliciaNewsSource, createMadridNewsSource, createMurciaNewsSource, createPaisVascoNewsSource, createRiojaSosSource,
 } from './emergencias-oficiales.js';
 import { createEmtMadridAlertsSource } from './emt-madrid.js';
 import { busGroupSources } from './autobuses-nap.js';
@@ -173,6 +173,7 @@ export function createSources(deps) {
     createMurciaNewsSource(deps),
     createCantabriaNewsSource(deps),
     createGaliciaNewsSource(deps),
+    createPaisVascoNewsSource(deps),
     createReeSource(deps),
     createEsiosSource(deps), // con ESIOS_TOKEN: apagón de una isla, de Ceuta o de Melilla
   ];

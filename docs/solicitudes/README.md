@@ -10,6 +10,8 @@ corchetes, revisa el texto y preséntalos por la vía indicada en cada uno.
 | 3 | Adif | Reutilización del estado de la red, incidencias y circulaciones en formato abierto | Sede electrónica de Adif, o REC dirigido a Adif |
 | 4 | Iryo (Intermodalidad de Levante, S.A.) | GTFS estático y datos en tiempo real (GTFS-RT o SIRI) en el NAP | Formulario de contacto corporativo o correo a su departamento legal |
 | 5 | Ouigo España, S.A.U. | Datos en tiempo real (GTFS-RT o SIRI) en el NAP | Formulario de contacto corporativo o correo a su departamento legal |
+| 6 | Comunidades sin canal de avisos de emergencias (Extremadura, Aragón, Asturias, Navarra, Comunitat Valenciana, el 112 de Galicia, Ceuta y Melilla) | Que publiquen en abierto, con licencia, los planes activados y los cortes de luz, o que autoricen reutilizarlos | Correo o registro de cada organismo (tabla del borrador) |
+| 7 | e-distribución (Endesa) | Autorización para reutilizar sus incidencias del suministro (los cortes por barrio) | Canal de contacto de su aviso legal o formulario corporativo |
 
 ## Antes de enviar
 

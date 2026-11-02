@@ -5,7 +5,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  createCantabriaNewsSource, createGaliciaNewsSource, createMadridNewsSource, createMurciaNewsSource, parseMadridNews, pressNotices,
+  createCantabriaNewsSource, createGaliciaNewsSource, createMadridNewsSource, createMurciaNewsSource, createPaisVascoNewsSource, parseMadridNews,
+  pressNotices,
 } from '../../server/adapters/outbound/sources/emergencias-oficiales.js';
 
 const NOW = Date.parse('2026-11-02T12:00:00Z');
@@ -194,4 +195,27 @@ test('Galicia: el corte se queda aunque el RSS general ya no lo traiga, y si uno
   assert.ok(events.some((e) => e.type === 'plan'));
   const down = createGaliciaNewsSource({ http: fakeHttp(() => new Error('503')), geocoder: fakeGeocoder({}), now: clock });
   await assert.rejects(down.fetch(), /503/, 'si fallan los dos, la fuente da error');
+});
+
+// ---------- País Vasco ----------
+const irekiaItem = (id, title, date) => `<item><title>${title}</title>
+  <description><![CDATA[<p>Primer párrafo de ${id}</p><p>Segundo</p>]]></description>
+  <link>https://www.irekia.euskadi.eus/es/news/${id}-titulo</link><guid>https://www.irekia.euskadi.eus/es/news/${id}-titulo</guid>
+  <enclosure url="https://www.irekia.euskadi.eus/uploads/foto.jpg" type="image/jpeg" length="1"/><pubDate>${date}</pubDate></item>`;
+const IREKIA_XML = rss([
+  irekiaItem(114000, 'El Gobierno Vasco declara la fase de alerta del Plan ITSASERTZA en Bizkaia', 'Mon, 02 Nov 2026 09:00:00 +0100'),
+  irekiaItem(113954, 'Euskalmet califica octubre como cálido y, en general, seco, pese a las intensas lluvias registradas en Bizkaia', 'Mon, 02 Nov 2026 08:00:00 +0100'),
+  irekiaItem(113955, 'La Euskal Polizia reforzará esta semana los controles de alcohol y drogas en las carreteras vascas', 'Mon, 02 Nov 2026 07:00:00 +0100'),
+].join(''));
+
+test('País Vasco: el plan en su territorio histórico, con la atribución de Open Data Euskadi; las demás noticias de Seguridad no', async () => {
+  const src = createPaisVascoNewsSource({ http: fakeHttp(() => IREKIA_XML), geocoder: fakeGeocoder({}), now: clock });
+  const { events, sourceTime } = await src.fetch();
+  assert.equal(events.length, 1);
+  assert.equal(events[0].area, 'Bizkaia');
+  assert.equal(events[0].approx, 'provincia');
+  assert.equal(events[0].severity, 'alta');
+  assert.equal(events[0].description, 'Primer párrafo de 114000');
+  assert.equal(events[0].credit, 'Irekia (Gobierno Vasco) · Open Data Euskadi (CC BY 4.0)');
+  assert.equal(sourceTime, Date.parse('2026-11-02T08:00:00Z'), 'la fecha de la última actualización');
 });

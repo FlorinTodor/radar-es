@@ -110,7 +110,7 @@ export const isEndNotice = (title) => END.test(fold(title));
 const PLAN_NAMES = [
   'plateca', 'platecam', 'meteocam', 'pricam', 'infocam', 'infoca', 'procicat', 'inuncat', 'neucat', 'ventcat', 'infocat',
   'platerbal', 'meteobal', 'inunbal', 'infobal', 'sismibal',
-  'platercam', 'platemur', 'inunmur', 'platercant?', 'infocant', 'platerga',
+  'platercam', 'platemur', 'inunmur', 'platercant?', 'infocant', 'platerga', 'labi', 'itsasertza',
   'plan (?:territorial |especial )?de emergencias?', 'plan (?:de )?(?:infoca|sismico|inundaciones|emergencia por incendios)',
   'plan (?:territorial )?de proteccion civil', 'pla (?:territorial |especial )?de proteccio civil',
 ];
@@ -279,7 +279,8 @@ const INTRO = /(?:^|[\s(])(?:en|afecta(?:n|do|da|ndo)? (?:a|al)|de los vecinos d
 const NOT_PLACES = new Set(['el', 'la', 'los', 'las', 'este', 'esta', 'endesa', 'iberdrola', 'ema', 'sos', 'junta', 'gobierno',
   'guardia civil', 'policia local', 'protección civil', 'proteccion civil', 'andalucia', 'españa', 'espana', 'canarias',
   'castilla y leon', 'castilla-la mancha', 'la rioja', 'cataluña', 'cataluna', 'centro coordinador', 'urgencias',
-  'comunidad de madrid', 'comunidad', 'region de murcia', 'region', 'cantabria', 'galicia', 'xunta', 'asem', 'axega']);
+  'comunidad de madrid', 'comunidad', 'region de murcia', 'region', 'cantabria', 'galicia', 'xunta', 'asem', 'axega',
+  'euskadi', 'gobierno vasco', 'ertzaintza', 'euskalmet']);
 
 /**
  * Lugares que cita un texto tras «en», «localidad de», etc. («Hay falta de suministro eléctrico en

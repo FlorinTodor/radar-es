@@ -7,7 +7,7 @@ de trenes, metros, tranvías y autobuses de España, cruzado con incidencias de 
 avisos meteorológicos, incendios, el estado de la red eléctrica y los avisos oficiales de protección
 civil (planes de emergencia activados y cortes de luz). Los vehículos salen en su posición
 en directo cuando el operador la publica y, si solo publica su horario, en una posición estimada
-marcada como tal. Todo a partir de **datos públicos**: de sus 57 fuentes, 31 no piden nada, 25
+marcada como tal. Todo a partir de **datos públicos**: de sus 58 fuentes, 32 no piden nada, 25
 necesitan la clave gratuita del Punto de Acceso Nacional (NAP) y 1 la de e·sios (Red Eléctrica).
 
 Un motor de reglas vigila situaciones que merecen atención humana: trenes detenidos en
@@ -163,8 +163,8 @@ publica con licencia CC BY en el portal del Cabildo. La licencia y la atribució
 en `/legal`.
 
 Todas son públicas. Las marcadas con 🔑 necesitan una clave gratuita: casi todas, la del NAP
-(`NAP_API_KEY`); la de e·sios, la de Red Eléctrica (`ESIOS_TOKEN`). En total son 57 fuentes (34 de vehículos, 21 de incidencias y 2 de métricas):
-31 sin clave, 25 con la del NAP y 1 con la de e·sios.
+(`NAP_API_KEY`); la de e·sios, la de Red Eléctrica (`ESIOS_TOKEN`). En total son 58 fuentes (34 de vehículos, 22 de incidencias y 2 de métricas):
+32 sin clave, 25 con la del NAP y 1 con la de e·sios.
 
 | Fuente | Qué aporta | Refresco |
 |---|---|---|
@@ -207,6 +207,7 @@ Todas son públicas. Las marcadas con 🔑 necesitan una clave gratuita: casi to
 | Región de Murcia (noticias de la CARM, datos abiertos) | planes de emergencia con nombre (PLATEMUR…) y cortes de luz de sus noticias | 15 min |
 | Gobierno de Cantabria (RSS de notas de prensa, CC BY 3.0 ES) | planes de emergencia con nombre (PLATERCANT…) y cortes de luz; solo el día, sin hora | 15 min |
 | Xunta de Galicia (RSS de notas de prensa: Emergencias y todas) | PLATERGA, alertas por nivel por provincia y cortes de luz | 10 min |
+| Gobierno Vasco (RSS de noticias de Seguridad en Irekia, Open Data Euskadi, CC BY 4.0) | planes de emergencia con nombre (LABI, ITSASERTZA…) por territorio histórico y cortes de luz | 15 min |
 | CartoCiudad (IGN-CNIG, CC BY 4.0) | ubicación de los pueblos que citan esos avisos | al leerlos |
 
 El mapa base es de OpenFreeMap (datos de OpenStreetMap), sin clave.
@@ -241,7 +242,7 @@ oficial.
 |---|---|---|---|
 | Andalucía | ✅ Planes activados y cortes de luz en los pueblos que citan | Solo el general de la península | Noticias de Emergencias 112 de la Junta (CC BY 4.0) |
 | Aragón | ❌ | Solo el general de la península | Licencia contradictoria (el pie de la web dice CC BY 4.0 y el aviso legal, «uso personal», sin fines comerciales ni modificación) y ningún conjunto de emergencias |
-| Asturias | ❌ | Solo el general de la península | El 112 no tiene RSS y su licencia es no comercial; las noticias del Principado (CC BY 4.0) no tienen RSS |
+| Asturias | ❌ | Solo el general de la península | Ni el 112 (SEPA) ni las noticias del Principado tienen RSS, solo páginas web. La licencia no comercial es la de la app del 112, no la de su web; asturias.es publica con CC BY 4.0 |
 | Illes Balears | ✅ Alertas y emergencias por isla, su fin y cortes de luz | ❌ | Sala de prensa del Govern, en catalán (CC BY, conjunto de su catálogo de datos abiertos). Su robots.txt prohíbe esa ruta, en contra de su propio catálogo: se usa la URL exacta que publica el catálogo cada 15 minutos y se pide confirmación al Govern; si no lo aceptan, se retira. Red Eléctrica no publica en tiempo real la demanda real de Baleares, solo la programada |
 | Canarias | ✅ Declaraciones del PLATECA por isla (prealerta, alerta, emergencia y su fin), ceros energéticos incluidos | ✅ Cada isla o grupo de islas | Gobierno de Canarias (CC BY 4.0) y e·sios |
 | Cantabria | ✅ Planes con nombre (PLATERCANT, INFOCANT…) y cortes de luz de las notas de prensa del Gobierno | Solo el general de la península | RSS de notas de prensa de www.cantabria.es (CC BY 3.0 ES). Solo da el día, sin hora: una nota cuenta desde el mediodía. El RSS del 112 publica poco y va con semanas de retraso |
@@ -253,8 +254,8 @@ oficial.
 | Galicia | ✅ PLATERGA y alertas por nivel por provincia, y cortes de luz, de las notas de prensa de la Xunta | Solo el general de la península | RSS de notas de prensa de la Xunta (aviso legal del portal: reutilización citando la fuente). Solo cuentan los grandes sucesos. El 112 (AXEGA) exige autorización por escrito y no se usa |
 | Madrid | ✅ Planes con nombre (PLATERCAM…) y cortes de luz de las notas de prensa | Solo el general de la península | RSS «Últimas noticias» de comunidad.madrid (aviso legal: sin alterar, con la fuente y la fecha de extracción). La ASEM 112 no tiene canal propio. Solo cuentan los grandes sucesos |
 | Región de Murcia | ✅ Planes con nombre (PLATEMUR, INUNMUR…) y cortes de luz de las noticias de la CARM | Solo el general de la península | Conjunto «Noticias de la CARM en los últimos 7 días» de datos abiertos. Sin ubicación: los planes van al centro de la región. La web del 112 y carm.es bloquean los programas automáticos, así que no se usan |
-| Navarra | ❌ | Solo el general de la península | Sin RSS y sin licencia de reutilización en su web |
-| País Vasco | ❌ (por ahora) | Solo el general de la península | Las incidencias de Open Data Euskadi no traen cortes de luz; Irekia (CC BY 4.0) solo cuenta los grandes eventos |
+| Navarra | ❌ | Solo el general de la península | Su ley permite reutilizar sin autorización (Ley Foral 5/2018, art. 16.4), pero no hay ningún canal: ni RSS ni conjunto de datos abiertos de SOS Navarra o de protección civil |
+| País Vasco | ✅ Planes con nombre (LABI, ITSASERTZA…) por territorio histórico y cortes de luz de las noticias de Seguridad | Solo el general de la península | RSS del Departamento de Seguridad en Irekia (conjunto de Open Data Euskadi, CC BY 4.0). Solo cuentan los grandes sucesos; SOS Deiak 112 no publica sus avisos en abierto |
 | La Rioja | ✅ Cortes de luz por pueblo y cuándo vuelve la luz | Solo el general de la península | RSS de SOS Rioja 112 (aviso legal: reproducción citando la fuente) |
 | Ceuta | ❌ | ✅ | Su aviso legal prohíbe la reproducción sin autorización; demanda de e·sios |
 | Melilla | ❌ | ✅ | Su web no tiene RSS ni condiciones de reutilización; demanda de e·sios |
@@ -362,7 +363,7 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   de catástrofes y demanda eléctrica.
 - Avisos oficiales de emergencias: planes de protección civil activados y cortes de luz que publican
   Canarias, Baleares, Cataluña, Andalucía, Castilla-La Mancha, La Rioja y Castilla y León, y los de las
-  notas de prensa de los gobiernos de Madrid, Murcia, Cantabria y Galicia. Su texto se
+  notas de prensa de los gobiernos de Madrid, Murcia, Cantabria, Galicia y el País Vasco. Su texto se
   cita tal cual, con la atribución de cada administración; se sitúan en el centro de su isla, pueblo,
   provincia o comunidad, y dejan de verse cuando se publica su fin. Los cortes de luz y los planes en
   alerta o emergencia dan alerta, y a igual gravedad los cortes de luz salen los primeros de la lista.
@@ -457,7 +458,7 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   - posible apagón total de una isla de Canarias, de Ceuta o de Melilla (demanda de e·sios), a los
     pocos minutos;
   - cortes de luz y planes de emergencia en alerta o emergencia que publican protección civil, los
-    112 y los gobiernos de once comunidades, con su fuente y su fecha.
+    112 y los gobiernos de doce comunidades, con su fuente y su fecha.
 - Al pulsar una alerta, el mapa muestra sólo lo suyo; se pueden combinar varias.
 - Las capas que enciende una alerta se marcan como temporales y se pueden apagar sin perder la
   selección.
@@ -632,8 +633,6 @@ Ninguna por ahora.
     Valenciana, Aragón, Extremadura, Asturias, Navarra, Ceuta y Melilla), y los del 112 de Galicia
     (AXEGA): pedirles permiso o que lo publiquen como datos abiertos (borradores en
     [docs/solicitudes](docs/solicitudes/README.md));
-  - noticias oficiales del País Vasco (Irekia), que sólo cuentan los grandes apagones (ver
-    *Emergencias y cortes de luz: qué hay de cada comunidad*);
   - los cortes por barrio o por calle sólo los tienen las distribuidoras eléctricas, que no los
     publican con licencia de reutilización: pedir permiso a e-distribución, i-DE y UFD.
 

@@ -28,6 +28,8 @@
 // - Cantabria: CC BY 3.0 ES (pie de www.cantabria.es), sin logotipos.
 // - Xunta de Galicia (aviso legal del portal): reutilización citando la fuente y sin desnaturalizar;
 //   sin logotipos (no se usan las fotos). Distinto del de la AXEGA (el 112), que no se usa.
+// - País Vasco: noticias de Irekia, conjunto de Open Data Euskadi con CC BY 4.0: citar la fuente y la
+//   fecha de la última actualización, sin alterar ni desnaturalizar.
 //
 // Cada descarga lleva su tope (maxBytes): los feeds pesan de unos cientos de bytes a 800 KB y se leen
 // en el hilo principal.
@@ -51,10 +53,11 @@ export const CREDITS = {
   'emergencias-murcia': 'Origen de los datos: Comunidad Autónoma de la Región de Murcia (CARM)',
   'emergencias-cantabria': 'Fuente: Gobierno de Cantabria',
   'emergencias-galicia': 'Fuente: Xunta de Galicia',
+  'emergencias-pais-vasco': 'Irekia (Gobierno Vasco) · Open Data Euskadi (CC BY 4.0)',
 };
 
 // Códigos de comunidad del INE, los que usa CartoCiudad (sólo las fuentes que geocodifican).
-const REGION = { andalucia: '01', cantabria: '06', 'castilla-y-leon': '07', galicia: '12', madrid: '13', murcia: '14', 'la-rioja': '17' };
+const REGION = { andalucia: '01', cantabria: '06', 'castilla-y-leon': '07', galicia: '12', madrid: '13', murcia: '14', 'pais-vasco': '16', 'la-rioja': '17' };
 // Topes de descarga, muy por encima de lo que pesa hoy cada feed (como mucho, unos 150 KB).
 const FEED_MAX_BYTES = 2 * 1024 * 1024;
 const SMALL_MAX_BYTES = 1024 * 1024;
@@ -618,7 +621,7 @@ export function createBalearsPremsaSource({ http, now = Date.now }) {
   };
 }
 
-// ---------- Notas de prensa de los gobiernos: Madrid, Murcia, Cantabria y Galicia ----------
+// ---------- Notas de prensa de los gobiernos: Madrid, Murcia, Cantabria, Galicia y País Vasco ----------
 // Ninguno tiene un 112 que publique sus avisos con licencia: se leen las notas de prensa del gobierno,
 // que mezclan todos los temas. Por eso sólo cuentan los títulos, y sólo los que declaran, cambian o
 // terminan un plan nombrándolo (isPressPlanNotice), los que dicen que hay un corte de luz y los que dicen
@@ -833,6 +836,39 @@ export function createGaliciaNewsSource({ http, geocoder, now = Date.now }) {
       // Copias: locateNotices rellena `places` de cada aviso en cada lectura.
       return { notices: [...kept.values()].map((n) => ({ ...n })), updated };
     },
+    geocoder, now,
+  });
+}
+
+// País Vasco: noticias del Departamento de Seguridad en Irekia (conjunto «Noticias de Irekia» de Open
+// Data Euskadi), unas 15 de las últimas semanas. El 112 (SOS Deiak) no publica las suyas en abierto.
+const PAIS_VASCO = 'https://www.irekia.euskadi.eus/es/departments/124/news.rss';
+
+/** @returns {{ notices: OfficialNotice[], updated: number|null }} */
+export function parsePaisVascoNews(xml) {
+  const doc = xmlParser.parse(xml);
+  const items = arr(doc.rss?.channel?.item).map((it) => {
+    const title = htmlText(text(it.title));
+    const link = text(it.link);
+    return {
+      id: String(link ?? '').match(/\/news\/(\d+)/)?.[1] ?? slug(title), at: Date.parse(text(it.pubDate)) || 0, title,
+      summary: firstParagraph(text(it.description)), url: link || null,
+    };
+  });
+  return { notices: pressNotices(items, 'pais-vasco'), updated: newest(items.map((i) => i.at)) };
+}
+
+/** @param {{ http: import('../http/http-client.js').HttpClient, geocoder: import('../geo/cartociudad-geocoder.js').Geocoder, now?: () => number }} deps */
+export function createPaisVascoNewsSource({ http, geocoder, now = Date.now }) {
+  return pressSource({
+    id: 'emergencias-pais-vasco',
+    name: 'Gobierno Vasco: planes de emergencia y cortes de luz (noticias de Seguridad en Irekia)',
+    interval: 900_000,
+    url: PAIS_VASCO,
+    page: 'https://opendata.euskadi.eus/catalogo/-/noticias-irekia/',
+    license: CREDITS['emergencias-pais-vasco'],
+    region: 'pais-vasco',
+    read: async () => parsePaisVascoNews(await http.text(PAIS_VASCO, { timeout: 30_000, maxBytes: SMALL_MAX_BYTES })),
     geocoder, now,
   });
 }
