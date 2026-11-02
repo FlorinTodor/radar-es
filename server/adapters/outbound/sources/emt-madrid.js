@@ -79,7 +79,8 @@ export function createEmtMadridAlertsSource({ http, env = {}, log, now = Date.no
     kind: 'events',
     interval: 300_000,
     url: ALERTS,
-    license: 'Powered by MITRAMS (Punto de Acceso Nacional) · Powered by EMT de Madrid (MobilityLabs)',
+    // «Powered by EMT de Madrid» lo piden sus condiciones; «EMT Madrid MobilityLabs», la respuesta del login.
+    license: 'Powered by MITRAMS (Punto de Acceso Nacional) · Powered by EMT de Madrid · Fuente: EMT Madrid MobilityLabs',
     async fetch() {
       const feed = decodeFeed(await alerts());
       const nowS = now() / 1000;
