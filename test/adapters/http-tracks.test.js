@@ -22,7 +22,7 @@ after(() => server.close());
 test('el id se decodifica: recorrido conocido 200, desconocido 404', async () => {
   const ok = await fetch(`${base}/api/tracks/${encodeURIComponent('Renfe 7/123')}`);
   assert.equal(ok.status, 200);
-  assert.equal(ok.headers.get('cache-control'), 'no-store');
+  assert.match(ok.headers.get('cache-control'), /^public, .*s-maxage=/);
   assert.deepEqual(await ok.json(), [{ lat: 40, lon: -3.7 }]);
   const missing = await fetch(`${base}/api/tracks/otro`);
   assert.equal(missing.status, 404);

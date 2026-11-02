@@ -60,6 +60,12 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
   // petición: un núcleo saturado con 28 peticiones por segundo).
   const memoParams = createJsonMemo({ max: 100, now });
   const budgets = new Map(Object.keys(routes).filter((path) => routes[path].key).map((path) => [path, createBudget({ now })]));
+  // Recorrido y lo que le queda de cada vehículo (/api/tracks/<id>, /api/ahead/<id>). Cada uno puede
+  // costar un cálculo por la vía o por las paradas, y hay cientos de vehículos: memo propio, que guarda
+  // todos los que se miran a la vez, y un presupuesto que sólo se gasta al calcular. Quien pide otra vez
+  // el mismo vehículo antes de TRAIN_TTL_MS recibe la copia, sin gastar nada.
+  const memoTrains = createJsonMemo({ max: TRAIN_MEMO_MAX, now });
+  const trainBudget = createBudget({ perSecond: TRAIN_BUDGET.perSecond, burst: TRAIN_BUDGET.burst, now });
 
   const security = Object.entries(securityHeaders(about));
   // Dominio canónico (PUBLIC_URL): www.<dominio> redirige a él para que los buscadores no vean dos
@@ -91,14 +97,12 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
       if (url.pathname.startsWith('/api/ahead/')) {
         const id = decodeOrNull(url.pathname.slice('/api/ahead/'.length));
         if (id === null) return send(res, 400, { error: 'Ruta inválida' });
-        const ahead = query.ahead?.(id);
-        return ahead ? sendJson(req, res, 200, ahead) : send(res, 404, { error: 'Sin recorrido previsto' });
+        return sendTrain(req, res, `ahead:${id}`, () => query.ahead?.(id) ?? null, 'Sin recorrido previsto');
       }
       if (url.pathname.startsWith('/api/tracks/')) {
         const id = decodeOrNull(url.pathname.slice('/api/tracks/'.length));
         if (id === null) return send(res, 400, { error: 'Ruta inválida' });
-        const track = query.track(id);
-        return track ? sendJson(req, res, 200, track) : send(res, 404, { error: 'Vehículo sin historial' });
+        return sendTrain(req, res, `track:${id}`, () => query.track(id) ?? null, 'Vehículo sin historial');
       }
       if (url.pathname.startsWith('/api/')) return send(res, 404, { error: 'Ruta no encontrada' });
 
@@ -152,6 +156,37 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     res.end(req.method === 'HEAD' ? undefined : zipped ? gz : json);
   }
 
+  /**
+   * Recorrido o lo que le queda de un vehículo, desde su memo (ver memoTrains). Si hay que calcularlo y
+   * se ha gastado el presupuesto, 503 con Retry-After: el mapa vuelve a pedirlo solo. Sin datos, 404.
+   */
+  function sendTrain(req, res, key, compute, missing) {
+    let entry;
+    try {
+      entry = memoTrains(key, TRAIN_TTL_MS, () => {
+        if (!trainBudget.take()) throw new Busy();
+        const body = compute();
+        // Un id que no es de ningún vehículo no cuesta nada: pedir ids inventados no gasta el presupuesto.
+        if (body === null) trainBudget.refund();
+        return body;
+      }, { isEmpty: (body) => body === null });
+    } catch (err) {
+      if (!(err instanceof Busy)) throw err;
+      res.setHeader('Retry-After', '2');
+      res.setHeader('Cache-Control', 'no-store');
+      return send(res, 503, { error: 'Demasiados recorridos a la vez; prueba dentro de un momento' });
+    }
+    if (entry.empty) return send(res, 404, { error: missing });
+    const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': TRAIN_CACHE, ETag: entry.etag, Vary: 'Accept-Encoding' };
+    if (req.headers['if-none-match'] === entry.etag) {
+      res.writeHead(304, headers);
+      return res.end();
+    }
+    const zipped = /\bgzip\b/.test(req.headers['accept-encoding'] ?? '');
+    res.writeHead(200, { ...headers, ...(zipped && { 'Content-Encoding': 'gzip' }), 'Content-Length': (zipped ? entry.gz : entry.json).length });
+    res.end(req.method === 'HEAD' ? undefined : zipped ? entry.gz : entry.json);
+  }
+
   /** /tiles/<capa>/<z>/<x>/<y>.png → tesela de IGN o EFFIS (con copia en disco). */
   async function sendTile(res, path) {
     const m = /^\/tiles\/([a-z-]+)\/(\d{1,2})\/(\d{1,7})\/(\d{1,7})\.png$/.exec(path);
@@ -192,6 +227,13 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
 }
 
 const REVALIDATE = 'no-cache'; // el navegador guarda la copia y pregunta con el ETag (304 si no cambió)
+// Recorrido y lo que le queda de un vehículo: cambian con cada posición (cada 20-30 s). Se reutilizan
+// unos segundos en el servidor, en Cloudflare y en el navegador, para que muchos mirando el mismo tren
+// no cuesten más que uno.
+const TRAIN_TTL_MS = 10_000;
+const TRAIN_CACHE = 'public, max-age=5, s-maxage=15';
+const TRAIN_MEMO_MAX = 2_000; // más que todos los vehículos que puede haber a la vez con recorrido
+const TRAIN_BUDGET = { perSecond: 4, burst: 20 };
 const CATALOG_CACHE = 'public, max-age=600, s-maxage=3600';
 /** Directo: Cloudflare lo guarda `edge` s y, si el servidor no responde, sirve la última copia 15 min. */
 const liveCache = (edge) => `public, max-age=0, s-maxage=${edge}, stale-while-revalidate=${edge * 3}, stale-if-error=900`;
@@ -220,7 +262,7 @@ class Busy extends Error {}
 
 /**
  * Presupuesto de cálculos (cubo de fichas): `perSecond` de media y ráfagas de hasta `burst`.
- * `take()` gasta una ficha y dice si había.
+ * `take()` gasta una ficha y dice si había; `refund()` devuelve la última si al final no hubo cálculo.
  */
 export function createBudget({ perSecond = 5, burst = 10, now = Date.now } = {}) {
   let tokens = burst;
@@ -233,6 +275,9 @@ export function createBudget({ perSecond = 5, burst = 10, now = Date.now } = {})
       if (tokens < 1) return false;
       tokens--;
       return true;
+    },
+    refund() {
+      tokens = Math.min(burst, tokens + 1);
     },
   };
 }

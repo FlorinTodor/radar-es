@@ -5,8 +5,10 @@ import { headingOfPath, pathThroughStops } from '../../domain/route-ahead.js';
 import { gaugeFactors, matchToRail, routeAhead } from '../../domain/rail-match.js';
 
 // Recorridos por la vía que se guardan (uno por tren pedido, ~30 KB cada uno): el mapa pide los del
-// tren seleccionado cada 15 s, y sólo cambian cuando el tren da una posición nueva.
-const RAIL_MEMO_MAX = 200;
+// tren seleccionado cada 15 s, y sólo cambian cuando el tren da una posición nueva. Caben todos los
+// trenes de la red general a la vez, con margen: si fueran menos que los que se miran, cada cálculo
+// nuevo echaría otro y el memo se vaciaría en bucle.
+const RAIL_MEMO_MAX = 1_000;
 const round5 = (x) => Math.round(x * 1e5) / 1e5;
 
 /**

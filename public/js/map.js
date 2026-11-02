@@ -525,18 +525,31 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     setRoute(routeAhead(v));
   }
 
+  /**
+   * Recorrido o lo que le queda de un vehículo. Si el servidor tiene demasiados cálculos a la vez (503),
+   * lo vuelve a pedir pasado el tiempo que indica (Retry-After), mientras el vehículo siga seleccionado.
+   */
+  async function fetchTrain(url, id, tries = 3) {
+    const r = await fetch(url);
+    if (r.status === 503 && tries > 1 && selectedId === id) {
+      const wait = Math.min(Number(r.headers.get('Retry-After')) || 2, 10) * 1000 * (1 + Math.random() / 2);
+      await new Promise((resolve) => setTimeout(resolve, wait));
+      return selectedId === id ? fetchTrain(url, id, tries - 1) : null;
+    }
+    return r.ok ? r.json() : null;
+  }
+
   function loadTrack(v) {
     trackFetchedAt = Date.now();
     if (v.ahead) {
-      fetch(`/api/ahead/${encodeURIComponent(v.id)}`)
-        .then((r) => (r.ok ? r.json() : null))
+      fetchTrain(`/api/ahead/${encodeURIComponent(v.id)}`, v.id)
         .then((ahead) => { if (selectedId === v.id) setRoute(ahead); })
         .catch(() => {});
     }
-    fetch(`/api/tracks/${encodeURIComponent(v.id)}`)
-      .then((r) => (r.ok ? r.json() : []))
+    fetchTrain(`/api/tracks/${encodeURIComponent(v.id)}`, v.id)
       .then((track) => {
         if (selectedId !== v.id) return;
+        track ??= [];
         // Los trazados de su línea y el de su propio viaje, salvo si su licencia pide no alterar el contenido.
         const asPublished = AS_PUBLISHED.has(v.source);
         const own = v.line && !asPublished ? lineFeatures.filter((f) => f.properties.line === v.line && f.properties.mode === v.mode) : [];
