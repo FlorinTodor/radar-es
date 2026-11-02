@@ -14,6 +14,8 @@
  * @property {string} [license]
  * @property {string} [url]
  * @property {string} [page]                   Ficha pública del conjunto de datos, para enlazarla en vez de `url`.
+ * @property {string} [paused]               Motivo por el que la fuente está en pausa: se registra y se cita en /legal,
+ *                                              pero no se lee (sale como desactivada, con este motivo).
  * @property {string[]} [requires]             Variables de entorno necesarias (claves de API).
  * @property {Record<string, string>} [operatorLicenses]  Fuentes que agrupan a varios operadores: la atribución
  *                                              de cada uno, por el `operator` de sus vehículos, para citar sólo la suya.

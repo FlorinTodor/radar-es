@@ -61,3 +61,17 @@ test('lo que consumía hace poco: las dos últimas horas en hora real, no lo que
   const [ceuta] = parseEsiosDemand({ indicator: { values } }, { indicator: { values: [] } });
   assert.equal(ceuta.recentMax, 31, 'el 45 de hace más de dos horas no cuenta');
 });
+
+test('un dato vacío (null o "") no es 0 MW: no cuenta como apagón', () => {
+  const real = { indicator: { values: [
+    value(8797, 'Tenerife', '2026-11-02T05:35:00Z', 381.4),
+    value(8797, 'Tenerife', '2026-11-02T05:40:00Z', null),
+    value(8799, 'La Gomera', '2026-11-02T05:40:00Z', ''),
+  ] } };
+  const programmed = { indicator: { values: [value(8797, 'Tenerife', '2026-11-02T05:35:00Z', null), value(8797, 'Tenerife', '2026-11-02T05:40:00Z', 383)] } };
+  const systems = parseEsiosDemand(real, programmed);
+  const tenerife = systems.find((s) => s.name === 'Tenerife');
+  assert.equal(tenerife.real, 381.4, 'el último dato bueno, no el vacío');
+  assert.equal(tenerife.programmed, null, 'la programada vacía de ese momento tampoco es 0');
+  assert.ok(!systems.some((s) => s.name === 'La Gomera'), 'un sistema sólo con datos vacíos no sale');
+});

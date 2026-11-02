@@ -59,8 +59,10 @@ const sources = createSources({ http, cache, stations, nap, log, env: config.env
 const enabledSources = [];
 for (const s of sources) {
   const missing = (s.requires ?? []).filter((k) => !config.env[k]);
-  situation.registerSource(s, { enabled: !missing.length, reason: missing.length ? `Falta ${missing.join(', ')} en .env` : null });
-  if (missing.length) log.warn(`[${s.id}] desactivada: falta ${missing.join(', ')}`);
+  // Una fuente en pausa (`paused`, con su motivo) se registra y se cita, pero no se lee.
+  situation.registerSource(s, { enabled: !missing.length && !s.paused, reason: s.paused ?? (missing.length ? `Falta ${missing.join(', ')} en .env` : null) });
+  if (s.paused) log.info(`[${s.id}] en pausa: ${s.paused}`);
+  else if (missing.length) log.warn(`[${s.id}] desactivada: falta ${missing.join(', ')}`);
   else enabledSources.push(s);
 }
 
