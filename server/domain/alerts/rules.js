@@ -27,6 +27,18 @@ import { SISTEMAS_AISLADOS } from '../lugares.js';
 
 const MADRID_TIME = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', dateStyle: 'short', timeStyle: 'short' });
 const madridTime = (ms) => MADRID_TIME.format(ms);
+const MADRID_HOUR = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit' });
+// Una métrica sin dato no puede tumbar el motor de reglas por formatearla: se escribe «?».
+const mw = (v) => (Number.isFinite(v) ? v.toLocaleString('es-ES', { maximumFractionDigits: 1 }) : '?');
+
+/**
+ * Claves de ctx.metrics con las que las reglas leen la red eléctrica. Son los `id` de las fuentes que
+ * dan esas métricas (ree.js, esios.js), que los toman de aquí: así el dominio no depende de cómo se
+ * llame cada adaptador y renombrar uno no apaga sin avisar la regla que lo lee.
+ */
+export const GRID_METRICS = Object.freeze({ peninsular: 'ree', aislados: 'esios-sistemas-aislados' });
+// Atribución que pide el aviso legal de Red Eléctrica (apartado 5.1): citarla como fuente, con la fecha del dato.
+const REE_CREDIT = 'Fuente: Red Eléctrica';
 
 /** Trenes sin moverse fuera de estación. Calcula `ctx.stopped`, que usa la regla de bloqueos. */
 export function stoppedOutsideStation(ctx) {
@@ -199,15 +211,21 @@ export function firesNearTrains(ctx) {
   return alerts;
 }
 
-/** Desplome de la demanda eléctrica frente a la prevista (huella de un apagón como el del 28-A). */
+/**
+ * Desplome de la demanda eléctrica frente a la prevista (huella de un apagón como el del 28-A). Cita a
+ * Red Eléctrica y la hora del dato, como pide su aviso legal.
+ */
 export function gridDemandDrop(ctx) {
-  const m = ctx.metrics.ree;
+  const m = ctx.metrics[GRID_METRICS.peninsular];
   const th = ctx.thresholds;
-  if (!m || m.deviation === null || m.deviation === undefined || m.deviation > th.gridDropHigh) return [];
+  if (!m || !Number.isFinite(m.deviation) || m.deviation > th.gridDropHigh) return [];
   return [{
     id: 'red-electrica', type: 'red-electrica', severity: m.deviation <= th.gridDropCritical ? 'muy alta' : 'alta',
-    title: `Demanda eléctrica ${Math.round(m.deviation * 100)} % por debajo de lo previsto`,
-    description: `Real ${m.demandMW} MW frente a ${m.forecastMW} MW previstos. Una caída brusca puede indicar un apagón o un corte grande (estimación de Radar España con datos de Red Eléctrica).`,
+    // «31 % por debajo», no «-31 % por debajo»: el signo ya lo dice «por debajo».
+    title: `Demanda eléctrica ${Math.round(-m.deviation * 100)} % por debajo de lo previsto`,
+    description: `Real ${mw(m.demandMW)} MW${m.at ? ` a las ${MADRID_HOUR.format(m.at)}` : ''} frente a ${mw(m.forecastMW)} MW previstos. `
+      + 'Una caída brusca puede indicar un apagón o un corte grande (estimación de Radar España con datos de Red Eléctrica).',
+    credit: REE_CREDIT,
   }];
 }
 
@@ -238,7 +256,7 @@ export function officialPowerCuts(ctx) {
   return byNotice(cuts).map(([key, list]) => {
     const e = list[0];
     return {
-      id: `apagon:${key}`, type: 'apagon', severity: e.severity === 'baja' ? 'media' : e.severity,
+      id: `apagon:${key}`, type: 'apagon', severity: e.severity,
       eventIds: list.map((x) => x.id), lat: e.lat ?? undefined, lon: e.lon ?? undefined,
       title: `Corte de luz · ${areasOf(list)}`,
       description: `Aviso oficial: «${e.description || e.title}»${list.every((x) => x.approx === 'comunidad') ? ' (el aviso no dice el lugar exacto)' : ''}.`,
@@ -249,8 +267,8 @@ export function officialPowerCuts(ctx) {
 
 /** Planes de protección civil en alerta o emergencia (las prealertas se quedan en el mapa, sin alerta). */
 export function officialEmergencyPlans(ctx) {
-  const plans = ctx.events.filter((e) => e.category === 'emergencia' && !e.power && e.type === 'plan'
-    && (e.severity === 'alta' || e.severity === 'muy alta'));
+  // Un aviso oficial es un plan o un corte de luz (`power`), que tiene su propia regla.
+  const plans = ctx.events.filter((e) => e.category === 'emergencia' && !e.power && (e.severity === 'alta' || e.severity === 'muy alta'));
   return byNotice(plans).map(([key, list]) => {
     const e = list[0];
     const areas = areasOf(list);
@@ -264,8 +282,6 @@ export function officialEmergencyPlans(ctx) {
   });
 }
 
-const mw = (v) => v.toLocaleString('es-ES', { maximumFractionDigits: 1 });
-
 /**
  * Apagón de un sistema eléctrico aislado (una isla o un grupo de islas de Canarias, Ceuta, Melilla):
  * su demanda real cae muy por debajo de la esperada, que es la programada para ese momento o, si es
@@ -276,7 +292,7 @@ const mw = (v) => v.toLocaleString('es-ES', { maximumFractionDigits: 1 });
 export function isolatedGridBlackouts(ctx) {
   const th = ctx.thresholds;
   const alerts = [];
-  for (const s of ctx.metrics['esios-sistemas-aislados']?.systems ?? []) {
+  for (const s of ctx.metrics[GRID_METRICS.aislados]?.systems ?? []) {
     if (!Number.isFinite(s.real)) continue;
     if (!s.at || ctx.now - s.at > th.isolatedGridStaleMinutes * 60_000) continue; // dato viejo: no se sabe
     const programmed = Number.isFinite(s.programmed) ? s.programmed : 0;
@@ -285,16 +301,18 @@ export function isolatedGridBlackouts(ctx) {
     const ratio = s.real / expected;
     if (ratio > th.isolatedGridDrop) continue;
     const zero = ratio <= th.isolatedGridZero;
-    const place = SISTEMAS_AISLADOS.find((p) => p.name === s.name);
+    // El sistema se sitúa por su clave (la de SISTEMAS_AISLADOS), no por el nombre que dé la fuente.
+    const place = SISTEMAS_AISLADOS.find((p) => p.id === s.id);
+    const name = place?.name ?? s.name ?? s.id;
     alerts.push({
       id: `red-aislada:${s.id}`, type: 'red-electrica', severity: zero ? 'muy alta' : 'alta',
       lat: place?.lat, lon: place?.lon,
-      title: zero ? `Posible apagón total en ${s.name}: demanda a ${mw(s.real)} MW`
-        : `Demanda eléctrica de ${s.name} un ${Math.round((1 - ratio) * 100)} % por debajo de lo esperado`,
+      title: zero ? `Posible apagón total en ${name}: demanda a ${mw(s.real)} MW`
+        : `Demanda eléctrica de ${name} un ${Math.round((1 - ratio) * 100)} % por debajo de lo esperado`,
       description: `Real ${mw(s.real)} MW a las ${madridTime(s.at)} (hora peninsular) frente a ${mw(expected)} MW `
         + `${expected === programmed ? 'programados' : 'que consumía en las dos últimas horas'}. `
         + 'Estimación de Radar España con datos de Red Eléctrica: confírmalo con los avisos oficiales.',
-      credit: 'Fuente: Red Eléctrica',
+      credit: REE_CREDIT,
     });
   }
   return alerts;

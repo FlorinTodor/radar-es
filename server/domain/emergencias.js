@@ -1,5 +1,6 @@
 // Avisos oficiales de emergencias (protección civil y 112 de las comunidades autónomas): si hablan
-// de un corte de luz, qué nivel declaran, de qué riesgo y dónde, y cuáles siguen en vigor.
+// de un corte de luz, qué nivel declaran, de qué riesgo y dónde, cuánto dura cada uno sin noticias de
+// su fin y cuáles siguen en vigor.
 // Puro: los adaptadores leen cada formato (RSS, JSON…) y le pasan el texto tal cual.
 import { GRUPOS_ISLAS, ILLES_BALEARS, ISLAS_CANARIAS, PROVINCIAS } from './lugares.js';
 
@@ -8,11 +9,16 @@ export const fold = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, 
 
 const words = (list) => new RegExp(`\\b(?:${list.join('|')})\\b`);
 
+// «Apagón ferroviario», «apagones informativos», «el apagón de las pulseras»… no son cortes de luz.
+// Una sola lista para el corte de luz y para el riesgo «luz» de subjectsOf: si no, una de las dos
+// se queda atrás. El \b final impide que «apagones ferroviarios» se cuele como «apagon» + «es…».
+const NOT_POWER_BLACKOUTS = ['ferroviario', 'informativo', 'digital', 'analogico', 'televisivo', 'mediatico', 'tecnologico', 'de las pulseras'];
+const BLACKOUT = `apagon(?:es)?(?! (?:${NOT_POWER_BLACKOUTS.join('|')}))\\b`;
+
 // Corte del suministro eléctrico (castellano y catalán), sobre el texto plegado. Sólo frases que
 // dicen que falta la luz: «garantizar la continuidad del suministro eléctrico» no es un corte.
 const POWER_CUT = words([
-  // «Apagón ferroviario», «apagón informativo»… no son cortes de luz.
-  'apagon(?:es)?(?! (?:ferroviario|informativo|digital|analogico|televisivo|mediatico|tecnologico|de las pulseras))',
+  BLACKOUT,
   'cero energetico', 'zero energetic', 'apagada (?:general|electrica)',
   'sin (?:suministro electrico|suministro de luz|luz|electricidad|corriente electrica|fluido electrico)',
   '(?:corte|cortes|interrupcion|interrupciones|falta|perdida|caida|fallo|fallos|averia|averias|problemas|incidencias|incidencia) (?:general |generalizad[oa] )?(?:en el |del |de |de la |en la )?(?:suministro electrico|suministro de luz|suministro de electricidad|fluido electrico|luz|sistema electrico|red electrica)',
@@ -90,7 +96,7 @@ export function severityOf(text) {
 // De qué riesgo trata un aviso, para emparejar cada «declara» con su «finaliza» aunque los títulos
 // no digan lo mismo («por lluvias» / «por lluvia»; «Plan Infoca» / «por el incendio de…»).
 const HAZARDS = [
-  ['cero energetico|zero energetic|apagon(?!es? (?:ferroviario|informativo|digital))|apagada', 'luz'],
+  [`cero energetico|zero energetic|${BLACKOUT}|apagada`, 'luz'],
   ['suministros? basicos?', 'suministros'],
   ['infoca|incendio|forestal', 'incendio'],
   ['inundacion|lluvia|precipitacion|dana|riada|avenida', 'lluvia'],
@@ -111,6 +117,8 @@ const HAZARDS = [
  * Claves de lo que trata el aviso: el riesgo que aparece antes en el título (o, si no dice ninguno,
  * el nombre del plan) y «luz» si habla de un corte de luz o de que ha vuelto. Si no dice ni riesgo ni
  * plan («Decretado el fin de la emergencia en Ibiza»), '*': un fin así cierra todo lo de sus lugares.
+ * Un título que sólo habla de la luz («Corte de luz en Toledo») trata de la luz, no de todo: con '*'
+ * sustituiría a los planes en vigor de su lugar (ver currentNotices).
  */
 export function subjectsOf(title, text = '') {
   const t = fold(title);
@@ -118,7 +126,8 @@ export function subjectsOf(title, text = '') {
   const out = found.length ? [found[0][1]] : [];
   if (!out.length) {
     const plan = String(title).match(/\b([A-Z]{5,})\b/); // PLATECAM, METEOCAM…
-    out.push(plan ? plan[1].toLowerCase() : '*');
+    if (plan) out.push(plan[1].toLowerCase());
+    else if (!mentionsPowerCut(title) && !mentionsPowerBack(title)) out.push('*');
   }
   const all = `${title} ${text}`;
   if (mentionsPowerCut(all) || mentionsPowerBack(all)) out.push('luz');
@@ -148,10 +157,13 @@ export function illesIn(text) {
   return [...out];
 }
 
-/** Provincias (de la tabla de lugares) que nombra un texto. */
-export function provincesIn(text) {
+/**
+ * Provincias (de la tabla de lugares) que nombra un texto; con `region` (clave de COMUNIDADES), sólo
+ * las de esa comunidad: el 112 de Castilla-La Mancha no avisa de lo que pasa en Sevilla.
+ */
+export function provincesIn(text, region = null) {
   const t = fold(text);
-  return PROVINCIAS.filter((p) => new RegExp(`\\b${fold(p.name)}\\b`).test(t)).map((p) => p.name);
+  return PROVINCIAS.filter((p) => (!region || p.region === region) && new RegExp(`\\b${fold(p.name)}\\b`).test(t)).map((p) => p.name);
 }
 
 // Nombres de lugar: palabras con mayúscula unidas por «de», «del», «la»… («San José del Valle»).
@@ -209,31 +221,54 @@ export function powerClauses(text) {
  * @property {boolean} end        Da por terminada la situación («finaliza», «restablecido»…).
  * @property {string[]} subjects  De qué trata (ver subjectsOf). La primera es la principal.
  * @property {string[]} places    Dónde (islas, municipios…); vacío o ['*'] = todo su territorio.
+ * @property {boolean} [power]    Habla de un corte de luz.
+ * @property {string} [title]     Título tal cual lo publica la fuente.
  */
+
+// Cuánto se muestra un aviso sin noticias de su fin: los avisos no siempre lo publican. Un plan de
+// protección civil suele durar días; un corte de luz del 112, horas.
+const HOUR = 3_600_000;
+export const PLAN_MAX_AGE = 96 * HOUR; // un plan sin noticias de su fin se deja de mostrar a los 4 días
+export const CUT_MAX_AGE = 24 * HOUR;  // un corte de luz sin noticia de que ha vuelto, al día
+/** Lo más que puede seguir en vigor un aviso: lo que haya que guardar para no perder ninguno. */
+export const NOTICE_MAX_AGE = Math.max(PLAN_MAX_AGE, CUT_MAX_AGE);
+
+/**
+ * Vigencia de un aviso sin noticias de su fin: un corte de luz, un día; un plan (aunque sea por un
+ * apagón, como el PLATECA por el cero energético de La Palma), cuatro. La misma en todas las fuentes.
+ * @param {Notice} n
+ */
+export const maxAgeOf = (n) => (n.power && !isPlanNotice(n.title) ? CUT_MAX_AGE : PLAN_MAX_AGE);
+
+/** El aviso ya no está en vigor por viejo, según la vigencia `maxAgeFor` (por omisión, la del dominio). */
+export const isExpired = (n, now, maxAgeFor = maxAgeOf) => !(now - n.at <= maxAgeFor(n));
 
 /**
  * Avisos que siguen en vigor, uno por lugar: del más nuevo al más viejo, el primero de cada riesgo y
  * lugar es su estado actual. Un «finaliza» cierra lo que trata en sus lugares (o en todo el
- * territorio si no dice ninguno) y los avisos anteriores de eso ya no cuentan. Los que pasan de
- * `maxAgeMs` sin actualizarse se dejan de mostrar: los avisos no siempre publican su fin.
+ * territorio si no dice ninguno) y los avisos anteriores de eso ya no cuentan. Los que pasan de su
+ * vigencia (`maxAgeFor`, por omisión maxAgeOf) sin actualizarse se descartan antes de nada: un aviso
+ * caducado no puede ocupar el sitio de otro más viejo que sigue en vigor (un corte de luz de hace
+ * 30 h no tapa la alerta de hace 40 h de la misma provincia). Los fines no caducan: sólo cierran
+ * avisos anteriores a ellos, que, si el fin es viejo, también lo son.
  * Con `wholeNotice` (incidencias del 112, que son un solo suceso), si se cierra uno de sus lugares
  * se cierra el aviso entero: «restablecido en Ventrosa» también vale para los otros pueblos de la avería.
  * @template {Notice} T
  * @param {T[]} notices
- * @param {{ now: number, maxAgeMs: number, wholeNotice?: boolean }} opts
+ * @param {{ now: number, maxAgeFor?: (n: T) => number, wholeNotice?: boolean }} opts
  * @returns {Array<{ notice: T, place: string|null }>}
  */
-export function currentNotices(notices, { now, maxAgeMs, wholeNotice = false }) {
+export function currentNotices(notices, { now, maxAgeFor = maxAgeOf, wholeNotice = false }) {
   const closed = new Set();
   const seen = new Set();
   const out = [];
   for (const n of [...notices].sort((a, b) => b.at - a.at)) {
-    if (!(now - n.at <= maxAgeMs)) continue;
     const places = n.places.length ? n.places : ['*'];
     if (n.end) {
       for (const s of n.subjects) for (const p of places) closed.add(`${s}|${p}`);
       continue;
     }
+    if (isExpired(n, now, maxAgeFor)) continue; // antes de marcarlo como visto
     const isShut = (p) => closed.has(`*|${p}`) || closed.has('*|*')
       || n.subjects.some((s) => closed.has(`${s}|${p}`) || closed.has(`${s}|*`));
     if (wholeNotice && places.some(isShut)) continue;
