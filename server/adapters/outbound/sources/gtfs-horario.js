@@ -1,12 +1,13 @@
 // Posición estimada a partir del horario GTFS (del NAP) para operadores que no publican GPS.
 // - Sin tiempo real (Ouigo, metros, tranvías, autobuses): se colocan donde dice el horario.
-// - Con trip updates GTFS-RT (Euskotren): sólo los viajes en curso, desplazados por su retraso real.
+// - Con trip updates GTFS-RT (Euskotren, AMB): sólo los viajes en curso, desplazados por su retraso real.
 // Las posiciones se marcan `estimated` (anillo hueco en el mapa) y no cuentan para alertas.
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { decodeFeed } from './gtfs-rt.js';
 import { activeFrequencyOffsets, pointAlong, serviceRuns, stopsAlongShape } from '../../../domain/schedule.js';
 import { estimatePosition } from '../../../domain/estimated-position.js';
+import { round5 } from '../../../domain/geo.js';
 import { madridLocalToMs } from './parse.js';
 import { napDatasetPage } from '../nap/nap-client.js';
 import { createCpuPool } from '../workers/cpu-pool.js';
@@ -80,10 +81,9 @@ function delaysFromTripUpdates(feed, schedule) {
 /** Trozo de un trazado entre dos distancias (m), como [lon, lat] redondeados. */
 function stretch(shape, from, to) {
   const { coords, dist } = shape;
-  const round = (x) => Math.round(x * 1e5) / 1e5;
-  const at = (d) => { const q = pointAlong(shape, d); return [round(q.lon), round(q.lat)]; };
+  const at = (d) => { const q = pointAlong(shape, d); return [round5(q.lon), round5(q.lat)]; };
   const out = [at(from)];
-  for (let i = 0; i < dist.length; i++) if (dist[i] > from && dist[i] < to) out.push([round(coords[i * 2]), round(coords[i * 2 + 1])]);
+  for (let i = 0; i < dist.length; i++) if (dist[i] > from && dist[i] < to) out.push([round5(coords[i * 2]), round5(coords[i * 2 + 1])]);
   out.push(at(to));
   return out;
 }
@@ -224,7 +224,7 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
      * paradas (null o undefined como en path). */
     ahead(vehicleId) {
       const p = paths.get(vehicleId);
-      if (p?.stops) return [p.at, ...p.stops].map(([lon, lat]) => [Math.round(lon * 1e5) / 1e5, Math.round(lat * 1e5) / 1e5]);
+      if (p?.stops) return [p.at, ...p.stops].map(([lon, lat]) => [round5(lon), round5(lat)]);
       return p ? stretch(p.shape, p.to, p.end) : p;
     },
     async fetch() {

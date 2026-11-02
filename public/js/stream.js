@@ -1,6 +1,6 @@
 // Datos en directo por consulta periódica a JSON que Cloudflare guarda unos segundos: el servidor
 // trabaja lo mismo con 100 personas que con 100.000, y si se cae Cloudflare sigue sirviendo la
-// última copia (aquí se avisa de su antigüedad). Las fuentes se leen cada 30–60 s, así que
+// última copia (aquí se avisa de su antigüedad). Las fuentes se leen cada 20–60 s, así que
 // consultar cada 15 s apenas añade retraso. Si una consulta falla (un 502 mientras se reinicia el
 // servidor en un despliegue, por ejemplo) se reintenta con esperas crecientes hasta 1 min.
 //   /api/live          posiciones (sin autobuses), recuentos, alertas e indicadores

@@ -1,5 +1,5 @@
 import * as maplibregl from '/vendor/maplibre/maplibre-gl.mjs';
-import { DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, STATUS, esc, fmtDate, fmtDateTime, fmtDelay, fmtLocalHour, fmtTime, photoTitleOf, safeUrl, timeAgo, vehicleTitle } from './format.js';
+import { DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, STATUS, esc, fmtDate, fmtDateTime, fmtDelay, fmtLocalHour, fmtTime, creditHtml, photoTitleOf, safeUrl, timeAgo, vehicleTitle } from './format.js';
 import { PICTOS, pictoFor, vehicleImage } from './icons.js';
 import { headingAlong, matchTrack, pathBetween } from './track-match.js';
 
@@ -818,7 +818,6 @@ function createDetailCard(host, onVehicle) {
   };
 }
 
-const CREDIT_LINKS = [['MITRAMS', 'https://www.transportes.gob.es/'], ['CRTM', 'https://www.crtm.es/'], ['TRAM Barcelona', 'https://www.tram.cat/']];
 
 function stationDetail(st, { stopped, arriving, notices, lines, connections = [] }) {
   const train = (v, when) => `<li><button type="button" class="link" data-vehicle="${esc(v.id)}">${esc(vehicleTitle(v))}</button>
@@ -846,9 +845,8 @@ function stationDetail(st, { stopped, arriving, notices, lines, connections = []
   const day = (iso) => (/^\d{4}-\d{2}-\d{2}/.test(iso ?? '') ? iso.slice(0, 10).split('-').reverse().join('/') : null);
   const updated = day(st.source?.updated);
   const downloaded = day(st.source?.downloaded);
-  const credit = (text) => CREDIT_LINKS.reduce((html, [name, url]) => html.replace(name, link(url, name)), esc(text));
   const creditText = st.source?.credit ?? (st.networkId ? null : 'Origen de los datos: Renfe Operadora');
-  const source = creditText ? `<p class="st-source">Datos de la estación: ${credit(creditText)}${updated ? ` · actualizados el ${esc(updated)}`
+  const source = creditText ? `<p class="st-source">Datos de la estación: ${creditHtml(creditText)}${updated ? ` · actualizados el ${esc(updated)}`
     : downloaded ? ` · descargados el ${esc(downloaded)}` : ''}</p>` : '';
   // La foto viene de Wikimedia Commons: su licencia pide citar título, autor y licencia junto a ella.
   // El título es el nombre del fichero, que enlaza a su página en Commons.
@@ -869,7 +867,7 @@ function stationDetail(st, { stopped, arriving, notices, lines, connections = []
     <h4>Próximos trenes</h4>${list(arriving.map((v) => train(v, when(v))), 'Ningún tren en camino con datos en directo.')}
     ${notices.length ? `<h4>Avisos de Renfe</h4><ul class="st-list">${notices.map((e) => `<li>${esc(e.description ?? e.title)}</li>`).join('')}</ul>` : ''}
     ${connections.length ? `<h4>Conexiones a pie</h4>${chips(connections)}` : ''}
-    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>
+    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
     <p class="st-links">${links.join(' · ')}</p>${source}
     <div class="note">${st.networkId ? 'Salen los trenes con posición en directo o estimada a partir del horario' : 'Sólo salen los trenes que publican su posición en directo'}; los horarios completos están en la web del operador.
       Pulsa un tren para ver su ficha.</div></div>`;
@@ -893,7 +891,8 @@ function sourceRows(id, operator) {
     s.sourceTime ? `datos de las ${fmtTime(s.sourceTime)}` : !schedule && s.lastOk && `leídos a las ${fmtTime(s.lastOk)}`,
   ].filter(Boolean);
   // «Atribución» y no «Fuente»: muchas ya empiezan por «Fuente: …» u «Origen de los datos: …».
-  return [['Atribución', s.operatorLicenses?.[operator] ?? s.license ?? s.name], dates.length && ['Actualizado', dates.join(' · ')]];
+  // La atribución va como HTML: las que lo piden llevan su enlace (ver creditHtml).
+  return [['Atribución', { html: creditHtml(s.operatorLicenses?.[operator] ?? s.license ?? s.name) }], dates.length && ['Actualizado', dates.join(' · ')]];
 }
 
 /** @param {object} v  @param {boolean} [onRoute] se dibuja lo que le queda hasta su final */
@@ -928,7 +927,7 @@ function vehicleDetail(v, onRoute = false) {
           + 'es el tramo que habría recorrido en los últimos 45 min según el horario.')
       + (v.ahead ? ` ${aheadText(', según el horario').trim()}` : '');
   const badge = v.estimated ? '<div class="est-badge">Posición estimada · no es GPS</div>' : '';
-  return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>
+  return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
     <div class="note">${note}</div></div>`;
 }
 
@@ -984,7 +983,7 @@ function burntAreaDetail(p) {
     ['Fuente', 'Copernicus EFFIS'],
   ].filter((r) => r && r[1]);
   return `<div class="pop"><h3>Área quemada${place ? ` en ${esc(place)}` : ''}</h3>
-    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>
+    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
     <div class="note">Perímetro estimado por satélite por el sistema europeo de incendios forestales (EFFIS), no es un
     dato oficial de extinción. <a href="https://forest-fire.emergency.copernicus.eu/apps/effis.csv/" target="_blank" rel="noopener">Ver en EFFIS</a></div></div>`;
 }
@@ -1002,5 +1001,5 @@ function eventDetail(e) {
   const url = safeUrl(e.url);
   const link = url ? `<div class="note"><a href="${esc(url)}" target="_blank" rel="noopener">Ficha oficial</a></div>` : '';
   return `<div class="pop"><h3>${esc(e.title)}</h3>${e.description ? `<p>${esc(e.description)}</p>` : ''}
-    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>${link}</div>`;
+    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>${link}</div>`;
 }

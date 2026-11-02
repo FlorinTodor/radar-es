@@ -1,6 +1,6 @@
 // Página legal: datos del titular (de /api/about), contador y estado de cada capa.
 // Va en un fichero aparte y no en línea para que la CSP pueda prohibir los scripts en línea.
-import { esc } from './format.js';
+import { creditHtml, esc } from './format.js';
 
 const when = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', dateStyle: 'short', timeStyle: 'medium' });
 const day = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', dateStyle: 'short' });
@@ -27,7 +27,7 @@ const lineSources = json('/api/lines/sources').catch(() => []);
 
 json('/api/health').then(async (health) => {
   const sources = await lineSources;
-  const lines = (Array.isArray(sources) ? sources : []).map((l) => `<tr><td>Trazado: ${esc(l.name)}</td><td>${esc(l.credit)}</td>`
+  const lines = (Array.isArray(sources) ? sources : []).map((l) => `<tr><td>Trazado: ${esc(l.name)}</td><td>${creditHtml(l.credit)}</td>`
     + `<td>${l.updated ? `Horario actualizado el ${esc(when.format(l.updated))}` : '—'}</td><td>Operativa</td></tr>`);
   document.getElementById('estado-filas').innerHTML = health.map((s) => {
     // Fecha que da la propia fuente; en las posiciones estimadas, la de su horario en el NAP.
@@ -36,7 +36,7 @@ json('/api/health').then(async (health) => {
       : s.datasetUpdated ? `Horario actualizado el ${when.format(s.datasetUpdated)}`
         : s.lastOk ? `Leída el ${when.format(s.lastOk)}` : '—';
     const status = !s.enabled ? 'Desactivada' : s.ok === null ? 'Pendiente' : s.ok ? 'Operativa' : 'Con errores';
-    return `<tr><td>${esc(s.name)}</td><td>${esc(s.license)}</td><td>${esc(last)}</td><td>${status}</td></tr>`;
+    return `<tr><td>${esc(s.name)}</td><td>${creditHtml(s.license)}</td><td>${esc(last)}</td><td>${status}</td></tr>`;
   }).concat(lines).join('');
   labelCells(document.getElementById('estado-filas').closest('table'));
 }).catch(() => {
