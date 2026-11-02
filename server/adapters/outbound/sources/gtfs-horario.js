@@ -1,12 +1,13 @@
 // Posición estimada a partir del horario GTFS (del NAP) para operadores que no publican GPS.
 // - Sin tiempo real (Ouigo, metros, tranvías, autobuses): se colocan donde dice el horario.
-// - Con trip updates GTFS-RT (Euskotren): sólo los viajes en curso, desplazados por su retraso real.
+// - Con trip updates GTFS-RT (Euskotren, AMB): sólo los viajes en curso, desplazados por su retraso real.
 // Las posiciones se marcan `estimated` (anillo hueco en el mapa) y no cuentan para alertas.
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { decodeFeed } from './gtfs-rt.js';
 import { activeFrequencyOffsets, pointAlong, serviceRuns, stopsAlongShape } from '../../../domain/schedule.js';
 import { estimatePosition } from '../../../domain/estimated-position.js';
+import { round5 } from '../../../domain/geo.js';
 import { madridLocalToMs } from './parse.js';
 import { napDatasetPage } from '../nap/nap-client.js';
 import { createCpuPool } from '../workers/cpu-pool.js';
@@ -23,12 +24,18 @@ const PARSER = sha1(['../gtfs/gtfs-schedule.js', '../gtfs/gtfs-reader.js', '../g
 // Sin pool inyectado (tests, herramientas), los horarios se leen en el hilo principal de uno en uno.
 const inlinePool = createCpuPool({ threads: 0 });
 
-/** Paradas de un viaje como objetos, sólo cuando hace falta (viajes en circulación). */
-function tripStops(trip, { times, stopList }) {
+/**
+ * Paradas de un viaje como objetos, sólo cuando hace falta (viajes en circulación). Con `keep`, se
+ * guardan en el viaje mientras circula: montarlas en cada lectura, para miles de autobuses, era casi
+ * todo el trabajo (ver vehicle(), que las suelta cuando el viaje acaba).
+ */
+function tripStops(trip, { times, stopList }, keep = false) {
+  if (trip.stopObjects) return trip.stopObjects;
   const out = [];
   for (let i = trip.at; i < trip.at + trip.n * 4; i += 4) {
     out.push({ seq: times[i], ...stopList[times[i + 1]], arr: times[i + 2], dep: times[i + 3] });
   }
+  if (keep) trip.stopObjects = out;
   return out;
 }
 
@@ -41,9 +48,11 @@ function alongShape(schedule, trip, stops) {
   return trip.along;
 }
 
+const MADRID_DATE = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Madrid' });
+
 /** Día de servicio en Madrid desplazado `offset` días. */
 function madridServiceDay(now, offset) {
-  const [y, m, d] = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Madrid' }).format(now).split('-').map(Number);
+  const [y, m, d] = MADRID_DATE.format(now).split('-').map(Number);
   const day = new Date(Date.UTC(y, m - 1, d + offset));
   const iso = day.toISOString().slice(0, 10);
   return { ymd: iso.replaceAll('-', ''), iso, weekday: (day.getUTCDay() + 6) % 7, midnight: madridLocalToMs(`${iso}T00:00:00`) };
@@ -80,10 +89,9 @@ function delaysFromTripUpdates(feed, schedule) {
 /** Trozo de un trazado entre dos distancias (m), como [lon, lat] redondeados. */
 function stretch(shape, from, to) {
   const { coords, dist } = shape;
-  const round = (x) => Math.round(x * 1e5) / 1e5;
-  const at = (d) => { const q = pointAlong(shape, d); return [round(q.lon), round(q.lat)]; };
+  const at = (d) => { const q = pointAlong(shape, d); return [round5(q.lon), round5(q.lat)]; };
   const out = [at(from)];
-  for (let i = 0; i < dist.length; i++) if (dist[i] > from && dist[i] < to) out.push([round(coords[i * 2]), round(coords[i * 2 + 1])]);
+  for (let i = 0; i < dist.length; i++) if (dist[i] > from && dist[i] < to) out.push([round5(coords[i * 2]), round5(coords[i * 2 + 1])]);
   out.push(at(to));
   return out;
 }
@@ -121,8 +129,11 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
 
   function vehicle(fi, schedule, trip, day, t, delaySec, offset = 0, nextPaths = paths) {
     const tt = t - offset;
-    if (tt < trip.first || tt > trip.last) return null; // descarte barato antes de crear objetos
-    const stops = tripStops(trip, schedule);
+    if (tt < trip.first || tt > trip.last) { // descarte barato antes de crear objetos
+      if (tt > trip.last) trip.stopObjects = undefined; // ya ha acabado: no hace falta guardarlas
+      return null;
+    }
+    const stops = tripStops(trip, schedule, true);
     const along = alongShape(schedule, trip, stops);
     // Dónde está, lo recorrido, lo que le queda y hacia dónde va: reglas del dominio.
     const est = estimatePosition({ stops, mode: trip.route.mode, shape: along ? schedule.shapes[trip.shape] : null, along, t: tt });
@@ -224,7 +235,7 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
      * paradas (null o undefined como en path). */
     ahead(vehicleId) {
       const p = paths.get(vehicleId);
-      if (p?.stops) return [p.at, ...p.stops].map(([lon, lat]) => [Math.round(lon * 1e5) / 1e5, Math.round(lat * 1e5) / 1e5]);
+      if (p?.stops) return [p.at, ...p.stops].map(([lon, lat]) => [round5(lon), round5(lat)]);
       return p ? stretch(p.shape, p.to, p.end) : p;
     },
     async fetch() {
@@ -238,10 +249,10 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
       const now = Date.now();
       const vehicles = [];
       const nextPaths = new Map();
+      // Un tren que salió antes de medianoche pertenece al día de servicio anterior.
+      const serviceDays = [madridServiceDay(now, 0), madridServiceDay(now, -1)];
       for (const [fi, { schedule }] of loaded) {
-        // Un tren que salió antes de medianoche pertenece al día de servicio anterior.
-        for (const dayOffset of [0, -1]) {
-          const day = madridServiceDay(now, dayOffset);
+        for (const day of serviceDays) {
           const t = Math.floor((now - day.midnight) / 1000);
           for (const trip of schedule.trips) {
             if (rt) {

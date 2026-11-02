@@ -35,7 +35,10 @@ node --test test/domain/rules.test.js   # un solo fichero
 
 Requiere Node.js 22.9 o superior. Para los trazados de líneas y las posiciones estimadas por
 horario hace falta `NAP_API_KEY` en `.env` (clave gratuita del Punto de Acceso Nacional): sin ella
-se desactivan las 25 fuentes que la necesitan, y el registro lo avisa al arrancar. El primer
+se desactivan las 25 fuentes que la necesitan, y el registro lo avisa al arrancar. Los avisos de EMT
+Madrid usan además, si están, `EMT_MADRID_CLIENT_ID` y `EMT_MADRID_PASSKEY`, de una aplicación gratuita
+en [MobilityLabs](https://mobilitylabs.emtmadrid.es); sin ellas, o si EMT no las acepta, se leen sin
+identificarse. El primer
 arranque descarga los horarios GTFS en `data/` y tarda unos minutos; los siguientes los leen de ahí.
 Para contar visitas en producción se pone `GOATCOUNTER_URL` (GoatCounter, sin cookies); sin ella
 no se carga ningún contador y la página de privacidad lo indica. Con `ESIOS_TOKEN` (clave gratuita de
@@ -85,6 +88,7 @@ superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`]
                    │ model.js · geo.js · tracking.js      │  puro: sin red, sin disco,
                    │ kpis.js · tiles.js · rail-match.js   │  sin dependencias externas
                    │ schedule.js · route-ahead.js         │
+                   │ estimated-position.js                │
                    │ emergencias.js · lugares.js          │
                    │ alerts/{rules,lifecycle,thresholds}  │
                    └──────────────────────────────────────┘
@@ -111,10 +115,9 @@ superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`]
   adaptadores: leer los horarios GTFS, construir los trazados y analizar el XML de la DGT. Sólo
   calculan; las descargas y el estado siguen en el hilo principal. **Desactivados por defecto**:
   se activan con `WORKER_THREADS=2` en `.env` (arranque ~20 % más rápido, pero cada hilo carga sus
-  propios horarios y el pico de memoria sube; con un solo hilo, producción ya llega a unos 670 MB del
-  límite de 1 GB). Si un hilo falla, el trabajo se repite en el principal.
+  propios horarios y el pico de memoria sube). Si un hilo falla, el trabajo se repite en el principal.
 - **`server/adapters/inbound/`**: quien dispara los casos de uso (la API HTTP y el planificador).
-  Sólo hablan con casos de uso, nunca con los puertos de salida.
+  Sólo hablan con casos de uso; de los puertos de salida sólo usan el registro (`Logger`).
 - **`server/main.js`**: raíz de composición; el único sitio donde se eligen las implementaciones.
   Al arrancar comprueba con `assertPort` que cada adaptador tiene todo lo que pide su puerto.
 
@@ -179,7 +182,7 @@ e·sios, `ESIOS_TOKEN`. En total son 53 fuentes (34 de vehículos, 17 de inciden
 | 🔑 AMB (GTFS del NAP + trip updates de `ambmobilitat.cat`) | autobús metropolitano de Barcelona: **posición estimada** con su **retraso real** | 60 s |
 | Autobuses La Unión (GTFS-RT, NAP) y AUVASA Valladolid (GTFS-RT, CC BY 3.0 ES) | posición | 60 s |
 | 🔑 83 horarios de autobús del NAP, en 9 grupos (`autobuses-nap.js`) | **posición estimada** de Avanza, Sagalés, Moventis, Grupo Ruiz, AISA, Vectalia, urbanos de ciudades, interurbanos autonómicos e insulares y otras empresas | 60 s |
-| EMT Madrid (GTFS-RT del NAP) | avisos de servicio | 5 min |
+| EMT Madrid (GTFS-RT, listado en el NAP; con las claves gratuitas de MobilityLabs si están) | avisos de servicio | 5 min |
 | 🔑 GTFS de 16 redes en el NAP + líneas del tranvía de Tenerife (Cabildo de Tenerife) | trazados de Cercanías, metros, tranvías, FGC y Euskotren | 24 h |
 | Adif, «Tramos en servicio» ([datos abiertos de Adif en ArcGIS](https://www.arcgis.com/home/item.html?id=4ec7c0fb3cab42b0b488d65e65eeb7aa)) | vías en servicio, para dibujar por la vía el recorrido de AVE, Larga y Media Distancia y lo que les queda | 30 días |
 | DGT DATEX II v3.7 (`nap.dgt.es`) | ~1.000 incidencias de tráfico | 5 min |
@@ -305,14 +308,15 @@ Lo que no se puede dibujar por falta de datos públicos:
 | `GET /api/events?category=carretera` | incidencias (`ferroviario`, `carretera`, `meteo`, `incendio`, `sismo`, `catastrofe`) |
 | `GET /api/alerts` | alertas activas y resueltas |
 | `GET /api/tracks/:id` | recorrido de un vehículo en los últimos 45 min |
-| `GET /api/ahead/:id` | lo que le queda a un vehículo hasta su destino (posiciones estimadas, Cercanías y AVE, Larga y Media Distancia) |
+| `GET /api/ahead/:id` | lo que le queda a un vehículo hasta su destino (posiciones estimadas, Cercanías y AVE, Larga y Media Distancia; el de FGC y Metro Bilbao lo dibuja el mapa con el trazado de su línea o de su viaje) |
 | `GET /api/stations/:código` | ficha de una estación (trenes, avisos, líneas, conexiones, datos y foto) |
 | `GET /api/lines` | trazados de las líneas (GeoJSON) |
-| `GET /api/trails?min=15` | estela de cada tren en los últimos minutos (GeoJSON, máx. 45) |
+| `GET /api/trails?min=15` | estela de cada tren en los últimos 15, 30 o 45 minutos (GeoJSON) |
 | `GET /api/health`, `/api/kpis`, `/api/metrics`, `/api/stations` | salud de fuentes (con su licencia y su fecha de actualización), KPIs, métricas y estaciones |
 | `GET /api/burnt-areas?bbox=…` | ficha de las áreas quemadas (EFFIS) bajo un punto del mapa |
 | `GET /tiles/<capa>/<z>/<x>/<y>.png` | teselas de la red ferroviaria (IGN) y de las áreas quemadas (EFFIS) |
 | `GET /api/about` | titular y contacto para el aviso legal |
+| `GET /api/lines/sources` | de dónde sale el trazado de cada red: atribución y fecha de actualización |
 
 Las alertas y los KPIs por minuto se guardan en `data/history/*.jsonl` para analizarlos
 después (con jq, DuckDB o pandas).
@@ -327,8 +331,10 @@ después (con jq, DuckDB o pandas).
   - La web muestra al entrar un aviso sobre estos huecos (`#notice` en `public/index.html`). Si
     cambias el texto, sube `NOTICE_VERSION` en `public/js/app.js` para que vuelva a salir a todos.
 - **TMB y EMT Madrid**: ya salen el metro y los autobuses de TMB (estimados por su horario del NAP)
-  y los avisos de EMT Madrid. Sin integrar: el tiempo real de TMB y las posiciones de los autobuses
-  de EMT Madrid, cuyas API piden clave gratuita y registro.
+  y los avisos de EMT Madrid. Sin integrar: el tiempo real de TMB, cuya API pide clave gratuita, y las
+  posiciones de los autobuses de EMT Madrid: el NAP no las publica y su horario va por frecuencias
+  (estimarlas con él da cifras irreales). Su API sí las da, con nuestra aplicación de MobilityLabs,
+  cuando EMT la apruebe (está pendiente de moderación).
 - **Metro de Madrid**: solo publica tiempos de llegada, y su horario del NAP caducó en mayo de 2026;
   sin un horario vigente no se pueden estimar sus posiciones. Metro Ligero, Metrovalencia, Granada
   y Zaragoza ya salen con posición estimada.
@@ -391,6 +397,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Metro Bilbao con nombres de estación, origen y destino.
 - Los trenes de Alta Velocidad y Larga Distancia mantienen su origen y destino aunque Renfe
   renueve su horario ese día.
+- Un tren de Larga Distancia que da la vuelta en una estación (los Alvia en Monforte de Lemos)
+  conserva su recorrido: su salida hacia atrás tras la parada ya no se toma por un salto erróneo.
 - Cuando el operador pasa el número de un tren a otro convoy, lo anterior cuenta como otro viaje:
   ni se une con una recta en el mapa ni da alertas de retraso falsas. Los túneles no cuentan como
   salto.
@@ -483,6 +491,15 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - La búsqueda del camino por la vía de AVE, Larga y Media Distancia sólo mira las vías del ancho del
   tren y no busca en la red métrica, a la que no puede llegar; los regionales de la antigua Feve van
   por la suya.
+- La flecha de cada Cercanías se calcula sólo hasta sus próximas paradas, no hasta su destino, y
+  cada trazado se prepara una sola vez: el directo se prepara en la mitad de tiempo. Lo calculado de
+  los trenes que acaban su viaje sale de la memoria poco a poco, sin vaciarla de golpe.
+- El puerto de las fuentes declara todo lo que los casos de uso les piden (paradas que le quedan a
+  cada tren, red de sus trazados y lo que le queda a cada posición estimada).
+- El servidor se queda menos veces ocupado de golpe: el XML de la DGT se lee en un hilo aparte, y la
+  lectura de los horarios y la evaluación de alertas repiten menos trabajo.
+- Las respuestas guardadas de la API caducan y tienen un tope de memoria, aunque se pidan muchas
+  variantes distintas.
 
 **Despliegue y seguridad**
 - La aplicación funciona aislada, en un contenedor con recursos limitados y cabeceras de
@@ -516,6 +533,13 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   dice que todos los datos se muestran sin alterar: cada fuente indica qué se hace con ella.
 - Atribuciones al día de lo que se dibuja con la red de Adif y con los horarios del Punto de Acceso
   Nacional de FGC y Metro Bilbao (dato explotado y fecha de actualización).
+- Cercanías y Metro Bilbao citan también el trazado del Punto de Acceso Nacional con el que se
+  dibuja lo que le queda a cada tren, y cada red de trazados muestra su fecha de actualización en el
+  aviso legal y en la pestaña Fuentes.
+- El aviso legal muestra el titular y el contacto aunque el navegador no ejecute JavaScript.
+- Los avisos de EMT Madrid usan la aplicación registrada de Radar España en MobilityLabs en cuanto
+  EMT la activa; mientras tanto, se leen como hasta ahora.
+- El servidor no guarda registro de las visitas, como dice la página de privacidad.
 
 ### Preparadas, pendientes de subir
 
@@ -524,10 +548,15 @@ Ninguna por ahora.
 ## Posibles mejoras
 
 - Botón en el mapa para cambiar entre español e inglés.
-- Tiempo real de TMB y posiciones de los autobuses de EMT Madrid, con sus claves gratuitas (ver
+- Tiempo real de TMB y posiciones de los autobuses de EMT Madrid desde sus API, cuando EMT apruebe nuestra
+  aplicación de MobilityLabs (ver
   *Pendiente y conocido*).
 - Estadísticas de puntualidad por línea y franja horaria.
 - Pasos a nivel en el mapa.
+- Servidor más fluido al leer los autobuses por horario: en cada lectura guarda el historial de
+  posiciones de miles de vehículos a la vez y crea mucha memoria que luego hay que limpiar, y mientras
+  tanto tarda más en responder (alguna vez 1–3 s). Para los vehículos con posición estimada bastaría
+  con el recorrido que ya sale de su horario, o con repartir ese trabajo entre lecturas.
 - Estado oficial de la red de Adif, si llega a publicarse con licencia de reutilización.
 - Ouigo por la vía: su recorrido y lo que le queda por la red de Adif, pasando por las paradas de su
   horario, como ya se hace con AVE, Larga y Media Distancia (ahora va en línea recta entre estaciones).

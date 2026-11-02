@@ -72,7 +72,8 @@ export function metroBilbao(e, gtfs) {
  *           nap: ReturnType<typeof import('../nap/nap-client.js').createNapClient>,
  *           log: import('../../../application/ports.js').LoggerPort, env: Record<string, string|undefined>,
  *           geocoder: import('../../../application/ports.js').GeocoderPort,
- *           pool?: import('../workers/cpu-pool.js').CpuPool }} deps  pool: hilos de cálculo (horarios, XML de la DGT).
+ *           pool?: import('../workers/cpu-pool.js').CpuPool, xmlPool?: import('../workers/cpu-pool.js').CpuPool }} deps
+ *   pool: hilos de cálculo (horarios). xmlPool: el del XML de la DGT, si es otro (sin hilos de cálculo, uno propio).
  * @returns {import('../../../application/ports.js').DataSourcePort[]}
  */
 export function createSources(deps) {
@@ -101,7 +102,8 @@ export function createSources(deps) {
       url: `${MOVEUSKADI}/metro_bilbao/gtfsrt_metro_bilbao_vehicle_positions.pb`,
       mode: 'metro',
       operator: 'Metro Bilbao',
-      license: 'Open Data Euskadi · MoveUskadi (CC BY 4.0): posiciones y horario (nombres de estación). Formato adaptado, contenido sin alterar',
+      license: 'Open Data Euskadi · MoveUskadi (CC BY 4.0): posiciones y horario (nombres de estación). Formato adaptado, contenido sin alterar'
+        + ' · trazado: Powered by MITRAMS (dato explotado)',
       line: () => null, // el feed sólo trae routeId "MB"
       staticUrl: `${MOVEUSKADI}/metro_bilbao/gtfs_metro_bilbao.zip`,
       describe: metroBilbao,
@@ -148,7 +150,7 @@ export function createSources(deps) {
       url: 'https://api.control.optibus.co/opendata/v1/gtfs-rt/vehicle-positions?uid=c-5cfcd2d1',
     }),
     // Carreteras
-    createDgtSource(deps),
+    createDgtSource({ ...deps, pool: deps.xmlPool ?? deps.pool }),
     createEmtMadridAlertsSource(deps),
     createSctSource(deps),
     createTraficoEuskadiSource(deps),

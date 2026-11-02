@@ -7,8 +7,6 @@
 // interno), el trabajo se hace en el hilo principal, como antes. Tras varias caídas se deja de usar
 // hilos y todo sigue en el principal.
 import { Worker } from 'node:worker_threads';
-import { availableParallelism } from 'node:os';
-import { readFileSync } from 'node:fs';
 
 import { TASKS } from './tasks.js';
 
@@ -20,39 +18,10 @@ const runInline = async (task, args) => {
 };
 
 /**
- * CPU que puede usar el proceso: los núcleos visibles, limitados por la cuota del contenedor
- * (cgroup v2 cpu.max, lo que pone `cpus:` en compose.yaml). Node sólo ve los núcleos de la máquina:
- * en el VPS diría 4 aunque el contenedor sólo pueda usar 2.
- * @param {{ cores?: number, cpuMax?: string|null }} [probe]  Para los tests.
- */
-export function effectiveCpus({ cores = availableParallelism(), cpuMax = readCpuMax() } = {}) {
-  const [quota, period] = (cpuMax ?? '').trim().split(/\s+/);
-  const limit = quota && quota !== 'max' && +period > 0 ? Math.ceil(+quota / +period) : Infinity;
-  return Math.max(1, Math.min(cores, limit));
-}
-
-function readCpuMax() {
-  try {
-    return readFileSync('/sys/fs/cgroup/cpu.max', 'utf8');
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Hilos de cálculo por defecto: uno por CPU disponible (con 2 CPU, 2 hilos). El hilo principal casi
- * no usa CPU mientras se cargan los horarios (espera a la red y atiende peticiones), así que no hace
- * falta reservarle un núcleo. Con 1 CPU no compensa: todo en el principal.
- */
-export function defaultThreads(cpus = effectiveCpus()) {
-  return cpus >= 2 ? Math.min(cpus, 4) : 0;
-}
-
-/**
  * WORKER_THREADS de .env: número de hilos (0 = ninguno). Vacío o no válido = ninguno, de momento:
  * con 2 hilos el pico de memoria al cargar los horarios subió de ~350 a ~530 MB en el contenedor (y a
  * 850 MB con glibc), y aún falta medir el peor caso (arranque en frío y cambio de día) con el límite
- * de 1 GB. Para activarlos: WORKER_THREADS=2 (o el valor de defaultThreads()) y vigilar la memoria.
+ * de 1 GB. Para activarlos: WORKER_THREADS=2 (uno por CPU del contenedor) y vigilar la memoria.
  */
 export function parseThreads(value, fallback = 0) {
   if (value === undefined || value === null || String(value).trim() === '') return fallback;

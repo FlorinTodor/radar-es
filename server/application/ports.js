@@ -26,6 +26,14 @@
  * @property {(vehicleId: string) => number[][]|null|undefined} [path]  Sólo fuentes de posiciones
  *   estimadas: tramo de trazado ([lon, lat]) que el vehículo ha recorrido según su horario, para
  *   dibujarlo por la calle. null = sin trazado; undefined = vehículo desconocido para la fuente.
+ * @property {(vehicleId: string) => number[][]|null|undefined} [ahead]  Sólo fuentes de posiciones estimadas:
+ *   lo que le queda al vehículo hasta su última parada ([lon, lat]), por su trazado o, sin él, uniendo sus
+ *   paradas. null = no se sabe; undefined = vehículo desconocido para la fuente (como en `path`).
+ * @property {string} [shapeNetwork]           Red de NetworkCatalogPort.lines() cuyos trazados (`shape` de cada
+ *                                              vehículo, el shape_id de su GTFS) usan sus viajes.
+ * @property {(vehicleId: string) => number[][]|null} [stopsAhead]  Con shapeNetwork: paradas que le quedan al
+ *   vehículo ([lon, lat], en orden, la última su destino), para dibujar lo que le queda por el trazado de su
+ *   viaje sin salirse de ellas (domain/route-ahead.js). null si no se saben.
  * @property {(vehicleId: string) => { gauge: 'standard'|'iberian'|null, stops: number[][]|null }|null|undefined} [railTrip]
  *   Sólo fuentes con onRailNetwork: ancho de vía por el que va el tren (null: cualquiera) y paradas que
  *   le quedan ([lon, lat], en orden, desde la próxima; null si no se saben), para dibujar por la vía su
@@ -47,6 +55,8 @@
  * @typedef {object} NetworkCatalogPort
  * @property {() => Promise<number>} load
  * @property {() => { type: 'FeatureCollection', features: object[] }} lines
+ * @property {() => Array<{ name: string, credit: string, updated: number | null }>} sources
+ *   De dónde sale el trazado de cada red: la atribución y la fecha de actualización que pide su licencia.
  */
 
 /**
@@ -134,7 +144,7 @@ export function assertPort(name, impl, members) {
 export const PORT_MEMBERS = {
   DataSource: ['id', 'name', 'kind', 'interval', 'fetch'],
   StationCatalog: ['load', 'get', 'name', 'nearest', 'all'],
-  NetworkCatalog: ['load', 'lines'],
+  NetworkCatalog: ['load', 'lines', 'sources'],
   RailNetwork: ['load', 'network'],
   SituationRepository: ['registerSource', 'saveResult', 'saveFailure', 'source', 'vehicles', 'events', 'metrics', 'health',
     'tracks', 'updateTracks', 'activeAlerts', 'updateActiveAlerts', 'addResolved', 'resolvedAlerts', 'setKpis', 'kpis',

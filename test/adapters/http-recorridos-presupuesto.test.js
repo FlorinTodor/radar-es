@@ -59,3 +59,16 @@ test('muchos vehículos distintos a la vez: al gastar el presupuesto, 503 con Re
   clock += 60_000;
   assert.equal((await fetch(`${base}/api/ahead/tren-99`)).status, 200, 'con el tiempo vuelve a haber presupuesto');
 });
+
+test('un id más largo que cualquier vehículo es una ruta inválida (no llena el memo con claves enormes)', async () => {
+  const largo = `tren-${'x'.repeat(300)}`;
+  for (const kind of ['tracks', 'ahead']) {
+    const res = await fetch(`${base}/api/${kind}/${largo}`);
+    assert.equal(res.status, 400);
+    assert.equal(calls.get(`${kind === 'tracks' ? 'track' : 'ahead'}:${largo}`), undefined, 'ni se consulta');
+  }
+  // Los ids reales más largos (trip_id de algunos operadores, unos 80 caracteres) siguen valiendo.
+  const real = 'tren-bus-grupo-ruiz:3:1_8__350_C__-8__350_C___3_11:30:00_1_sdf__1_8__350_C__:20261102';
+  clock += 3_600_000;
+  assert.equal((await fetch(`${base}/api/tracks/${encodeURIComponent(real)}`)).status, 200);
+});

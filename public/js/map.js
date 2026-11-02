@@ -1,5 +1,5 @@
 import * as maplibregl from '/vendor/maplibre/maplibre-gl.mjs';
-import { DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, STATUS, esc, fmtDate, fmtDateTime, fmtDelay, fmtLocalHour, fmtTime, photoTitleOf, safeUrl, timeAgo, vehicleTitle } from './format.js';
+import { DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, STATUS, esc, fmtDate, fmtDateTime, fmtDelay, fmtLocalHour, fmtTime, creditHtml, photoTitleOf, safeUrl, timeAgo, vehicleTitle } from './format.js';
 import { PICTOS, pictoFor, vehicleImage } from './icons.js';
 import { headingAlong, matchTrack, pathBetween } from './track-match.js';
 
@@ -120,18 +120,26 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
   let eventList = [];     // últimos sucesos: la ficha de un aviso oficial lista los demás del mismo sitio
   let lineFeatures = [];  // trazados de las líneas: el recorrido del tren seleccionado se pega a la suya
   let byShape = new Map(); // «red|shape_id» → trazado, para lo que le queda y la flecha de cada tren
+  let byNetwork = new Map(); // red → sus trazados de línea (LineString), para LINE_NETWORK
+  const lineShapes = new Map(); // id del vehículo → { key, shape }: el trazado elegido, hasta que se mueva
   const shapeOf = (v) => (ROUTE_NETWORK[v.source] && v.shape && v.end ? byShape.get(`${ROUTE_NETWORK[v.source]}|${v.shape}`) : undefined);
   const routeShapeOf = (v) => {
     const trip = shapeOf(v);
     if (trip || !LINE_NETWORK[v.source] || !v.line || !v.end) return trip;
-    const network = lineFeatures.filter((f) => f.properties.network === LINE_NETWORK[v.source] && f.geometry?.type === 'LineString');
+    // Se elige otra vez sólo cuando el tren se mueve o cambia su final: la flecha lo pide en cada lectura.
+    const key = `${v.lon},${v.lat},${v.end},${v.line}`;
+    const memo = lineShapes.get(v.id);
+    if (memo?.key === key) return memo.shape;
+    const network = byNetwork.get(LINE_NETWORK[v.source]) ?? [];
     const fits = (f) => pathBetween(f.geometry.coordinates, [v.lon, v.lat], v.end);
     // Su línea; si no, la línea de la que es refuerzo (R5R → R5); si no, cualquiera de su red que pase
     // por el tren y por su final (la cremallera de Montserrat sale en las posiciones como M1/M2 y su
     // trazado es MM). Entre el tren y su final, todas las que pasan por los dos van por la misma vía.
-    return network.find((f) => f.properties.line === v.line && fits(f))
+    const shape = network.find((f) => f.properties.line === v.line && fits(f))
       ?? network.find((f) => v.line.startsWith(f.properties.line) && fits(f))
       ?? network.find(fits);
+    lineShapes.set(v.id, { key, shape });
+    return shape;
   };
   /** Lo que le queda hasta el final de su viaje, por su vía; null si no se sabe. */
   const routeAhead = (v) => {
@@ -548,9 +556,12 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
    * calcula el servidor.
    */
   const setRoute = (coords) => map.getSource('route')?.setData(coords?.length > 1 ? { type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} } : EMPTY);
+  /** Dibuja lo que le queda si se calcula aquí, y lo devuelve (null si no se sabe o lo calcula el servidor). */
   function drawRoute(v) {
-    if (v.estimated || v.ahead) return; // lo calcula el servidor: llega con loadTrack
-    setRoute(routeAhead(v));
+    if (v.estimated || v.ahead) return null; // lo calcula el servidor: llega con loadTrack
+    const route = routeAhead(v);
+    setRoute(route);
+    return route;
   }
 
   /**
@@ -642,6 +653,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
         next.set(v.id, { from: jump ? to : from, to, t0: now, props });
       }
       anims = next;
+      for (const id of lineShapes.keys()) if (!next.has(id)) lineShapes.delete(id); // trenes que ya no están
       kick();
     },
 
@@ -669,7 +681,14 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     setLines(collection) {
       lineFeatures = collection.features ?? [];
       byShape = new Map();
-      for (const f of lineFeatures) for (const id of f.properties.shapes ?? []) byShape.set(`${f.properties.network}|${id}`, f);
+      byNetwork = new Map();
+      lineShapes.clear();
+      for (const f of lineFeatures) {
+        for (const id of f.properties.shapes ?? []) byShape.set(`${f.properties.network}|${id}`, f);
+        if (f.geometry?.type !== 'LineString') continue;
+        if (!byNetwork.has(f.properties.network)) byNetwork.set(f.properties.network, []);
+        byNetwork.get(f.properties.network).push(f);
+      }
       if (loaded) map.getSource('lines').setData(collection);
     },
 
@@ -727,16 +746,16 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     /** Selecciona un tren: anillo, recorrido reciente y ficha. La × de la ficha sólo la cierra. */
     showVehicle(v) {
       setSelected(v.id);
-      card.show(vehicleDetail(v, !!routeAhead(v)));
-      drawRoute(v);
+      const route = drawRoute(v);
+      card.show(vehicleDetail(v, !!route));
       loadTrack(v);
     },
 
     /** Actualiza la ficha y, cada 15 s, el recorrido del tren seleccionado cuando llegan datos. */
     refreshVehicle(v) {
       if (selectedId !== v.id) return;
-      if (card.open) card.show(vehicleDetail(v, !!routeAhead(v)));
-      drawRoute(v);
+      const route = drawRoute(v);
+      if (card.open) card.show(vehicleDetail(v, !!route));
       if (Date.now() - trackFetchedAt > 15_000) loadTrack(v);
     },
 
@@ -881,7 +900,6 @@ function createDetailCard(host, onVehicle, onEvent) {
   };
 }
 
-const CREDIT_LINKS = [['MITRAMS', 'https://www.transportes.gob.es/'], ['CRTM', 'https://www.crtm.es/'], ['TRAM Barcelona', 'https://www.tram.cat/']];
 
 function stationDetail(st, { stopped, arriving, notices, lines, connections = [] }) {
   const train = (v, when) => `<li><button type="button" class="link" data-vehicle="${esc(v.id)}">${esc(vehicleTitle(v))}</button>
@@ -909,9 +927,8 @@ function stationDetail(st, { stopped, arriving, notices, lines, connections = []
   const day = (iso) => (/^\d{4}-\d{2}-\d{2}/.test(iso ?? '') ? iso.slice(0, 10).split('-').reverse().join('/') : null);
   const updated = day(st.source?.updated);
   const downloaded = day(st.source?.downloaded);
-  const credit = (text) => CREDIT_LINKS.reduce((html, [name, url]) => html.replace(name, link(url, name)), esc(text));
   const creditText = st.source?.credit ?? (st.networkId ? null : 'Origen de los datos: Renfe Operadora');
-  const source = creditText ? `<p class="st-source">Datos de la estación: ${credit(creditText)}${updated ? ` · actualizados el ${esc(updated)}`
+  const source = creditText ? `<p class="st-source">Datos de la estación: ${creditHtml(creditText)}${updated ? ` · actualizados el ${esc(updated)}`
     : downloaded ? ` · descargados el ${esc(downloaded)}` : ''}</p>` : '';
   // La foto viene de Wikimedia Commons: su licencia pide citar título, autor y licencia junto a ella.
   // El título es el nombre del fichero, que enlaza a su página en Commons.
@@ -932,7 +949,7 @@ function stationDetail(st, { stopped, arriving, notices, lines, connections = []
     <h4>Próximos trenes</h4>${list(arriving.map((v) => train(v, when(v))), 'Ningún tren en camino con datos en directo.')}
     ${notices.length ? `<h4>Avisos de Renfe</h4><ul class="st-list">${notices.map((e) => `<li>${esc(e.description ?? e.title)}</li>`).join('')}</ul>` : ''}
     ${connections.length ? `<h4>Conexiones a pie</h4>${chips(connections)}` : ''}
-    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>
+    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
     <p class="st-links">${links.join(' · ')}</p>${source}
     <div class="note">${st.networkId ? 'Salen los trenes con posición en directo o estimada a partir del horario' : 'Sólo salen los trenes que publican su posición en directo'}; los horarios completos están en la web del operador.
       Pulsa un tren para ver su ficha.</div></div>`;
@@ -956,7 +973,8 @@ function sourceRows(id, operator) {
     s.sourceTime ? `datos de las ${fmtTime(s.sourceTime)}` : !schedule && s.lastOk && `leídos a las ${fmtTime(s.lastOk)}`,
   ].filter(Boolean);
   // «Atribución» y no «Fuente»: muchas ya empiezan por «Fuente: …» u «Origen de los datos: …».
-  return [['Atribución', s.operatorLicenses?.[operator] ?? s.license ?? s.name], dates.length && ['Actualizado', dates.join(' · ')]];
+  // La atribución va como HTML: las que lo piden llevan su enlace (ver creditHtml).
+  return [['Atribución', { html: creditHtml(s.operatorLicenses?.[operator] ?? s.license ?? s.name) }], dates.length && ['Actualizado', dates.join(' · ')]];
 }
 
 /** @param {object} v  @param {boolean} [onRoute] se dibuja lo que le queda hasta su final */
@@ -991,7 +1009,7 @@ function vehicleDetail(v, onRoute = false) {
           + 'es el tramo que habría recorrido en los últimos 45 min según el horario.')
       + (v.ahead ? ` ${aheadText(', según el horario').trim()}` : '');
   const badge = v.estimated ? '<div class="est-badge">Posición estimada · no es GPS</div>' : '';
-  return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>
+  return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
     <div class="note">${note}</div></div>`;
 }
 
@@ -1047,7 +1065,7 @@ function burntAreaDetail(p) {
     ['Fuente', 'Copernicus EFFIS'],
   ].filter((r) => r && r[1]);
   return `<div class="pop"><h3>Área quemada${place ? ` en ${esc(place)}` : ''}</h3>
-    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>
+    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
     <div class="note">Perímetro estimado por satélite por el sistema europeo de incendios forestales (EFFIS), no es un
     dato oficial de extinción. <a href="https://forest-fire.emergency.copernicus.eu/apps/effis.csv/" target="_blank" rel="noopener">Ver en EFFIS</a></div></div>`;
 }
@@ -1078,5 +1096,5 @@ function eventDetail(e, others = []) {
   const more = others.length ? `<h4>Otros avisos oficiales en ${esc(e.area)}</h4><ul class="st-list">${others
     .map((o) => `<li><button type="button" class="link" data-event="${esc(o.id)}">${o.power ? 'Corte de luz: ' : ''}${esc(o.title)}</button></li>`).join('')}</ul>` : '';
   return `<div class="pop"><h3>${esc(e.title)}</h3>${e.description ? `<p>${esc(e.description)}</p>` : ''}
-    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>${link}${more}</div>`;
+    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>${link}${more}</div>`;
 }

@@ -3,7 +3,7 @@
 // puertos de salida ni las fuentes.
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream';
 import { extname, join, resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -44,7 +44,8 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     // Vacíos mientras el servidor los carga al arrancar: entonces no se guardan (ver isEmpty).
     '/api/stations': { fn: () => query.stations(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.length },
     '/api/lines': { fn: () => query.lines(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.features?.length },
-    '/api/trails': { fn: (p) => query.trails(trailMinutes(p)), key: trailMinutes, ttl: 15_000, cache: REVALIDATE },
+    // Tres variantes (15, 30 y 45 min): van al memo general, sin presupuesto, como una ruta sin parámetros.
+    '/api/trails': { fn: (p) => query.trails(trailMinutes(p)), key: trailMinutes, few: true, ttl: 15_000, cache: REVALIDATE },
     '/api/snapshot': { fn: () => query.snapshot(), ttl: 5_000, cache: REVALIDATE },
     '/api/vehicles': { fn: (p) => query.vehicles(vehicleFilter(p)), key: (p) => JSON.stringify(vehicleFilter(p)), ttl: 5_000, cache: REVALIDATE },
     '/api/events': { fn: (p) => query.events({ category: idParam(p, 'category') }), key: (p) => idParam(p, 'category') ?? '', ttl: 15_000, cache: REVALIDATE },
@@ -52,22 +53,31 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     '/api/kpis': { fn: () => query.kpis(), ttl: 5_000, cache: REVALIDATE },
     '/api/metrics': { fn: () => query.metrics(), ttl: 5_000, cache: REVALIDATE },
     '/api/about': { fn: () => about, ttl: 60_000, cache: REVALIDATE },
+    // De dónde sale cada trazado, con su fecha de actualización (la piden su licencia; la enseñan
+    // /legal y la pestaña Fuentes). Aparte de /api/lines, que pesa 1 MB. Mientras falte alguna fecha
+    // cuenta como vacía: ni el navegador ni Cloudflare la guardan una hora sin ella.
+    '/api/lines/sources': { fn: () => query.lineSources(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.length || b.some((s) => s.updated === null) },
   };
   const memo = createJsonMemo({ now });
   // Las rutas con parámetros tienen memo y presupuesto propios: quien pide variantes sin fin no
   // expulsa del memo a /api/lines ni a /api/live, y no puede forzar más de unos pocos cálculos
   // por segundo (sin esto, /api/vehicles?minDelay=<cada vez otro> costaba ~36 ms de CPU por
   // petición: un núcleo saturado con 28 peticiones por segundo).
-  const memoParams = createJsonMemo({ max: 100, now });
-  const budgets = new Map(Object.keys(routes).filter((path) => routes[path].key).map((path) => [path, createBudget({ now })]));
+  // Una variante de /api/vehicles pesa unos 3 MB entre JSON y gzip: con el tope de bytes, por muchas
+  // que se pidan nunca ocupan más de PARAMS_MEMO_BYTES (el montón de Node es de unos 500 MB).
+  const memoParams = createJsonMemo({ max: 100, maxBytes: PARAMS_MEMO_BYTES, now });
+  const budgets = new Map(Object.keys(routes).filter((path) => routes[path].key && !routes[path].few).map((path) => [path, createBudget({ now })]));
   // Recorrido y lo que le queda de cada vehículo (/api/tracks/<id>, /api/ahead/<id>). Cada uno puede
   // costar un cálculo por la vía o por las paradas, y hay cientos de vehículos: memo propio, que guarda
   // todos los que se miran a la vez, y un presupuesto que sólo se gasta al calcular. Quien pide otra vez
   // el mismo vehículo antes de TRAIN_TTL_MS recibe la copia, sin gastar nada.
-  const memoTrains = createJsonMemo({ max: TRAIN_MEMO_MAX, now });
+  const memoTrains = createJsonMemo({ max: TRAIN_MEMO_MAX, maxBytes: TRAIN_MEMO_BYTES, now });
   const trainBudget = createBudget({ perSecond: TRAIN_BUDGET.perSecond, burst: TRAIN_BUDGET.burst, now });
 
   const security = Object.entries(securityHeaders(about));
+  // El aviso legal lleva el titular y el contacto (de .env) en el propio HTML: la LSSI pide que estén
+  // siempre a la vista, también sin JavaScript. Las demás páginas se sirven tal cual.
+  const fillAbout = aboutFiller(about);
   // Dominio canónico (PUBLIC_URL): www.<dominio> redirige a él para que los buscadores no vean dos
   // webs iguales. Sólo esa variante: localhost, la IP y el chequeo de salud siguen igual.
   const canonical = about.publicUrl ? new URL(about.publicUrl) : null;
@@ -96,12 +106,12 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
       }
       if (url.pathname.startsWith('/api/ahead/')) {
         const id = decodeOrNull(url.pathname.slice('/api/ahead/'.length));
-        if (id === null) return send(res, 400, { error: 'Ruta inválida' });
-        return sendTrain(req, res, `ahead:${id}`, () => query.ahead?.(id) ?? null, 'Sin recorrido previsto');
+        if (id === null || id.length > MAX_VEHICLE_ID) return send(res, 400, { error: 'Ruta inválida' });
+        return sendTrain(req, res, `ahead:${id}`, () => query.ahead(id) ?? null, 'Sin recorrido previsto');
       }
       if (url.pathname.startsWith('/api/tracks/')) {
         const id = decodeOrNull(url.pathname.slice('/api/tracks/'.length));
-        if (id === null) return send(res, 400, { error: 'Ruta inválida' });
+        if (id === null || id.length > MAX_VEHICLE_ID) return send(res, 400, { error: 'Ruta inválida' });
         return sendTrain(req, res, `track:${id}`, () => query.track(id) ?? null, 'Vehículo sin historial');
       }
       if (url.pathname.startsWith('/api/')) return send(res, 404, { error: 'Ruta no encontrada' });
@@ -116,6 +126,7 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
       const isPage = !extname(url.pathname);
       // /404 no es una página propia: sirve la de error con su estado 404.
       const file = url.pathname === '/' ? 'index.html' : isPage && url.pathname !== '/404' ? `${url.pathname}.html` : url.pathname;
+      if (file === '/legal.html' && fillAbout) return await serveFilledPage(req, res, join(publicDir, 'legal.html'), fillAbout);
       return await serveFile(req, res, publicDir, file, OWN_CACHE, isPage ? join(publicDir, '404.html') : null);
     } catch (err) {
       log.error(`[http] ${err.stack ?? err.message}`);
@@ -128,6 +139,7 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     const route = routes[path];
     let entry;
     if (!route.key) entry = memo(path, route.ttl, () => route.fn(params), route);
+    else if (route.few) entry = memo(`${path}?${route.key(params)}`, route.ttl, () => route.fn(params), route);
     else {
       const compute = () => {
         if (!budgets.get(path).take()) throw new Busy();
@@ -233,12 +245,23 @@ const REVALIDATE = 'no-cache'; // el navegador guarda la copia y pregunta con el
 const TRAIN_TTL_MS = 10_000;
 const TRAIN_CACHE = 'public, max-age=5, s-maxage=15';
 const TRAIN_MEMO_MAX = 2_000; // más que todos los vehículos que puede haber a la vez con recorrido
+const TRAIN_MEMO_BYTES = 32 * 1024 * 1024;
+const PARAMS_MEMO_BYTES = 48 * 1024 * 1024;
 const TRAIN_BUDGET = { perSecond: 4, burst: 20 };
+// Los ids de vehículo llevan el trip_id de su operador (los más largos, unos 80 caracteres). Más de esto
+// no es un vehículo: así nadie llena el memo con claves enormes.
+const MAX_VEHICLE_ID = 256;
 const CATALOG_CACHE = 'public, max-age=600, s-maxage=3600';
 /** Directo: Cloudflare lo guarda `edge` s y, si el servidor no responde, sirve la última copia 15 min. */
 const liveCache = (edge) => `public, max-age=0, s-maxage=${edge}, stale-while-revalidate=${edge * 3}, stale-if-error=900`;
-/** Minutos de estela pedidos (1-45; 15 por defecto). Entero, para que no haya infinitas variantes. */
-const trailMinutes = (p) => Math.max(1, Math.min(Math.round(Number(p.get('min'))) || 15, 45));
+/**
+ * Minutos de estela pedidos: 15 (por defecto, lo que pide la web), 30 o 45. Sólo tres variantes: cada
+ * una es una estela de todos los trenes, y con un valor por minuto serían 45 copias en memoria.
+ */
+const trailMinutes = (p) => {
+  const min = Math.round(Number(p.get('min')));
+  return !(min > 15) ? 15 : min <= 30 ? 30 : 45;
+};
 /**
  * Filtros de /api/vehicles y /api/events, acotados para que no haya infinitas variantes caras:
  * el retraso mínimo, entero entre -1 (todos) y 1440 minutos; los identificadores (tipo, fuente,
@@ -285,24 +308,37 @@ export function createBudget({ perSecond = 5, burst = 10, now = Date.now } = {})
 /**
  * Memo de respuestas JSON ya serializadas, comprimidas y firmadas: `get(clave, ttl, calcular)`
  * sólo vuelve a calcular cuando la copia tiene más de `ttl` ms. Como quien llama elige los
- * parámetros (y con ellos las claves), guarda como mucho `max` variantes: al pasar del tope se
- * descarta la más antigua. Con `stableEtag`, la firma no cuenta el campo `generatedAt`.
+ * parámetros (y con ellos las claves), guarda como mucho `max` variantes y `maxBytes` entre todas
+ * (JSON y gzip): al pasar de un tope se descartan las más antiguas. Las copias caducadas se tiran en
+ * cuanto hay que calcular otra: una variante que nadie vuelve a pedir no se queda ocupando memoria.
+ * Con `stableEtag`, la firma no cuenta el campo `generatedAt`.
  */
-export function createJsonMemo({ max = 200, now = Date.now, emptyTtl = 2_000 } = {}) {
+export function createJsonMemo({ max = 200, maxBytes = Infinity, now = Date.now, emptyTtl = 2_000 } = {}) {
   const entries = new Map();
+  let bytes = 0;
+  const drop = (key) => {
+    const e = entries.get(key);
+    if (!e) return;
+    bytes -= e.json.length + e.gz.length;
+    entries.delete(key);
+  };
   return function get(key, ttl, compute, { stableEtag = false, isEmpty } = {}) {
+    const t = now();
     const hit = entries.get(key);
-    if (hit && now() - hit.at < (hit.empty ? emptyTtl : ttl)) return hit;
+    if (hit && t - hit.at < hit.ttl) return hit;
+    for (const [k, e] of entries) if (t - e.at >= e.ttl) drop(k);
     const body = compute();
     const json = Buffer.from(JSON.stringify(body));
     const signed = stableEtag && body?.generatedAt !== undefined ? JSON.stringify({ ...body, generatedAt: undefined }) : json;
+    const empty = Boolean(isEmpty?.(body));
     const entry = {
-      at: now(), json, gz: gzipSync(json), etag: `"${createHash('sha1').update(signed).digest('base64url').slice(0, 20)}"`,
-      empty: Boolean(isEmpty?.(body)),
+      at: now(), ttl: empty ? emptyTtl : ttl, json, gz: gzipSync(json),
+      etag: `"${createHash('sha1').update(signed).digest('base64url').slice(0, 20)}"`, empty,
     };
-    entries.delete(key);
+    drop(key);
     entries.set(key, entry);
-    if (entries.size > max) entries.delete(entries.keys().next().value);
+    bytes += json.length + entry.gz.length;
+    while (entries.size > max || (bytes > maxBytes && entries.size > 1)) drop(entries.keys().next().value);
     return entry;
   };
 }
@@ -408,6 +444,38 @@ function sendStream(res, file) {
   pipeline(createReadStream(file), res, (err) => {
     if (err && !res.destroyed) res.destroy(err);
   });
+}
+
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+/**
+ * Rellena los `<span data-about="owner|contact">` de una página con el titular y el contacto; el
+ * correo, como enlace. null si no hay ninguno de los dos (la página se sirve tal cual).
+ * @param {{ owner?: string | null, contact?: string | null }} about
+ */
+export function aboutFiller({ owner, contact } = {}) {
+  if (!owner && !contact) return null;
+  const value = {
+    owner: owner && escapeHtml(owner),
+    contact: contact && (contact.includes('@') ? `<a href="mailto:${escapeHtml(contact)}">${escapeHtml(contact)}</a>` : escapeHtml(contact)),
+  };
+  const fill = (html) => html.replace(/(<span data-about="(owner|contact)">)[^<]*(<\/span>)/g, (all, open, key, close) => (value[key] ? `${open}${value[key]}${close}` : all));
+  fill.tag = createHash('sha1').update(`${owner}|${contact}`).digest('base64url').slice(0, 8); // para el ETag
+  return fill;
+}
+
+/** Una página que se rellena al servirla: su ETag cuenta el fichero y lo que se le añade. */
+async function serveFilledPage(req, res, file, fill) {
+  const info = await stat(file);
+  const etag = fileEtag(info).replace(/"$/, `-${fill.tag}"`);
+  const headers = { 'Cache-Control': OWN_CACHE, ETag: etag, 'Last-Modified': info.mtime.toUTCString() };
+  if (req.headers['if-none-match'] === etag) {
+    res.writeHead(304, headers);
+    return res.end();
+  }
+  const body = Buffer.from(fill(await readFile(file, 'utf8')));
+  res.writeHead(200, { ...headers, 'Content-Type': MIME['.html'], 'Content-Length': body.length });
+  res.end(req.method === 'HEAD' ? undefined : body);
 }
 
 /** @param {string|null} [notFoundPage]  Página HTML que se sirve con 404 si el fichero no existe. */

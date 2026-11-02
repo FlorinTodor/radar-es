@@ -122,3 +122,32 @@ test('lo que le queda a un tren de la red general: por la vía hasta su destino,
   assert.equal(query.ahead('renfe-cercanias:C1'), null);
   assert.equal(makeQuerySituation({ ...deps, railNetwork: { network: () => null } }).ahead('renfe-ld:00123'), null, 'sin red, nada');
 });
+
+test('lo que le queda de un id inventado no monta la lista de vehículos (no tiene coste ni gasta presupuesto)', () => {
+  let lists = 0;
+  const situation = { ...fakeSituation({ vehicles: [{ id: 'renfe-c:A', source: 'renfe-cercanias', shape: '10_C7', lon: -3.7, lat: 40.4 }] }), vehicles: () => { lists++; return []; } };
+  const source = { id: 'renfe-cercanias', shapeNetwork: 'Cercanías Renfe', stopsAhead: (id) => (id === 'renfe-c:A' ? [[-3.65, 40.4]] : null) };
+  const query = makeQuerySituation({ situation, stations: {}, network: { lines: () => ({ features: [] }) }, clock: { now: () => T0 }, sources: [source] });
+  for (let i = 0; i < 100; i++) assert.equal(query.ahead(`inventado-${i}`), null);
+  assert.equal(lists, 0);
+  query.ahead('renfe-c:A');
+  assert.equal(lists, 1, 'un tren con paradas sí se busca');
+});
+
+test('la flecha de cientos de Cercanías: lo calculado de los que acaban su viaje sale del memo sin recorrerlo en cada cálculo', () => {
+  // Muchos trenes que pasan por el memo y luego desaparecen: el memo no crece sin fin y las flechas siguen saliendo.
+  const U = [[-3.70, 40.40], [-3.70, 40.45]];
+  const network = { lines: () => ({ type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: U }, properties: { network: 'Cercanías Renfe', shapes: ['S'] } }] }) };
+  const source = { id: 'renfe-cercanias', shapeNetwork: 'Cercanías Renfe', stopsAhead: () => [[-3.70, 40.44]] };
+  let vehicles = [];
+  const tracks = new Map();
+  const situation = { ...fakeSituation(), vehicles: () => vehicles, tracks: () => tracks };
+  const query = makeQuerySituation({ situation, stations: {}, network, clock: { now: () => T0 }, sources: [source] });
+  for (let round = 0; round < 30; round++) {
+    tracks.clear();
+    vehicles = Array.from({ length: 200 }, (_, i) => ({ id: `renfe-c:${round}-${i}`, source: 'renfe-cercanias', mode: 'cercanias', shape: 'S', lon: -3.70, lat: 40.40 + i / 1e5 }));
+    for (const v of vehicles) tracks.set(v.id, [{ t: T0, lat: v.lat, lon: v.lon }]);
+    const live = query.live().vehicles;
+    assert.ok(live.every((v) => v.heading === 0), `ronda ${round}: todas hacia el norte`);
+  }
+});

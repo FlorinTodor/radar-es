@@ -14,6 +14,7 @@ const state = {
   resolved: [],
   kpis: null,
   health: [],
+  lineSources: [],
   tab: 'alerts',
   search: '',
   selected: new Map(), // 'tipo|id' → { kind, id }: alertas, incidencias y trenes marcados; el mapa muestra sólo eso
@@ -85,6 +86,8 @@ async function loadLines(attempt = 0) {
     const lines = await (await fetch('/api/lines')).json();
     if (lines.features?.length) {
       state.lines = lines.features;
+      // De dónde sale cada trazado y su fecha, para la pestaña Fuentes.
+      fetch('/api/lines/sources').then((r) => r.json()).then((list) => { state.lineSources = Array.isArray(list) ? list : []; render('health'); }).catch(() => {});
       return map.setLines(lines);
     }
   } catch { /* reintenta */ }
@@ -167,7 +170,7 @@ function flush() {
     if (state.tab === 'alerts') P.renderAlerts(document.getElementById('panel-alerts'), state.alerts, state.resolved, selection('alert'));
   }
   if (parts.has('kpis') || parts.has('alerts')) P.renderKpis(state.kpis, state.metrics, state.alerts.length);
-  if (parts.has('health') && state.tab === 'sources') P.renderSources(document.getElementById('panel-sources'), state.health);
+  if (parts.has('health') && state.tab === 'sources') P.renderSources(document.getElementById('panel-sources'), state.health, state.lineSources);
   if (state.tab === 'stations' && (parts.has('stations') || parts.has('vehicles'))) renderStationsPanel();
 }
 
@@ -588,7 +591,7 @@ if (window.matchMedia('(max-width: 860px)').matches) layersToggle.click();
 // Aviso de datos que faltan: se muestra al entrar hasta que se acepta. Si cambia el texto,
 // sube NOTICE_VERSION para que vuelva a aparecer a todo el mundo.
 const NOTICE_KEY = 'radar-es:aviso-cobertura';
-const NOTICE_VERSION = '2026-10-31';
+const NOTICE_VERSION = '2026-11-02';
 const notice = document.getElementById('notice');
 document.getElementById('open-notice').addEventListener('click', () => notice.showModal());
 notice.addEventListener('close', () => {
