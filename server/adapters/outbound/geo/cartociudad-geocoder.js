@@ -1,7 +1,19 @@
-// Puerto Geocoder con CartoCiudad (IGN-CNIG): el nombre de un municipio o de una localidad →
+// Geocodificador con CartoCiudad (IGN-CNIG): el nombre de un municipio o de una localidad →
 // sus coordenadas. Servicio REST público y sin clave, catalogado en datos.gob.es con licencia
 // CC BY 4.0 («Servicio REST de geocodificación de España (CartoCiudad)»).
 import { fold } from '../../../domain/emergencias.js';
+
+/**
+ * Sitúa en el mapa un lugar que sólo se conoce por su nombre (el municipio o la localidad de un aviso
+ * del 112). Es un contrato entre adaptadores, no un puerto de la aplicación: ningún caso de uso
+ * geocodifica; lo usan las fuentes de avisos oficiales, que no traen coordenadas, y main.js se lo pasa.
+ * @typedef {object} Geocoder
+ * @property {(place: string, scope?: { region?: string, province?: string }) => Promise<{ name: string, lat: number, lon: number } | null>} locate
+ *   region: código de comunidad autónoma del INE («01» Andalucía…), para no confundir pueblos con el
+ *   mismo nombre; province: nombre de la provincia. null si no lo encuentra o el servicio no responde.
+ */
+/** Lo que main.js comprueba en el arranque (assertPort) que tiene el geocodificador. */
+export const GEOCODER_MEMBERS = Object.freeze(['locate']);
 
 const BASE = 'https://www.cartociudad.es/geocoder/api/geocoder';
 // Primero la entidad de población (su centro, una respuesta pequeña) y si no, el municipio. Nunca
@@ -13,7 +25,7 @@ const inSpain = (lat, lon) => lat >= 27 && lat <= 44.5 && lon >= -18.5 && lon <=
 
 /**
  * @param {{ http: import('../http/http-client.js').HttpClient, log?: import('../../../application/ports.js').LoggerPort, base?: string }} deps
- * @returns {import('../../../application/ports.js').GeocoderPort}
+ * @returns {Geocoder}
  */
 export function createCartoCiudadGeocoder({ http, log, base = BASE }) {
   // Cada lugar se pregunta una vez: también se guarda que no existe. Un fallo de red no se guarda,

@@ -1,9 +1,9 @@
-// Geocodificador de CartoCiudad (puerto Geocoder): el pueblo de un aviso → sus coordenadas, sin
+// Geocodificador de CartoCiudad (contrato Geocoder de los adaptadores): el pueblo de un aviso → sus coordenadas, sin
 // confundirlo con otro del mismo nombre en otra comunidad. Con respuestas como las reales; sin red.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createCartoCiudadGeocoder } from '../../server/adapters/outbound/geo/cartociudad-geocoder.js';
-import { PORT_MEMBERS, assertPort } from '../../server/application/ports.js';
+import { createCartoCiudadGeocoder, GEOCODER_MEMBERS } from '../../server/adapters/outbound/geo/cartociudad-geocoder.js';
+import { assertPort } from '../../server/application/ports.js';
 
 const candidate = (extra) => ({ lat: 0, lng: 0, province: 'La Rioja', comunidadAutonomaCode: '17', ...extra });
 // Respuestas de /candidates (sin coordenadas, como las reales) y de /find.
@@ -21,8 +21,8 @@ function fakeHttp({ candidates = {}, find = {}, fail = false } = {}) {
   };
 }
 
-test('cumple el puerto Geocoder', () => {
-  assert.doesNotThrow(() => assertPort('Geocoder', createCartoCiudadGeocoder({ http: fakeHttp() }), PORT_MEMBERS.Geocoder));
+test('cumple el contrato Geocoder', () => {
+  assert.doesNotThrow(() => assertPort('Geocoder', createCartoCiudadGeocoder({ http: fakeHttp() }), GEOCODER_MEMBERS));
 });
 
 test('prefiere la entidad de población de esa comunidad, con su nombre exacto', async () => {

@@ -7,6 +7,8 @@ import { computeKpis } from '../../domain/kpis.js';
 import { monitoredVehicles } from '../../domain/model.js';
 
 const KPI_SAMPLE_MS = 60_000;
+// Un día de muestras de minuto en minuto. Es el único tope del histórico: el repositorio guarda las
+// que se le dicen (pushKpiSample) y no tiene otro por defecto.
 const KPI_HISTORY_MAX = 24 * 60;
 
 /**

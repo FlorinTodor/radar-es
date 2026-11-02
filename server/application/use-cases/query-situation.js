@@ -226,24 +226,6 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
       return { type: 'FeatureCollection', features };
     },
 
-    /**
-     * Datos de una sola fuente, para empujar cambios incrementales. Sin `buses`, una fuente que
-     * sólo tiene autobuses llega sin vehículos, pero con su recuento (`counts`).
-     */
-    sourcePayload(id, { buses = true } = {}) {
-      const s = situation.source(id);
-      if (!s?.data) return null;
-      const all = s.data.vehicles ?? s.data.events ?? null;
-      const items = s.data.vehicles ? busFilter(buses)(all) : all;
-      return {
-        id,
-        kind: s.meta.kind,
-        items: items?.map((x) => ({ ...x, source: id })) ?? null,
-        counts: s.data.vehicles ? countByMode(all) : null,
-        metrics: s.data.metrics ?? null,
-      };
-    },
-
     // ---------- Directo por consulta periódica (lo que Cloudflare guarda unos segundos) ----------
     // Separado por ritmo de cambio y tamaño: las posiciones cambian cada pocos segundos; las
     // incidencias (más de mil, de tráfico sobre todo) cada minuto; los autobuses son miles y sólo

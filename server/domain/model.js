@@ -50,6 +50,12 @@
  * @property {number|null} lon
  * @property {number|null} [start]
  * @property {number|null} [end]
+ * @property {number|null} [issued]  Epoch ms en que se emitió el aviso (AEMET pide mostrarlo; avisos oficiales).
+ * @property {string|null} [url]     Página del aviso o del suceso en su fuente (el mapa la enlaza con safeLink).
+ * @property {'verde'|'amarillo'|'naranja'|'rojo'} [level]  Nivel del aviso: meteorológicos de AEMET (amarillo a
+ *   rojo) y catástrofes de GDACS (verde a rojo). Las reglas sólo avisan de los naranja y rojo.
+ * @property {number} [magnitude]    Terremotos (category 'sismo'): magnitud.
+ * @property {number} [frp]          Focos de calor (category 'incendio'): potencia radiativa del fuego, en MW.
  * @property {{ type: 'Polygon'|'MultiPolygon', coordinates: number[][][]|number[][][][] }} [geometry]  Zona afectada (avisos).
  * @property {boolean} [power]   Avisos oficiales (category 'emergencia'): habla de un corte de luz.
  * @property {string} [area]     Isla, municipio, provincia o comunidad a la que se refiere.
@@ -57,6 +63,31 @@
  *   (el centro de la isla, del municipio…): los avisos oficiales no traen coordenadas.
  * @property {string} [group]    Mismo aviso publicado para varios lugares (un evento por lugar).
  * @property {string} [credit]   Atribución que pide la licencia de su fuente, para mostrarla junto al dato.
+ */
+
+/**
+ * Estado público de una fuente (/api/health): sus datos fijos y cómo fue su última lectura. Lo leen
+ * las reglas (fuentes caídas, atribución de los avisos) y la web.
+ * @typedef {object} SourceHealth
+ * @property {string} id
+ * @property {string} name
+ * @property {'vehicles'|'events'|'metrics'} kind
+ * @property {number} interval                ms entre lecturas.
+ * @property {string|null} license             Atribución que pide su licencia (la citan las alertas de sus avisos).
+ * @property {Record<string, string>|null} operatorLicenses  La de cada operador, si agrupa a varios.
+ * @property {string|null} url                 Ficha pública o dirección de la fuente, sin claves.
+ * @property {boolean} enabled
+ * @property {string|null} reason              Por qué está desactivada.
+ * @property {boolean|null} ok                 Si la última lectura fue bien; null si aún no se ha leído.
+ * @property {number|null} lastOk
+ * @property {number|null} lastError
+ * @property {string|null} error
+ * @property {number|null} count
+ * @property {number|null} sourceTime
+ * @property {number|null} datasetUpdated
+ * @property {number|null} datasetUpdatedFrom
+ * @property {Record<string, number>|null} datasetUpdatedBy
+ * @property {number|null} ms                  Lo que tardó la última lectura.
  */
 
 /**
