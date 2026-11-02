@@ -1,5 +1,5 @@
 // Caso de uso: recargar los catálogos estáticos (estaciones de Renfe y de las demás redes, trazados de
-// las líneas y red ferroviaria general). Lo dispara el arranque y, cada pocas horas, el planificador.
+// las líneas y red ferroviaria general). Lo dispara el arranque y, cada hora, el planificador.
 // Cada catálogo decide si su copia en disco sigue vigente o hay que descargarlo otra vez.
 
 /**

@@ -152,7 +152,7 @@ test('autor: el texto de atribución que pide el autor; si no, su nombre, sin av
   assert.equal(commonsAuthor({ Artist: v('Héctor S. Marqueño'), Attribution: v('<a href="//commons.wikimedia.org/wiki/User:Espanish_AlB">Espanish AlB</a>') }), 'Espanish AlB');
   assert.equal(commonsAuthor({ Artist: v('No machine-readable author provided. Chixoy assumed (based on copyright claims).') }), 'Chixoy');
   const table = '<table><tr><td><a href="//commons.wikimedia.org/wiki/File:Flag.gif"><img src="x"></a></td><td><a href="//commons.wikimedia.org/wiki/User:Kolforn">Kolforn</a> (Kolforn) '
-    + "I'd appreciate if you could mail me (Kolforn@gmail.com) if you want to use this picture out of the Wikimedia project scope.</td></tr></table>";
+    + "I'd appreciate if you could mail me (autor@example.org) if you want to use this picture out of the Wikimedia project scope.</td></tr></table>";
   assert.equal(commonsAuthor({ Artist: v(table) }), 'Kolforn', 'ni el correo ni el aviso');
   assert.equal(commonsAuthor({ Artist: v('Mdiagom'), Attribution: v('I, Mdiagom') }), 'Mdiagom');
   assert.equal(commonsAuthor({ Artist: v('Luis Miguel Bugallo Sánchez http://commons.wikimedia.org/wiki/User:Lmbuga'),

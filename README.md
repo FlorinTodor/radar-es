@@ -2,14 +2,18 @@
 
 # Radar España
 
-**[radarespaña.es](https://radarespaña.es)** · Mapa en tiempo real de trenes, metros y tranvías de
-España, cruzado con incidencias de tráfico, terremotos, avisos meteorológicos y el estado de la red
-eléctrica. Todo a partir de **datos públicos**, sin claves de API.
+**[radarespaña.es](https://radarespaña.es)** (también [radarespana.es](https://radarespana.es)) · Mapa
+de trenes, metros, tranvías y autobuses de España, cruzado con incidencias de tráfico, terremotos,
+avisos meteorológicos, incendios y el estado de la red eléctrica. Los vehículos salen en su posición
+en directo cuando el operador la publica y, si solo publica su horario, en una posición estimada
+marcada como tal. Todo a partir de **datos públicos**: de sus 45 fuentes, 20 no piden nada y 25
+necesitan la clave gratuita del Punto de Acceso Nacional (NAP).
 
 Un motor de reglas vigila situaciones que merecen atención humana: trenes detenidos en
-plena vía, varios trenes parados en la misma zona, saltos bruscos de retraso, terremotos
-cerca de trenes en circulación, avisos naranja o rojo, caídas de la demanda eléctrica y
-fuentes de datos caídas.
+plena vía, varios trenes parados en la misma zona, saltos bruscos de retraso, desapariciones
+masivas de trenes del mapa, terremotos, incendios o avisos naranja y rojo cerca de trenes en
+circulación, alertas de catástrofes naranja o roja, caídas de la demanda eléctrica y fuentes de
+datos caídas.
 
 > **Límites.** Los datos públicos llegan con decenas de segundos o minutos de retraso y no
 > incluyen señalización, estado de la vía ni comunicaciones con el maquinista. Esta
@@ -23,11 +27,14 @@ npm install
 cp .env.example .env   # opcional
 npm start              # http://127.0.0.1:8080
 npm run dev            # se reinicia al cambiar el código
-npm test               # tests del dominio (sin red)
+npm test               # todos los tests, sin red: dominio, casos de uso, adaptadores y web
+node --test test/domain/rules.test.js   # un solo fichero
 ```
 
 Requiere Node.js 22.9 o superior. Para los trazados de líneas y las posiciones estimadas por
-horario hace falta `NAP_API_KEY` en `.env` (clave gratuita del Punto de Acceso Nacional).
+horario hace falta `NAP_API_KEY` en `.env` (clave gratuita del Punto de Acceso Nacional): sin ella
+se desactivan las 25 fuentes que la necesitan, y el registro lo avisa al arrancar. El primer
+arranque descarga los horarios GTFS en `data/` y tarda unos minutos; los siguientes los leen de ahí.
 Para contar visitas en producción se pone `GOATCOUNTER_URL` (GoatCounter, sin cookies); sin ella
 no se carga ningún contador y la página de privacidad lo indica.
 
@@ -37,7 +44,7 @@ no se carga ningún contador y la página de privacidad lo indica.
 |---|---|
 | `produccion` | Lo que ejecuta el VPS. Solo recibe fusiones desde `dev`. |
 | `dev` | Integración: aquí se fusionan las mejoras, y el VPS las prueba juntas en un entorno de pruebas. |
-| `feature/<nombre>` | Una rama por mejora, creada desde `dev`. |
+| `feature/<nombre>`, `fix/<nombre>` | Una rama por mejora o por arreglo, creada desde `dev`. |
 
 ```bash
 git switch dev && git pull
@@ -46,7 +53,9 @@ git switch dev && git merge --no-ff feature/mi-mejora && git push
 ```
 
 Cada push a `dev` arranca el pipeline de GitHub Actions: tests, pruebas en el VPS y, cuando están
-en verde, una aprobación manual que hace el merge de `dev` en `produccion`.
+en verde, una aprobación manual que hace el merge de `dev` en `produccion`. Además de los tests, la
+integración continua comprueba la sintaxis del código de la web (`node --check`) y de los scripts de
+despliegue (`bash -n`).
 
 En producción corre con Docker en un VPS detrás de un túnel de Cloudflare. Cada cambio en `dev`
 pasa antes por un entorno de pruebas en el mismo VPS, y producción sólo despliega lo que ya ha
@@ -72,12 +81,14 @@ superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`]
                    ┌──────────────── domain ──────────────┐
                    │ model.js · geo.js · tracking.js      │  puro: sin red, sin disco,
                    │ kpis.js · tiles.js · rail-match.js   │  sin dependencias externas
-                   │ alerts/{rules,lifecycle}             │
+                   │ schedule.js · route-ahead.js         │
+                   │ alerts/{rules,lifecycle,thresholds}  │
                    └──────────────────────────────────────┘
                                   ▲ implementan los puertos
                    ┌──────────── adapters/outbound ─────────────────────────────┐
                    │ sources/*        Renfe, FGC, Ouigo, DGT, SCT, AEMET, FIRMS…│
-                   │ stations/        catálogo de estaciones de Renfe           │
+                   │ stations/        estaciones de Renfe y de otras 15 redes,  │
+                   │                  con datos de Wikidata y fotos de Commons  │
                    │ network/, gtfs/, nap/   trazados de líneas desde el NAP    │
                    │                         y red ferroviaria de Adif          │
                    │ persistence/     estado en memoria + histórico JSONL       │
@@ -95,11 +106,28 @@ superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`]
 - **`server/adapters/outbound/workers/`**: hilos (`worker_threads`) para el trabajo de CPU de los
   adaptadores: leer los horarios GTFS, construir los trazados y analizar el XML de la DGT. Sólo
   calculan; las descargas y el estado siguen en el hilo principal. **Desactivados por defecto**:
-  se activan con `WORKER_THREADS=2` en `.env` (arranque ~20 % más rápido, pero el pico de memoria
-  sube de ~350 a ~530 MB). Si un hilo falla, el trabajo se repite en el principal.
+  se activan con `WORKER_THREADS=2` en `.env` (arranque ~20 % más rápido, pero cada hilo carga sus
+  propios horarios y el pico de memoria sube; con un solo hilo, producción ya llega a unos 670 MB del
+  límite de 1 GB). Si un hilo falla, el trabajo se repite en el principal.
 - **`server/adapters/inbound/`**: quien dispara los casos de uso (la API HTTP y el planificador).
   Sólo hablan con casos de uso, nunca con los puertos de salida.
 - **`server/main.js`**: raíz de composición; el único sitio donde se eligen las implementaciones.
+  Al arrancar comprueba con `assertPort` que cada adaptador tiene todo lo que pide su puerto.
+
+Los puertos están en `server/application/ports.js`:
+
+| Puerto | Adaptador | Para qué |
+|---|---|---|
+| `DataSource` | `sources/*` (uno por fuente) | leer cada fuente: vehículos, incidencias o métricas |
+| `StationCatalog` | `stations/renfe-station-catalog.js`, `stations/network-station-catalog.js` | estaciones de Renfe y de las demás redes |
+| `NetworkCatalog` | `network/gtfs-network-catalog.js` | trazados de las líneas |
+| `RailNetwork` | `network/adif-rail-network.js` | red ferroviaria de Adif, para dibujar por la vía |
+| `SituationRepository` | `persistence/in-memory-situation.js` | estado actual: último dato de cada fuente, recorridos, alertas, KPIs |
+| `History` | `persistence/jsonl-history.js` | histórico de alertas y KPIs |
+| `EventPublisher` | `events/in-process-event-bus.js` | avisar de cada cambio al directo por SSE |
+| `TileProvider` | `tiles/wms-tiles.js` | teselas de IGN y EFFIS con copia en disco |
+
+`Clock` (la hora, para poder simularla en los tests) y `Logger` (el registro) también son puertos.
 
 ### Añadir una fuente
 
@@ -126,7 +154,8 @@ tras revisar sus avisos legales. Del tranvía de Tenerife solo se dibuja el traz
 publica con licencia CC BY en el portal del Cabildo. La licencia y la atribución de cada fuente están
 en `/legal`.
 
-Todas son públicas. Solo las marcadas con 🔑 necesitan `NAP_API_KEY`, una clave gratuita del NAP.
+Todas son públicas. Solo las marcadas con 🔑 necesitan `NAP_API_KEY`, una clave gratuita del NAP. En
+total son 45 fuentes (34 de vehículos, 10 de incidencias y 1 de métricas): 20 sin clave y 25 con ella.
 
 | Fuente | Qué aporta | Refresco |
 |---|---|---|
@@ -144,7 +173,7 @@ Todas son públicas. Solo las marcadas con 🔑 necesitan `NAP_API_KEY`, una cla
 | 🔑 ALSA (GTFS del NAP) | **posición estimada** por horario de sus autobuses (nadie publica su tiempo real); capa de autobuses | 60 s |
 | 🔑 AMB (GTFS del NAP + trip updates de `ambmobilitat.cat`) | autobús metropolitano de Barcelona: **posición estimada** con su **retraso real** | 60 s |
 | Autobuses La Unión (GTFS-RT, NAP) y AUVASA Valladolid (GTFS-RT, CC BY 3.0 ES) | posición | 60 s |
-| 🔑 ~70 horarios de autobús del NAP (`autobuses-nap.js`) | **posición estimada** de Avanza, Sagalés, Moventis, Grupo Ruiz, AISA, Vectalia, urbanos de ciudades, interurbanos autonómicos e insulares y otras empresas | 60 s |
+| 🔑 83 horarios de autobús del NAP, en 9 grupos (`autobuses-nap.js`) | **posición estimada** de Avanza, Sagalés, Moventis, Grupo Ruiz, AISA, Vectalia, urbanos de ciudades, interurbanos autonómicos e insulares y otras empresas | 60 s |
 | EMT Madrid (GTFS-RT del NAP) | avisos de servicio | 5 min |
 | 🔑 GTFS de 16 redes en el NAP + líneas del tranvía de Tenerife (Cabildo de Tenerife) | trazados de Cercanías, metros, tranvías, FGC y Euskotren | 24 h |
 | Adif, «Tramos en servicio» ([datos abiertos de Adif en ArcGIS](https://www.arcgis.com/home/item.html?id=4ec7c0fb3cab42b0b488d65e65eeb7aa)) | vías en servicio, para dibujar por la vía el recorrido de AVE, Larga y Media Distancia y lo que les queda | 30 días |
@@ -152,10 +181,10 @@ Todas son públicas. Solo las marcadas con 🔑 necesitan `NAP_API_KEY`, una cla
 | Servei Català de Trànsit (GML) | incidencias de carreteras catalanas | 5 min |
 | Tráfico Euskadi (API Trafikoa) | incidencias de carreteras vascas | 5 min |
 | AEMET avisos (RSS + CAP) | avisos amarillo, naranja y rojo **con polígono** | 10 min |
-| NASA FIRMS (VIIRS NOAA-20, CSV público) | focos de calor por satélite (España, Portugal, Canarias) | 30 min |
+| NASA FIRMS (VIIRS NOAA-20, CSV público) | focos de calor por satélite (España, Portugal, Canarias) | 1 h |
 | IGN sismología (GeoRSS) | terremotos de los últimos 10 días | 3 min |
 | GDACS (ONU / Comisión Europea) | alertas de catástrofes en la zona (verde, naranja, roja) | 15 min |
-| Copernicus EFFIS (WMS, en el navegador) | capa de áreas quemadas en los últimos 30 días | — |
+| Copernicus EFFIS (WMS, servido por `/tiles` con copia de 3 h) | capa de áreas quemadas en los últimos 30 días y su ficha | — |
 | Red Eléctrica REData | demanda real frente a prevista | 5 min |
 
 El mapa base es de OpenFreeMap (datos de OpenStreetMap), sin clave.
@@ -198,17 +227,22 @@ Lo que no se puede dibujar por falta de datos públicos:
 
 | Ruta | Devuelve |
 |---|---|
-| `GET /api/stream` | SSE: `snapshot` al conectar, y luego `source`, `alerts` y `health` |
+| `GET /api/live` | lo que consulta la web cada 15 s: posiciones (sin autobuses), recuentos, alertas e indicadores |
+| `GET /api/live/events`, `/api/live/buses` | incidencias y autobuses, para la web (cada 60 y 20 s) |
+| `GET /api/stream` | directo antiguo por SSE (`snapshot` al conectar, y luego `source`, `alerts` y `health`); la web ya no lo usa |
 | `GET /api/snapshot` | todo el estado actual |
 | `GET /api/vehicles?mode=av&source=renfe-ld&minDelay=15` | vehículos filtrados |
-| `GET /api/events?category=carretera` | incidencias (`ferroviario`, `carretera`, `meteo`, `incendio`, `sismo`) |
+| `GET /api/events?category=carretera` | incidencias (`ferroviario`, `carretera`, `meteo`, `incendio`, `sismo`, `catastrofe`) |
 | `GET /api/alerts` | alertas activas y resueltas |
 | `GET /api/tracks/:id` | recorrido de un vehículo en los últimos 45 min |
 | `GET /api/ahead/:id` | lo que le queda a un vehículo hasta su destino (posiciones estimadas y AVE, Larga y Media Distancia) |
 | `GET /api/stations/:código` | ficha de una estación (trenes, avisos, líneas, conexiones, datos y foto) |
 | `GET /api/lines` | trazados de las líneas (GeoJSON) |
 | `GET /api/trails?min=15` | estela de cada tren en los últimos minutos (GeoJSON, máx. 45) |
-| `GET /api/health`, `/api/kpis`, `/api/metrics`, `/api/stations` | salud de fuentes, KPIs, métricas y estaciones |
+| `GET /api/health`, `/api/kpis`, `/api/metrics`, `/api/stations` | salud de fuentes (con su licencia y su fecha de actualización), KPIs, métricas y estaciones |
+| `GET /api/burnt-areas?bbox=…` | ficha de las áreas quemadas (EFFIS) bajo un punto del mapa |
+| `GET /tiles/<capa>/<z>/<x>/<y>.png` | teselas de la red ferroviaria (IGN) y de las áreas quemadas (EFFIS) |
+| `GET /api/about` | titular y contacto para el aviso legal |
 
 Las alertas y los KPIs por minuto se guardan en `data/history/*.jsonl` para analizarlos
 después (con jq, DuckDB o pandas).
@@ -222,9 +256,12 @@ después (con jq, DuckDB o pandas).
   - Los borradores de las solicitudes formales están en [`docs/solicitudes/`](docs/solicitudes/).
   - La web muestra al entrar un aviso sobre estos huecos (`#notice` en `public/index.html`). Si
     cambias el texto, sube `NOTICE_VERSION` en `public/js/app.js` para que vuelva a salir a todos.
-- **Con clave gratuita, sin integrar aún**: TMB (Metro de Barcelona) y EMT Madrid.
-- **Solo tiempos de llegada, sin posiciones**: Metro de Madrid, Metro Ligero, Metrovalencia,
-  Granada y Zaragoza. Se pueden estimar posiciones a partir de su GTFS, igual que con Ouigo.
+- **TMB y EMT Madrid**: ya salen el metro y los autobuses de TMB (estimados por su horario del NAP)
+  y los avisos de EMT Madrid. Sin integrar: el tiempo real de TMB y las posiciones de los autobuses
+  de EMT Madrid, cuyas API piden clave gratuita y registro.
+- **Metro de Madrid**: solo publica tiempos de llegada, y su horario del NAP caducó en mayo de 2026;
+  sin un horario vigente no se pueden estimar sus posiciones. Metro Ligero, Metrovalencia, Granada
+  y Zaragoza ya salen con posición estimada.
 - El catálogo de fuentes de Cowork está en `Radar ES · Catálogo de fuentes públicas — Resumen.md`.
 - SEO (páginas, sitemap, datos estructurados y lo que hay que hacer en Search Console): [`docs/seo.md`](docs/seo.md).
 
@@ -287,8 +324,6 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - FGC con nombres de estación en el recorrido, la parada y la próxima, en vez de sus códigos, y con
   lo que le queda a cada tren hasta su destino, por el trazado de su línea (también los refuerzos,
   como el R5R, y la cremallera de Montserrat).
-- Apartado «Qué recorrido se ve de cada tren» en este README: qué líneas se dibujan en cada red y
-  cuáles no se pueden dibujar por falta de datos públicos.
 - Lista y buscador con todos los trenes.
 
 **Estaciones**
@@ -387,8 +422,8 @@ Ninguna por ahora.
 ## Posibles mejoras
 
 - Botón en el mapa para cambiar entre español e inglés.
-- Más fuentes: TMB y EMT Madrid (con clave gratuita) y posiciones estimadas para las redes que
-  sólo publican tiempos de llegada (ver *Pendiente y conocido*).
+- Tiempo real de TMB y posiciones de los autobuses de EMT Madrid, con sus claves gratuitas (ver
+  *Pendiente y conocido*).
 - Estadísticas de puntualidad por línea y franja horaria.
 - Pasos a nivel en el mapa.
 - Estado oficial de la red de Adif, si llega a publicarse con licencia de reutilización.

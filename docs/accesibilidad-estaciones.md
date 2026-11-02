@@ -1,8 +1,11 @@
 # Accesibilidad de las estaciones: fuentes revisadas
 
-La ficha de cada estación dice si es accesible en silla de ruedas **según Renfe**. Es el campo
-`wheelchair_boarding` de sus GTFS, que tienen licencia CC BY 4.0. Los GTFS de Cercanías y de
-AV/LD/MD coinciden en todas las estaciones que comparten.
+La ficha de cada estación de Renfe dice si es accesible en silla de ruedas **según Renfe**. Es el
+campo `wheelchair_boarding` de sus GTFS, que tienen licencia CC BY 4.0. Los GTFS de Cercanías y de
+AV/LD/MD coinciden en todas las estaciones que comparten. Si Renfe no dice nada de una estación, se
+usa el dato de Wikidata, si lo hay. En las de metro, tranvía y las demás redes, el dato sale del GTFS
+de cada operador en el Punto de Acceso Nacional y, si no lo trae, de Wikidata. La ficha dice siempre
+de dónde sale.
 
 A 2026-11-01, de las 1.525 estaciones del mapa:
 - 637 son accesibles;
@@ -11,8 +14,8 @@ A 2026-11-01, de las 1.525 estaciones del mapa:
   las de la línea Lleida–La Pobla, que opera FGC.
 
 Por tipo de estación:
-- en Cercanías son accesibles 581 de 933 (62 %);
-- fuera de Cercanías, 56 de 597 (9 %).
+- en Cercanías son accesibles 581 de 929 (63 %);
+- fuera de Cercanías, 56 de 596 (9 %).
 
 ## Otras fuentes revisadas (2026-11-01)
 
@@ -39,7 +42,7 @@ Por tipo de estación:
 
 En 2022 Adif contestó al Gobierno que 863 de 1.495 estaciones tenían itinerario accesible, más que
 las que marca hoy el GTFS de Renfe. Esa cifra no se publica estación por estación, así que no se
-puede usar en el mapa. Por eso la ficha dice «según Renfe».
+puede usar en el mapa. Por eso la ficha dice «según Renfe» (o la fuente que sea).
 
 ## Fuentes
 
