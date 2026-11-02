@@ -24,7 +24,7 @@ export const NETWORKS = [
 const TENERIFE = 'Tranvía de Tenerife';
 const TENERIFE_LINES = 'https://datos.tenerife.es/ckan/dataset/64182a24-3418-42dd-94e7-d66cf92bc020/resource/2085c33e-b6c9-4565-bfdd-658f293b2dca/download/lineas-de-tranvia.geojson';
 
-const DEFAULT_COLOR = { metro: '#8a7fd1', tranvia: '#4fb3a9', cercanias: '#c45a5a', otros: '#8b8b85' };
+export const DEFAULT_COLOR = { metro: '#8a7fd1', tranvia: '#4fb3a9', cercanias: '#c45a5a', otros: '#8b8b85' };
 
 /**
  * El color de cada línea es el que publica el operador, pero el mapa es oscuro: el gris del TG2 de
