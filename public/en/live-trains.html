@@ -59,7 +59,7 @@
     <table>
       <thead><tr><th>Trains</th><th>What you see</th></tr></thead>
       <tbody>
-        <tr><td>Renfe high-speed (AVE), long and medium distance</td><td>GPS position, delay, last and next station, from Renfe's official data</td></tr>
+        <tr><td>Renfe high-speed (AVE), long and medium distance</td><td>GPS position, delay, last and next station, from Renfe's official data. When Renfe reports a train as stopped at a station kilometres away, the radar shows it on its way and works out the next station from its timetable</td></tr>
         <tr><td>Renfe Cercanías and Rodalies commuter trains (Madrid, Barcelona, Valencia, Seville, Málaga, Bilbao and the other networks)</td><td>GPS position, delay, cancelled trains and service notices</td></tr>
         <tr><td>Rodalies de Catalunya</td><td>Service status of each line, as published by the Government of Catalonia</td></tr>
         <tr><td>FGC (Ferrocarrils de la Generalitat de Catalunya)</td><td>Train positions</td></tr>
@@ -80,7 +80,9 @@
       <li>A <strong>filled marker</strong> is a real GPS position. A <strong>hollow marker</strong> labelled «estimada»
         is a position worked out from the timetable: it is not GPS.</li>
       <li>Tap a train to open its card: origin and destination, delay, the last and next station with its time, the
-        platform when the operator publishes it and, on the map, its route over the last 45 minutes.</li>
+        platform when the operator publishes it and, on the map, its route over the last 45 minutes (dashed line) and
+        what is left of its journey (solid line), when its route is known. High-speed, long and medium distance trains
+        are drawn along the track, using the rail network published by Adif.</li>
       <li>In the <strong>Trenes</strong> tab you can search by train number, line or station, with the list sorted by
         delay.</li>
       <li>The top bar sums up the moment: how many trains have GPS, how many are 5 minutes or more late, and the

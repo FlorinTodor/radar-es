@@ -54,7 +54,7 @@
       tranvías y autobuses de toda España que publican sus datos en abierto, con el trazado de sus líneas.</p>
 
     <h2>GPS o posición estimada</h2>
-    <p>Pocos operadores publican la posición real de sus vehículos. Cuando lo hacen, el mapa la muestra tal cual. Cuando
+    <p>Pocos operadores publican la posición real de sus vehículos. Cuando lo hacen, el mapa usa esa posición. Cuando
       solo publican su horario, Radar España calcula dónde debería estar cada vehículo y lo dibuja con una
       <strong>placa hueca</strong> y la marca «estimada», para que nunca se confunda con un GPS. Si el operador publica
       además sus retrasos, la estimación los tiene en cuenta.</p>
@@ -78,13 +78,19 @@
     <p>El Metro de Madrid no aparece por ahora porque el horario que tenía publicado en el Punto de Acceso Nacional ha
       caducado.</p>
 
+    <h2>Recorrido de cada vehículo</h2>
+    <p>Al pulsar un metro o un tranvía, el mapa dibuja lo que le queda hasta su destino, por el trazado de su línea, y el
+      tramo que ha recorrido en los últimos 45 minutos: en los de posición estimada, el que le tocaba según el horario;
+      en Metro Bilbao, sus posiciones tal y como llegan. Los autobuses sin trazado publicado se quedan en la última
+      parada por la que han pasado.</p>
+
     <h2>Autobuses</h2>
     <p>Los autobuses tienen su propia capa: actívala en el panel <strong>Capas</strong> del mapa.</p>
     <ul>
       <li><strong>En tiempo real (GPS):</strong> AUVASA (Valladolid), EMT Málaga, EMT Fuenlabrada, Autobuses La Unión y los
         autobuses de Euskadi que publica Open Data Euskadi, como Bilbobus.</li>
       <li><strong>Con su retraso real:</strong> el autobús metropolitano de Barcelona (AMB).</li>
-      <li><strong>Posición estimada según el horario:</strong> ALSA y unas 70 empresas y administraciones más, entre ellas
+      <li><strong>Posición estimada según el horario:</strong> ALSA y 83 horarios de empresas y administraciones, entre ellas
         TMB (Barcelona), EMT València, TUSSAM (Sevilla), EMT Palma, Guaguas Municipales (Las Palmas), TITSA (Tenerife),
         Aucorsa (Córdoba), Tranvías de A Coruña, Villavesas (Pamplona), los urbanos de Granada, Lleida, Tarragona, Girona
         y Castelló, Avanza, Sagalés, Moventis, Vectalia, AISA, Unauto y los autobuses interurbanos de Asturias, Cantabria,

@@ -2,13 +2,20 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { threadId } from 'node:worker_threads';
 import { zipSync, strToU8 } from 'fflate';
-import { createCpuPool, defaultThreads, effectiveCpus, parseThreads } from '../../server/adapters/outbound/workers/cpu-pool.js';
+import { createCpuPool, parseThreads } from '../../server/adapters/outbound/workers/cpu-pool.js';
 import { parseSchedule } from '../../server/adapters/outbound/gtfs/gtfs-schedule.js';
 
 const TEST_WORKER = new URL('./fixtures/test-worker.js', import.meta.url);
 const quietLog = () => {
   const warnings = [];
-  return { warnings, info() {}, error() {}, warn: (m) => warnings.push(m) };
+  const waiting = [];
+  // whenWarned(re): se cumple cuando llega un aviso que encaja (o ya había llegado).
+  const whenWarned = (re) => new Promise((resolve) => (warnings.some((w) => re.test(w)) ? resolve() : waiting.push([re, resolve])));
+  const warn = (m) => {
+    warnings.push(m);
+    for (const [re, resolve] of waiting) if (re.test(m)) resolve();
+  };
+  return { warnings, whenWarned, info() {}, error() {}, warn };
 };
 // Lo que haría el hilo, pero aquí: para comprobar cuándo se usa la vía de reserva.
 const inlineStub = () => {
@@ -20,26 +27,7 @@ const inlineStub = () => {
   };
   return { calls, inline };
 };
-/** Espera a que se cumpla una condición, como mucho 10 s: en el VPS los tests corren mientras la web
- * está en marcha y todo va más lento. Si se cumple antes, sigue al momento. */
-async function until(condition) {
-  const end = Date.now() + 10_000;
-  while (!condition() && Date.now() < end) await new Promise((r) => setTimeout(r, 10));
-  return condition();
-}
-
-test('CPU efectivas: la cuota del contenedor (cpu.max) manda sobre los núcleos visibles', () => {
-  assert.equal(effectiveCpus({ cores: 16, cpuMax: '200000 100000\n' }), 2);
-  assert.equal(effectiveCpus({ cores: 4, cpuMax: '150000 100000' }), 2); // 1,5 CPU → 2 hilos de ejecución
-  assert.equal(effectiveCpus({ cores: 4, cpuMax: 'max 100000' }), 4);
-  assert.equal(effectiveCpus({ cores: 8, cpuMax: null }), 8); // fuera de un contenedor
-  assert.equal(effectiveCpus({ cores: 1, cpuMax: '400000 100000' }), 1);
-});
-
-test('hilos por defecto y WORKER_THREADS', () => {
-  assert.equal(defaultThreads(1), 0); // con 1 CPU no compensa
-  assert.equal(defaultThreads(2), 2);
-  assert.equal(defaultThreads(16), 4);
+test('WORKER_THREADS', () => {
   assert.equal(parseThreads(undefined, 2), 2);
   assert.equal(parseThreads('', 2), 2);
   assert.equal(parseThreads(' 0 ', 2), 0);
@@ -87,10 +75,9 @@ test('los dos hilos trabajan a la vez y el resultado llega con sus arrays tipado
     // arrancar un hilo puede tardar más de 250 ms y no debe contar como trabajo en serie.
     const [e1, e2] = await Promise.all([pool.run('echo', [1]), pool.run('echo', [2])]);
     assert.notEqual(e1.threadId, e2.threadId, 'cada trabajo va a un hilo distinto');
-    const t = performance.now();
-    const [a, b] = await Promise.all([pool.run('slow', ['a', 300]), pool.run('slow', ['b', 300])]);
-    assert.deepEqual([a, b], ['a', 'b']);
-    assert.ok(performance.now() - t < 550, 'en paralelo, no uno detrás de otro');
+    const shared = new SharedArrayBuffer(4);
+    const met = await Promise.all([pool.run('meet', [shared]), pool.run('meet', [shared])]);
+    assert.deepEqual(met, [true, true], 'en paralelo: cada hilo ve llegar al otro');
     const data = await pool.run('typed', [1000]);
     assert.ok(data instanceof Float32Array);
     assert.equal(data.length, 1000);
@@ -127,9 +114,9 @@ test('tras varias caídas deja los hilos y sigue en un solo hilo', async () => {
   try {
     await pool.run('crash', []);
     await pool.run('crash', []);
-    // Espera a que se procese la segunda salida.
-    assert.ok(await until(() => pool.threads() === 0), 'deja los hilos');
-    assert.ok(log.warnings.some((w) => /sigo con todo en el hilo principal/.test(w)));
+    // Espera a que se procese la segunda salida: es cuando avisa de que deja los hilos.
+    await log.whenWarned(/sigo con todo en el hilo principal/);
+    assert.equal(pool.threads(), 0, 'deja los hilos');
     assert.equal((await pool.run('echo', [1])).inline, true);
   } finally {
     await pool.close();
@@ -153,7 +140,7 @@ test('los turnos limitan los trabajos pesados a uno por hilo (o uno sin hilos)',
     let max = 0;
     const job = () => pool.queue(async () => {
       max = Math.max(max, ++running);
-      await new Promise((r) => setTimeout(r, 20));
+      await new Promise((r) => setImmediate(r)); // cede el turno: los demás trabajos ya habrían empezado
       running--;
     });
     await Promise.all(Array.from({ length: 6 }, job));

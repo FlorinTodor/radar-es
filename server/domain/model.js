@@ -3,7 +3,7 @@
 /**
  * @typedef {'av'|'ld'|'md'|'cercanias'|'metro'|'tranvia'|'bus'|'otros'} Mode
  * @typedef {'baja'|'media'|'alta'|'muy alta'} Severity
- * @typedef {'ferroviario'|'carretera'|'sismo'|'meteo'|'incendio'|'catastrofe'} EventCategory
+ * @typedef {'ferroviario'|'carretera'|'sismo'|'meteo'|'incendio'|'catastrofe'|'emergencia'} EventCategory
  */
 
 /**
@@ -30,8 +30,10 @@
  * @property {string|null} [shape]    Trazado (shape_id del GTFS de Cercanías o de Metro Bilbao) que sigue su viaje.
  * @property {[number, number]|null} [end]  Donde acaba su viaje ([lon, lat]): lo que le queda se dibuja hasta ahí.
  * @property {number|null} [fixTime]  Epoch ms del último GPS, si la fuente lo da.
+ * @property {number} [farFromStop] Km entre la posición y la estación en la que la fuente dice que está parado, si pasa de 1,5: la posición no está al día (Cercanías).
  * @property {boolean} [estimated]    Posición calculada a partir del horario, no GPS. No cuenta para alertas ni KPIs.
- * @property {boolean} [ahead]        Posición estimada con recorrido hasta su final (/api/ahead/<id>).
+ * @property {boolean} [ahead]        Lo que le queda hasta su final lo calcula el servidor (/api/ahead/<id>): posiciones
+ *   estimadas (con su horario), Cercanías (por las paradas que le quedan) y AV/LD/MD (por la vía de Adif).
  */
 
 /**
@@ -48,7 +50,44 @@
  * @property {number|null} lon
  * @property {number|null} [start]
  * @property {number|null} [end]
+ * @property {number|null} [issued]  Epoch ms en que se emitió el aviso (AEMET pide mostrarlo; avisos oficiales).
+ * @property {string|null} [url]     Página del aviso o del suceso en su fuente (el mapa la enlaza con safeLink).
+ * @property {'verde'|'amarillo'|'naranja'|'rojo'} [level]  Nivel del aviso: meteorológicos de AEMET (amarillo a
+ *   rojo) y catástrofes de GDACS (verde a rojo). Las reglas sólo avisan de los naranja y rojo.
+ * @property {number} [magnitude]    Terremotos (category 'sismo'): magnitud.
+ * @property {number} [frp]          Focos de calor (category 'incendio'): potencia radiativa del fuego, en MW.
  * @property {{ type: 'Polygon'|'MultiPolygon', coordinates: number[][][]|number[][][][] }} [geometry]  Zona afectada (avisos).
+ * @property {boolean} [power]   Avisos oficiales (category 'emergencia'): habla de un corte de luz.
+ * @property {string} [area]     Isla, municipio, provincia o comunidad a la que se refiere.
+ * @property {'isla'|'municipio'|'provincia'|'comunidad'} [approx]  Con qué precisión está situado en el mapa
+ *   (el centro de la isla, del municipio…): los avisos oficiales no traen coordenadas.
+ * @property {string} [group]    Mismo aviso publicado para varios lugares (un evento por lugar).
+ * @property {string} [credit]   Atribución que pide la licencia de su fuente, para mostrarla junto al dato.
+ */
+
+/**
+ * Estado público de una fuente (/api/health): sus datos fijos y cómo fue su última lectura. Lo leen
+ * las reglas (fuentes caídas, atribución de los avisos) y la web.
+ * @typedef {object} SourceHealth
+ * @property {string} id
+ * @property {string} name
+ * @property {'vehicles'|'events'|'metrics'} kind
+ * @property {number} interval                ms entre lecturas.
+ * @property {string|null} license             Atribución que pide su licencia (la citan las alertas de sus avisos).
+ * @property {Record<string, string>|null} operatorLicenses  La de cada operador, si agrupa a varios.
+ * @property {string|null} url                 Ficha pública o dirección de la fuente, sin claves.
+ * @property {boolean} enabled
+ * @property {string|null} reason              Por qué está desactivada.
+ * @property {boolean|null} ok                 Si la última lectura fue bien; null si aún no se ha leído.
+ * @property {number|null} lastOk
+ * @property {number|null} lastError
+ * @property {string|null} error
+ * @property {number|null} count
+ * @property {number|null} sourceTime
+ * @property {number|null} datasetUpdated
+ * @property {number|null} datasetUpdatedFrom
+ * @property {Record<string, number>|null} datasetUpdatedBy
+ * @property {number|null} ms                  Lo que tardó la última lectura.
  */
 
 /**
@@ -62,6 +101,7 @@
  *   (horario GTFS) del que se calcula el resultado. Lo exigen las licencias; no es la hora del dato.
  * @property {number|null} [datasetUpdatedFrom]  Si la fuente agrupa varios horarios: la fecha del más antiguo
  *   (datasetUpdated es entonces la del más reciente).
+ * @property {Record<string, number>} [datasetUpdatedBy]  Si agrupa varios horarios: la fecha de cada operador.
  */
 
 /**
@@ -77,6 +117,7 @@
  * @property {string} [vehicleId]
  * @property {string[]} [vehicleIds]
  * @property {string[]} [eventIds]   Sucesos (avisos, terremotos, focos…) que motivan la alerta.
+ * @property {string|null} [credit]  Atribución que pide la licencia de la fuente del aviso (avisos oficiales).
  * @property {number} [since]
  * @property {number} [updated]
  * @property {number} [resolvedAt]
@@ -99,15 +140,27 @@
 
 export const SEVERITY_RANK = { 'muy alta': 4, alta: 3, media: 2, baja: 1 };
 
+// Código de estación. Renfe: 5 cifras («71801»). Las demás redes: la red y el código de su GTFS
+// («fgc:PC», «tmb:P.6660111»), con un tope de largo para que nadie pida claves enormes.
+const RENFE_CODE = /^\d{5}$/;
+const NETWORK_CODE = /^[a-z]+:[\w.:-]{1,64}$/;
+
+/**
+ * ¿Tiene `code` la forma de un código de estación? No dice si la estación existe: sólo que vale la
+ * pena buscarla (la API rechaza lo demás sin mirar los catálogos).
+ * @param {unknown} code @returns {boolean}
+ */
+export function isStationCode(code) {
+  return typeof code === 'string' && (RENFE_CODE.test(code) || NETWORK_CODE.test(code));
+}
+
 /**
  * Vehículos que vigila el motor de alertas ferroviarias y que cuentan en los KPIs: trenes,
  * metros y tranvías con posición real. Las posiciones estimadas por horario, los autobuses
  * (que paran en cualquier sitio) se muestran pero no cuentan.
  */
-export const RAIL_MODES = new Set(['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'otros']);
+const RAIL_MODES = new Set(['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'otros']);
 export const monitoredVehicles = (vehicles) => vehicles.filter((v) => !v.estimated && RAIL_MODES.has(v.mode));
-
-export const MODES = ['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'bus', 'otros'];
 
 /** @param {Vehicle} v */
 export function vehicleLabel(v) {
@@ -118,8 +171,8 @@ export function vehicleLabel(v) {
 // Retrasos imposibles: Renfe publica a veces, en los trenes que cruzan la medianoche, el retraso
 // calculado contra el horario del día siguiente (-86.160 s = -1.436 min) u horas sin sentido
 // (+1.008 min). No se corrigen (sería alterar el dato): se descartan como si no se publicaran.
-export const DELAY_MIN = -60;      // más de una hora de adelanto
-export const DELAY_MAX = 12 * 60;  // más de 12 horas de retraso
+const DELAY_MIN = -60;      // más de una hora de adelanto
+const DELAY_MAX = 12 * 60;  // más de 12 horas de retraso
 
 /** Retraso en minutos si es creíble; null si la fuente no lo da o es imposible. */
 export function plausibleDelay(delay) {

@@ -47,16 +47,16 @@ test('el planificador lee cada fuente por su id, escalonadas 250 ms', async (t) 
   }
 });
 
-test('los catálogos se recargan cada 6 h y dejan de recargarse al parar', async (t) => {
+test('los catálogos se recargan cada hora y dejan de recargarse al parar', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
   let refreshed = 0;
   const scheduler = startPolling({ feeds: [], ingestSource: async () => true, detectAlerts() {}, refreshCatalogs: async () => { refreshed++; }, log: quietLog });
-  t.mock.timers.tick(6 * HOUR - 1);
+  t.mock.timers.tick(HOUR - 1);
   assert.equal(refreshed, 0, 'la primera carga la hace el arranque');
   t.mock.timers.tick(1);
   await flush();
   assert.equal(refreshed, 1);
-  t.mock.timers.tick(6 * HOUR);
+  t.mock.timers.tick(HOUR);
   await flush();
   assert.equal(refreshed, 2);
   scheduler.stop();
@@ -74,9 +74,35 @@ test('si la recarga de catálogos falla, se registra y el planificador sigue', a
     log: { ...quietLog, warn: (msg) => warnings.push(msg) },
   });
   try {
-    t.mock.timers.tick(6 * HOUR);
+    t.mock.timers.tick(HOUR);
     await flush();
     assert.deepEqual(warnings, ['[catálogos] Renfe no responde']);
+  } finally {
+    scheduler.stop();
+  }
+});
+
+test('si la lectura lanza un fallo inesperado, la fuente se sigue leyendo (como si hubiera fallado)', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  let reads = 0;
+  const errors = [];
+  const scheduler = startPolling({
+    feeds: [{ id: 'renfe', interval: 20_000 }],
+    ingestSource: async () => { reads++; if (reads === 1) throw new Error('fallo al avisar'); return true; },
+    detectAlerts() {},
+    log: { ...quietLog, error: (msg) => errors.push(msg) },
+  });
+  try {
+    t.mock.timers.tick(0);
+    await flush();
+    assert.equal(reads, 1);
+    assert.match(errors[0], /fallo al avisar/);
+    t.mock.timers.tick(30_000); // primer reintento tras un fallo
+    await flush();
+    assert.equal(reads, 2, 'no se ha quedado parada');
+    t.mock.timers.tick(20_000);
+    await flush();
+    assert.equal(reads, 3, 'y vuelve a su intervalo');
   } finally {
     scheduler.stop();
   }

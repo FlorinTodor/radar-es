@@ -1,5 +1,5 @@
 import * as maplibregl from '/vendor/maplibre/maplibre-gl.mjs';
-import { DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, STATUS, esc, fmtDateTime, fmtDelay, fmtLocalHour, safeUrl, timeAgo, vehicleTitle } from './format.js';
+import { DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, STATUS, esc, fmtDataTime, fmtDate, fmtDateTime, fmtDelay, fmtLocalHour, fmtTime, creditHtml, photoTitleOf, safeUrl, timeAgo, vehicleTitle } from './format.js';
 import { PICTOS, pictoFor, vehicleImage } from './icons.js';
 import { headingAlong, matchTrack, pathBetween } from './track-match.js';
 
@@ -11,6 +11,12 @@ const MAX_ANIM_DEG = 0.2; // saltos mayores (cambio de servicio, GPS erróneo) n
 const EMPTY = { type: 'FeatureCollection', features: [] };
 // Fuentes cuyos vehículos traen su trazado (`shape`) y el final de su viaje (`end`) → red del catálogo de trazados.
 const ROUTE_NETWORK = { 'renfe-cercanias': 'Cercanías Renfe', 'metro-bilbao': 'Metro Bilbao' };
+// Fuentes que no dicen el trazado de su viaje, pero sí su línea y dónde acaba: vale el trazado de su
+// línea que pase por el tren y por su final (en FGC, las líneas con ramales tienen varios).
+const LINE_NETWORK = { fgc: 'FGC' };
+// Posiciones reales cuya licencia pide no alterar el contenido (Open Data Euskadi): su recorrido reciente
+// se dibuja con las posiciones tal y como llegan, sin llevarlas al trazado.
+const AS_PUBLISHED = new Set(['metro-bilbao']);
 const SEV_COLORS = { 'muy alta': STATUS.critical, alta: STATUS.serious, media: STATUS.warning, baja: STATUS.none };
 const IS_EST = ['==', ['get', 'est'], 1];
 const NOT_EST = ['!=', ['get', 'est'], 1];
@@ -29,13 +35,14 @@ export const LAYER_GROUPS = {
   rail: ['rail-network'],
   lines: ['net-lines'],
   trails: ['trails-line'],
-  stations: ['stations-hit', 'stations-dots', 'stations-sel', 'stations-labels'],
+  stations: ['stations-hit', 'stations-dots', 'stations-sel', 'stations-labels', 'netst-hit', 'netst-dots', 'netst-labels'],
   meteo: ['meteo-fill', 'meteo-outline'],
   dgt: ['ev-road', 'ev-road-major'],
   incendios: ['ev-fire-glow', 'ev-fire-core'],
   sismos: ['ev-quake'],
   'renfe-avisos': ['ev-rail'],
   gdacs: ['ev-gdacs'],
+  emergencias: ['ev-emerg'],
   effis: ['effis-burnt', 'burnt-sel-line'],
 };
 
@@ -49,7 +56,7 @@ const RAIL_TILES = `${location.origin}/tiles/ign-rail/{z}/{x}/{y}.png`;
 // año de la tabla de productos del SCNE (scne.es/tablaProductos.php).
 const RAIL_ATTRIBUTION = 'Red ferroviaria: Obra derivada de IGR-RT 2026 CC-BY 4.0 <a href="https://www.scne.es" target="_blank" rel="noopener">scne.es</a>';
 
-// Áreas quemadas de los últimos 30 días (Copernicus EFFIS, WMS con CORS abierto).
+// Áreas quemadas de los últimos 30 días (Copernicus EFFIS): sus teselas también salen de /tiles.
 const EFFIS_TILES = `${location.origin}/tiles/effis/{z}/{x}/{y}.png`;
 const EFFIS_ATTRIBUTION = '© European Union, 1995-2025 · <a href="https://forest-fire.emergency.copernicus.eu/about-effis/data-license" '
   + 'target="_blank" rel="noopener">EFFIS – Copernicus Emergency Management Service</a> · CC BY 4.0';
@@ -64,11 +71,18 @@ const ATTRIBUTION = [
   'Powered by <a href="https://www.transportes.gob.es/" target="_blank" rel="noopener">MITRAMS</a>',
   'Powered by <a href="https://www.crtm.es/" target="_blank" rel="noopener">CRTM</a>',
   'Powered by <a href="https://www.tram.cat/" target="_blank" rel="noopener">TRAM Barcelona</a>',
+  'Fuente: TMB',
+  'Fuente: AUVASA',
   'Origen de los datos: Renfe Operadora',
+  '© Administrador de infraestructuras ferroviarias',
   `Obra derivada de Catálogo de terremotos IGN ${today} · CC-BY 4.0 <a href="https://www.ign.es" target="_blank" rel="noopener">ign.es</a>`,
+  // Los avisos oficiales que sólo nombran un municipio se sitúan con CartoCiudad (licencia del IGN).
+  'Obra derivada de CartoCiudad 2026 CC-BY 4.0 <a href="https://www.scne.es" target="_blank" rel="noopener">scne.es</a>',
   '© AEMET',
   'Fuente: DGT',
   '<a href="https://www.gdacs.org" target="_blank" rel="noopener">GDACS</a>',
+  // La licencia del portal de la Junta pide esta fórmula «en un lugar visible».
+  'Información obtenida del Portal de la Junta de Andalucía',
   'NASA FIRMS',
 ];
 
@@ -105,10 +119,42 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
   let selectedStation = null; // código de la estación cuya ficha está abierta
   let clicks = 0;         // contador de clics en el mapa, para descartar respuestas tardías de EFFIS
   let trackFetchedAt = 0;
+  let eventList = [];     // últimos sucesos: la ficha de un aviso oficial lista los demás del mismo sitio
   let lineFeatures = [];  // trazados de las líneas: el recorrido del tren seleccionado se pega a la suya
   let byShape = new Map(); // «red|shape_id» → trazado, para lo que le queda y la flecha de cada tren
+  let byNetwork = new Map(); // red → sus trazados de línea (LineString), para LINE_NETWORK
+  const lineShapes = new Map(); // id del vehículo → { key, shape }: el trazado elegido, hasta que se mueva
   const shapeOf = (v) => (ROUTE_NETWORK[v.source] && v.shape && v.end ? byShape.get(`${ROUTE_NETWORK[v.source]}|${v.shape}`) : undefined);
-  const card = createDetailCard(map.getContainer().parentElement, (id) => onVehicleClick(id));
+  const routeShapeOf = (v) => {
+    const trip = shapeOf(v);
+    if (trip || !LINE_NETWORK[v.source] || !v.line || !v.end) return trip;
+    // Se elige otra vez sólo cuando el tren se mueve o cambia su final: la flecha lo pide en cada lectura.
+    const key = `${v.lon},${v.lat},${v.end},${v.line}`;
+    const memo = lineShapes.get(v.id);
+    if (memo?.key === key) return memo.shape;
+    const network = byNetwork.get(LINE_NETWORK[v.source]) ?? [];
+    const fits = (f) => pathBetween(f.geometry.coordinates, [v.lon, v.lat], v.end);
+    // Su línea; si no, la línea de la que es refuerzo (R5R → R5); si no, cualquiera de su red que pase
+    // por el tren y por su final (la cremallera de Montserrat sale en las posiciones como M1/M2 y su
+    // trazado es MM). Entre el tren y su final, todas las que pasan por los dos van por la misma vía.
+    const shape = network.find((f) => f.properties.line === v.line && fits(f))
+      ?? network.find((f) => v.line.startsWith(f.properties.line) && fits(f))
+      ?? network.find(fits);
+    lineShapes.set(v.id, { key, shape });
+    return shape;
+  };
+  /** Lo que le queda hasta el final de su viaje, por su vía; null si no se sabe. */
+  const routeAhead = (v) => {
+    const shape = routeShapeOf(v);
+    return shape ? pathBetween(shape.geometry.coordinates, [v.lon, v.lat], v.end) : null;
+  };
+  const card = createDetailCard(map.getContainer().parentElement, (id) => onVehicleClick(id), (id) => {
+    const e = eventList.find((x) => x.id === id);
+    if (e) card.show(eventDetail(e, samePlace(e)));
+  });
+  // Otros avisos oficiales del mismo sitio (en el mapa quedan unos encima de otros).
+  const samePlace = (e) => (e.category === 'emergencia' && e.area
+    ? eventList.filter((x) => x.category === 'emergencia' && x.id !== e.id && x.area === e.area) : []);
   let loaded = false;
   let modeFilter = null;
   let showObras = false;
@@ -129,6 +175,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     'ev-road-major': () => roadFilter(true),
     'ev-works': ['all', category('carretera'), ['==', ['get', 'type'], 'roadMaintenance']],
     'ev-gdacs': category('catastrofe'),
+    'ev-emerg': category('emergencia'),
     'ev-fire-glow': category('incendio'),
     'ev-fire-core': category('incendio'),
     'ev-quake': category('sismo'),
@@ -195,17 +242,19 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
       map.addImage(`diamond-${sev}`, icon('diamond', color, '#0d0d0d'), { pixelRatio: 2 });
       map.addImage(`triangle-${sev}`, icon('triangle', color, '#f0efec'), { pixelRatio: 2 });
       map.addImage(`square-${sev}`, icon('square', color, '#0d0d0d'), { pixelRatio: 2 });
+      map.addImage(`emerg-plan-${sev}`, emergencyIcon('plan', color), { pixelRatio: 2 });
     }
+    map.addImage('emerg-luz', emergencyIcon('luz'), { pixelRatio: 2 });
 
     // Estaciones: punto blanco con borde oscuro, como en los planos de transporte, más grande al
     // acercar. Debajo, un círculo invisible más grande para poder pulsarlas con el dedo; de lejos,
     // más pequeño, para no tapar lo que hay alrededor.
     map.addLayer({
-      id: 'stations-hit', type: 'circle', source: 'stations', minzoom: 6.5,
+      id: 'stations-hit', type: 'circle', source: 'stations', minzoom: 6.5, filter: ['!', ['has', 'net']],
       paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 6.5, 7, 9, 12, 12, 14], 'circle-color': 'rgba(0, 0, 0, 0)' },
     });
     map.addLayer({
-      id: 'stations-dots', type: 'circle', source: 'stations', minzoom: 5.5,
+      id: 'stations-dots', type: 'circle', source: 'stations', minzoom: 5.5, filter: ['!', ['has', 'net']],
       paint: {
         'circle-radius': ['interpolate', ['linear'], ['zoom'], 5.5, 1.5, 7, 2.3, 9, 3.2, 12, 5, 15, 7],
         'circle-color': '#f0efec', 'circle-stroke-color': '#0d0d0d',
@@ -221,12 +270,34 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     });
     map.addLayer({
       // Desde 8,5 el mapa sólo pone los nombres que caben sin montarse; al acercar salen todos.
-      id: 'stations-labels', type: 'symbol', source: 'stations', minzoom: 8.5,
+      id: 'stations-labels', type: 'symbol', source: 'stations', minzoom: 8.5, filter: ['!', ['has', 'net']],
       layout: {
         'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': ['interpolate', ['linear'], ['zoom'], 8.5, 10, 15, 13],
         'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-optional': true,
       },
       paint: { 'text-color': '#c3c2b7', 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.4 },
+    });
+    // Estaciones de metro, tranvía y las demás redes: cientos en pocas ciudades, así que sólo salen
+    // al acercar a una ciudad y algo más pequeñas que las de Renfe; sus nombres, más cerca todavía.
+    map.addLayer({
+      id: 'netst-hit', type: 'circle', source: 'stations', minzoom: 11, filter: ['has', 'net'],
+      paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 7, 15, 13], 'circle-color': 'rgba(0, 0, 0, 0)' },
+    });
+    map.addLayer({
+      id: 'netst-dots', type: 'circle', source: 'stations', minzoom: 11, filter: ['has', 'net'],
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 2, 13, 3.5, 15, 5.5],
+        'circle-color': '#f0efec', 'circle-stroke-color': '#0d0d0d',
+        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 11, 0.8, 15, 1.6],
+      },
+    });
+    map.addLayer({
+      id: 'netst-labels', type: 'symbol', source: 'stations', minzoom: 13, filter: ['has', 'net'],
+      layout: {
+        'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': ['interpolate', ['linear'], ['zoom'], 13, 10, 16, 12],
+        'text-offset': [0, 1], 'text-anchor': 'top', 'text-optional': true,
+      },
+      paint: { 'text-color': '#a9a89e', 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.3 },
     });
     // Estelas de todos los trenes (capa opcional) y recorrido del tren seleccionado, más visible.
     map.addLayer({
@@ -271,6 +342,21 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
       paint: {
         'circle-radius': 11, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-width': 3,
         'circle-stroke-color': ['match', ['get', 'severity'], 'muy alta', STATUS.critical, 'alta', STATUS.serious, '#6b6b66'],
+      },
+    });
+    // Avisos oficiales (protección civil, 112): los cortes de luz, un rayo amarillo sobre fondo oscuro;
+    // los planes activados, un escudo con «!» del color de su nivel. Van al centro de su isla,
+    // municipio, provincia o comunidad: si en un mismo sitio hay corte de luz y plan, el rayo va a la
+    // izquierda y el escudo a la derecha, y entre varios planes queda encima el de más nivel.
+    const isPowerCut = ['==', ['get', 'type'], 'apagon'];
+    map.addLayer({
+      id: 'ev-emerg', type: 'symbol', source: 'events',
+      layout: {
+        'icon-image': ['case', isPowerCut, 'emerg-luz', ['concat', 'emerg-plan-', ['get', 'severity']]],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.85, 9, 1, 13, 1.2],
+        'icon-offset': ['case', isPowerCut, ['literal', [-9, 0]], ['literal', [9, 0]]],
+        'icon-allow-overlap': true, 'icon-ignore-placement': true,
+        'symbol-sort-key': ['case', isPowerCut, 10, ['match', ['get', 'severity'], 'muy alta', 3, 'alta', 2, 1]],
       },
     });
     // Focos de calor: halo difuminado + núcleo, para distinguirlos de los trenes (círculos nítidos).
@@ -357,7 +443,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     });
 
     // Por orden de prioridad: si un tren está encima de su estación, se pulsa el tren.
-    const clickable = ['vehicles', 'veh-est', 'ev-rail', 'ev-quake', 'ev-gdacs', 'ev-road', 'ev-road-major', 'ev-works', 'stations-hit', 'ev-fire-glow', 'meteo-fill'];
+    const clickable = ['vehicles', 'veh-est', 'ev-rail', 'ev-quake', 'ev-emerg', 'ev-gdacs', 'ev-road', 'ev-road-major', 'ev-works', 'stations-hit', 'netst-hit', 'ev-fire-glow', 'meteo-fill'];
     for (const id of clickable) {
       map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
@@ -373,7 +459,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
         return;
       }
       if (['vehicles', 'veh-est'].includes(f.layer.id)) onVehicleClick(f.properties.id);
-      else if (f.layer.id === 'stations-hit') onStationClick?.(f.properties.code);
+      else if (['stations-hit', 'netst-hit'].includes(f.layer.id)) onStationClick?.(f.properties.code);
       else onEventClick(f.properties.id, e.lngLat);
     });
 
@@ -438,8 +524,12 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     const at = map.unproject(point);
     const sw = map.unproject([point.x - 4, point.y + 4]);
     const ne = map.unproject([point.x + 4, point.y - 4]);
+    // Ampliada a la rejilla de 0,05° del servidor (BURNT_GRID_DEG en server/domain/tiles.js): los clics
+    // cercanos piden la misma caja y Cloudflare la sirve de su copia sin preguntar a EFFIS.
+    const grid = (v, round) => Math.round(round(v / 0.05) * 5) / 100;
+    const box = [grid(sw.lng, Math.floor), grid(sw.lat, Math.floor), grid(ne.lng, Math.ceil), grid(ne.lat, Math.ceil)];
     try {
-      const res = await fetch(`/api/burnt-areas?bbox=${sw.lng},${sw.lat},${ne.lng},${ne.lat}`);
+      const res = await fetch(`/api/burnt-areas?bbox=${box.join(',')}`);
       const { features = [] } = res.ok ? await res.json() : {};
       if (click !== clicks) return;
       const areas = features.map((f) => lonLatFeature(f, at));
@@ -462,30 +552,50 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
   }
 
   /**
-   * Recorrido que le queda hasta el final de su viaje. Cercanías y Metro Bilbao: el trazado de su viaje
-   * entre donde está y donde acaba, aquí mismo. Posiciones estimadas (metro, tranvía…): lo calcula el
-   * servidor con su horario.
+   * Recorrido que le queda hasta el final de su viaje. Metro Bilbao y FGC: el trazado de su viaje o de
+   * su línea entre donde está y donde acaba, aquí mismo. Cercanías de Renfe (pasando por sus paradas,
+   * porque su trazado no siempre es el de su viaje) y posiciones estimadas (con su horario): lo
+   * calcula el servidor.
    */
   const setRoute = (coords) => map.getSource('route')?.setData(coords?.length > 1 ? { type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} } : EMPTY);
+  /** Dibuja lo que le queda si se calcula aquí, y lo devuelve (null si no se sabe o lo calcula el servidor). */
   function drawRoute(v) {
-    if (v.estimated) return; // llega con loadTrack
-    const shape = shapeOf(v);
-    setRoute(shape ? pathBetween(shape.geometry.coordinates, [v.lon, v.lat], v.end) : null);
+    if (v.estimated || v.ahead) return null; // lo calcula el servidor: llega con loadTrack
+    const route = routeAhead(v);
+    setRoute(route);
+    return route;
+  }
+
+  /**
+   * Recorrido o lo que le queda de un vehículo. Si el servidor tiene demasiados cálculos a la vez (503),
+   * lo vuelve a pedir pasado el tiempo que indica (Retry-After), mientras el vehículo siga seleccionado.
+   */
+  async function fetchTrain(url, id, tries = 3) {
+    const r = await fetch(url);
+    if (r.status === 503 && tries > 1 && selectedId === id) {
+      const wait = Math.min(Number(r.headers.get('Retry-After')) || 2, 10) * 1000 * (1 + Math.random() / 2);
+      await new Promise((resolve) => setTimeout(resolve, wait));
+      return selectedId === id ? fetchTrain(url, id, tries - 1) : null;
+    }
+    return r.ok ? r.json() : null;
   }
 
   function loadTrack(v) {
     trackFetchedAt = Date.now();
     if (v.ahead) {
-      fetch(`/api/ahead/${encodeURIComponent(v.id)}`)
-        .then((r) => (r.ok ? r.json() : null))
+      fetchTrain(`/api/ahead/${encodeURIComponent(v.id)}`, v.id)
         .then((ahead) => { if (selectedId === v.id) setRoute(ahead); })
         .catch(() => {});
     }
-    fetch(`/api/tracks/${encodeURIComponent(v.id)}`)
-      .then((r) => (r.ok ? r.json() : []))
+    fetchTrain(`/api/tracks/${encodeURIComponent(v.id)}`, v.id)
       .then((track) => {
         if (selectedId !== v.id) return;
-        const own = v.line ? lineFeatures.filter((f) => f.properties.line === v.line && f.properties.mode === v.mode) : [];
+        track ??= [];
+        // Los trazados de su línea y el de su propio viaje, salvo si su licencia pide no alterar el contenido.
+        const asPublished = AS_PUBLISHED.has(v.source);
+        const own = v.line && !asPublished ? lineFeatures.filter((f) => f.properties.line === v.line && f.properties.mode === v.mode) : [];
+        const trip = asPublished ? null : routeShapeOf(v);
+        if (trip && !own.includes(trip)) own.push(trip);
         const parts = matchTrack(trackParts(track), own).filter((part) => part.length > 1);
         map.getSource('track').setData(parts.length ? { type: 'Feature', geometry: { type: 'MultiLineString', coordinates: parts }, properties: {} } : EMPTY);
       })
@@ -527,7 +637,8 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
         const to = [v.lon, v.lat];
         const prev = anims.get(v.id);
         // Con su trazado, la flecha va por la vía hacia donde acaba; si no, la del servidor (su movimiento).
-        const shape = shapeOf(v);
+        // Si lo que le queda lo calcula el servidor (Cercanías, con sus paradas), su flecha también.
+        const shape = v.ahead ? null : routeShapeOf(v);
         const heading = (shape && headingAlong(shape.geometry.coordinates, to, v.end)) ?? v.heading;
         const props = {
           id: v.id, mode: v.mode, cls: v.cls, line: v.line ?? '', alert: alertIds.has(v.id) ? 1 : 0, est: v.estimated ? 1 : 0, picto: pictoFor(v.mode),
@@ -544,10 +655,12 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
         next.set(v.id, { from: jump ? to : from, to, t0: now, props });
       }
       anims = next;
+      for (const id of lineShapes.keys()) if (!next.has(id)) lineShapes.delete(id); // trenes que ya no están
       kick();
     },
 
     setEvents(list) {
+      eventList = list;
       if (!loaded) return;
       const areas = list.filter((e) => e.geometry);
       map.getSource('areas').setData({
@@ -570,7 +683,14 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     setLines(collection) {
       lineFeatures = collection.features ?? [];
       byShape = new Map();
-      for (const f of lineFeatures) for (const id of f.properties.shapes ?? []) byShape.set(`${f.properties.network}|${id}`, f);
+      byNetwork = new Map();
+      lineShapes.clear();
+      for (const f of lineFeatures) {
+        for (const id of f.properties.shapes ?? []) byShape.set(`${f.properties.network}|${id}`, f);
+        if (f.geometry?.type !== 'LineString') continue;
+        if (!byNetwork.has(f.properties.network)) byNetwork.set(f.properties.network, []);
+        byNetwork.get(f.properties.network).push(f);
+      }
       if (loaded) map.getSource('lines').setData(collection);
     },
 
@@ -578,7 +698,10 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
       if (!loaded) return;
       map.getSource('stations').setData({
         type: 'FeatureCollection',
-        features: list.map((s) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [s.lon, s.lat] }, properties: { code: s.code, name: s.name } })),
+        features: list.map((s) => ({
+          type: 'Feature', geometry: { type: 'Point', coordinates: [s.lon, s.lat] },
+          properties: { code: s.code, name: s.name, ...(s.networkId ? { net: s.networkId } : {}) },
+        })),
       });
     },
 
@@ -625,16 +748,16 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     /** Selecciona un tren: anillo, recorrido reciente y ficha. La × de la ficha sólo la cierra. */
     showVehicle(v) {
       setSelected(v.id);
-      card.show(vehicleDetail(v));
-      drawRoute(v);
+      const route = drawRoute(v);
+      card.show(vehicleDetail(v, !!route));
       loadTrack(v);
     },
 
     /** Actualiza la ficha y, cada 15 s, el recorrido del tren seleccionado cuando llegan datos. */
     refreshVehicle(v) {
       if (selectedId !== v.id) return;
-      if (card.open) card.show(vehicleDetail(v));
-      drawRoute(v);
+      const route = drawRoute(v);
+      if (card.open) card.show(vehicleDetail(v, !!route));
       if (Date.now() - trackFetchedAt > 15_000) loadTrack(v);
     },
 
@@ -643,7 +766,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     showEvent(e) {
       setSelected(null);
       setStation(null);
-      card.show(eventDetail(e));
+      card.show(eventDetail(e, samePlace(e)));
     },
 
     /** Ficha de una estación con sus trenes (ver station-board.js); se repinta al llegar datos. */
@@ -658,6 +781,11 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     },
 
     selectedStationCode: () => selectedStation,
+
+    /** Estado de las fuentes (/api/health): de ahí salen la atribución y la fecha de cada ficha. */
+    setSources(health) {
+      sourcesById = new Map(health.map((s) => [s.id, s]));
+    },
 
     setTrails(collection) {
       if (loaded) map.getSource('trails').setData(collection ?? EMPTY);
@@ -715,8 +843,40 @@ export function icon(shape, fill, stroke) {
   return { width: size, height: size, data: g.getImageData(0, 0, size, size).data };
 }
 
+/**
+ * Iconos de los avisos oficiales: 'luz' (corte de luz), un rayo amarillo sobre un círculo oscuro;
+ * 'plan' (plan de emergencias), un escudo con «!» del color de su nivel.
+ */
+export function emergencyIcon(kind, color = '#ec835a') {
+  const size = 36;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const g = canvas.getContext('2d');
+  g.scale(2, 2);
+  g.lineJoin = 'round';
+  if (kind === 'luz') {
+    g.beginPath(); g.arc(9, 9, 7.9, 0, Math.PI * 2);
+    g.fillStyle = '#0d0d0d'; g.fill();
+    g.lineWidth = 1.4; g.strokeStyle = '#ffd23f'; g.stroke();
+    g.beginPath();
+    g.moveTo(10.4, 3.2); g.lineTo(5.6, 10); g.lineTo(8.7, 10); g.lineTo(7.6, 14.8); g.lineTo(12.4, 7.7); g.lineTo(9.3, 7.7);
+    g.closePath(); g.fillStyle = '#ffd23f'; g.fill();
+  } else {
+    g.beginPath();
+    g.moveTo(9, 1.4); g.lineTo(15.6, 3.9); g.lineTo(15.6, 8.6);
+    g.bezierCurveTo(15.6, 12.6, 12.8, 15.4, 9, 16.7); g.bezierCurveTo(5.2, 15.4, 2.4, 12.6, 2.4, 8.6);
+    g.lineTo(2.4, 3.9); g.closePath();
+    g.fillStyle = color; g.fill();
+    g.lineWidth = 1.4; g.strokeStyle = '#0d0d0d'; g.stroke();
+    g.fillStyle = '#0d0d0d';
+    g.beginPath(); g.roundRect(8.05, 4.6, 1.9, 6, 0.9); g.fill();
+    g.beginPath(); g.arc(9, 12.7, 1.1, 0, Math.PI * 2); g.fill();
+  }
+  return { width: size, height: size, data: g.getImageData(0, 0, size, size).data };
+}
+
 /** Ficha fija sobre el mapa (sustituye a las ventanas emergentes, que tapaban el recorrido). */
-function createDetailCard(host, onVehicle) {
+function createDetailCard(host, onVehicle, onEvent) {
   const el = document.createElement('div');
   el.className = 'card detail';
   el.hidden = true;
@@ -728,6 +888,8 @@ function createDetailCard(host, onVehicle) {
   el.addEventListener('click', (ev) => {
     const train = ev.target.closest('[data-vehicle]');
     if (train) onVehicle(train.dataset.vehicle);
+    const other = ev.target.closest('[data-event]');
+    if (other) onEvent?.(other.dataset.event);
   });
   host.appendChild(el);
   return {
@@ -740,6 +902,7 @@ function createDetailCard(host, onVehicle) {
   };
 }
 
+
 function stationDetail(st, { stopped, arriving, notices, lines, connections = [] }) {
   const train = (v, when) => `<li><button type="button" class="link" data-vehicle="${esc(v.id)}">${esc(vehicleTitle(v))}</button>
     ${v.destination ? ` → ${esc(v.destination)}` : ''}${v.platform ? ` · vía ${esc(v.platform)}` : ''}${when ? ` · ${esc(when)}` : ''}
@@ -748,7 +911,7 @@ function stationDetail(st, { stopped, arriving, notices, lines, connections = []
   const list = (items, empty) => (items.length ? `<ul class="st-list">${items.join('')}</ul>` : `<p class="st-empty">${empty}</p>`);
   const chips = (ls) => `<div class="st-lines">${ls.map((l) => `<span class="st-line" style="--line:${esc(l.color ?? '#898781')}" title="${esc(l.network ?? '')}">${esc(l.line)}</span>`).join('')}</div>`;
   const link = (url, label) => (safeUrl(url) ? `<a href="${esc(safeUrl(url))}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>` : '');
-  const meta = [st.place, st.province && st.province !== st.place ? st.province : null, st.cercanias ? 'Cercanías / Rodalies' : null].filter(Boolean);
+  const meta = [st.network, st.place, st.province && st.province !== st.place ? st.province : null, st.cercanias ? 'Cercanías / Rodalies' : null].filter(Boolean);
   const address = [st.address, [st.postalCode, st.place].filter(Boolean).join(' ')].filter(Boolean).join(', ');
   const accessible = { true: 'Sí', false: 'No', partial: 'En parte' }[st.accessible] ?? 'Sin datos';
   const rows = [
@@ -757,11 +920,23 @@ function stationDetail(st, { stopped, arriving, notices, lines, connections = []
     st.opened && ['Inaugurada', String(st.opened)],
     st.tracks && ['Vías', String(st.tracks)],
     st.metricGauge && ['Ancho de vía', 'Métrico (antigua FEVE)'],
-    ['Código', st.code],
+    !st.networkId && ['Código', st.code],
   ].filter(Boolean);
-  // La foto viene de Wikimedia Commons: su licencia pide citar autor y licencia junto a ella.
+  // Las de otras redes salen del GTFS de su operador en el NAP: su atribución y la fecha de sus datos.
+  // «Powered by MITRAMS», «Powered by CRTM» y «Powered by TRAM Barcelona» van con su enlace, como pide
+  // su licencia (igual que en el pie del mapa).
+  // Las de Renfe, de sus datos abiertos: «Origen de los datos: Renfe Operadora» y el día en que se descargaron.
+  const day = (iso) => (/^\d{4}-\d{2}-\d{2}/.test(iso ?? '') ? iso.slice(0, 10).split('-').reverse().join('/') : null);
+  const updated = day(st.source?.updated);
+  const downloaded = day(st.source?.downloaded);
+  const creditText = st.source?.credit ?? (st.networkId ? null : 'Origen de los datos: Renfe Operadora');
+  const source = creditText ? `<p class="st-source">Datos de la estación: ${creditHtml(creditText)}${updated ? ` · actualizados el ${esc(updated)}`
+    : downloaded ? ` · descargados el ${esc(downloaded)}` : ''}</p>` : '';
+  // La foto viene de Wikimedia Commons: su licencia pide citar título, autor y licencia junto a ella.
+  // El título es el nombre del fichero, que enlaza a su página en Commons.
+  const photoTitle = st.photo ? photoTitleOf(st.photo.page) : null;
   const photo = st.photo && safeUrl(st.photo.url) ? `<figure class="st-photo"><img src="${esc(safeUrl(st.photo.url))}" alt="Estación de ${esc(st.name)}" loading="lazy">
-    <figcaption>Foto: ${esc(st.photo.author)} · ${st.photo.licenseUrl ? link(st.photo.licenseUrl, st.photo.license) : esc(st.photo.license)} · ${link(st.photo.page, 'Wikimedia Commons')}</figcaption></figure>` : '';
+    <figcaption>Foto: ${photoTitle ? `${link(st.photo.page, photoTitle)}, de ` : ''}${esc(st.photo.author)} · ${st.photo.licenseUrl ? link(st.photo.licenseUrl, st.photo.license) : esc(st.photo.license)} · ${photoTitle ? 'Wikimedia Commons' : link(st.photo.page, 'Wikimedia Commons')}</figcaption></figure>` : '';
   // Sólo enlaces: no se carga nada de esas webs hasta que se pulsan. El de Google Maps usa su
   // formato público de enlaces (Maps URLs): en el móvil abre la app con la ruta hasta la estación.
   const links = [
@@ -776,13 +951,36 @@ function stationDetail(st, { stopped, arriving, notices, lines, connections = []
     <h4>Próximos trenes</h4>${list(arriving.map((v) => train(v, when(v))), 'Ningún tren en camino con datos en directo.')}
     ${notices.length ? `<h4>Avisos de Renfe</h4><ul class="st-list">${notices.map((e) => `<li>${esc(e.description ?? e.title)}</li>`).join('')}</ul>` : ''}
     ${connections.length ? `<h4>Conexiones a pie</h4>${chips(connections)}` : ''}
-    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>
-    <p class="st-links">${links.join(' · ')}</p>
-    <div class="note">Sólo salen los trenes que publican su posición en directo; los horarios completos están en la web del operador.
+    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
+    <p class="st-links">${links.join(' · ')}</p>${source}
+    <div class="note">${st.networkId ? 'Salen los trenes con posición en directo o estimada a partir del horario' : 'Sólo salen los trenes que publican su posición en directo'}; los horarios completos están en la web del operador.
       Pulsa un tren para ver su ficha.</div></div>`;
 }
 
-function vehicleDetail(v) {
+// Fuentes por id, de /api/health. Las licencias (TMB, AMB, TRAM, Renfe…) piden citar la fuente y la
+// fecha de actualización donde se ven sus datos: en la ficha de cada tren y de cada suceso.
+let sourcesById = new Map();
+
+/**
+ * Filas «Atribución» y «Actualizado» de una ficha: el texto que pide la licencia (en un grupo de
+ * operadores, la del suyo) y la fecha del horario o la hora del dato según la fuente. Si aún no se
+ * conoce, la hora a la que se leyó.
+ */
+function sourceRows(id, operator) {
+  const s = sourcesById.get(id);
+  if (!s) return [['Fuente', id]]; // todavía sin el estado de las fuentes
+  const schedule = s.datasetUpdatedBy?.[operator] ?? s.datasetUpdated;
+  const dates = [
+    schedule && `horario del ${fmtDate(schedule)}`,
+    s.sourceTime ? `datos ${fmtDataTime(s.sourceTime)}` : !schedule && s.lastOk && `leídos ${fmtDataTime(s.lastOk)}`,
+  ].filter(Boolean);
+  // «Atribución» y no «Fuente»: muchas ya empiezan por «Fuente: …» u «Origen de los datos: …».
+  // La atribución va como HTML: las que lo piden llevan su enlace (ver creditHtml).
+  return [['Atribución', { html: creditHtml(s.operatorLicenses?.[operator] ?? s.license ?? s.name) }], dates.length && ['Actualizado', dates.join(' · ')]];
+}
+
+/** @param {object} v  @param {boolean} [onRoute] se dibuja lo que le queda hasta su final */
+function vehicleDetail(v, onRoute = false) {
   // La vía es la de una estación (en la que está parado o a la que llega), nunca la del trayecto:
   // va pegada a esa estación para que no se lea como la vía por la que circula.
   const via = v.platform ? ` · vía ${v.platform}` : '';
@@ -791,14 +989,16 @@ function vehicleDetail(v) {
     (v.origin || v.destination) && ['Recorrido', `${v.origin ?? '?'} → ${v.destination ?? '?'}`],
     ['Retraso', fmtDelay(v)],
     v.current && [v.stopped ? 'Parado en' : v.mode === 'bus' ? 'Última parada' : 'Última estación', `${v.current}${v.stopped ? via : ''}`],
+    // El operador lo da parado en una estación lejos de su posición: la del mapa no está al día.
+    v.farFromStop && v.current && ['Posición', `${v.source?.startsWith('renfe') ? 'Renfe' : 'El operador'} la da a ${v.farFromStop.toLocaleString('es-ES', { maximumFractionDigits: 1 })} km de ${v.current}: puede que no esté al día`],
     v.next && ['Próxima', `${v.next}${v.nextEta ? ` (${fmtLocalHour(v.nextEta)})` : v.nextInMinutes !== undefined && v.nextInMinutes !== null ? ` (en ${v.nextInMinutes} min)` : ''}${v.stopped ? '' : via}`],
     v.area && ['Núcleo', v.area],
     v.rollingStock && ['Material', v.rollingStock],
     v.fixTime && ['GPS', timeAgo(v.fixTime)],
-    ['Fuente', v.source],
+    ...sourceRows(v.source, v.operator),
   ].filter(Boolean);
   const aheadText = (how) => `La <strong>línea azul clara continua</strong> (con borde oscuro) es lo que le queda hasta ${esc(v.destination ?? 'su destino')}${how}. `;
-  const ahead = (v.shape && v.end) || v.ahead ? aheadText('') : '';
+  const ahead = onRoute || v.ahead ? aheadText('') : '';
   const note = !v.estimated
     ? `${ahead}La <strong>línea azul discontinua</strong> es el recorrido de este tren en los últimos 45 min (desde que el radar lo sigue). `
       + 'La × sólo cierra esta ficha; pulsa en una zona vacía del mapa para quitar el recorrido y «Ver todo» para volver a verlo todo.'
@@ -811,7 +1011,7 @@ function vehicleDetail(v) {
           + 'es el tramo que habría recorrido en los últimos 45 min según el horario.')
       + (v.ahead ? ` ${aheadText(', según el horario').trim()}` : '');
   const badge = v.estimated ? '<div class="est-badge">Posición estimada · no es GPS</div>' : '';
-  return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>
+  return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
     <div class="note">${note}</div></div>`;
 }
 
@@ -867,23 +1067,36 @@ function burntAreaDetail(p) {
     ['Fuente', 'Copernicus EFFIS'],
   ].filter((r) => r && r[1]);
   return `<div class="pop"><h3>Área quemada${place ? ` en ${esc(place)}` : ''}</h3>
-    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>
+    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
     <div class="note">Perímetro estimado por satélite por el sistema europeo de incendios forestales (EFFIS), no es un
     dato oficial de extinción. <a href="https://forest-fire.emergency.copernicus.eu/apps/effis.csv/" target="_blank" rel="noopener">Ver en EFFIS</a></div></div>`;
 }
 
 const fmtArea = (ha) => new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(Number(ha));
 
-function eventDetail(e) {
+// Los avisos oficiales no traen coordenadas: se sitúan en el centro de lo que nombran.
+const APPROX_LABEL = {
+  isla: 'aproximada: el centro de la isla',
+  municipio: 'aproximada: el centro de la localidad (Obra derivada de CartoCiudad 2026 CC-BY 4.0 scne.es)',
+  provincia: 'aproximada: el centro de la provincia',
+  comunidad: 'aproximada: el aviso no dice el lugar exacto (centro de la comunidad)',
+};
+
+/** @param {object} e  @param {object[]} [others] otros avisos oficiales del mismo sitio */
+function eventDetail(e, others = []) {
   const rows = [
     ['Gravedad', SEVERITY_LABEL[e.severity] ?? e.severity],
     e.issued && ['Emitido', fmtDateTime(e.issued)],
     e.start && ['Inicio', fmtDateTime(e.start)],
     e.end && ['Fin previsto', fmtDateTime(e.end)],
-    ['Fuente', e.source],
+    e.area && ['Lugar', e.area],
+    e.approx && ['Ubicación', APPROX_LABEL[e.approx] ?? 'aproximada'],
+    ...sourceRows(e.source),
   ].filter(Boolean);
   const url = safeUrl(e.url);
   const link = url ? `<div class="note"><a href="${esc(url)}" target="_blank" rel="noopener">Ficha oficial</a></div>` : '';
+  const more = others.length ? `<h4>Otros avisos oficiales en ${esc(e.area)}</h4><ul class="st-list">${others
+    .map((o) => `<li><button type="button" class="link" data-event="${esc(o.id)}">${o.power ? 'Corte de luz: ' : ''}${esc(o.title)}</button></li>`).join('')}</ul>` : '';
   return `<div class="pop"><h3>${esc(e.title)}</h3>${e.description ? `<p>${esc(e.description)}</p>` : ''}
-    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>${link}</div>`;
+    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>${link}${more}</div>`;
 }

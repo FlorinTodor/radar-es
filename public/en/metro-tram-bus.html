@@ -54,7 +54,7 @@
       networks across Spain that publish their data openly, with the route of each line.</p>
 
     <h2>GPS or estimated position</h2>
-    <p>Few operators publish the real position of their vehicles. When they do, the map shows it as is. When they
+    <p>Few operators publish the real position of their vehicles. When they do, the map uses that position. When they
       only publish timetables, Radar España works out where each vehicle should be and draws it as a
       <strong>hollow marker</strong> labelled «estimada», so it is never mistaken for GPS. If the operator also
       publishes its delays, the estimate takes them into account.</p>
@@ -78,13 +78,18 @@
     <p>Madrid Metro is not shown for now because the timetable it had published on the National Access Point has
       expired.</p>
 
+    <h2>Route of each vehicle</h2>
+    <p>When you tap a metro or a tram, the map draws what is left of its trip along its line, and the stretch it has
+      covered in the last 45 minutes: for estimated positions, the one the timetable says; for Metro Bilbao, its positions
+      as they arrive. Buses without a published route stay at the last stop they have passed.</p>
+
     <h2>Buses</h2>
     <p>Buses have their own layer: turn it on in the <strong>Capas</strong> (layers) panel of the map.</p>
     <ul>
       <li><strong>Real time (GPS):</strong> AUVASA (Valladolid), EMT Málaga, EMT Fuenlabrada, Autobuses La Unión and
         the Basque buses published by Open Data Euskadi, such as Bilbobus.</li>
       <li><strong>With their real delay:</strong> Barcelona's metropolitan buses (AMB).</li>
-      <li><strong>Timetable-based position:</strong> ALSA and about 70 other companies and administrations, including
+      <li><strong>Timetable-based position:</strong> ALSA and 83 timetables from companies and administrations, including
         TMB (Barcelona), EMT València, TUSSAM (Seville), EMT Palma, Guaguas Municipales (Las Palmas), TITSA
         (Tenerife), Aucorsa (Córdoba), Tranvías de A Coruña, Villavesas (Pamplona), the city buses of Granada, Lleida,
         Tarragona, Girona and Castelló, Avanza, Sagalés, Moventis, Vectalia, AISA, Unauto and the regional buses of

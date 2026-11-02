@@ -21,6 +21,29 @@ test('separa los trenes parados en la estación de los que van hacia ella, por h
   assert.deepEqual(b.arriving.map((v) => v.id), ['pronto', 'tarde']);
 });
 
+test('estación de otra red: sus líneas, las demás como conexiones, sin avisos de Renfe y nombres sin mayúsculas', () => {
+  const pinar = { code: 'mlm:par_10_1', name: 'Pinar de Chamartin', lat: 40.4801, lon: -3.6667, network: 'Metro Ligero y Tranvía de Madrid',
+    lines: [{ line: 'ML1', color: '#3a7ac0', mode: 'tranvia' }] };
+  const vehicles = [
+    { id: 'ml', mode: 'tranvia', next: 'PINAR DE CHAMARTIN', nextInMinutes: 3, lat: 40.475, lon: -3.665 },
+    { id: 'parado', mode: 'tranvia', stopped: true, current: 'Pinar de Chamartín', lat: 40.4801, lon: -3.6667 },
+  ];
+  const lines = [
+    linea('ML1', [[-3.6667, 40.4801], [-3.66, 40.47]], 'Metro Ligero y Tranvía de Madrid'),
+    linea('C4', [[-3.6668, 40.4802], [-3.67, 40.49]]),
+  ];
+  const events = [{ id: 'aviso', category: 'ferroviario', lat: 40.4801, lon: -3.6667 }];
+  const b = stationBoard(pinar, { vehicles, events, lines });
+  assert.deepEqual(b.arriving.map((v) => v.id), ['ml'], '«PINAR DE CHAMARTIN» del horario es la misma estación');
+  assert.deepEqual(b.stopped.map((v) => v.id), ['parado']);
+  assert.deepEqual(b.lines.map((l) => l.line), ['ML1']);
+  assert.deepEqual(b.connections.map((l) => l.line), ['C4'], 'Cercanías a un paseo es una conexión');
+  assert.deepEqual(b.notices, []);
+  // Antes de que llegue su ficha (sin lines): las de su red que pasan por ahí.
+  const { lines: _, ...basic } = pinar;
+  assert.deepEqual(stationBoard(basic, { vehicles: [], events: [], lines }).lines.map((l) => l.line), ['ML1']);
+});
+
 test('los avisos de Renfe son los de su estación', () => {
   const events = [
     { id: 'a', category: 'ferroviario', lat: 43.3664, lon: -5.8549, description: 'Ascensor fuera de servicio' },

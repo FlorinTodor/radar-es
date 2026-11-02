@@ -42,6 +42,12 @@ test('un tren parado en plena vía más de 8 min genera alerta', () => {
   assert.equal(alerts[0].severity, 'media');
 });
 
+test('«parado» en una estación lejos de su posición (posición no al día): no es un tren detenido en plena vía', () => {
+  const v = train('a', 38.0, -4.5, { farFromStop: 6.3, stopped: true });
+  const alerts = stoppedOutsideStation(ctx({ vehicles: [v], tracks: stationary([v], 25) }));
+  assert.deepEqual(alerts, []);
+});
+
 test('un tren parado en una estación no genera alerta', () => {
   const v = train('a', 38.0, -4.5);
   const alerts = stoppedOutsideStation(ctx({ vehicles: [v], tracks: stationary([v], 30), nearestStation: atStation }));

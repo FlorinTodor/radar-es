@@ -46,6 +46,36 @@ test('el memo guarda como mucho `max` variantes y descarta la más antigua', () 
   assert.equal(calls, 4, '«a» se había descartado');
 });
 
+test('las copias caducadas se tiran al calcular otra: una variante que nadie pide no ocupa memoria', () => {
+  let t = 0;
+  let calls = 0;
+  const memo = createJsonMemo({ now: () => t });
+  const compute = () => ({ n: ++calls });
+  memo('vieja', 1_000, compute);
+  const otra = memo('otra', 60_000, compute);
+  t = 5_000;
+  memo('nueva', 1_000, compute); // al calcular «nueva», «vieja» (caducada) se tira; «otra» sigue
+  assert.equal(memo('otra', 60_000, compute), otra);
+  memo('vieja', 1_000, compute);
+  assert.equal(calls, 4, '«vieja» se ha vuelto a calcular');
+});
+
+test('el memo nunca guarda más de `maxBytes` entre todas las variantes', () => {
+  let calls = 0;
+  const memo = createJsonMemo({ maxBytes: 2_500, now: () => 0 });
+  const big = () => ({ n: ++calls, data: 'x'.repeat(1_000) }); // ~1 KB de JSON (y poco gzip)
+  memo('a', 60_000, big);
+  memo('b', 60_000, big);
+  memo('c', 60_000, big); // no caben las tres: se descarta «a», la más antigua
+  memo('c', 60_000, big);
+  memo('b', 60_000, big);
+  assert.equal(calls, 3, '«b» y «c» siguen guardadas');
+  memo('a', 60_000, big);
+  assert.equal(calls, 4, '«a» se había descartado');
+  const huge = memo('enorme', 60_000, () => ({ data: 'y'.repeat(10_000) }));
+  assert.equal(memo('enorme', 60_000, () => { throw new Error('no debería recalcular'); }), huge, 'una sola más grande que el tope se guarda igual');
+});
+
 test('un catálogo vacío (aún cargando) sólo se guarda unos segundos', () => {
   let t = 0;
   let features = [];
@@ -87,9 +117,11 @@ before(async () => {
     vehicles: (filter) => { calls.vehicles.push(filter); return []; },
     events: (filter) => { calls.events.push(filter.category); return []; },
   };
+  // Reloj fijo: el memo no caduca ni el presupuesto recupera fichas mientras corre el test, vaya
+  // la máquina lo rápido que vaya (en el VPS, construyendo la imagen, 20 peticiones tardan lo suyo).
   server = createHttpServer({
     query, log: { error() {}, info() {}, warn() {} },
-    publicDir: '/nonexistent', vendorDirs: {}, about: {},
+    publicDir: '/nonexistent', vendorDirs: {}, about: {}, now: () => 0,
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${server.address().port}`;
@@ -107,9 +139,9 @@ test('/api/lines se calcula una sola vez aunque lo pidan muchos, con caché púb
   assert.equal(again.status, 304);
 });
 
-test('/api/trails acota los minutos y no crea una variante por cada valor raro', async () => {
-  for (const min of ['15', 'abc', '-3', '9999', '15.4']) await fetch(`${base}/api/trails?min=${min}`);
-  assert.deepEqual(calls.trails, [15, 1, 45], '15, abc→15 (misma variante), -3→1, 9999→45, 15.4→15 (misma variante)');
+test('/api/trails sólo tiene tres variantes: 15, 30 y 45 minutos', async () => {
+  for (const min of ['15', 'abc', '-3', '15.4', '20', '30', '9999', '44']) await fetch(`${base}/api/trails?min=${min}`);
+  assert.deepEqual(calls.trails, [15, 30, 45], '15, abc, -3 y 15.4 → 15; 20 y 30 → 30; 9999 y 44 → 45');
 });
 
 test('/api/vehicles acota sus filtros: los valores raros comparten variante', async () => {
@@ -148,7 +180,7 @@ test('pedir muchas variantes distintas a la vez da 503 en vez de calcularlas tod
       assert.equal(res.headers.get('cache-control'), 'no-store');
     }
   }
-  assert.ok(calls.events.length <= 11, `calculadas ${calls.events.length}`);
+  assert.ok(calls.events.length <= 10, `calculadas ${calls.events.length}: la ráfaga es de 10`);
   assert.ok(statuses.includes(503));
   assert.equal((await fetch(`${base}/api/events?category=c0`)).status, 200, 'una variante ya calculada se sirve igual');
 });

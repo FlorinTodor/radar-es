@@ -1,14 +1,14 @@
-// Adaptador de entrada HTTP: API REST, stream SSE en tiempo real y ficheros estáticos.
-// Sólo habla con casos de uso (query, watchSituation, serveTiles): no conoce los puertos de salida
-// ni las fuentes.
+// Adaptador de entrada HTTP: API REST, teselas y ficheros estáticos. La web consulta el directo
+// (/api/live) cada pocos segundos. Sólo habla con casos de uso (query, serveTiles) y, para saber si
+// lo que se pide tiene sentido, con las reglas puras del dominio: no conoce los puertos de salida ni las fuentes.
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream';
 import { extname, join, resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
-import { createConnectionLimiter } from './connection-limiter.js';
+import { isStationCode } from '../../../domain/model.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -18,19 +18,15 @@ const MIME = {
   '.jpg': 'image/jpeg', '.webp': 'image/webp',
 };
 
-const SSE_HEARTBEAT_MS = 25_000;
-// El estado de las fuentes (decenas, con sus licencias) cambia con cada lectura: se agrupa y se envía
-// como mucho cada 15 s por conexión, en vez de en cada actualización.
-const SSE_HEALTH_EVERY_MS = 15_000;
-
 /**
  * @param {{ query: ReturnType<typeof import('../../../application/use-cases/query-situation.js').makeQuerySituation>,
- *           watchSituation?: ReturnType<typeof import('../../../application/use-cases/watch-situation.js').makeWatchSituation>,
  *           serveTiles?: ReturnType<typeof import('../../../application/use-cases/serve-tiles.js').makeServeTiles>,
  *           log: import('../../../application/ports.js').LoggerPort,
- *           publicDir: string, vendorDirs: Record<string, string>, about?: object }} deps
+ *           publicDir: string, vendorDirs: Record<string, string>, about?: object, now?: () => number }} deps
+ *   now: reloj de los memos y de los presupuestos de cálculo (los tests lo fijan: no pueden depender de
+ *   lo rápida que sea la máquina).
  */
-export function createHttpServer({ query, watchSituation, serveTiles, log, publicDir, vendorDirs, about = {} }) {
+export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs, about = {}, now = Date.now }) {
   // Todas las respuestas JSON se calculan, comprimen y firman (ETag) como mucho una vez cada `ttl`,
   // así que pedirlas mil veces cuesta lo mismo que pedirlas una. Sin esto, /api/lines (1 MB)
   // saturaba un núcleo con unas 20 peticiones por segundo. `key` separa las variantes por parámetros.
@@ -49,7 +45,8 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
     // Vacíos mientras el servidor los carga al arrancar: entonces no se guardan (ver isEmpty).
     '/api/stations': { fn: () => query.stations(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.length },
     '/api/lines': { fn: () => query.lines(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.features?.length },
-    '/api/trails': { fn: (p) => query.trails(trailMinutes(p)), key: trailMinutes, ttl: 15_000, cache: REVALIDATE },
+    // Tres variantes (15, 30 y 45 min): van al memo general, sin presupuesto, como una ruta sin parámetros.
+    '/api/trails': { fn: (p) => query.trails(trailMinutes(p)), key: trailMinutes, few: true, ttl: 15_000, cache: REVALIDATE },
     '/api/snapshot': { fn: () => query.snapshot(), ttl: 5_000, cache: REVALIDATE },
     '/api/vehicles': { fn: (p) => query.vehicles(vehicleFilter(p)), key: (p) => JSON.stringify(vehicleFilter(p)), ttl: 5_000, cache: REVALIDATE },
     '/api/events': { fn: (p) => query.events({ category: idParam(p, 'category') }), key: (p) => idParam(p, 'category') ?? '', ttl: 15_000, cache: REVALIDATE },
@@ -57,20 +54,31 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
     '/api/kpis': { fn: () => query.kpis(), ttl: 5_000, cache: REVALIDATE },
     '/api/metrics': { fn: () => query.metrics(), ttl: 5_000, cache: REVALIDATE },
     '/api/about': { fn: () => about, ttl: 60_000, cache: REVALIDATE },
+    // De dónde sale cada trazado, con su fecha de actualización (la piden su licencia; la enseñan
+    // /legal y la pestaña Fuentes). Aparte de /api/lines, que pesa 1 MB. Mientras falte alguna fecha
+    // cuenta como vacía: ni el navegador ni Cloudflare la guardan una hora sin ella.
+    '/api/lines/sources': { fn: () => query.lineSources(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.length || b.some((s) => s.updated === null) },
   };
-  const memo = createJsonMemo();
+  const memo = createJsonMemo({ now });
   // Las rutas con parámetros tienen memo y presupuesto propios: quien pide variantes sin fin no
   // expulsa del memo a /api/lines ni a /api/live, y no puede forzar más de unos pocos cálculos
   // por segundo (sin esto, /api/vehicles?minDelay=<cada vez otro> costaba ~36 ms de CPU por
   // petición: un núcleo saturado con 28 peticiones por segundo).
-  const memoParams = createJsonMemo({ max: 100 });
-  const budgets = new Map(Object.keys(routes).filter((path) => routes[path].key).map((path) => [path, createBudget()]));
+  // Una variante de /api/vehicles pesa unos 3 MB entre JSON y gzip: con el tope de bytes, por muchas
+  // que se pidan nunca ocupan más de PARAMS_MEMO_BYTES (el montón de Node es de unos 500 MB).
+  const memoParams = createJsonMemo({ max: 100, maxBytes: PARAMS_MEMO_BYTES, now });
+  const budgets = new Map(Object.keys(routes).filter((path) => routes[path].key && !routes[path].few).map((path) => [path, createBudget({ now })]));
+  // Recorrido y lo que le queda de cada vehículo (/api/tracks/<id>, /api/ahead/<id>). Cada uno puede
+  // costar un cálculo por la vía o por las paradas, y hay cientos de vehículos: memo propio, que guarda
+  // todos los que se miran a la vez, y un presupuesto que sólo se gasta al calcular. Quien pide otra vez
+  // el mismo vehículo antes de TRAIN_TTL_MS recibe la copia, sin gastar nada.
+  const memoTrains = createJsonMemo({ max: TRAIN_MEMO_MAX, maxBytes: TRAIN_MEMO_BYTES, now });
+  const trainBudget = createBudget({ perSecond: TRAIN_BUDGET.perSecond, burst: TRAIN_BUDGET.burst, now });
 
   const security = Object.entries(securityHeaders(about));
-  // El directo SSE sólo lo usan ya las pestañas abiertas antes del cambio a consultas periódicas:
-  // con 300 hay de sobra, y cada conexión abierta es trabajo en cada actualización.
-  const streams = createConnectionLimiter({ maxTotal: 300 });
-  const frames = new WeakMap(); // datos → mensaje SSE ya serializado (todos reciben el mismo objeto)
+  // El aviso legal lleva el titular y el contacto (de .env) en el propio HTML: la LSSI pide que estén
+  // siempre a la vista, también sin JavaScript. Las demás páginas se sirven tal cual.
+  const fillAbout = aboutFiller(about);
   // Dominio canónico (PUBLIC_URL): www.<dominio> redirige a él para que los buscadores no vean dos
   // webs iguales. Sólo esa variante: localhost, la IP y el chequeo de salud siguen igual.
   const canonical = about.publicUrl ? new URL(about.publicUrl) : null;
@@ -90,25 +98,21 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
       // sin nadie que lo recoja, Node cerraría el proceso entero.
       if (url.pathname.startsWith('/tiles/')) return await sendTile(res, url.pathname);
       if (url.pathname === '/api/burnt-areas') return await sendBurntAreas(res, url.searchParams.get('bbox'));
-      // El directo antiguo (SSE) se mantiene para las pestañas que se abrieron antes del cambio.
-      if (url.pathname === '/api/stream') return stream(req, res, url.searchParams.get('buses') === '1');
       // Ficha completa de una estación: una búsqueda en memoria, sin cálculo que acotar.
       if (url.pathname.startsWith('/api/stations/')) {
-        const code = url.pathname.slice('/api/stations/'.length);
-        const station = /^\d{5}$/.test(code) ? query.station(code) : null;
+        const code = decodeOrNull(url.pathname.slice('/api/stations/'.length));
+        const station = isStationCode(code) ? query.station(code) : null;
         return station ? sendJson(req, res, 200, station, CATALOG_CACHE) : send(res, 404, { error: 'Estación no encontrada' });
       }
       if (url.pathname.startsWith('/api/ahead/')) {
         const id = decodeOrNull(url.pathname.slice('/api/ahead/'.length));
-        if (id === null) return send(res, 400, { error: 'Ruta inválida' });
-        const ahead = query.ahead?.(id);
-        return ahead ? sendJson(req, res, 200, ahead) : send(res, 404, { error: 'Sin recorrido previsto' });
+        if (id === null || id.length > MAX_VEHICLE_ID) return send(res, 400, { error: 'Ruta inválida' });
+        return sendTrain(req, res, `ahead:${id}`, () => query.ahead(id) ?? null, 'Sin recorrido previsto');
       }
       if (url.pathname.startsWith('/api/tracks/')) {
         const id = decodeOrNull(url.pathname.slice('/api/tracks/'.length));
-        if (id === null) return send(res, 400, { error: 'Ruta inválida' });
-        const track = query.track(id);
-        return track ? sendJson(req, res, 200, track) : send(res, 404, { error: 'Vehículo sin historial' });
+        if (id === null || id.length > MAX_VEHICLE_ID) return send(res, 400, { error: 'Ruta inválida' });
+        return sendTrain(req, res, `track:${id}`, () => query.track(id) ?? null, 'Vehículo sin historial');
       }
       if (url.pathname.startsWith('/api/')) return send(res, 404, { error: 'Ruta no encontrada' });
 
@@ -122,6 +126,7 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
       const isPage = !extname(url.pathname);
       // /404 no es una página propia: sirve la de error con su estado 404.
       const file = url.pathname === '/' ? 'index.html' : isPage && url.pathname !== '/404' ? `${url.pathname}.html` : url.pathname;
+      if (file === '/legal.html' && fillAbout) return await serveFilledPage(req, res, join(publicDir, 'legal.html'), fillAbout);
       return await serveFile(req, res, publicDir, file, OWN_CACHE, isPage ? join(publicDir, '404.html') : null);
     } catch (err) {
       log.error(`[http] ${err.stack ?? err.message}`);
@@ -134,6 +139,7 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
     const route = routes[path];
     let entry;
     if (!route.key) entry = memo(path, route.ttl, () => route.fn(params), route);
+    else if (route.few) entry = memo(`${path}?${route.key(params)}`, route.ttl, () => route.fn(params), route);
     else {
       const compute = () => {
         if (!budgets.get(path).take()) throw new Busy();
@@ -162,6 +168,37 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
     res.end(req.method === 'HEAD' ? undefined : zipped ? gz : json);
   }
 
+  /**
+   * Recorrido o lo que le queda de un vehículo, desde su memo (ver memoTrains). Si hay que calcularlo y
+   * se ha gastado el presupuesto, 503 con Retry-After: el mapa vuelve a pedirlo solo. Sin datos, 404.
+   */
+  function sendTrain(req, res, key, compute, missing) {
+    let entry;
+    try {
+      entry = memoTrains(key, TRAIN_TTL_MS, () => {
+        if (!trainBudget.take()) throw new Busy();
+        const body = compute();
+        // Un id que no es de ningún vehículo no cuesta nada: pedir ids inventados no gasta el presupuesto.
+        if (body === null) trainBudget.refund();
+        return body;
+      }, { isEmpty: (body) => body === null });
+    } catch (err) {
+      if (!(err instanceof Busy)) throw err;
+      res.setHeader('Retry-After', '2');
+      res.setHeader('Cache-Control', 'no-store');
+      return send(res, 503, { error: 'Demasiados recorridos a la vez; prueba dentro de un momento' });
+    }
+    if (entry.empty) return send(res, 404, { error: missing });
+    const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': TRAIN_CACHE, ETag: entry.etag, Vary: 'Accept-Encoding' };
+    if (req.headers['if-none-match'] === entry.etag) {
+      res.writeHead(304, headers);
+      return res.end();
+    }
+    const zipped = /\bgzip\b/.test(req.headers['accept-encoding'] ?? '');
+    res.writeHead(200, { ...headers, ...(zipped && { 'Content-Encoding': 'gzip' }), 'Content-Length': (zipped ? entry.gz : entry.json).length });
+    res.end(req.method === 'HEAD' ? undefined : zipped ? entry.gz : entry.json);
+  }
+
   /** /tiles/<capa>/<z>/<x>/<y>.png → tesela de IGN o EFFIS (con copia en disco). */
   async function sendTile(res, path) {
     const m = /^\/tiles\/([a-z-]+)\/(\d{1,2})\/(\d{1,7})\/(\d{1,7})\.png$/.exec(path);
@@ -176,8 +213,17 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
     res.end(tile.png);
   }
 
+  // Cada caja de áreas quemadas que no está en la caché de Cloudflare es una consulta a EFFIS: como
+  // mucho unas pocas por segundo, para no cargarles y que una ráfaga no deje esperando a las demás.
+  const burntBudget = createBudget({ perSecond: 2, burst: 10, now });
+
   /** Áreas quemadas en una caja lon/lat pequeña (lo que hay bajo un clic en el mapa). */
   async function sendBurntAreas(res, bboxParam) {
+    if (!burntBudget.take()) {
+      res.setHeader('Retry-After', '5');
+      res.setHeader('Cache-Control', 'no-store');
+      return send(res, 429, { error: 'Demasiadas consultas de áreas quemadas; prueba en unos segundos' });
+    }
     let geojson;
     try {
       geojson = serveTiles ? await serveTiles.burntAreas((bboxParam ?? '').split(',').map(Number)) : null;
@@ -189,65 +235,33 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
     return send(res, 200, geojson);
   }
 
-  /** @param {boolean} buses  El cliente tiene activada la capa de autobuses. */
-  function stream(req, res, buses) {
-    // Detrás del túnel todas las conexiones vienen de cloudflared (127.0.0.1); la IP real la pone
-    // Cloudflare. Es fiable porque el puerto sólo escucha en local y no se puede llegar saltándose el túnel.
-    const release = streams.acquire(req.headers['cf-connecting-ip'] ?? req.socket.remoteAddress);
-    if (!release) {
-      res.setHeader('Retry-After', '30');
-      return send(res, 429, { error: 'Demasiadas conexiones en directo; prueba dentro de un momento' });
-    }
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    });
-    const emit = (event, data) => {
-      let frame = frames.get(data);
-      if (!frame) frames.set(data, (frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
-      res.write(frame);
-    };
-    // La foto inicial (~700 KB) y el estado de las fuentes salen del memo: abrir muchas conexiones
-    // seguidas no los vuelve a serializar cada vez.
-    const emitJson = (event, { json }) => {
-      res.write(`event: ${event}\ndata: `);
-      res.write(json);
-      res.write('\n\n');
-    };
-    emitJson('snapshot', memo(`stream:snapshot:${buses}`, 5_000, () => query.snapshot({ buses })));
-
-    let healthTimer = null;
-    const emitHealthSoon = () => {
-      healthTimer ??= setTimeout(() => {
-        healthTimer = null;
-        emitJson('health', memo('stream:health', 5_000, () => query.health()));
-      }, SSE_HEALTH_EVERY_MS);
-    };
-    const unwatch = watchSituation({ buses }, {
-      onSource: (payload) => emit('source', payload),
-      onHealthChange: emitHealthSoon,
-      onAlerts: (payload) => emit('alerts', payload),
-    });
-    const heartbeat = setInterval(() => res.write(': ping\n\n'), SSE_HEARTBEAT_MS);
-    req.on('close', () => {
-      clearInterval(heartbeat);
-      clearTimeout(healthTimer);
-      unwatch();
-      release();
-    });
-  }
-
   return server;
 }
 
 const REVALIDATE = 'no-cache'; // el navegador guarda la copia y pregunta con el ETag (304 si no cambió)
+// Recorrido y lo que le queda de un vehículo: cambian con cada posición (cada 20-30 s). Se reutilizan
+// unos segundos en el servidor, en Cloudflare y en el navegador, para que muchos mirando el mismo tren
+// no cuesten más que uno.
+const TRAIN_TTL_MS = 10_000;
+const TRAIN_CACHE = 'public, max-age=5, s-maxage=15';
+const TRAIN_MEMO_MAX = 2_000; // más que todos los vehículos que puede haber a la vez con recorrido
+const TRAIN_MEMO_BYTES = 32 * 1024 * 1024;
+const PARAMS_MEMO_BYTES = 48 * 1024 * 1024;
+const TRAIN_BUDGET = { perSecond: 4, burst: 20 };
+// Los ids de vehículo llevan el trip_id de su operador (los más largos, unos 80 caracteres). Más de esto
+// no es un vehículo: así nadie llena el memo con claves enormes.
+const MAX_VEHICLE_ID = 256;
 const CATALOG_CACHE = 'public, max-age=600, s-maxage=3600';
 /** Directo: Cloudflare lo guarda `edge` s y, si el servidor no responde, sirve la última copia 15 min. */
 const liveCache = (edge) => `public, max-age=0, s-maxage=${edge}, stale-while-revalidate=${edge * 3}, stale-if-error=900`;
-/** Minutos de estela pedidos (1-45; 15 por defecto). Entero, para que no haya infinitas variantes. */
-const trailMinutes = (p) => Math.max(1, Math.min(Math.round(Number(p.get('min'))) || 15, 45));
+/**
+ * Minutos de estela pedidos: 15 (por defecto, lo que pide la web), 30 o 45. Sólo tres variantes: cada
+ * una es una estela de todos los trenes, y con un valor por minuto serían 45 copias en memoria.
+ */
+const trailMinutes = (p) => {
+  const min = Math.round(Number(p.get('min')));
+  return !(min > 15) ? 15 : min <= 30 ? 30 : 45;
+};
 /**
  * Filtros de /api/vehicles y /api/events, acotados para que no haya infinitas variantes caras:
  * el retraso mínimo, entero entre -1 (todos) y 1440 minutos; los identificadores (tipo, fuente,
@@ -271,7 +285,7 @@ class Busy extends Error {}
 
 /**
  * Presupuesto de cálculos (cubo de fichas): `perSecond` de media y ráfagas de hasta `burst`.
- * `take()` gasta una ficha y dice si había.
+ * `take()` gasta una ficha y dice si había; `refund()` devuelve la última si al final no hubo cálculo.
  */
 export function createBudget({ perSecond = 5, burst = 10, now = Date.now } = {}) {
   let tokens = burst;
@@ -285,30 +299,46 @@ export function createBudget({ perSecond = 5, burst = 10, now = Date.now } = {})
       tokens--;
       return true;
     },
+    refund() {
+      tokens = Math.min(burst, tokens + 1);
+    },
   };
 }
 
 /**
  * Memo de respuestas JSON ya serializadas, comprimidas y firmadas: `get(clave, ttl, calcular)`
  * sólo vuelve a calcular cuando la copia tiene más de `ttl` ms. Como quien llama elige los
- * parámetros (y con ellos las claves), guarda como mucho `max` variantes: al pasar del tope se
- * descarta la más antigua. Con `stableEtag`, la firma no cuenta el campo `generatedAt`.
+ * parámetros (y con ellos las claves), guarda como mucho `max` variantes y `maxBytes` entre todas
+ * (JSON y gzip): al pasar de un tope se descartan las más antiguas. Las copias caducadas se tiran en
+ * cuanto hay que calcular otra: una variante que nadie vuelve a pedir no se queda ocupando memoria.
+ * Con `stableEtag`, la firma no cuenta el campo `generatedAt`.
  */
-export function createJsonMemo({ max = 200, now = Date.now, emptyTtl = 2_000 } = {}) {
+export function createJsonMemo({ max = 200, maxBytes = Infinity, now = Date.now, emptyTtl = 2_000 } = {}) {
   const entries = new Map();
+  let bytes = 0;
+  const drop = (key) => {
+    const e = entries.get(key);
+    if (!e) return;
+    bytes -= e.json.length + e.gz.length;
+    entries.delete(key);
+  };
   return function get(key, ttl, compute, { stableEtag = false, isEmpty } = {}) {
+    const t = now();
     const hit = entries.get(key);
-    if (hit && now() - hit.at < (hit.empty ? emptyTtl : ttl)) return hit;
+    if (hit && t - hit.at < hit.ttl) return hit;
+    for (const [k, e] of entries) if (t - e.at >= e.ttl) drop(k);
     const body = compute();
     const json = Buffer.from(JSON.stringify(body));
     const signed = stableEtag && body?.generatedAt !== undefined ? JSON.stringify({ ...body, generatedAt: undefined }) : json;
+    const empty = Boolean(isEmpty?.(body));
     const entry = {
-      at: now(), json, gz: gzipSync(json), etag: `"${createHash('sha1').update(signed).digest('base64url').slice(0, 20)}"`,
-      empty: Boolean(isEmpty?.(body)),
+      at: now(), ttl: empty ? emptyTtl : ttl, json, gz: gzipSync(json),
+      etag: `"${createHash('sha1').update(signed).digest('base64url').slice(0, 20)}"`, empty,
     };
-    entries.delete(key);
+    drop(key);
     entries.set(key, entry);
-    if (entries.size > max) entries.delete(entries.keys().next().value);
+    bytes += json.length + entry.gz.length;
+    while (entries.size > max || (bytes > maxBytes && entries.size > 1)) drop(entries.keys().next().value);
     return entry;
   };
 }
@@ -401,7 +431,7 @@ const OWN_CACHE = 'no-cache';
 const VENDOR_CACHE = 'public, max-age=86400';
 
 /** ETag débil a partir de tamaño y fecha: cambia en cuanto el fichero cambia. */
-export function fileEtag(info) {
+function fileEtag(info) {
   return `W/"${info.size.toString(16)}-${Math.floor(info.mtimeMs).toString(16)}"`;
 }
 
@@ -414,6 +444,38 @@ function sendStream(res, file) {
   pipeline(createReadStream(file), res, (err) => {
     if (err && !res.destroyed) res.destroy(err);
   });
+}
+
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+/**
+ * Rellena los `<span data-about="owner|contact">` de una página con el titular y el contacto; el
+ * correo, como enlace. null si no hay ninguno de los dos (la página se sirve tal cual).
+ * @param {{ owner?: string | null, contact?: string | null }} about
+ */
+export function aboutFiller({ owner, contact } = {}) {
+  if (!owner && !contact) return null;
+  const value = {
+    owner: owner && escapeHtml(owner),
+    contact: contact && (contact.includes('@') ? `<a href="mailto:${escapeHtml(contact)}">${escapeHtml(contact)}</a>` : escapeHtml(contact)),
+  };
+  const fill = (html) => html.replace(/(<span data-about="(owner|contact)">)[^<]*(<\/span>)/g, (all, open, key, close) => (value[key] ? `${open}${value[key]}${close}` : all));
+  fill.tag = createHash('sha1').update(`${owner}|${contact}`).digest('base64url').slice(0, 8); // para el ETag
+  return fill;
+}
+
+/** Una página que se rellena al servirla: su ETag cuenta el fichero y lo que se le añade. */
+async function serveFilledPage(req, res, file, fill) {
+  const info = await stat(file);
+  const etag = fileEtag(info).replace(/"$/, `-${fill.tag}"`);
+  const headers = { 'Cache-Control': OWN_CACHE, ETag: etag, 'Last-Modified': info.mtime.toUTCString() };
+  if (req.headers['if-none-match'] === etag) {
+    res.writeHead(304, headers);
+    return res.end();
+  }
+  const body = Buffer.from(fill(await readFile(file, 'utf8')));
+  res.writeHead(200, { ...headers, 'Content-Type': MIME['.html'], 'Content-Length': body.length });
+  res.end(req.method === 'HEAD' ? undefined : body);
 }
 
 /** @param {string|null} [notFoundPage]  Página HTML que se sirve con 404 si el fichero no existe. */

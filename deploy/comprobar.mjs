@@ -9,7 +9,7 @@
 const PRUEBAS = process.env.PRUEBAS ?? 'http://127.0.0.1:8081';
 const PRODUCCION = process.env.PRODUCCION ?? 'http://127.0.0.1:8080';
 const ESPERA = Number(process.env.ESPERA ?? 1500) * 1000;
-const VUELTA = 15_000;
+const VUELTA = 5_000;
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 

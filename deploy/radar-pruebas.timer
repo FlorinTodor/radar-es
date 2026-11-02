@@ -1,9 +1,11 @@
 [Unit]
-Description=Radar ES: comprobar cada 2 minutos si hay cambios en dev para el entorno de pruebas
+Description=Radar ES: comprobar cada 30 s si hay cambios en dev para el entorno de pruebas
 
 [Timer]
 OnBootSec=1min
-OnUnitActiveSec=2min
+OnUnitActiveSec=30s
+# Sin esto, systemd puede retrasarlo hasta un minuto para juntarlo con otros temporizadores.
+AccuracySec=1s
 
 [Install]
 WantedBy=timers.target

@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # Monta el entorno de pruebas en un VPS que ya tiene producción (deploy/preparar-vps.sh).
 # Idempotente: se puede relanzar las veces que haga falta.
-#   ssh root@VPS 'bash -s' < deploy/preparar-pruebas.sh
+# Se lanza en el VPS por SSH: bash -s < deploy/preparar-pruebas.sh
 # Clona la rama dev en /opt/radar-pruebas, le da su .env (el de producción sin estadísticas de
 # visitas, con otra imagen y el puerto 8081), añade pruebas.<dominio> al túnel y activa
-# radar-pruebas.timer. El nombre en el DNS y la protección con Cloudflare Access se dan de alta a
-# mano y en ese orden: ver docs/despliegue.md.
+# radar-pruebas.timer. El nombre en el DNS y su protección se dan de alta a mano, en ese orden.
 set -euo pipefail
 
 REPO=FlorinTodor/radar-es

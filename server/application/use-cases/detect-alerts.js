@@ -1,5 +1,5 @@
 // Caso de uso: evaluar las reglas del dominio sobre el estado actual, actualizar las
-// alertas activas, registrar los cambios en el histórico y publicarlos.
+// alertas activas y registrar los cambios en el histórico.
 import { evaluateRules } from '../../domain/alerts/rules.js';
 import { reconcileAlerts, sortAlerts } from '../../domain/alerts/lifecycle.js';
 import { DEFAULT_THRESHOLDS } from '../../domain/alerts/thresholds.js';
@@ -7,14 +7,15 @@ import { computeKpis } from '../../domain/kpis.js';
 import { monitoredVehicles } from '../../domain/model.js';
 
 const KPI_SAMPLE_MS = 60_000;
+// Un día de muestras de minuto en minuto. Es el único tope del histórico: el repositorio guarda las
+// que se le dicen (pushKpiSample) y no tiene otro por defecto.
 const KPI_HISTORY_MAX = 24 * 60;
 
 /**
  * @param {{ situation: import('../ports.js').SituationRepositoryPort, stations: import('../ports.js').StationCatalogPort,
- *           history: import('../ports.js').HistoryPort, publisher: import('../ports.js').EventPublisherPort,
- *           clock: import('../ports.js').ClockPort, thresholds?: object }} deps
+ *           history: import('../ports.js').HistoryPort, clock: import('../ports.js').ClockPort, thresholds?: object }} deps
  */
-export function makeDetectAlerts({ situation, stations, history, publisher, clock, thresholds = DEFAULT_THRESHOLDS }) {
+export function makeDetectAlerts({ situation, stations, history, clock, thresholds = DEFAULT_THRESHOLDS }) {
   let lastSample = 0;
 
   return function detectAlerts() {
@@ -36,7 +37,7 @@ export function makeDetectAlerts({ situation, stations, history, publisher, cloc
       thresholds,
     });
 
-    const { opened, escalated, resolved } = reconcileAlerts(situation.activeAlerts(), candidates, now);
+    const { opened, escalated, resolved } = situation.updateActiveAlerts((active) => reconcileAlerts(active, candidates, now));
     situation.addResolved(resolved);
     for (const a of opened) history.append('alerts', { ...a, event: 'nueva' });
     for (const a of escalated) history.append('alerts', { ...a, event: 'escalada' });
@@ -50,8 +51,6 @@ export function makeDetectAlerts({ situation, stations, history, publisher, cloc
       history.append('kpis', kpis);
     }
 
-    const alerts = sortAlerts(situation.activeAlerts().values());
-    publisher.publish('alerts.updated', { alerts, kpis, changed: opened.length + escalated.length + resolved.length });
-    return { alerts, kpis };
+    return { alerts: sortAlerts(situation.activeAlerts().values()), kpis };
   };
 }

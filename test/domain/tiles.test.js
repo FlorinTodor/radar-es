@@ -1,7 +1,8 @@
 // Qué teselas de IGN y EFFIS se sirven: sólo las que tocan España y hasta el zoom de cada capa.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isServableTile, maxTileCount, SPAIN_BOUNDS, TILE_LAYERS, tileRange } from '../../server/domain/tiles.js';
+import { burntAreaBox, isServableTile, maxTileCount, TILE_LAYERS, tileRange } from '../../server/domain/tiles.js';
+import { SPAIN_BOUNDS } from '../../server/domain/geo.js';
 
 /** Tesela XYZ que contiene un punto (fórmula estándar de las teselas web). */
 function tileAt(lon, lat, z) {
@@ -72,4 +73,13 @@ test('la caché de teselas está acotada: ~1,3 millones de la red ferroviaria y 
   assert.equal(maxTileCount('ign-rail'), 1_317_078);
   assert.equal(maxTileCount('effis'), 83_082);
   assert.equal(maxTileCount('osm'), 0);
+});
+
+test('áreas quemadas: la caja de un clic se amplía a la rejilla de 0,05°, sólo en España y pequeña', () => {
+  assert.deepEqual(burntAreaBox([-3.7234, 40.4167, -3.7201, 40.4189]), [-3.75, 40.4, -3.7, 40.45]);
+  assert.deepEqual(burntAreaBox([-3.7299, 40.4101, -3.7202, 40.4198]), [-3.75, 40.4, -3.7, 40.45], 'dos clics cercanos, la misma caja');
+  assert.deepEqual(burntAreaBox([-4, 38, -3.9, 38.1]), [-4, 38, -3.9, 38.1], 'una caja que ya está en la rejilla no cambia');
+  assert.equal(burntAreaBox([2.35, 48.85, 2.36, 48.86]), null, 'París: fuera de España');
+  assert.equal(burntAreaBox([-4, 38, -3.5, 38.1]), null, 'más grande que lo que hay bajo un clic');
+  for (const bad of [null, 'x', [], [1, 2, 3], [-4, 38, -4.1, 38.1], [-4, Number.NaN, -3.9, 38.1]]) assert.equal(burntAreaBox(bad), null, JSON.stringify(bad));
 });

@@ -1,6 +1,6 @@
 import { createMap } from './map.js';
 import { connect } from './stream.js';
-import { delayClass } from './format.js';
+import { delayClass, esc } from './format.js';
 import * as P from './panels.js';
 import { stationBoard } from './station-board.js';
 
@@ -14,20 +14,25 @@ const state = {
   resolved: [],
   kpis: null,
   health: [],
+  lineSources: [],
   tab: 'alerts',
   search: '',
   selected: new Map(), // 'tipo|id' → { kind, id }: alertas, incidencias y trenes marcados; el mapa muestra sólo eso
   multi: false,         // interruptor "Varias a la vez"
   forced: new Set(),    // 'mode:x' / 'group:y': capas que ha encendido lo marcado; se apagan al quitar la selección
-  stations: new Map(),  // código → estación de Renfe (para su ficha)
+  stations: new Map(),  // código → estación de Renfe o de otra red (para su ficha)
   lines: [],            // trazados de las líneas (para saber qué líneas pasan por cada estación)
 };
 
 const PREFS_KEY = 'radar-es:prefs';
-const prefs = Object.assign(
-  { modes: {}, groups: {}, obras: false, eventCats: ['ferroviario', 'carretera', 'meteo', 'incendio', 'sismo', 'catastrofe'] },
-  readPrefs(),
-);
+const EVENT_CATS = P.EVENT_CATEGORIES.map(([id]) => id);
+const prefs = Object.assign({ modes: {}, groups: {}, obras: false, eventCats: [...EVENT_CATS] }, readPrefs());
+// Las categorías nuevas desde la última visita se ven aunque haya preferencias guardadas de antes
+// (las de quien ya las conocía y las quitó siguen quitadas).
+const knownCats = Array.isArray(prefs.knownCats) ? prefs.knownCats : ['ferroviario', 'carretera', 'meteo', 'incendio', 'sismo', 'catastrofe'];
+if (!Array.isArray(prefs.eventCats)) prefs.eventCats = [...EVENT_CATS];
+for (const c of EVENT_CATS) if (!knownCats.includes(c) && !prefs.eventCats.includes(c)) prefs.eventCats.push(c);
+prefs.knownCats = EVENT_CATS;
 
 function readPrefs() {
   try {
@@ -69,6 +74,8 @@ map.ready.then(async () => {
     const stations = await (await fetch('/api/stations')).json();
     for (const s of stations) state.stations.set(s.code, s);
     map.setStations(stations);
+    const select = document.getElementById('station-network');
+    select.insertAdjacentHTML('beforeend', P.stationNetworks(stations).map(([id, name]) => `<option value="${esc(id)}">${esc(name)}</option>`).join(''));
   } catch { /* sin estaciones no pasa nada */ }
   loadLines();
 });
@@ -79,6 +86,8 @@ async function loadLines(attempt = 0) {
     const lines = await (await fetch('/api/lines')).json();
     if (lines.features?.length) {
       state.lines = lines.features;
+      // De dónde sale cada trazado y su fecha, para la pestaña Fuentes.
+      fetch('/api/lines/sources').then((r) => r.json()).then((list) => { state.lineSources = Array.isArray(list) ? list : []; render('health'); }).catch(() => {});
       return map.setLines(lines);
     }
   } catch { /* reintenta */ }
@@ -161,7 +170,7 @@ function flush() {
     if (state.tab === 'alerts') P.renderAlerts(document.getElementById('panel-alerts'), state.alerts, state.resolved, selection('alert'));
   }
   if (parts.has('kpis') || parts.has('alerts')) P.renderKpis(state.kpis, state.metrics, state.alerts.length);
-  if (parts.has('health') && state.tab === 'sources') P.renderSources(document.getElementById('panel-sources'), state.health);
+  if (parts.has('health') && state.tab === 'sources') P.renderSources(document.getElementById('panel-sources'), state.health, state.lineSources);
   if (state.tab === 'stations' && (parts.has('stations') || parts.has('vehicles'))) renderStationsPanel();
 }
 
@@ -170,10 +179,11 @@ function renderStationsPanel() {
   const trainsByName = new Map();
   for (const v of allVehicles()) {
     const at = v.stopped ? v.current : v.next;
-    if (at) trainsByName.set(at, (trainsByName.get(at) ?? 0) + 1);
+    if (at) trainsByName.set(P.stationKey(at), (trainsByName.get(P.stationKey(at)) ?? 0) + 1);
   }
   const query = document.getElementById('station-search').value;
-  P.renderStations(document.getElementById('stations-list'), P.filterStations([...state.stations.values()], query), query, trainsByName);
+  const network = document.getElementById('station-network').value;
+  P.renderStations(document.getElementById('stations-list'), P.filterStations([...state.stations.values()], query, network), query, trainsByName, network);
 }
 
 /**
@@ -184,11 +194,17 @@ const stationDetails = new Map();
 async function openStation(code, fly = false) {
   const st = state.stations.get(code);
   if (!st) return;
+  // Como con los trenes de las listas: si la capa de estaciones está apagada, se enciende (y se marca
+  // en Capas) para que se vea la estación; vuelve a como estaba al marcar otra cosa o al tocar la casilla.
+  if (!onInPrefs('group:stations') && !state.forced.has('group:stations')) {
+    state.forced.add('group:stations');
+    applyLayerPrefs();
+  }
   map.showStation(stationDetails.get(code) ?? st, boardFor(st));
   if (fly) map.flyTo(st.lon, st.lat, 14);
   if (stationDetails.has(code)) return;
   try {
-    const res = await fetch(`/api/stations/${code}`);
+    const res = await fetch(`/api/stations/${encodeURIComponent(code)}`);
     if (!res.ok) return;
     stationDetails.set(code, await res.json());
     map.refreshStation(stationDetails.get(code), boardFor(st));
@@ -224,7 +240,10 @@ const stream = connect({
     el.dataset.state = s;
     el.querySelector('.txt').textContent = s === 'live' ? 'En directo'
       : s === 'stale' ? `Datos de hace ${Math.round(ageMs / 60_000)} min`
-        : s === 'error' ? 'Sin conexión' : 'Reconectando…';
+        : s === 'updating' ? 'Actualizando…'
+          : s === 'error' ? 'Sin conexión' : 'Reconectando…';
+    // Una actualización del servidor (unos segundos): que nadie se asuste, vuelve solo.
+    document.getElementById('updating').hidden = s !== 'updating';
   },
   live(d) {
     replaceVehicles(false, bySource(d.vehicles));
@@ -249,6 +268,7 @@ const stream = connect({
   },
   health(h) {
     state.health = h;
+    map.setSources(h);
     render('health');
   },
 }, { buses: P.modeOn(prefs, 'bus') });
@@ -495,6 +515,7 @@ document.getElementById('station-search').addEventListener('input', () => {
   clearTimeout(stationTimer);
   stationTimer = setTimeout(renderStationsPanel, 150);
 });
+document.getElementById('station-network').addEventListener('change', renderStationsPanel);
 
 let searchTimer = null;
 document.getElementById('vehicle-search').addEventListener('input', (ev) => {
@@ -570,7 +591,7 @@ if (window.matchMedia('(max-width: 860px)').matches) layersToggle.click();
 // Aviso de datos que faltan: se muestra al entrar hasta que se acepta. Si cambia el texto,
 // sube NOTICE_VERSION para que vuelva a aparecer a todo el mundo.
 const NOTICE_KEY = 'radar-es:aviso-cobertura';
-const NOTICE_VERSION = '2026-10-31';
+const NOTICE_VERSION = '2026-11-02';
 const notice = document.getElementById('notice');
 document.getElementById('open-notice').addEventListener('click', () => notice.showModal());
 notice.addEventListener('close', () => {

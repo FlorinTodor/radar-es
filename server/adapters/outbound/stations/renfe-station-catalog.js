@@ -2,19 +2,22 @@
 // datos: Renfe Operadora"): la lista oficial de estaciones (coordenadas, población) y, para
 // tener los nombres bien escritos, las paradas de sus GTFS de Cercanías y de AV/LD/MD.
 // Los códigos coinciden con los stopId del GTFS-RT. Se refresca una vez al día.
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
+import { writeFileAtomic } from '../http/file-cache.js';
 import { distanceKm } from '../../../domain/geo.js';
 import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
-import { RETIRED_PHOTOS_VERSION, loadStationExtras } from './station-extras.js';
+import { RETIRED_PHOTOS_VERSION, loadStationExtras, padCode, wheelchair } from './station-extras.js';
 
 const REFRESH_MS = 24 * 3600_000;
+// Si algo ha fallado al rehacerlo (Wikidata, Commons, un GTFS), se vuelve a intentar a la hora y no
+// al día siguiente: mientras, se usa lo que sí se ha conseguido.
+const RETRY_MS = 3600_000;
 export const RENFE_FILES = {
   stations: 'https://ssl.renfe.com/ftransit/Fichero_estaciones/estaciones.csv',
   cercanias: 'https://ssl.renfe.com/ftransit/Fichero_CER_FOMENTO/fomento_transit.zip',
   largaDistancia: 'https://ssl.renfe.com/gtransit/Fichero_AV_LD/google_transit.zip',
 };
 
-const padCode = (c) => String(c ?? '').trim().padStart(5, '0');
 const titleCase = (s) => s.toLowerCase().replace(/(^|[\s(/'-])(\p{L})/gu, (_, p, c) => p + c.toUpperCase());
 
 const plainName = (s) => s.normalize('NFD').replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
@@ -54,9 +57,6 @@ export function withExtras(stations, extras) {
   });
 }
 
-/** wheelchair_boarding del GTFS: 1 accesible, 2 no accesible; vacío o 0, sin datos. */
-const wheelchair = (v) => (v === '1' ? true : v === '2' ? false : null);
-
 /** CSV de Renfe: separado por ';', cada campo entre comillas y en Latin-1. */
 function* semicolonRows(bytes) {
   const split = (line) => line.split(';').map((c) => c.trim().replace(/^"|"$/g, ''));
@@ -82,7 +82,7 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
   /** @type {Map<string, import('../../../domain/model.js').Station & { cercanias: boolean }>} */
   const stations = new Map();
 
-  async function download() {
+  async function download(log) {
     // Paradas de los GTFS oficiales: nombres bien escritos y estaciones que faltan en la lista
     // (muchas de Cercanías sólo están ahí).
     const gtfsStops = new Map();
@@ -128,26 +128,48 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
     return withExtras(stations, await loadStationExtras({ cache, log, maxAgeMs: REFRESH_MS, stations }));
   }
 
+  let version = null;
+  let savedAt = 0;
+  let refreshing = null;
+
+  async function refresh() {
+    try {
+      // Cualquier aviso mientras se rehace quiere decir que falta algo (fotos, fichas, nombres).
+      let incomplete = false;
+      const watched = { ...log, warn: (msg) => { incomplete = true; log.warn(msg); } };
+      const list = await download(watched);
+      if (!list.length) throw new Error('lista vacía');
+      // La ficha cita la fuente y la fecha de sus datos, como pide la licencia de Renfe.
+      const source = { credit: 'Origen de los datos: Renfe Operadora', downloaded: new Date().toISOString() };
+      for (const s of list) s.source = source;
+      stations.clear();
+      for (const s of list) stations.set(s.code, s);
+      version = CATALOG_VERSION;
+      savedAt = incomplete ? Date.now() - REFRESH_MS + RETRY_MS : Date.now();
+      await mkdir(cacheDir, { recursive: true });
+      await writeFileAtomic(cacheFile, JSON.stringify({ version, savedAt, stations: list }));
+      log.info(`[estaciones] ${stations.size} estaciones de Renfe (lista oficial + paradas GTFS)`);
+    } catch (err) {
+      log.warn(`[estaciones] no se pudo descargar el catálogo (${err.message}); ${stations.size} en caché`);
+    }
+  }
+
   return {
     async load() {
-      let cached = null;
-      try {
-        cached = JSON.parse(await readFile(cacheFile, 'utf8'));
-        for (const s of cached.stations) stations.set(s.code, s);
-      } catch { /* todavía no hay caché */ }
-      if (cached?.version === CATALOG_VERSION && Date.now() - cached.savedAt < REFRESH_MS) return stations.size;
-
-      try {
-        const list = await download();
-        if (!list.length) throw new Error('lista vacía');
-        stations.clear();
-        for (const s of list) stations.set(s.code, s);
-        await mkdir(cacheDir, { recursive: true });
-        await writeFile(cacheFile, JSON.stringify({ version: CATALOG_VERSION, savedAt: Date.now(), stations: list }));
-        log.info(`[estaciones] ${stations.size} estaciones de Renfe (lista oficial + paradas GTFS)`);
-      } catch (err) {
-        log.warn(`[estaciones] no se pudo descargar el catálogo (${err.message}); ${stations.size} en caché`);
+      if (!stations.size) {
+        try {
+          const cached = JSON.parse(await readFile(cacheFile, 'utf8'));
+          for (const s of cached.stations) stations.set(s.code, s);
+          ({ version = null, savedAt = 0 } = cached);
+        } catch { /* todavía no hay caché */ }
       }
+      if (version === CATALOG_VERSION && Date.now() - savedAt < REFRESH_MS) return stations.size;
+
+      // Recalcular son minutos (Wikidata, las fotos de Commons, las fichas de Renfe) y el servidor
+      // no escucha hasta que hay estaciones: con una copia guardada, aunque sea de otra versión o
+      // de hace días, se arranca con ella y se recalcula detrás. Sólo se espera si no hay ninguna.
+      refreshing ??= refresh().finally(() => { refreshing = null; });
+      if (!stations.size) await refreshing;
       return stations.size;
     },
 
@@ -166,7 +188,7 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
       for (const s of stations.values()) {
         if (Math.abs(s.lat - lat) > dLat || Math.abs(s.lon - lon) > dLat * 1.4) continue;
         const km = distanceKm(lat, lon, s.lat, s.lon);
-        if (km < bestKm) { bestKm = km; best = s; }
+        if (km < bestKm && km <= maxKm) { bestKm = km; best = s; }
       }
       return best ? { station: best, km: bestKm } : null;
     },

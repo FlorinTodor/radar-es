@@ -16,7 +16,12 @@ import { createIgnSismosSource } from './ign-sismos.js';
 import { createAemetAvisosSource } from './aemet-avisos.js';
 import { createFirmsSource } from './firms.js';
 import { createReeSource } from './ree.js';
+import { createEsiosSource } from './esios.js';
 import { createGdacsSource } from './emergencias-extra.js';
+import {
+  createAndaluciaEmergenciasSource, createBalearsPremsaSource, createCanariasAlertasSource, createCatalunaPlansSource,
+  createClmPlansSource, createCyl112Source, createRiojaSosSource,
+} from './emergencias-oficiales.js';
 import { createEmtMadridAlertsSource } from './emt-madrid.js';
 import { busGroupSources } from './autobuses-nap.js';
 
@@ -66,9 +71,15 @@ export function metroBilbao(e, gtfs) {
  * @param {{ http: import('../http/http-client.js').HttpClient, stations: import('../../../application/ports.js').StationCatalogPort,
  *           nap: ReturnType<typeof import('../nap/nap-client.js').createNapClient>,
  *           log: import('../../../application/ports.js').LoggerPort, env: Record<string, string|undefined>,
- *           pool?: import('../workers/cpu-pool.js').CpuPool }} deps  pool: hilos de cálculo (horarios, XML de la DGT).
+ *           geocoder: import('../geo/cartociudad-geocoder.js').Geocoder,
+ *           pool?: import('../workers/cpu-pool.js').CpuPool, xmlPool?: import('../workers/cpu-pool.js').CpuPool }} deps
+ *   pool: hilos de cálculo (horarios). xmlPool: el del XML de la DGT, si es otro (sin hilos de cálculo, uno propio).
  * @returns {import('../../../application/ports.js').DataSourcePort[]}
  */
+const PAUSED = 'En pausa mientras se revisa cómo se leen sus avisos';
+/** Fuente en pausa: se cita, pero no se lee (ver `paused` en DataSourcePort). */
+const paused = (source) => Object.assign(source, { paused: PAUSED });
+
 export function createSources(deps) {
   return [
     // Ferrocarril
@@ -95,7 +106,8 @@ export function createSources(deps) {
       url: `${MOVEUSKADI}/metro_bilbao/gtfsrt_metro_bilbao_vehicle_positions.pb`,
       mode: 'metro',
       operator: 'Metro Bilbao',
-      license: 'Open Data Euskadi · MoveUskadi (CC BY 4.0): posiciones y horario (nombres de estación). Formato adaptado, contenido sin alterar',
+      license: 'Open Data Euskadi · MoveUskadi (CC BY 4.0): posiciones y horario (nombres de estación). Formato adaptado, contenido sin alterar'
+        + ' · trazado: Powered by MITRAMS (dato explotado)',
       line: () => null, // el feed sólo trae routeId "MB"
       staticUrl: `${MOVEUSKADI}/metro_bilbao/gtfs_metro_bilbao.zip`,
       describe: metroBilbao,
@@ -142,7 +154,7 @@ export function createSources(deps) {
       url: 'https://api.control.optibus.co/opendata/v1/gtfs-rt/vehicle-positions?uid=c-5cfcd2d1',
     }),
     // Carreteras
-    createDgtSource(deps),
+    createDgtSource({ ...deps, pool: deps.xmlPool ?? deps.pool }),
     createEmtMadridAlertsSource(deps),
     createSctSource(deps),
     createTraficoEuskadiSource(deps),
@@ -151,6 +163,17 @@ export function createSources(deps) {
     createFirmsSource(deps),
     createIgnSismosSource(deps),
     createGdacsSource(deps),
+    // Avisos oficiales de protección civil y de los 112 (planes activados y cortes de luz). Canarias,
+    // activa; las demás, en pausa mientras se corrige cómo se leen sus avisos (frases que no son un
+    // corte de luz, notas que no son emergencias): para reactivarlas, quitar `paused`.
+    createCanariasAlertasSource(deps),
+    paused(createCatalunaPlansSource(deps)),
+    paused(createAndaluciaEmergenciasSource(deps)),
+    paused(createClmPlansSource(deps)),
+    paused(createRiojaSosSource(deps)),
+    paused(createCyl112Source(deps)),
+    paused(createBalearsPremsaSource(deps)),
     createReeSource(deps),
+    createEsiosSource(deps), // con ESIOS_TOKEN: apagón de una isla, de Ceuta o de Melilla
   ];
 }

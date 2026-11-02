@@ -28,3 +28,15 @@ test('sortAlerts: sin alertas devuelve una lista vacía', () => {
   assert.deepEqual(sortAlerts([]), []);
   assert.deepEqual(sortAlerts(new Map().values()), []);
 });
+
+test('sortAlerts: a igual gravedad, los cortes de luz van primero aunque sean más antiguos', () => {
+  const sorted = sortAlerts([
+    { ...alert('lluvia-nueva', 'alta', T0), type: 'meteo' },
+    { ...alert('corte-la-palma', 'alta', T0 - 3_600_000), type: 'apagon' },
+    { ...alert('lluvia-otra', 'alta', T0 - 60_000), type: 'meteo' },
+    { ...alert('isla-a-cero', 'muy alta', T0 - 7_200_000), type: 'red-electrica' },
+    { ...alert('bloqueo', 'muy alta', T0), type: 'bloqueo' },
+  ]);
+  assert.deepEqual(sorted.map((a) => a.id), ['isla-a-cero', 'bloqueo', 'corte-la-palma', 'lluvia-nueva', 'lluvia-otra'],
+    'la gravedad manda; dentro de cada gravedad, primero los cortes de luz');
+});

@@ -1,6 +1,6 @@
 // Puertos: los contratos que la aplicación necesita del exterior. Los adaptadores
 // (adapters/outbound) los implementan y main.js los inyecta en los casos de uso. Los adaptadores
-// de entrada (HTTP, planificador) no los usan: sólo hablan con casos de uso.
+// de entrada (HTTP, planificador) sólo hablan con casos de uso; de los puertos, sólo usan el registro.
 // JavaScript no tiene interfaces, así que se documentan con JSDoc y se comprueban
 // en el arranque con `assertPort`.
 
@@ -14,13 +14,32 @@
  * @property {string} [license]
  * @property {string} [url]
  * @property {string} [page]                   Ficha pública del conjunto de datos, para enlazarla en vez de `url`.
+ * @property {string} [paused]               Motivo por el que la fuente está en pausa: se registra y se cita en /legal,
+ *                                              pero no se lee (sale como desactivada, con este motivo).
  * @property {string[]} [requires]             Variables de entorno necesarias (claves de API).
+ * @property {Record<string, string>} [operatorLicenses]  Fuentes que agrupan a varios operadores: la atribución
+ *                                              de cada uno, por el `operator` de sus vehículos, para citar sólo la suya.
  * @property {boolean} [cleanPositions]        Su licencia permite modificar los datos: se descartan sus posiciones
  *                                              repetidas o imposibles. Si no, se muestran tal cual.
+ * @property {boolean} [onRailNetwork]         Sus trenes (ids `<id de la fuente>:…`) circulan por la red ferroviaria
+ *                                              general y sus posiciones caen sobre ella: su recorrido reciente se
+ *                                              dibuja por la vía (RailNetworkPort) y no con rectas.
  * @property {() => Promise<import('../domain/model.js').SourceResult>} fetch
  * @property {(vehicleId: string) => number[][]|null|undefined} [path]  Sólo fuentes de posiciones
  *   estimadas: tramo de trazado ([lon, lat]) que el vehículo ha recorrido según su horario, para
  *   dibujarlo por la calle. null = sin trazado; undefined = vehículo desconocido para la fuente.
+ * @property {(vehicleId: string) => number[][]|null|undefined} [ahead]  Sólo fuentes de posiciones estimadas:
+ *   lo que le queda al vehículo hasta su última parada ([lon, lat]), por su trazado o, sin él, uniendo sus
+ *   paradas. null = no se sabe; undefined = vehículo desconocido para la fuente (como en `path`).
+ * @property {string} [shapeNetwork]           Red de NetworkCatalogPort.lines() cuyos trazados (`shape` de cada
+ *                                              vehículo, el shape_id de su GTFS) usan sus viajes.
+ * @property {(vehicleId: string) => number[][]|null} [stopsAhead]  Con shapeNetwork: paradas que le quedan al
+ *   vehículo ([lon, lat], en orden, la última su destino), para dibujar lo que le queda por el trazado de su
+ *   viaje sin salirse de ellas (domain/route-ahead.js). null si no se saben.
+ * @property {(vehicleId: string) => { gauge: 'standard'|'iberian'|null, stops: number[][]|null }|null|undefined} [railTrip]
+ *   Sólo fuentes con onRailNetwork: ancho de vía por el que va el tren (null: cualquiera) y paradas que
+ *   le quedan ([lon, lat], en orden, desde la próxima; null si no se saben), para dibujar por la vía su
+ *   recorrido y lo que le queda hasta su destino. null = viaje desconocido; undefined = tren de otra fuente.
  */
 
 /**
@@ -34,45 +53,75 @@
  */
 
 /**
+ * Trazado de una línea: una Feature GeoJSON de la colección de NetworkCatalogPort.lines().
+ * @typedef {object} NetworkLine
+ * @property {'Feature'} type
+ * @property {{ type: 'LineString', coordinates: number[][] }} geometry  [lon, lat]: el trazado de los viajes con `shapes`.
+ * @property {object} properties
+ * @property {string} properties.network    Red a la que pertenece (la `shapeNetwork` de las fuentes).
+ * @property {string} [properties.line]
+ * @property {string} [properties.color]
+ * @property {import('../domain/model.js').Mode} [properties.mode]
+ * @property {string[]} [properties.shapes]  Trazados (shape_id de su GTFS) que dibuja: los viajes de las fuentes
+ *   con `shapeNetwork` se buscan por «red + shape_id» (el `shape` de cada vehículo).
+ */
+
+/**
  * Red de líneas de metro, tranvía y Cercanías (trazados estáticos para pintar en el mapa).
  * @typedef {object} NetworkCatalogPort
  * @property {() => Promise<number>} load
- * @property {() => { type: 'FeatureCollection', features: object[] }} lines
+ * @property {() => { type: 'FeatureCollection', features: NetworkLine[] }} lines
+ *   Devuelve el MISMO objeto mientras no se recargue (load): query-situation usa su identidad para
+ *   saber si los trazados han cambiado y tirar lo que calculó con los anteriores. Una recarga da otro.
+ * @property {() => Array<{ name: string, credit: string, updated: number | null }>} sources
+ *   De dónde sale el trazado de cada red: la atribución y la fecha de actualización que pide su licencia.
+ */
+
+/**
+ * Red ferroviaria general (tramos de vía en servicio), para dibujar por la vía el recorrido de los
+ * trenes de las fuentes con `onRailNetwork`. Se carga detrás, sin bloquear el arranque: mientras no
+ * está (o si no se pudo descargar), `network()` da null y los recorridos se unen con rectas.
+ * @typedef {object} RailNetworkPort
+ * @property {() => Promise<number>} load  Lee la red (de disco o descargándola) y la prepara; devuelve cuántos tramos tiene.
+ * @property {() => import('../domain/rail-match.js').RailNetwork | null} network
+ *   Devuelve el MISMO objeto mientras no se recargue con otra red: query-situation usa su identidad
+ *   para tirar los recorridos que calculó con la anterior.
  */
 
 /**
  * Estado vivo del sistema (último dato de cada fuente, estelas, alertas, KPIs).
+ * Lo que devuelven las lecturas es sólo para leer. Los recorridos y las alertas activas los cambian
+ * las reglas del dominio, a través de `updateTracks` y `updateActiveAlerts`: el repositorio les da su
+ * estado, las reglas lo actualizan y el repositorio lo guarda. En memoria es el mismo objeto; otro
+ * almacén (Redis, Postgres) lo leería, lo pasaría a la función y guardaría lo que quede.
  * @typedef {object} SituationRepositoryPort
  * @property {(source: DataSourcePort, status: { enabled: boolean, reason?: string }) => void} registerSource
  * @property {(id: string, result: import('../domain/model.js').SourceResult, at: number, ms: number) => void} saveResult
  * @property {(id: string, error: Error, at: number) => void} saveFailure
- * @property {(id: string) => { meta: object, status: object, data: object|null } | undefined} source
  * @property {() => import('../domain/model.js').Vehicle[]} vehicles
  * @property {() => import('../domain/model.js').IncidentEvent[]} events
  * @property {() => Record<string, any>} metrics
- * @property {() => object[]} health
- * @property {() => Map<string, import('../domain/tracking.js').TrackPoint[]>} tracks
- * @property {() => Map<string, import('../domain/model.js').Alert>} activeAlerts
+ * @property {() => import('../domain/model.js').SourceHealth[]} health
+ * @property {() => ReadonlyMap<string, readonly import('../domain/tracking.js').TrackPoint[]>} tracks
+ * @property {<T>(update: (tracks: Map<string, import('../domain/tracking.js').TrackPoint[]>) => T) => T} updateTracks
+ *   Un salto de posición retenido a la espera de la lectura siguiente (domain/tracking.js) va ligado a
+ *   cada recorrido: un almacén que los reconstruya en cada llamada sólo perdería esa espera.
+ * @property {() => ReadonlyMap<string, import('../domain/model.js').Alert>} activeAlerts
+ * @property {<T>(update: (active: Map<string, import('../domain/model.js').Alert>) => T) => T} updateActiveAlerts
  * @property {(alerts: import('../domain/model.js').Alert[]) => void} addResolved
  * @property {() => import('../domain/model.js').Alert[]} resolvedAlerts
  * @property {(kpis: object) => void} setKpis
  * @property {() => object|null} kpis
- * @property {(sample: object) => void} pushKpiSample
- * @property {() => object[]} kpiHistory
+ * @property {(sample: object, max: number) => void} pushKpiSample  max: muestras que se guardan como mucho; lo
+ *   decide quien las toma (detect-alerts), sin otro tope por defecto en el almacén.
+ * @property {() => object[]} kpiHistory  Una copia: cambiarla no cambia el histórico guardado.
  */
 
 /**
  * Registro histórico append-only (alertas, KPIs) para análisis posterior.
  * @typedef {object} HistoryPort
- * @property {(stream: string, row: object) => Promise<void>} append
- */
-
-/**
- * Bus de eventos de aplicación: ingest-source y detect-alerts publican los cambios y
- * watch-situation se suscribe para que el directo (SSE) los empuje.
- * @typedef {object} EventPublisherPort
- * @property {(topic: string, payload?: object) => void} publish
- * @property {(topic: string, handler: (payload: any) => void) => () => void} subscribe
+ * @property {(stream: string, row: object) => Promise<void>} append  Nunca rechaza: si no puede escribir,
+ *   lo registra y sigue (detect-alerts no espera a que termine).
  */
 
 /**
@@ -106,10 +155,13 @@ export function assertPort(name, impl, members) {
 export const PORT_MEMBERS = {
   DataSource: ['id', 'name', 'kind', 'interval', 'fetch'],
   StationCatalog: ['load', 'get', 'name', 'nearest', 'all'],
-  NetworkCatalog: ['load', 'lines'],
-  SituationRepository: ['registerSource', 'saveResult', 'saveFailure', 'source', 'vehicles', 'events', 'metrics', 'health',
-    'tracks', 'activeAlerts', 'addResolved', 'resolvedAlerts', 'setKpis', 'kpis', 'pushKpiSample', 'kpiHistory'],
+  NetworkCatalog: ['load', 'lines', 'sources'],
+  RailNetwork: ['load', 'network'],
+  SituationRepository: ['registerSource', 'saveResult', 'saveFailure', 'vehicles', 'events', 'metrics', 'health',
+    'tracks', 'updateTracks', 'activeAlerts', 'updateActiveAlerts', 'addResolved', 'resolvedAlerts', 'setKpis', 'kpis',
+    'pushKpiSample', 'kpiHistory'],
   History: ['append'],
-  EventPublisher: ['publish', 'subscribe'],
   TileProvider: ['layers', 'cacheControl', 'tile', 'burntAreas'],
+  Clock: ['now'],
+  Logger: ['info', 'warn', 'error'],
 };

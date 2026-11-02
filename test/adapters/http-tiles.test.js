@@ -4,6 +4,8 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHttpServer } from '../../server/adapters/inbound/http/http-server.js';
 import { makeServeTiles } from '../../server/application/use-cases/serve-tiles.js';
+// Vacía las colas del bucle (promesas y vueltas de E/S): lo que no tiene que pasar ya habría pasado.
+const flush = async () => { for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve)); };
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
 const provider = {
@@ -104,11 +106,29 @@ test('un fallo inesperado al leer una tesela es un 500, no una promesa sin recog
   try {
     const res = await fetch(`${base}/tiles/ign-rail/14/8023/6178.png`);
     assert.equal(res.status, 500);
-    await new Promise((r) => setTimeout(r, 20));
+    await flush();
     assert.deepEqual(unhandled, []);
   } finally {
     provider.broken = false;
     process.off('unhandledRejection', onUnhandled);
   }
   assert.equal((await fetch(`${base}/tiles/ign-rail/14/8023/6178.png`)).status, 200, 'y el servidor sigue');
+});
+
+test('áreas quemadas: una ráfaga de consultas recibe 429 en vez de llenar la cola de EFFIS', async () => {
+  let asked = 0;
+  const burst = createHttpServer({
+    query: {}, log: { error() {} }, publicDir: '/nonexistent', vendorDirs: {}, now: () => 0, // reloj parado: no se recupera presupuesto
+    serveTiles: makeServeTiles({ tiles: { ...provider, burntAreas: async () => { asked++; return { type: 'FeatureCollection', features: [] }; } } }),
+  });
+  await new Promise((resolve) => burst.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${burst.address().port}`;
+  try {
+    const statuses = [];
+    for (let i = 0; i < 12; i++) statuses.push((await fetch(`${url}/api/burnt-areas?bbox=-4.${i + 10},38,-4,38.1`)).status);
+    assert.deepEqual(statuses, [...Array(10).fill(200), 429, 429]);
+    assert.equal(asked, 10);
+  } finally {
+    burst.close();
+  }
 });

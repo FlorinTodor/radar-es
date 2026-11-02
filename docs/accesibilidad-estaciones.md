@@ -1,8 +1,11 @@
 # Accesibilidad de las estaciones: fuentes revisadas
 
-La ficha de cada estación dice si es accesible en silla de ruedas **según Renfe**. Es el campo
-`wheelchair_boarding` de sus GTFS, que tienen licencia CC BY 4.0. Los GTFS de Cercanías y de
-AV/LD/MD coinciden en todas las estaciones que comparten.
+La ficha de cada estación de Renfe dice si es accesible en silla de ruedas **según Renfe**. Es el
+campo `wheelchair_boarding` de sus GTFS, que tienen licencia CC BY 4.0. Los GTFS de Cercanías y de
+AV/LD/MD coinciden en todas las estaciones que comparten. Si Renfe no dice nada de una estación, se
+usa el dato de Wikidata, si lo hay. En las de metro, tranvía y las demás redes, el dato sale del GTFS
+de cada operador en el Punto de Acceso Nacional y, si no lo trae, de Wikidata. La ficha dice siempre
+de dónde sale.
 
 A 2026-11-01, de las 1.525 estaciones del mapa:
 - 637 son accesibles;
@@ -11,8 +14,8 @@ A 2026-11-01, de las 1.525 estaciones del mapa:
   las de la línea Lleida–La Pobla, que opera FGC.
 
 Por tipo de estación:
-- en Cercanías son accesibles 581 de 933 (62 %);
-- fuera de Cercanías, 56 de 597 (9 %).
+- en Cercanías son accesibles 581 de 929 (63 %);
+- fuera de Cercanías, 56 de 596 (9 %).
 
 ## Otras fuentes revisadas (2026-11-01)
 
@@ -22,7 +25,7 @@ Por tipo de estación:
 | Renfe, «Estaciones con servicio Atendo» | Estaciones con asistencia | No: sigue en el catálogo de datos.gob.es, pero el fichero ya no existe en data.renfe.com. Desde diciembre de 2020 la asistencia la presta Adif con el nombre «Acerca». |
 | Adif Acerca | Unas 146 estaciones con asistencia | No: no se publica como datos abiertos ni con licencia de reutilización. |
 | Adif, «Dependencias Adif público» (ArcGIS) | Inventario de 3.087 dependencias (estaciones, apeaderos, bifurcaciones, puntos kilométricos…): nombre, código (el mismo que Renfe), tramo, tipo, estado, municipio, código postal y titular | Licencia: cualquier uso citando «© Administrador de infraestructuras ferroviarias». **No trae accesibilidad, servicios ni asistencia.** |
-| Adif, «Tramos en servicio Adif público» (ArcGIS) | Red ferroviaria en vectorial: 1.174 tramos con estación de origen y destino, tipo de red, ancho, electrificación, túneles y puentes | Misma licencia abierta. **No trae accesibilidad**, pero sirve para pegar a la vía el recorrido de AVE, Larga y Media Distancia. |
+| Adif, «Tramos en servicio Adif público» (ArcGIS) | Red ferroviaria en vectorial: 1.174 tramos con estación de origen y destino, tipo de red, ancho, electrificación, túneles y puentes | Misma licencia abierta. **No trae accesibilidad**; se usa para dibujar por la vía el recorrido de AVE, Larga y Media Distancia. |
 | Adif, «Terminales de viajeros» (ArcGIS) | Pasajeros y clasificación, pero sólo de 72 estaciones del Corredor Mediterráneo | No: sólo cubre ese corredor y no indica licencia. |
 | Web de Adif (`adif.es/viajeros/estaciones`) | Ficha de cada estación con servicios y accesibilidad | No: responde 403 a cualquier programa (no se salta) y no tiene licencia de reutilización. Como mucho, enlazarla. |
 | FGC, GTFS y «Accessibilitat» | Accesibilidad de sus estaciones y de sus itinerarios | Licencia CC BY 4.0, pero en la línea Lleida–La Pobla el GTFS pone «sin datos». No aporta nada para las estaciones de Renfe. |
@@ -39,7 +42,7 @@ Por tipo de estación:
 
 En 2022 Adif contestó al Gobierno que 863 de 1.495 estaciones tenían itinerario accesible, más que
 las que marca hoy el GTFS de Renfe. Esa cifra no se publica estación por estación, así que no se
-puede usar en el mapa. Por eso la ficha dice «según Renfe».
+puede usar en el mapa. Por eso la ficha dice «según Renfe» (o la fuente que sea).
 
 ## Fuentes
 

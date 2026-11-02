@@ -54,6 +54,19 @@ const timeFmt = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', ho
 const dateTimeFmt = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 export const fmtTime = (ms) => (ms ? timeFmt.format(ms) : '—');
 export const fmtDateTime = (ms) => (ms ? dateTimeFmt.format(ms) : '—');
+const dateFmt = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', year: 'numeric' });
+export const fmtDate = (ms) => (ms ? dateFmt.format(ms) : '—');
+const dayFmt = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Madrid' }); // «2026-11-02»: el día en Madrid
+
+/**
+ * Cuándo es un dato: «de las 14:12» si es de hoy (en Madrid) y «del 01/11/2026 a las 14:12» si no.
+ * Varias licencias piden la fecha de la última actualización (Llicència oberta de Catalunya, Govern
+ * de les Illes Balears, Junta de Castilla y León, Red Eléctrica), y la hora sola parece de hoy.
+ */
+export function fmtDataTime(ms, now = Date.now()) {
+  if (!ms) return '—';
+  return dayFmt.format(ms) === dayFmt.format(now) ? `de las ${fmtTime(ms)}` : `del ${fmtDate(ms)} a las ${fmtTime(ms)}`;
+}
 
 // "2026-10-30T19:17:00" (hora local de Madrid) → "19:17"
 export const fmtLocalHour = (s) => (s ? s.slice(11, 16) : '—');
@@ -73,4 +86,24 @@ export function safeUrl(url) {
 export function vehicleTitle(v) {
   const service = v.service && v.service !== v.line ? `${v.service} ` : '';
   return `${service}${v.line ?? ''} ${v.label ?? ''}`.replace(/\s+/g, ' ').trim();
+}
+
+/** «https://commons.wikimedia.org/wiki/File:Fachada_estaci%C3%B3n_de_Sants.jpg» → «Fachada estación de Sants». */
+export function photoTitleOf(page) {
+  const file = /\/wiki\/File:([^?#]+)/.exec(page ?? '')?.[1];
+  if (!file) return null;
+  try {
+    return decodeURIComponent(file).replace(/_/g, ' ').replace(/\.[a-z0-9]{2,5}$/i, '');
+  } catch {
+    return null;
+  }
+}
+
+// Atribuciones que piden su enlace (la del NAP, la del CRTM y la de TRAM Barcelona), igual que en el pie
+// del mapa. Sólo se enlaza a sus portadas.
+const CREDIT_LINKS = [['MITRAMS', 'https://www.transportes.gob.es/'], ['CRTM', 'https://www.crtm.es/'], ['TRAM Barcelona', 'https://www.tram.cat/']];
+
+/** Texto de atribución como HTML, escapado y con el enlace de las que lo piden. */
+export function creditHtml(text) {
+  return CREDIT_LINKS.reduce((html, [name, url]) => html.replace(name, `<a href="${url}" target="_blank" rel="noopener">${name}</a>`), esc(text));
 }

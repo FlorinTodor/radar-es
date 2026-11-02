@@ -1,27 +1,41 @@
 // Posición estimada a partir del horario GTFS (del NAP) para operadores que no publican GPS.
 // - Sin tiempo real (Ouigo, metros, tranvías, autobuses): se colocan donde dice el horario.
-// - Con trip updates GTFS-RT (Euskotren): sólo los viajes en curso, desplazados por su retraso real.
+// - Con trip updates GTFS-RT (Euskotren, AMB): sólo los viajes en curso, desplazados por su retraso real.
 // Las posiciones se marcan `estimated` (anillo hueco en el mapa) y no cuentan para alertas.
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { decodeFeed } from './gtfs-rt.js';
-import { activeFrequencyOffsets, pointAlong, scheduledPosition, serviceRuns, stopsAlongShape } from '../../../domain/schedule.js';
+import { activeFrequencyOffsets, pointAlong, serviceRuns, stopsAlongShape } from '../../../domain/schedule.js';
+import { estimatePosition } from '../../../domain/estimated-position.js';
+import { round5 } from '../../../domain/geo.js';
 import { madridLocalToMs } from './parse.js';
-import { bearingDeg } from '../../../domain/geo.js';
 import { napDatasetPage } from '../nap/nap-client.js';
 import { createCpuPool } from '../workers/cpu-pool.js';
+import { packSchedule, unpackSchedule } from '../gtfs/gtfs-schedule.js';
 
 const RELOAD_MS = 24 * 3600_000;
-const PATH_WINDOW_S = 45 * 60; // el mismo tramo que el recorrido de los vehículos con GPS
-// Sin trazado, lo que le queda se dibuja uniendo paradas sólo en estos modos (paradas cercanas).
-const STRAIGHT_AHEAD = new Set(['metro', 'tranvia', 'cercanias']);
+// Un fichero de un grupo que no se ha podido leer se reintenta a los 10 min, sin releer los demás:
+// si no, ese operador faltaría en el mapa hasta el día siguiente.
+const RETRY_MS = 10 * 60_000;
+const sha1 = (data) => createHash('sha1').update(data).digest('hex');
+// Huella del código que calcula los horarios: un despliegue que lo cambie no reutiliza lo guardado.
+const PARSER = sha1(['../gtfs/gtfs-schedule.js', '../gtfs/gtfs-reader.js', '../gtfs/gtfs-modes.js', '../../../domain/schedule.js']
+  .map((f) => readFileSync(new URL(f, import.meta.url), 'utf8')).join('\n')).slice(0, 12);
 // Sin pool inyectado (tests, herramientas), los horarios se leen en el hilo principal de uno en uno.
 const inlinePool = createCpuPool({ threads: 0 });
 
-/** Paradas de un viaje como objetos, sólo cuando hace falta (viajes en circulación). */
-function tripStops(trip, { times, stopList }) {
+/**
+ * Paradas de un viaje como objetos, sólo cuando hace falta (viajes en circulación). Con `keep`, se
+ * guardan en el viaje mientras circula: montarlas en cada lectura, para miles de autobuses, era casi
+ * todo el trabajo (ver vehicle(), que las suelta cuando el viaje acaba).
+ */
+function tripStops(trip, { times, stopList }, keep = false) {
+  if (trip.stopObjects) return trip.stopObjects;
   const out = [];
   for (let i = trip.at; i < trip.at + trip.n * 4; i += 4) {
     out.push({ seq: times[i], ...stopList[times[i + 1]], arr: times[i + 2], dep: times[i + 3] });
   }
+  if (keep) trip.stopObjects = out;
   return out;
 }
 
@@ -34,9 +48,11 @@ function alongShape(schedule, trip, stops) {
   return trip.along;
 }
 
+const MADRID_DATE = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Madrid' });
+
 /** Día de servicio en Madrid desplazado `offset` días. */
 function madridServiceDay(now, offset) {
-  const [y, m, d] = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Madrid' }).format(now).split('-').map(Number);
+  const [y, m, d] = MADRID_DATE.format(now).split('-').map(Number);
   const day = new Date(Date.UTC(y, m - 1, d + offset));
   const iso = day.toISOString().slice(0, 10);
   return { ymd: iso.replaceAll('-', ''), iso, weekday: (day.getUTCDay() + 6) % 7, midnight: madridLocalToMs(`${iso}T00:00:00`) };
@@ -73,10 +89,9 @@ function delaysFromTripUpdates(feed, schedule) {
 /** Trozo de un trazado entre dos distancias (m), como [lon, lat] redondeados. */
 function stretch(shape, from, to) {
   const { coords, dist } = shape;
-  const round = (x) => Math.round(x * 1e5) / 1e5;
-  const at = (d) => { const q = pointAlong(shape, d); return [round(q.lon), round(q.lat)]; };
+  const at = (d) => { const q = pointAlong(shape, d); return [round5(q.lon), round5(q.lat)]; };
   const out = [at(from)];
-  for (let i = 0; i < dist.length; i++) if (dist[i] > from && dist[i] < to) out.push([round(coords[i * 2]), round(coords[i * 2 + 1])]);
+  for (let i = 0; i < dist.length; i++) if (dist[i] > from && dist[i] < to) out.push([round5(coords[i * 2]), round5(coords[i * 2 + 1])]);
   out.push(at(to));
   return out;
 }
@@ -91,62 +106,41 @@ function stretch(shape, from, to) {
  *           label?: (trip: object) => string, line?: (name: string|null) => string|null }} options
  *   dataset: conjunto de datos del NAP al que pertenece el fichero (para su fecha de actualización).
  *   feeds: varios ficheros en una sola fuente (empresas con muchos conjuntos), en lugar de ficheroId/dataset/operator.
- *   credit: atribución que pide el propio operador además de la del NAP ("Powered by CRTM"…).
- * @typedef {{ ficheroId: number, dataset: number, operator: string, excludeAgency?: RegExp, excludeRoute?: RegExp }} Feed
+ *   credit: atribución que pide el propio operador además de la del NAP ("Powered by CRTM"…). En un grupo,
+ *   la que pide uno solo de sus operadores va en su fichero (Feed.credit) y no en la de todo el grupo.
+ * @typedef {{ ficheroId: number, dataset: number, operator: string, credit?: string, excludeAgency?: RegExp, excludeRoute?: RegExp }} Feed
  * @returns {import('../../../application/ports.js').DataSourcePort}
  */
-export function createGtfsScheduleSource({ nap, http, log, pool = inlinePool }, options) {
+export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlinePool }, options) {
   const { id, name, mode, tripUpdatesUrl, interval = 30_000 } = options;
   const feeds = options.feeds ?? [{ ficheroId: options.ficheroId, dataset: options.dataset, operator: options.operator }];
   const loaded = new Map(); // índice del fichero → { schedule, updatedAt }
   let loadedAt = 0;
   let loadedDay = null; // día de servicio (Madrid) para el que se cargaron los horarios
+  const failed = new Set(); // índices de los ficheros del grupo que fallaron en la última carga
+  let failedAt = 0;
   // Tramo de trazado recorrido en los últimos 45 min por cada vehículo de la última lectura y hasta
   // dónde llega su viaje: id → { shape, from, to, end } (distancias en metros), o null si se queda
   // en la última parada.
   let paths = new Map();
+  const estimatedLicense = (credit) => `Powered by MITRAMS (Punto de Acceso Nacional) · ${credit} · `
+    + 'Posición estimada a partir del horario (dato explotado, no GPS)';
+  const feedCredit = (f) => f.credit ?? f.operator;
 
   function vehicle(fi, schedule, trip, day, t, delaySec, offset = 0, nextPaths = paths) {
     const tt = t - offset;
-    if (tt < trip.first || tt > trip.last) return null; // descarte barato antes de crear objetos
-    const stops = tripStops(trip, schedule);
-    const pos = scheduledPosition(stops, tt);
-    if (!pos) return null;
+    if (tt < trip.first || tt > trip.last) { // descarte barato antes de crear objetos
+      if (tt > trip.last) trip.stopObjects = undefined; // ya ha acabado: no hace falta guardarlas
+      return null;
+    }
+    const stops = tripStops(trip, schedule, true);
+    const along = alongShape(schedule, trip, stops);
+    // Dónde está, lo recorrido, lo que le queda y hacia dónde va: reglas del dominio.
+    const est = estimatePosition({ stops, mode: trip.route.mode, shape: along ? schedule.shapes[trip.shape] : null, along, t: tt });
+    if (!est) return null;
     const instance = offset ? `:${offset}` : '';
     const vid = `${id}:${feeds.length > 1 ? `${fi}:` : ''}${trip.id}:${day.ymd}${instance}`;
-    let { lat, lon } = pos;
-    let atLastStop = false;
-    const along = alongShape(schedule, trip, stops);
-    // Distancia sobre el trazado: a la misma fracción del tramo entre paradas, pero medida sobre él.
-    const alongAt = (p) => along[p.i] + ((along[p.i + 1] ?? along[p.i]) - along[p.i]) * p.k;
-    if (along) {
-      const shape = schedule.shapes[trip.shape];
-      if (!pos.atStop) ({ lat, lon } = pointAlong(shape, alongAt(pos)));
-      const before = scheduledPosition(stops, Math.max(tt - PATH_WINDOW_S, stops[0].dep));
-      nextPaths.set(vid, { shape, from: before ? alongAt(before) : 0, to: alongAt(pos), end: along.at(-1) });
-    } else if (!pos.atStop && trip.route.mode === 'bus') {
-      // Sin trazado, en línea recta un autobús interurbano cruzaría el campo: se deja en la última
-      // parada por la que ha pasado. Los trenes sí siguen la recta (las vías suelen ser bastante rectas).
-      ({ lat, lon } = pos.prev);
-      atLastStop = true;
-      nextPaths.set(vid, null);
-    } else if (trip.route.mode === 'bus') {
-      nextPaths.set(vid, null);
-    } else if (STRAIGHT_AHEAD.has(trip.route.mode)) {
-      // Metro o tranvía sin trazado: va en línea recta entre paradas, como el mapa dibuja su red, y
-      // lo que le queda también. Un tren de larga distancia no: entre ciudades la recta se sale de la vía.
-      nextPaths.set(vid, { at: [lon, lat], stops: stops.slice(pos.i + 1).map((s) => [s.lon, s.lat]) });
-    }
-    const p = nextPaths.get(vid);
-    const ahead = p ? (p.stops ? p.stops.length > 0 : p.to < p.end) : false;
-    // Hacia dónde va: por su recorrido, 100 m más allá. Con el rastro, cada cambio de retraso
-    // (la posición retrocede o salta) giraría la flecha.
-    let heading = null;
-    if (p?.stops?.length) heading = bearingDeg(lat, lon, p.stops[0][1], p.stops[0][0]);
-    else if (p && p.end - p.to > 20) {
-      const q = pointAlong(p.shape, Math.min(p.to + 100, p.end));
-      heading = bearingDeg(lat, lon, q.lat, q.lon);
-    }
+    if (est.path !== undefined) nextPaths.set(vid, est.path);
     const { operator } = feeds[fi];
     return {
       id: vid,
@@ -155,34 +149,63 @@ export function createGtfsScheduleSource({ nap, http, log, pool = inlinePool }, 
       service: operator,
       line: options.line ? options.line(trip.route.line) : trip.route.line,
       label: options.label?.(trip) ?? trip.label ?? null,
-      lat,
-      lon,
+      lat: est.lat,
+      lon: est.lon,
       delay: delaySec === null ? null : Math.round(delaySec / 60),
       estimated: true,
-      ...(ahead ? { ahead: true } : {}),
-      ...(heading !== null ? { heading } : {}),
-      atLastStop,
+      ...(est.ahead ? { ahead: true } : {}),
+      ...(est.heading !== null ? { heading: est.heading } : {}),
+      atLastStop: est.atLastStop,
       origin: stops[0].name,
       destination: stops.at(-1).name,
-      current: pos.atStop || atLastStop ? pos.prev.name : null,
-      next: pos.atStop ? pos.next?.name ?? null : pos.next.name,
-      nextEta: pos.next ? `${day.iso}T${hhmmss(pos.next.arr + offset + (delaySec ?? 0))}` : null,
+      current: est.current,
+      next: est.next,
+      nextEta: est.nextArr !== null ? `${day.iso}T${hhmmss(est.nextArr + offset + (delaySec ?? 0))}` : null,
     };
   }
 
-  /** Carga los horarios (de uno en uno en todo el servidor); si falla un fichero de un grupo, el resto sigue. */
-  async function load(today) {
+  /**
+   * El horario de un fichero para hoy y ayer. Leerlo cuesta mucha CPU (en el servidor, más de tres
+   * minutos todos juntos al arrancar), así que se guarda en disco con la huella del ZIP, los días y
+   * el código que lo calcula: tras un despliegue o un reinicio, el mismo día, se lee de ahí.
+   */
+  async function scheduleOf(feed, days) {
+    const zip = await nap.gtfs(feed.ficheroId, RELOAD_MS);
+    if (!cache?.readValue) return pool.run('schedule', [zip, mode, days, feed]);
+    const name = `horario-${feed.ficheroId}-${sha1(`${id}|${mode}|${feed.excludeAgency}|${feed.excludeRoute}`).slice(0, 8)}.v8`;
+    const key = [PARSER, sha1(zip), days.today.ymd, days.yesterday.ymd].join('|');
+    const saved = await cache.readValue(name);
+    if (saved?.key === key) return unpackSchedule(saved.schedule);
+    const schedule = await pool.run('schedule', [zip, mode, days, feed]);
+    await cache.writeValue(name, { key, schedule: packSchedule(schedule).value });
+    return schedule;
+  }
+
+  /**
+   * Carga los horarios (de uno en uno en todo el servidor); si falla un fichero de un grupo, el resto
+   * sigue. `only`: sólo esos ficheros (los que fallaron), sin cambiar cuándo toca la carga completa.
+   */
+  async function load(today, only = null) {
     const days = { today: madridServiceDay(Date.now(), 0), yesterday: madridServiceDay(Date.now(), -1) };
     for (const [fi, feed] of feeds.entries()) {
+      if (only && !only.includes(fi)) continue;
       try {
-        const schedule = await pool.queue(async () => pool.run('schedule', [await nap.gtfs(feed.ficheroId, RELOAD_MS), mode, days, feed]));
-        const updatedAt = await nap.updatedAt(feed.dataset, feed.ficheroId).then(madridLocalToMs).catch(() => loaded.get(fi)?.updatedAt ?? null);
+        const schedule = await pool.queue(() => scheduleOf(feed, days));
+        // La licencia pide citar esta fecha: si el NAP no la da, se avisa y se sigue con la anterior.
+        const updatedAt = await nap.updatedAt(feed.dataset, feed.ficheroId).then(madridLocalToMs).catch((err) => {
+          log?.warn(`[${id}] ${feed.operator}: sin fecha de actualización del NAP (${err.message})`);
+          return loaded.get(fi)?.updatedAt ?? null;
+        });
         loaded.set(fi, { schedule, updatedAt });
+        failed.delete(fi);
       } catch (err) {
         if (feeds.length === 1) throw err;
-        log?.warn(`[${id}] ${feed.operator} (fichero ${feed.ficheroId}): ${err.message}`);
+        failed.add(fi);
+        log?.warn(`[${id}] ${feed.operator} (fichero ${feed.ficheroId}): ${err.message}${only ? '' : '; se reintentará en 10 min'}`);
       }
     }
+    failedAt = Date.now();
+    if (only) return;
     loadedAt = Date.now();
     loadedDay = today;
   }
@@ -194,9 +217,10 @@ export function createGtfsScheduleSource({ nap, http, log, pool = inlinePool }, 
     interval,
     requires: ['NAP_API_KEY'],
     url: tripUpdatesUrl ?? (feeds.length === 1 ? napDatasetPage(feeds[0].dataset) : 'https://nap.transportes.gob.es'),
-    license: options.license
-      ?? `Powered by MITRAMS (Punto de Acceso Nacional) · ${options.credit ?? [...new Set(feeds.map((f) => f.operator))].join(', ')} · `
-        + 'Posición estimada a partir del horario (dato explotado, no GPS)',
+    license: options.license ?? estimatedLicense(options.credit
+      ?? [...new Set(feeds.map((f) => (f.credit ? `${f.operator} (${f.credit})` : f.operator)))].join(', ')),
+    // En un grupo, la ficha de cada vehículo cita sólo a su operador (y lo que este pida, como TMB).
+    ...(feeds.length > 1 ? { operatorLicenses: Object.fromEntries(feeds.map((f) => [f.operator, estimatedLicense(feedCredit(f))])) } : {}),
     /**
      * Tramo de su trazado recorrido en los últimos 45 min, como [lon, lat], para dibujarlo por la calle
      * y no uniendo con rectas las posiciones de cada lectura. null: autobús sin trazado (se queda en la
@@ -211,22 +235,24 @@ export function createGtfsScheduleSource({ nap, http, log, pool = inlinePool }, 
      * paradas (null o undefined como en path). */
     ahead(vehicleId) {
       const p = paths.get(vehicleId);
-      if (p?.stops) return [p.at, ...p.stops].map(([lon, lat]) => [Math.round(lon * 1e5) / 1e5, Math.round(lat * 1e5) / 1e5]);
+      if (p?.stops) return [p.at, ...p.stops].map(([lon, lat]) => [round5(lon), round5(lat)]);
       return p ? stretch(p.shape, p.to, p.end) : p;
     },
     async fetch() {
       // Se recarga cada día (sólo se guardan los viajes de hoy y los de ayer que pasan de medianoche).
       const today = madridServiceDay(Date.now(), 0).ymd;
       if (!loaded.size || today !== loadedDay || Date.now() - loadedAt > RELOAD_MS) await load(today);
+      else if (failed.size && Date.now() - failedAt >= RETRY_MS) await load(today, [...failed]);
       const first = loaded.get(0)?.schedule;
-      const rt = tripUpdatesUrl && first ? delaysFromTripUpdates(decodeFeed(await http.bytes(tripUpdatesUrl)), first) : null;
+      const rtFeed = tripUpdatesUrl && first ? decodeFeed(await http.bytes(tripUpdatesUrl)) : null;
+      const rt = rtFeed ? delaysFromTripUpdates(rtFeed, first) : null;
       const now = Date.now();
       const vehicles = [];
       const nextPaths = new Map();
+      // Un tren que salió antes de medianoche pertenece al día de servicio anterior.
+      const serviceDays = [madridServiceDay(now, 0), madridServiceDay(now, -1)];
       for (const [fi, { schedule }] of loaded) {
-        // Un tren que salió antes de medianoche pertenece al día de servicio anterior.
-        for (const dayOffset of [0, -1]) {
-          const day = madridServiceDay(now, dayOffset);
+        for (const day of serviceDays) {
           const t = Math.floor((now - day.midnight) / 1000);
           for (const trip of schedule.trips) {
             if (rt) {
@@ -253,12 +279,22 @@ export function createGtfsScheduleSource({ nap, http, log, pool = inlinePool }, 
         }
       }
       paths = nextPaths;
-      // En los grupos, la fecha del horario más reciente y la del más antiguo.
+      // En los grupos, la fecha del horario más reciente, la del más antiguo y la de cada operador.
       const dates = [...loaded.values()].map((l) => l.updatedAt).filter(Boolean);
+      const byOperator = {};
+      if (feeds.length > 1) {
+        for (const [fi, { updatedAt }] of loaded) {
+          const op = feeds[fi].operator;
+          if (updatedAt && updatedAt > (byOperator[op] ?? 0)) byOperator[op] = updatedAt;
+        }
+      }
       return {
         vehicles,
         datasetUpdated: dates.length ? Math.max(...dates) : null,
         datasetUpdatedFrom: dates.length > 1 ? Math.min(...dates) : null,
+        ...(feeds.length > 1 ? { datasetUpdatedBy: byOperator } : {}),
+        // Hora de los retrasos en tiempo real (AMB, Euskotren), la que hay que citar con ellos.
+        ...(rtFeed ? { sourceTime: Number(rtFeed.header?.timestamp) * 1000 || null } : {}),
       };
     },
   };

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { plausibleDelay, safeLink } from '../../server/domain/model.js';
+import { isStationCode, plausibleDelay, safeLink } from '../../server/domain/model.js';
 import { makeIngestSource } from '../../server/application/use-cases/ingest-source.js';
 
 test('safeLink sólo deja pasar enlaces http(s)', () => {
@@ -28,13 +28,23 @@ test('plausibleDelay descarta los retrasos imposibles que Renfe publica al cambi
   assert.equal(plausibleDelay(null), null);
 });
 
+test('isStationCode: 5 cifras de Renfe o «red:código» de las demás redes', () => {
+  for (const ok of ['71801', '15211', 'fgc:PC', 'tmb:P.6660111', 'emt:1:2', `fgc:${'a'.repeat(64)}`]) {
+    assert.equal(isStationCode(ok), true, ok);
+  }
+  for (const bad of ['1521', '152111', 'abcde', 'FGC:PC', 'fgc:', ':PC', 'fgc:a/b', 'fgc:a b', '../x', `fgc:${'a'.repeat(65)}`,
+    '71801\n', ' 71801', '', null, undefined, 71801]) {
+    assert.equal(isStationCode(bad), false, String(bad));
+  }
+});
+
 test('la ingesta guarda sin retraso los vehículos con un retraso imposible', async () => {
   let saved;
   const vehicles = [{ id: 'a', delay: -1436, lat: 40, lon: -3 }, { id: 'b', delay: 4, lat: 40, lon: -3 }, { id: 'c', delay: null, lat: 40, lon: -3 }];
   const ingest = makeIngestSource({
     sources: [{ id: 'renfe-cercanias', fetch: async () => ({ vehicles }) }],
-    situation: { saveResult: (id, result) => { saved = result; }, tracks: () => new Map(), saveFailure() {} },
-    publisher: { publish() {} }, clock: { now: () => 1000 }, log: { warn() {} },
+    situation: { saveResult: (id, result) => { saved = result; }, updateTracks: (update) => update(new Map()), saveFailure() {} },
+    clock: { now: () => 1000 }, log: { warn() {} },
   });
   await ingest('renfe-cercanias');
   assert.deepEqual(saved.vehicles.map((v) => v.delay), [null, 4, null]);
