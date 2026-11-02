@@ -38,7 +38,9 @@ test('descarga, guarda, no repite la preparación y sigue con la copia si Adif f
     let reply = () => bytes({ error: { code: 500, message: 'Error performing query operation' } });
     const asked = [];
     const http = { bytes: async (url) => { asked.push(url); return reply(); } };
-    const cache = createFileCache({ http, dir: pathToFileURL(`${dir}/`), log: quiet });
+    // Reloj de la caché, que se mueve a mano: la edad de la copia no depende de cuándo se pasen las pruebas.
+    let now = Date.parse('2026-11-02T12:00:00Z');
+    const cache = createFileCache({ http, dir: pathToFileURL(`${dir}/`), log: quiet, now: () => now });
     const rail = createAdifRailNetwork({ cache, log: quiet, minTramos: 3 });
     const file = join(dir, 'adif-tramos-en-servicio-v2.geojson');
 
@@ -53,6 +55,8 @@ test('descarga, guarda, no repite la preparación y sigue con la copia si Adif f
     const net = rail.network();
     assert.ok(net && net.edges >= 4 && net.nodes >= 4);
     assert.deepEqual(new Uint8Array(await readFile(file)), fixture, 'guardada en disco');
+    // El disco la fecha con la hora real: se pone la del reloj de la prueba.
+    await utimes(file, new Date(now), new Date(now));
 
     // La recarga periódica, con la copia aún vigente: ni descarga ni prepara otra vez la red.
     assert.equal(await rail.load(), 4);
@@ -60,8 +64,7 @@ test('descarga, guarda, no repite la preparación y sigue con la copia si Adif f
     assert.equal(asked.length, 2);
 
     // Pasado el mes Adif falla: sigue la copia vieja, con la misma red.
-    const old = new Date(Date.now() - 40 * 24 * 3600_000);
-    await utimes(file, old, old);
+    now += 40 * 24 * 3600_000;
     reply = () => { throw new Error('HTTP 503 en services7.arcgis.com'); };
     assert.equal(await rail.load(), 4);
     assert.equal(rail.network(), net);

@@ -75,8 +75,14 @@ test('los dos hilos trabajan a la vez y el resultado llega con sus arrays tipado
     // arrancar un hilo puede tardar más de 250 ms y no debe contar como trabajo en serie.
     const [e1, e2] = await Promise.all([pool.run('echo', [1]), pool.run('echo', [2])]);
     assert.notEqual(e1.threadId, e2.threadId, 'cada trabajo va a un hilo distinto');
-    const shared = new SharedArrayBuffer(4);
-    const met = await Promise.all([pool.run('meet', [shared]), pool.run('meet', [shared])]);
+    const shared = new SharedArrayBuffer(8);
+    const meetings = [pool.run('meet', [shared]), pool.run('meet', [shared])];
+    // run() envía cada encargo en el acto: ya están los dos en la cola de su hilo, y el hilo que tenga
+    // los dos (en serie) lo ve sin esperar a ningún reloj (ver fixtures/test-worker.js).
+    const sent = new Int32Array(shared);
+    Atomics.store(sent, 1, 1);
+    Atomics.notify(sent, 1);
+    const met = await Promise.all(meetings);
     assert.deepEqual(met, [true, true], 'en paralelo: cada hilo ve llegar al otro');
     const data = await pool.run('typed', [1000]);
     assert.ok(data instanceof Float32Array);

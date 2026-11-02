@@ -184,11 +184,12 @@ const commonsFile = (page) => decodeURIComponent(String(page ?? '').split('/wiki
  * @param {{ nap: ReturnType<typeof import('../nap/nap-client.js').createNapClient>,
  *           cache: ReturnType<typeof import('../http/file-cache.js').createFileCache>, cacheDir: URL,
  *           log: import('../../../application/ports.js').LoggerPort,
- *           renfe?: import('../../../application/ports.js').StationCatalogPort }} deps
+ *           renfe?: import('../../../application/ports.js').StationCatalogPort, now?: () => number }} deps
  *   renfe: el catálogo de Renfe, para no repetir sus fotos ni tomar sus estaciones de Wikidata.
+ *   now: reloj con el que se fecha y se renueva la copia (para los tests).
  * @returns {import('../../../application/ports.js').StationCatalogPort}
  */
-export function createNetworkStationCatalog({ nap, cache, cacheDir, log, renfe }) {
+export function createNetworkStationCatalog({ nap, cache, cacheDir, log, renfe, now = Date.now }) {
   const cacheFile = new URL('estaciones-redes-v1.json', cacheDir);
   // Versión de lo que se calcula: si cambia, se recalcula aunque la caché sea de hoy (como en Renfe,
   // la huella de las fotos retiradas va detrás).
@@ -224,7 +225,7 @@ export function createNetworkStationCatalog({ nap, cache, cacheDir, log, renfe }
   // (Wikidata, fotos de Commons) y va siempre detrás. Así la primera lista de estaciones que se sirve
   // ya las lleva; sin copia (el primer despliegue), la pestaña sólo tiene las de Renfe hasta que termina.
   const store = createStationStore({
-    cacheFile, cacheDir, version: CATALOG_VERSION, refreshMs: REFRESH_MS, retryMs: RETRY_MS, log, download,
+    cacheFile, cacheDir, version: CATALOG_VERSION, refreshMs: REFRESH_MS, retryMs: RETRY_MS, log, now, download,
     saved: (count) => `[estaciones de otras redes] ${count} estaciones de ${STATION_NETWORKS.length} redes`,
     failed: (err, count) => `[estaciones de otras redes] no se pudo calcular el catálogo (${err.message}); ${count} en caché`,
   });

@@ -19,12 +19,13 @@ export function decodeFeed(bytes) {
 /**
  * Vehículos de un FeedMessage ya decodificado, descartando posiciones de hace más de 10 min.
  * `gtfs`, si la fuente tiene horario estático: nombres de parada y viajes (ver createGtfsRtVehicleSource).
+ * `now`: el instante con el que se miden esos 10 min (epoch ms; para los tests).
  * @param {object} feed
  * @param {{ id: string, mode: import('../../../domain/model.js').Mode, operator: string,
- *           line?: (entity: any) => string|null, describe?: (entity: any, gtfs?: StaticGtfs) => object, gtfs?: StaticGtfs }} options
+ *           line?: (entity: any) => string|null, describe?: (entity: any, gtfs?: StaticGtfs) => object, gtfs?: StaticGtfs,
+ *           now?: number }} options
  */
-export function vehiclesFromFeed(feed, { id, mode, operator, line, describe, gtfs }) {
-  const now = Date.now();
+export function vehiclesFromFeed(feed, { id, mode, operator, line, describe, gtfs, now = Date.now() }) {
   const vehicles = [];
   for (const e of feed.entity ?? []) {
     const vp = e.vehicle;
@@ -72,20 +73,21 @@ export function staticGtfs(files) {
 }
 
 /**
- * @param {{ http: import('../http/http-client.js').HttpClient, cache?: { bytes: Function }, log?: import('../../../application/ports.js').LoggerPort }} deps
+ * @param {{ http: import('../http/http-client.js').HttpClient, cache?: { bytes: Function }, log?: import('../../../application/ports.js').LoggerPort,
+ *           now?: () => number }} deps  now: reloj (para los tests).
  * @param {{ id: string, name: string, url: string, mode: import('../../../domain/model.js').Mode, operator: string,
  *           license?: string, interval?: number, line?: (entity: any) => string|null,
  *           describe?: (entity: any, gtfs?: StaticGtfs) => Partial<import('../../../domain/model.js').Vehicle>,
  *           staticUrl?: string }} options  staticUrl: su GTFS estático (nombres de parada y viajes), si lo hay.
  * @returns {import('../../../application/ports.js').DataSourcePort}
  */
-export function createGtfsRtVehicleSource({ http, cache, log }, { id, name, url, mode, operator, license, interval = 30_000, line, describe, staticUrl }) {
+export function createGtfsRtVehicleSource({ http, cache, log, now = Date.now }, { id, name, url, mode, operator, license, interval = 30_000, line, describe, staticUrl }) {
   let gtfs;
   let gtfsUpdated = null; // fecha de su última actualización: la licencia de Open Data Euskadi pide mencionarla
   let loadedAt = 0;
   async function loadStatic() {
-    if (!staticUrl || Date.now() - loadedAt < STATIC_TTL_MS) return;
-    loadedAt = Date.now(); // aunque falle, no reintentar en cada lectura
+    if (!staticUrl || now() - loadedAt < STATIC_TTL_MS) return;
+    loadedAt = now(); // aunque falle, no reintentar en cada lectura
     try {
       const zip = await cache.bytes(staticUrl, `${id}-gtfs.zip`, STATIC_TTL_MS);
       gtfs = staticGtfs(await openGtfs(zip, ['stops.txt', 'trips.txt']));
@@ -105,7 +107,7 @@ export function createGtfsRtVehicleSource({ http, cache, log }, { id, name, url,
       await loadStatic();
       const feed = decodeFeed(await http.bytes(url));
       return {
-        vehicles: vehiclesFromFeed(feed, { id, mode, operator, line, describe, gtfs }),
+        vehicles: vehiclesFromFeed(feed, { id, mode, operator, line, describe, gtfs, now: now() }),
         ...(gtfsUpdated ? { datasetUpdated: gtfsUpdated } : {}),
         sourceTime: feed.header?.timestamp ? feed.header.timestamp * 1000 : null,
       };

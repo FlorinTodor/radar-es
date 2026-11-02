@@ -65,10 +65,11 @@ function* semicolonRows(bytes) {
 
 /**
  * @param {{ cache: ReturnType<typeof import('../http/file-cache.js').createFileCache>, cacheDir: URL,
- *           log: import('../../../application/ports.js').LoggerPort }} deps
+ *           log: import('../../../application/ports.js').LoggerPort, now?: () => number }} deps
+ *   now: reloj con el que se fecha y se renueva la copia (para los tests).
  * @returns {import('../../../application/ports.js').StationCatalogPort}
  */
-export function createRenfeStationCatalog({ cache, cacheDir, log }) {
+export function createRenfeStationCatalog({ cache, cacheDir, log, now = Date.now }) {
   // v3: con dirección, provincia, ancho métrico, accesibilidad y los datos de Wikidata y Commons
   // (las cachés anteriores no los tienen).
   const cacheFile = new URL('renfe-stations-v3.json', cacheDir);
@@ -124,7 +125,7 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
     const stations = withoutDuplicates([...list.values()], new Set(gtfsStops.keys()));
     const complete = withExtras(stations, await loadStationExtras({ cache, log, maxAgeMs: REFRESH_MS, stations }));
     // La ficha cita la fuente y la fecha de sus datos, como pide la licencia de Renfe.
-    const source = { credit: 'Origen de los datos: Renfe Operadora', downloaded: new Date().toISOString() };
+    const source = { credit: 'Origen de los datos: Renfe Operadora', downloaded: new Date(now()).toISOString() };
     for (const s of complete) s.source = source;
     return complete;
   }
@@ -134,7 +135,7 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
   // y el servidor no escucha hasta que hay estaciones: con una copia guardada, aunque sea de otra
   // versión o de hace días, se arranca con ella y se recalcula detrás. Sólo se espera si no hay ninguna.
   const store = createStationStore({
-    cacheFile, cacheDir, version: CATALOG_VERSION, refreshMs: REFRESH_MS, retryMs: RETRY_MS, log, download,
+    cacheFile, cacheDir, version: CATALOG_VERSION, refreshMs: REFRESH_MS, retryMs: RETRY_MS, log, now, download,
     waitIfEmpty: true,
     saved: (count) => `[estaciones] ${count} estaciones de Renfe (lista oficial + paradas GTFS)`,
     failed: (err, count) => `[estaciones] no se pudo descargar el catálogo (${err.message}); ${count} en caché`,
