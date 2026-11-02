@@ -5,6 +5,7 @@ import { mkdir, readFile, stat } from 'node:fs/promises';
 import { writeFileAtomic } from '../http/file-cache.js';
 import { createPacer, csvColumns, csvRows, openGtfs, own } from '../gtfs/gtfs-reader.js';
 import { modeOf } from '../gtfs/gtfs-modes.js';
+import { round5 } from '../../../domain/geo.js';
 import { madridLocalToMs } from '../sources/parse.js';
 
 const MAX_AGE_MS = 24 * 3600_000;
@@ -80,7 +81,7 @@ function simplify(points, tol) {
   return points.filter((_, i) => keep[i]);
 }
 
-const round = ([lon, lat]) => [Math.round(lon * 1e5) / 1e5, Math.round(lat * 1e5) / 1e5];
+const round = ([lon, lat]) => [round5(lon), round5(lat)];
 
 /** Trazados de una red a partir de su GTFS. Trabajo de CPU puro: se puede hacer en un hilo de cálculo. */
 export async function buildNetwork(zip, network) {

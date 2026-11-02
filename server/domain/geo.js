@@ -1,6 +1,9 @@
 const EARTH_RADIUS_KM = 6371;
 const RAD = Math.PI / 180;
 
+/** Grados redondeados a 5 decimales (~1 m): de sobra para el mapa, y el JSON pesa mucho menos. */
+export const round5 = (x) => Math.round(x * 1e5) / 1e5;
+
 export function distanceKm(lat1, lon1, lat2, lon2) {
   const dLat = (lat2 - lat1) * RAD;
   const dLon = (lon2 - lon1) * RAD;

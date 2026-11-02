@@ -57,8 +57,6 @@ export function withExtras(stations, extras) {
   });
 }
 
-/** wheelchair_boarding del GTFS: 1 accesible, 2 no accesible; vacío o 0, sin datos. */
-
 /** CSV de Renfe: separado por ';', cada campo entre comillas y en Latin-1. */
 function* semicolonRows(bytes) {
   const split = (line) => line.split(';').map((c) => c.trim().replace(/^"|"$/g, ''));

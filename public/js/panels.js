@@ -1,7 +1,7 @@
 // Render de los paneles laterales y la barra de KPIs. Funciones puras de estado → HTML;
 // los clics se gestionan por delegación en app.js mediante data-id / data-kind.
 import {
-  DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, SEVERITY_RANK, esc, fmtDateTime, fmtDelay, fmtNum, fmtTime, safeUrl, sevClass, timeAgo, vehicleTitle,
+  DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, SEVERITY_RANK, creditHtml, esc, fmtDateTime, fmtDelay, fmtNum, fmtTime, safeUrl, sevClass, timeAgo, vehicleTitle,
 } from './format.js';
 import { pictoFor, vehicleIconUrl } from './icons.js';
 
@@ -229,7 +229,7 @@ export function renderSources(el, health, lineSources = []) {
       </div>
       ${s.reason ? `<div class="err">${esc(s.reason)}</div>` : ''}
       ${s.error ? `<div class="err">${esc(s.error)}</div>` : ''}
-      ${s.license ? `<div class="stat"><span>${esc(s.license)}</span></div>` : ''}
+      ${s.license ? `<div class="stat"><span>${creditHtml(s.license)}</span></div>` : ''}
       ${safeUrl(s.url) ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url)}</a>` : ''}
     </div>`;
   }).join('') + lines;

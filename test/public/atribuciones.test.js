@@ -2,7 +2,7 @@
 // cruzan sus avisos con los trenes.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { photoTitleOf } from '../../public/js/format.js';
+import { creditHtml, photoTitleOf } from '../../public/js/format.js';
 import { renderAlerts } from '../../public/js/panels.js';
 
 test('el título de una foto de Commons es el nombre de su fichero, legible', () => {
@@ -22,4 +22,12 @@ test('las alertas por avisos de AEMET citan «Fuente: AEMET»; las demás no', (
   const [meteo, stopped] = el.innerHTML.split('alert-item').slice(1);
   assert.match(meteo, /Fuente: AEMET/);
   assert.doesNotMatch(stopped, /AEMET/);
+});
+
+test('las atribuciones que piden enlace lo llevan; el resto del texto va escapado', () => {
+  assert.equal(creditHtml('Powered by MITRAMS (Punto de Acceso Nacional) · Powered by TRAM Barcelona'),
+    'Powered by <a href="https://www.transportes.gob.es/" target="_blank" rel="noopener">MITRAMS</a> (Punto de Acceso Nacional) · '
+    + 'Powered by <a href="https://www.tram.cat/" target="_blank" rel="noopener">TRAM Barcelona</a>');
+  assert.equal(creditHtml('Fuente: <TMB>'), 'Fuente: &lt;TMB&gt;');
+  assert.equal(creditHtml(null), '');
 });

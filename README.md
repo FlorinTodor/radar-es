@@ -84,6 +84,7 @@ superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`]
                    │ model.js · geo.js · tracking.js      │  puro: sin red, sin disco,
                    │ kpis.js · tiles.js · rail-match.js   │  sin dependencias externas
                    │ schedule.js · route-ahead.js         │
+                   │ estimated-position.js                │
                    │ alerts/{rules,lifecycle,thresholds}  │
                    └──────────────────────────────────────┘
                                   ▲ implementan los puertos
@@ -111,7 +112,7 @@ superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`]
   propios horarios y el pico de memoria sube; con un solo hilo, producción ya llega a unos 670 MB del
   límite de 1 GB). Si un hilo falla, el trabajo se repite en el principal.
 - **`server/adapters/inbound/`**: quien dispara los casos de uso (la API HTTP y el planificador).
-  Sólo hablan con casos de uso, nunca con los puertos de salida.
+  Sólo hablan con casos de uso; de los puertos de salida sólo usan el registro (`Logger`).
 - **`server/main.js`**: raíz de composición; el único sitio donde se eligen las implementaciones.
   Al arrancar comprueba con `assertPort` que cada adaptador tiene todo lo que pide su puerto.
 
@@ -234,7 +235,7 @@ Lo que no se puede dibujar por falta de datos públicos:
 | `GET /api/events?category=carretera` | incidencias (`ferroviario`, `carretera`, `meteo`, `incendio`, `sismo`, `catastrofe`) |
 | `GET /api/alerts` | alertas activas y resueltas |
 | `GET /api/tracks/:id` | recorrido de un vehículo en los últimos 45 min |
-| `GET /api/ahead/:id` | lo que le queda a un vehículo hasta su destino (posiciones estimadas, Cercanías y AVE, Larga y Media Distancia) |
+| `GET /api/ahead/:id` | lo que le queda a un vehículo hasta su destino (posiciones estimadas, Cercanías y AVE, Larga y Media Distancia; el de FGC y Metro Bilbao lo dibuja el mapa con el trazado de su línea o de su viaje) |
 | `GET /api/stations/:código` | ficha de una estación (trenes, avisos, líneas, conexiones, datos y foto) |
 | `GET /api/lines` | trazados de las líneas (GeoJSON) |
 | `GET /api/trails?min=15` | estela de cada tren en los últimos 15, 30 o 45 minutos (GeoJSON) |

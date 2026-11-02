@@ -53,8 +53,6 @@ export const readable = (raw) => {
     ? name.toLowerCase().replace(/(^|[\s(/'-])(\p{L}+)/gu, (m, p, w) => (p && SMALL_WORDS.has(w) ? m : p + w[0].toUpperCase() + w.slice(1)))
     : name;
 };
-/** wheelchair_boarding del GTFS: 1 accesible, 2 no accesible; vacío o 0, sin datos. */
-
 /**
  * Estaciones de una red a partir de su GTFS. Trabajo de CPU, con pausas para no bloquear el hilo.
  * - Sólo las que tienen algún tren, metro o tranvía en el horario: el GTFS de Sevilla trae también
