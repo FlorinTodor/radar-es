@@ -36,10 +36,12 @@ function makeRailMemo(live) {
 /**
  * @param {{ situation: import('../ports.js').SituationRepositoryPort, stations: import('../ports.js').StationCatalogPort,
  *           network: import('../ports.js').NetworkCatalogPort, clock: import('../ports.js').ClockPort,
- *           sources?: import('../ports.js').DataSourcePort[], railNetwork?: import('../ports.js').RailNetworkPort }} deps
+ *           sources?: import('../ports.js').DataSourcePort[], networkStations?: import('../ports.js').StationCatalogPort,
+ *           railNetwork?: import('../ports.js').RailNetworkPort }} deps
+ *   networkStations: estaciones de metro, tranvía y las demás redes que no son de Renfe.
  *   railNetwork: sin él, los recorridos de todas las fuentes se unen con rectas.
  */
-export function makeQuerySituation({ situation, stations, network, clock, sources = [], railNetwork }) {
+export function makeQuerySituation({ situation, stations, networkStations, network, clock, sources = [], railNetwork }) {
   const withPaths = sources.filter((s) => typeof s.path === 'function');
   // Fuentes que dicen las paradas que le quedan a cada tren (Cercanías de Renfe): lo que le queda se
   // dibuja por el trazado de su viaje, pero sólo entre esas paradas (ver domain/route-ahead.js).
@@ -148,9 +150,10 @@ export function makeQuerySituation({ situation, stations, network, clock, source
     kpis: () => ({ current: situation.kpis(), history: situation.kpiHistory() }),
     // La lista la descarga cada visita al abrir el mapa: sólo lo que hace falta para pintarlas y
     // buscarlas. La ficha completa de una estación, con sus fotos y enlaces, va aparte (station).
-    stations: () => stations.all().map(({ code, name, place, province, lat, lon, cercanias, metricGauge, accessible }) => (
-      { code, name, place, province, lat, lon, cercanias, metricGauge, accessible })),
-    station: (code) => stations.get(code) ?? null,
+    // Las de otras redes llevan además su red y su modo (metro, tranvía…), para filtrarlas y pintarlas.
+    stations: () => [...stations.all(), ...(networkStations?.all() ?? [])].map(({ code, name, place, province, lat, lon, cercanias, metricGauge, accessible, network: net, networkId, mode }) => (
+      { code, name, place, province, lat, lon, cercanias, metricGauge, accessible, ...(networkId ? { network: net, networkId, mode } : {}) })),
+    station: (code) => stations.get(code) ?? networkStations?.get(code) ?? null,
     lines: () => network.lines(),
     /**
      * Recorrido reciente de un vehículo. Los de posición estimada usan su trazado (las posiciones de

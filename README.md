@@ -260,14 +260,20 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Pestaña «Estaciones» con buscador y una ficha para cada estación: los trenes parados en ella y los
   que van hacia ella (con vía, hora y retraso), los avisos de Renfe de la estación, sus líneas y las
   conexiones a pie con metro y tranvía.
+- Además de las de Renfe, unas 870 estaciones de metro, tranvía, FGC, Euskotren y Metro Bilbao (15
+  redes), sacadas del horario de cada operador en el Punto de Acceso Nacional: sus líneas con sus
+  colores, accesibilidad, los trenes que llegan (en directo o estimados por horario), las conexiones
+  con Cercanías y la atribución y fecha de los datos de su operador. La pestaña filtra por red y en
+  el mapa salen al acercar a la ciudad, para no tapar las de Renfe.
 - Datos de cada estación: dirección, accesibilidad en silla de ruedas (según Renfe y, si Renfe no
   dice nada, según Wikidata), año de apertura, número de vías y ancho de vía.
 - Enlaces a Wikipedia, a la ficha técnica en PDF de Renfe (en las estaciones que la tienen), a
   OpenStreetMap y «Cómo llegar» con Google Maps.
-- Foto de unas 1.200 estaciones, de Wikimedia Commons, con su autor y su licencia. Se buscan en
-  Wikidata, en la categoría de la estación, en su artículo de Wikipedia y entre las fotos hechas a su
-  lado, y se revisan todas: sólo licencias que se pueden cumplir, sin personas reconocibles en primer
-  plano y con retirada a petición del autor o de quien sale en ellas.
+- Foto de unas 1.200 estaciones de Renfe y unas 670 de las otras redes, de Wikimedia Commons, con
+  su autor y su licencia. Se buscan en Wikidata, en la categoría de la estación, en su artículo de
+  Wikipedia y entre las fotos hechas a su lado, y se revisan todas: sólo licencias que se pueden
+  cumplir, sin personas reconocibles en primer plano, sin repetir una foto en dos estaciones y con
+  retirada a petición del autor o de quien sale en ellas.
 - Sin estaciones repetidas en el mapa: la misma estación con otro código o la parada de los trenes
   turísticos pegada a la normal ya no salen dos veces.
 - Las estaciones se pueden pulsar desde más lejos y su nombre aparece antes al acercar el mapa.
@@ -352,6 +358,8 @@ Ninguna por ahora.
   - en toda España, pedir a Adif que publique como datos abiertos las estaciones accesibles y las
     que tienen asistencia [Adif Acerca](https://www.spain.info/es/descubrir-espana/accesibilidad-trenes/).
   - Fuentes revisadas: [`docs/accesibilidad-estaciones.md`](docs/accesibilidad-estaciones.md).
+- Estaciones de Metro de Madrid y del tranvía de Tenerife cuando vuelva a haber un horario vigente
+  en el Punto de Acceso Nacional (el de Metro de Madrid caducó en mayo de 2026).
 - Fotos de [Flickr](https://www.flickr.com/creativecommons/) con licencia Creative Commons (con autor y
   enlace) para las estaciones que siguen sin foto en Wikimedia Commons; hace falta una clave gratuita.
 - Servir las fotos de las estaciones desde nuestro servidor, con caché, en lugar de enlazarlas en

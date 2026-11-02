@@ -156,7 +156,10 @@
       </div>
 
       <div class="panel" id="panel-stations" role="tabpanel" hidden>
-        <input type="search" id="station-search" placeholder="Buscar estación o población…" autocomplete="off">
+        <div class="station-filters">
+          <input type="search" id="station-search" placeholder="Buscar estación o población…" autocomplete="off">
+          <select id="station-network" aria-label="Red"><option value="">Todas las redes</option></select>
+        </div>
         <div class="list" id="stations-list"></div>
       </div>
 

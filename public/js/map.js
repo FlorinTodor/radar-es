@@ -32,7 +32,7 @@ export const LAYER_GROUPS = {
   rail: ['rail-network'],
   lines: ['net-lines'],
   trails: ['trails-line'],
-  stations: ['stations-hit', 'stations-dots', 'stations-sel', 'stations-labels'],
+  stations: ['stations-hit', 'stations-dots', 'stations-sel', 'stations-labels', 'netst-hit', 'netst-dots', 'netst-labels'],
   meteo: ['meteo-fill', 'meteo-outline'],
   dgt: ['ev-road', 'ev-road-major'],
   incendios: ['ev-fire-glow', 'ev-fire-core'],
@@ -214,11 +214,11 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     // acercar. Debajo, un círculo invisible más grande para poder pulsarlas con el dedo; de lejos,
     // más pequeño, para no tapar lo que hay alrededor.
     map.addLayer({
-      id: 'stations-hit', type: 'circle', source: 'stations', minzoom: 6.5,
+      id: 'stations-hit', type: 'circle', source: 'stations', minzoom: 6.5, filter: ['!', ['has', 'net']],
       paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 6.5, 7, 9, 12, 12, 14], 'circle-color': 'rgba(0, 0, 0, 0)' },
     });
     map.addLayer({
-      id: 'stations-dots', type: 'circle', source: 'stations', minzoom: 5.5,
+      id: 'stations-dots', type: 'circle', source: 'stations', minzoom: 5.5, filter: ['!', ['has', 'net']],
       paint: {
         'circle-radius': ['interpolate', ['linear'], ['zoom'], 5.5, 1.5, 7, 2.3, 9, 3.2, 12, 5, 15, 7],
         'circle-color': '#f0efec', 'circle-stroke-color': '#0d0d0d',
@@ -234,12 +234,34 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     });
     map.addLayer({
       // Desde 8,5 el mapa sólo pone los nombres que caben sin montarse; al acercar salen todos.
-      id: 'stations-labels', type: 'symbol', source: 'stations', minzoom: 8.5,
+      id: 'stations-labels', type: 'symbol', source: 'stations', minzoom: 8.5, filter: ['!', ['has', 'net']],
       layout: {
         'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': ['interpolate', ['linear'], ['zoom'], 8.5, 10, 15, 13],
         'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-optional': true,
       },
       paint: { 'text-color': '#c3c2b7', 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.4 },
+    });
+    // Estaciones de metro, tranvía y las demás redes: cientos en pocas ciudades, así que sólo salen
+    // al acercar a una ciudad y algo más pequeñas que las de Renfe; sus nombres, más cerca todavía.
+    map.addLayer({
+      id: 'netst-hit', type: 'circle', source: 'stations', minzoom: 11, filter: ['has', 'net'],
+      paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 7, 15, 13], 'circle-color': 'rgba(0, 0, 0, 0)' },
+    });
+    map.addLayer({
+      id: 'netst-dots', type: 'circle', source: 'stations', minzoom: 11, filter: ['has', 'net'],
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 2, 13, 3.5, 15, 5.5],
+        'circle-color': '#f0efec', 'circle-stroke-color': '#0d0d0d',
+        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 11, 0.8, 15, 1.6],
+      },
+    });
+    map.addLayer({
+      id: 'netst-labels', type: 'symbol', source: 'stations', minzoom: 13, filter: ['has', 'net'],
+      layout: {
+        'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': ['interpolate', ['linear'], ['zoom'], 13, 10, 16, 12],
+        'text-offset': [0, 1], 'text-anchor': 'top', 'text-optional': true,
+      },
+      paint: { 'text-color': '#a9a89e', 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.3 },
     });
     // Estelas de todos los trenes (capa opcional) y recorrido del tren seleccionado, más visible.
     map.addLayer({
@@ -370,7 +392,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     });
 
     // Por orden de prioridad: si un tren está encima de su estación, se pulsa el tren.
-    const clickable = ['vehicles', 'veh-est', 'ev-rail', 'ev-quake', 'ev-gdacs', 'ev-road', 'ev-road-major', 'ev-works', 'stations-hit', 'ev-fire-glow', 'meteo-fill'];
+    const clickable = ['vehicles', 'veh-est', 'ev-rail', 'ev-quake', 'ev-gdacs', 'ev-road', 'ev-road-major', 'ev-works', 'stations-hit', 'netst-hit', 'ev-fire-glow', 'meteo-fill'];
     for (const id of clickable) {
       map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
@@ -386,7 +408,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
         return;
       }
       if (['vehicles', 'veh-est'].includes(f.layer.id)) onVehicleClick(f.properties.id);
-      else if (f.layer.id === 'stations-hit') onStationClick?.(f.properties.code);
+      else if (['stations-hit', 'netst-hit'].includes(f.layer.id)) onStationClick?.(f.properties.code);
       else onEventClick(f.properties.id, e.lngLat);
     });
 
@@ -595,7 +617,10 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
       if (!loaded) return;
       map.getSource('stations').setData({
         type: 'FeatureCollection',
-        features: list.map((s) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [s.lon, s.lat] }, properties: { code: s.code, name: s.name } })),
+        features: list.map((s) => ({
+          type: 'Feature', geometry: { type: 'Point', coordinates: [s.lon, s.lat] },
+          properties: { code: s.code, name: s.name, ...(s.networkId ? { net: s.networkId } : {}) },
+        })),
       });
     },
 
@@ -757,6 +782,8 @@ function createDetailCard(host, onVehicle) {
   };
 }
 
+const CREDIT_LINKS = [['MITRAMS', 'https://www.transportes.gob.es/'], ['CRTM', 'https://www.crtm.es/'], ['TRAM Barcelona', 'https://www.tram.cat/']];
+
 function stationDetail(st, { stopped, arriving, notices, lines, connections = [] }) {
   const train = (v, when) => `<li><button type="button" class="link" data-vehicle="${esc(v.id)}">${esc(vehicleTitle(v))}</button>
     ${v.destination ? ` → ${esc(v.destination)}` : ''}${v.platform ? ` · vía ${esc(v.platform)}` : ''}${when ? ` · ${esc(when)}` : ''}
@@ -765,7 +792,7 @@ function stationDetail(st, { stopped, arriving, notices, lines, connections = []
   const list = (items, empty) => (items.length ? `<ul class="st-list">${items.join('')}</ul>` : `<p class="st-empty">${empty}</p>`);
   const chips = (ls) => `<div class="st-lines">${ls.map((l) => `<span class="st-line" style="--line:${esc(l.color ?? '#898781')}" title="${esc(l.network ?? '')}">${esc(l.line)}</span>`).join('')}</div>`;
   const link = (url, label) => (safeUrl(url) ? `<a href="${esc(safeUrl(url))}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>` : '');
-  const meta = [st.place, st.province && st.province !== st.place ? st.province : null, st.cercanias ? 'Cercanías / Rodalies' : null].filter(Boolean);
+  const meta = [st.network, st.place, st.province && st.province !== st.place ? st.province : null, st.cercanias ? 'Cercanías / Rodalies' : null].filter(Boolean);
   const address = [st.address, [st.postalCode, st.place].filter(Boolean).join(' ')].filter(Boolean).join(', ');
   const accessible = { true: 'Sí', false: 'No', partial: 'En parte' }[st.accessible] ?? 'Sin datos';
   const rows = [
@@ -774,8 +801,14 @@ function stationDetail(st, { stopped, arriving, notices, lines, connections = []
     st.opened && ['Inaugurada', String(st.opened)],
     st.tracks && ['Vías', String(st.tracks)],
     st.metricGauge && ['Ancho de vía', 'Métrico (antigua FEVE)'],
-    ['Código', st.code],
+    !st.networkId && ['Código', st.code],
   ].filter(Boolean);
+  // Las de otras redes salen del GTFS de su operador en el NAP: su atribución y la fecha de sus datos.
+  // «Powered by MITRAMS», «Powered by CRTM» y «Powered by TRAM Barcelona» van con su enlace, como pide
+  // su licencia (igual que en el pie del mapa).
+  const updated = /^\d{4}-\d{2}-\d{2}/.test(st.source?.updated ?? '') ? st.source.updated.slice(0, 10).split('-').reverse().join('/') : null;
+  const credit = (text) => CREDIT_LINKS.reduce((html, [name, url]) => html.replace(name, link(url, name)), esc(text));
+  const source = st.source?.credit ? `<p class="st-source">Datos de la estación: ${credit(st.source.credit)}${updated ? ` · actualizados el ${esc(updated)}` : ''}</p>` : '';
   // La foto viene de Wikimedia Commons: su licencia pide citar autor y licencia junto a ella.
   const photo = st.photo && safeUrl(st.photo.url) ? `<figure class="st-photo"><img src="${esc(safeUrl(st.photo.url))}" alt="Estación de ${esc(st.name)}" loading="lazy">
     <figcaption>Foto: ${esc(st.photo.author)} · ${st.photo.licenseUrl ? link(st.photo.licenseUrl, st.photo.license) : esc(st.photo.license)} · ${link(st.photo.page, 'Wikimedia Commons')}</figcaption></figure>` : '';
@@ -794,8 +827,8 @@ function stationDetail(st, { stopped, arriving, notices, lines, connections = []
     ${notices.length ? `<h4>Avisos de Renfe</h4><ul class="st-list">${notices.map((e) => `<li>${esc(e.description ?? e.title)}</li>`).join('')}</ul>` : ''}
     ${connections.length ? `<h4>Conexiones a pie</h4>${chips(connections)}` : ''}
     <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>
-    <p class="st-links">${links.join(' · ')}</p>
-    <div class="note">Sólo salen los trenes que publican su posición en directo; los horarios completos están en la web del operador.
+    <p class="st-links">${links.join(' · ')}</p>${source}
+    <div class="note">${st.networkId ? 'Salen los trenes con posición en directo o estimada a partir del horario' : 'Sólo salen los trenes que publican su posición en directo'}; los horarios completos están en la web del operador.
       Pulsa un tren para ver su ficha.</div></div>`;
 }
 

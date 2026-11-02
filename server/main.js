@@ -13,6 +13,7 @@ import { createHttpClient } from './adapters/outbound/http/http-client.js';
 import { createFileCache } from './adapters/outbound/http/file-cache.js';
 import { createConsoleLogger } from './adapters/outbound/logging/console-logger.js';
 import { createRenfeStationCatalog } from './adapters/outbound/stations/renfe-station-catalog.js';
+import { createNetworkStationCatalog } from './adapters/outbound/stations/network-station-catalog.js';
 import { createNapClient } from './adapters/outbound/nap/nap-client.js';
 import { createGtfsNetworkCatalog } from './adapters/outbound/network/gtfs-network-catalog.js';
 import { createAdifRailNetwork } from './adapters/outbound/network/adif-rail-network.js';
@@ -38,6 +39,8 @@ const cacheDir = new URL('cache/', config.dataDir);
 const cache = createFileCache({ http, dir: cacheDir, log });
 const nap = createNapClient({ cache, apiKey: config.env.NAP_API_KEY });
 const stations = assertPort('StationCatalog', createRenfeStationCatalog({ cache, cacheDir, log }), PORT_MEMBERS.StationCatalog);
+// Estaciones de metro, tranvía y las demás redes: aparte, para que las alertas y Rodalies sólo vean las de Renfe.
+const networkStations = assertPort('StationCatalog(redes)', createNetworkStationCatalog({ nap, cache, cacheDir, log, renfe: stations }), PORT_MEMBERS.StationCatalog);
 const network = assertPort('NetworkCatalog', createGtfsNetworkCatalog({ nap, cache, cacheDir, log, pool }), PORT_MEMBERS.NetworkCatalog);
 const railNetwork = assertPort('RailNetwork', createAdifRailNetwork({ cache, log }), PORT_MEMBERS.RailNetwork);
 const situation = assertPort('SituationRepository', createInMemorySituation(), PORT_MEMBERS.SituationRepository);
@@ -59,10 +62,10 @@ for (const s of sources) {
 // --- Casos de uso ----------------------------------------------------------
 const ingestSource = makeIngestSource({ sources: enabledSources, situation, publisher: bus, clock, log });
 const detectAlerts = makeDetectAlerts({ situation, stations, history, publisher: bus, clock });
-const query = makeQuerySituation({ situation, stations, network, clock, sources, railNetwork });
+const query = makeQuerySituation({ situation, stations, networkStations, network, clock, sources, railNetwork });
 const serveTiles = makeServeTiles({ tiles });
 const watchSituation = makeWatchSituation({ events: bus, query });
-const refreshCatalogs = makeRefreshCatalogs({ stations, network, railNetwork, log });
+const refreshCatalogs = makeRefreshCatalogs({ stations, networkStations, network, railNetwork, log });
 
 // --- Adaptadores de entrada ------------------------------------------------
 await refreshCatalogs(); // espera a las estaciones; los trazados y la red ferroviaria siguen cargándose detrás
