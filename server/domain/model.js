@@ -63,6 +63,7 @@
  *   (horario GTFS) del que se calcula el resultado. Lo exigen las licencias; no es la hora del dato.
  * @property {number|null} [datasetUpdatedFrom]  Si la fuente agrupa varios horarios: la fecha del más antiguo
  *   (datasetUpdated es entonces la del más reciente).
+ * @property {Record<string, number>} [datasetUpdatedBy]  Si agrupa varios horarios: la fecha de cada operador.
  */
 
 /**

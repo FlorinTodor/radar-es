@@ -261,6 +261,7 @@ const stream = connect({
   },
   health(h) {
     state.health = h;
+    map.setSources(h);
     render('health');
   },
 }, { buses: P.modeOn(prefs, 'bus') });

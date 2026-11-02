@@ -22,8 +22,8 @@ export function createInMemorySituation() {
   return {
     registerSource(src, { enabled, reason }) {
       sources.set(src.id, {
-        meta: { id: src.id, name: src.name, kind: src.kind, interval: src.interval, license: src.license ?? null, url: publicUrl(src.page ?? src.url) },
-        status: { enabled, reason: reason ?? null, ok: null, lastOk: null, lastError: null, error: null, count: null, sourceTime: null, datasetUpdated: null, datasetUpdatedFrom: null, ms: null },
+        meta: { id: src.id, name: src.name, kind: src.kind, interval: src.interval, license: src.license ?? null, operatorLicenses: src.operatorLicenses ?? null, url: publicUrl(src.page ?? src.url) },
+        status: { enabled, reason: reason ?? null, ok: null, lastOk: null, lastError: null, error: null, count: null, sourceTime: null, datasetUpdated: null, datasetUpdatedFrom: null, datasetUpdatedBy: null, ms: null },
         data: null,
       });
     },
@@ -36,6 +36,7 @@ export function createInMemorySituation() {
         sourceTime: result.sourceTime ?? null,
         datasetUpdated: result.datasetUpdated ?? null,
         datasetUpdatedFrom: result.datasetUpdatedFrom ?? null,
+        datasetUpdatedBy: result.datasetUpdatedBy ?? null,
         count: (result.vehicles ?? result.events)?.length ?? null,
       });
     },

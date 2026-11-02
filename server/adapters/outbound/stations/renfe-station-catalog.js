@@ -143,6 +143,9 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
       const watched = { ...log, warn: (msg) => { incomplete = true; log.warn(msg); } };
       const list = await download(watched);
       if (!list.length) throw new Error('lista vacía');
+      // La ficha cita la fuente y la fecha de sus datos, como pide la licencia de Renfe.
+      const source = { credit: 'Origen de los datos: Renfe Operadora', downloaded: new Date().toISOString() };
+      for (const s of list) s.source = source;
       stations.clear();
       for (const s of list) stations.set(s.code, s);
       version = CATALOG_VERSION;

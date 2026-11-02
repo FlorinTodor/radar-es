@@ -10,7 +10,9 @@ const DEFAULT_UA = 'RadarES/0.1 (visor de datos abiertos de movilidad y emergenc
 const DEFAULT_MAX_BYTES = 64 * 1024 * 1024;
 
 /**
- * @typedef {{ timeout?: number, headers?: Record<string, string>, maxBytes?: number }} RequestOptions
+ * @typedef {{ timeout?: number, headers?: Record<string, string>, maxBytes?: number, info?: { lastModified?: number | null } }} RequestOptions
+ *   info: si se pasa, se rellena con la fecha de Last-Modified de la respuesta (las fuentes que no la
+ *   llevan dentro del propio fichero, para citar su fecha de actualización).
  * @typedef {object} HttpClient
  * @property {(url: string, opts?: RequestOptions) => Promise<string>} text
  * @property {(url: string, opts?: RequestOptions) => Promise<any>} json
@@ -19,12 +21,13 @@ const DEFAULT_MAX_BYTES = 64 * 1024 * 1024;
 
 /** @returns {HttpClient} */
 export function createHttpClient({ userAgent = DEFAULT_UA, defaultTimeout = 20_000 } = {}) {
-  async function get(url, { timeout = defaultTimeout, headers = {}, maxBytes = DEFAULT_MAX_BYTES } = {}) {
+  async function get(url, { timeout = defaultTimeout, headers = {}, maxBytes = DEFAULT_MAX_BYTES, info } = {}) {
     const res = await fetch(url, {
       headers: { 'User-Agent': userAgent, ...headers },
       signal: AbortSignal.timeout(timeout),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status} en ${new URL(url).host}`);
+    if (info) info.lastModified = Date.parse(res.headers.get('last-modified') ?? '') || null;
     return readLimited(res, maxBytes, new URL(url).host);
   }
   const text = async (url, opts) => new TextDecoder().decode(await get(url, opts));

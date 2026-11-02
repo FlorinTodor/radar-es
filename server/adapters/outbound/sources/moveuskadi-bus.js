@@ -36,10 +36,13 @@ export function createMoveuskadiBusSource({ http, log }) {
     async fetch() {
       await loadIndex();
       const vehicles = [];
+      let sourceTime = null; // la del feed más reciente
       for (let i = 0; i < feeds.length; i += CONCURRENCY) {
         await Promise.all(feeds.slice(i, i + CONCURRENCY).map(async ({ name, url }) => {
           try {
             const feed = decodeFeed(await http.bytes(encodeURI(url)));
+            const at = Number(feed.header?.timestamp) * 1000;
+            if (at > (sourceTime ?? 0)) sourceTime = at;
             vehicles.push(...vehiclesFromFeed(feed, { id: `bus-${slug(name)}`, mode: 'bus', operator: name }));
           } catch (err) {
             if (!warned.has(name)) log.warn(`[moveuskadi-bus] ${name}: ${err.message} (no se volverá a avisar)`);
@@ -47,7 +50,7 @@ export function createMoveuskadiBusSource({ http, log }) {
           }
         }));
       }
-      return { vehicles };
+      return { vehicles, sourceTime };
     },
   };
 }

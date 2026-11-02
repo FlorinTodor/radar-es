@@ -13,11 +13,11 @@
 // - Los caducados (Interbus, Samar, Avanza Segovia, Tubasa, TUS Santander, Burgos…): volver a mirar
 //   el NAP de vez en cuando.
 //
-// Cada fichero: [ficheroId, conjunto de datos del NAP, operador, filtros opcionales].
+// Cada fichero: [ficheroId, conjunto de datos del NAP, operador, opciones: filtros y la atribución que pida el operador].
 
 const ALSA_EN_GVA = /^(València - Alacant\/Elx|Les Marines - Alacant)$/;
 
-/** @type {Array<{ id: string, name: string, credit?: string, feeds: Array<[number, number, string, object?]> }>} */
+/** @type {Array<{ id: string, name: string, feeds: Array<[number, number, string, object?]> }>} */
 export const BUS_GROUPS = [
   {
     id: 'avanza', name: 'Avanza: autobuses urbanos',
@@ -48,9 +48,10 @@ export const BUS_GROUPS = [
     feeds: [[1607, 1392, 'Vectalia Alicante'], [1493, 1292, 'Vectalia Cáceres']],
   },
   {
-    // TMB pide citarla con la fecha de actualización (licencia de developer.tmb.cat).
-    id: 'urbanos', name: 'Autobuses urbanos de ciudades', credit: 'Fuente: TMB',
-    feeds: [[1328, 1127, 'TMB'], [1567, 1369, 'TUSSAM'], [1166, 965, 'EMT València'], [1564, 1367, 'Granada'],
+    id: 'urbanos', name: 'Autobuses urbanos de ciudades',
+    // TMB pide «Fuente: TMB» con la fecha de actualización (licencia de developer.tmb.cat): va en su
+    // fichero para que no parezca la fuente de los demás.
+    feeds: [[1328, 1127, 'TMB', { credit: 'Fuente: TMB' }], [1567, 1369, 'TUSSAM'], [1166, 965, 'EMT València'], [1564, 1367, 'Granada'],
       [1573, 1375, 'Aucorsa'], [1572, 1374, 'Castelló'], [1574, 1376, 'Tranvías de A Coruña'], [1295, 1094, 'Guaguas Municipales'],
       [1495, 1294, 'EMT Palma'], [1579, 1381, 'Autobusos de Lleida'], [1694, 1396, 'EMT Tarragona'], [1570, 1372, 'TMG Girona'],
       [2427, 1678, 'Urbanos de Linares'], [2083, 1559, 'Aranda de Duero'], [1177, 976, 'Villavesas (Pamplona)'],
@@ -84,8 +85,6 @@ export function busGroupSources(deps, createGtfsScheduleSource) {
     name: `${g.name} (posición estimada según horario)`,
     mode: 'bus',
     interval: 60_000,
-    // Además de "Powered by MITRAMS", cada operador del grupo (y lo que pida alguno, como TMB).
-    credit: [g.credit, g.feeds.map(([, , operator]) => operator).join(', ')].filter(Boolean).join(' · '),
     feeds: g.feeds.map(([ficheroId, dataset, operator, filter]) => ({ ficheroId, dataset, operator, ...filter })),
   }));
 }

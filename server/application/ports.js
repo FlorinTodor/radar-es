@@ -15,6 +15,8 @@
  * @property {string} [url]
  * @property {string} [page]                   Ficha pública del conjunto de datos, para enlazarla en vez de `url`.
  * @property {string[]} [requires]             Variables de entorno necesarias (claves de API).
+ * @property {Record<string, string>} [operatorLicenses]  Fuentes que agrupan a varios operadores: la atribución
+ *                                              de cada uno, por el `operator` de sus vehículos, para citar sólo la suya.
  * @property {boolean} [cleanPositions]        Su licencia permite modificar los datos: se descartan sus posiciones
  *                                              repetidas o imposibles. Si no, se muestran tal cual.
  * @property {boolean} [onRailNetwork]         Sus trenes (ids `<id de la fuente>:…`) circulan por la red ferroviaria
