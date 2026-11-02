@@ -40,3 +40,12 @@ test('sin el GTFS (sin clave del NAP o si falla), los códigos', async () => {
   assert.equal(falla.vehicles[0].next, 'AL');
   assert.match(warnings[0], /NAP caído/);
 });
+
+test('un registro con las columnas descolocadas (sin unidad, id ni línea) no es un tren: se descarta', async () => {
+  // Lo que dio la API el 2-nov a la 01:47: la línea, el origen y el destino en los campos de ocupación.
+  const roto = { geo_point_2d: { lon: 2.0139, lat: 41.5751 }, ocupacio_mi_percent: '6c4bdae602747613ef|6a2dc2e30b', ocupacio_mi_tram: 'S1',
+    ocupacio_ri_percent: 'A', ocupacio_ri_tram: 'PC', ocupacio_m1_tram: 'NA', ocupacio_m1_percent: '{"parada": "NA"}', ocupacio_m2_tram: 'True' };
+  const source = createFgcSource({ http: { json: async () => ({ results: [roto, record] }) }, nap: { enabled: false } });
+  const { vehicles } = await source.fetch();
+  assert.deepEqual(vehicles.map((v) => v.id), ['fgc:1c2cc4fd0375']);
+});

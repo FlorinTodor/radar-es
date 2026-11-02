@@ -57,6 +57,10 @@ export function createFgcSource({ http, nap, log }) {
         for (const r of d.results ?? []) {
           const p = r.geo_point_2d;
           if (!p || !Number.isFinite(p.lat)) continue;
+          // Sin unidad ni identificador, o sin línea, el registro no es de un tren: FGC da a veces uno con
+          // las columnas descolocadas (la línea en ocupacio_mi_tram, el origen en ocupacio_ri_tram…). No se
+          // recoloca a ojo: se descarta, y todos los así acabarían con el mismo id «fgc:undefined».
+          if (!(r.ut || r.id) || !r.lin) continue;
           vehicles.push({
             id: `fgc:${r.ut || r.id}`,
             // L6, L7, L8, L12: servicio urbano tipo metro. S/R: suburbano.
