@@ -44,7 +44,8 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     // Vacíos mientras el servidor los carga al arrancar: entonces no se guardan (ver isEmpty).
     '/api/stations': { fn: () => query.stations(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.length },
     '/api/lines': { fn: () => query.lines(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.features?.length },
-    '/api/trails': { fn: (p) => query.trails(trailMinutes(p)), key: trailMinutes, ttl: 15_000, cache: REVALIDATE },
+    // Tres variantes (15, 30 y 45 min): van al memo general, sin presupuesto, como una ruta sin parámetros.
+    '/api/trails': { fn: (p) => query.trails(trailMinutes(p)), key: trailMinutes, few: true, ttl: 15_000, cache: REVALIDATE },
     '/api/snapshot': { fn: () => query.snapshot(), ttl: 5_000, cache: REVALIDATE },
     '/api/vehicles': { fn: (p) => query.vehicles(vehicleFilter(p)), key: (p) => JSON.stringify(vehicleFilter(p)), ttl: 5_000, cache: REVALIDATE },
     '/api/events': { fn: (p) => query.events({ category: idParam(p, 'category') }), key: (p) => idParam(p, 'category') ?? '', ttl: 15_000, cache: REVALIDATE },
@@ -61,7 +62,7 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
   // Una variante de /api/vehicles pesa unos 3 MB entre JSON y gzip: con el tope de bytes, por muchas
   // que se pidan nunca ocupan más de PARAMS_MEMO_BYTES (el montón de Node es de unos 500 MB).
   const memoParams = createJsonMemo({ max: 100, maxBytes: PARAMS_MEMO_BYTES, now });
-  const budgets = new Map(Object.keys(routes).filter((path) => routes[path].key).map((path) => [path, createBudget({ now })]));
+  const budgets = new Map(Object.keys(routes).filter((path) => routes[path].key && !routes[path].few).map((path) => [path, createBudget({ now })]));
   // Recorrido y lo que le queda de cada vehículo (/api/tracks/<id>, /api/ahead/<id>). Cada uno puede
   // costar un cálculo por la vía o por las paradas, y hay cientos de vehículos: memo propio, que guarda
   // todos los que se miran a la vez, y un presupuesto que sólo se gasta al calcular. Quien pide otra vez
@@ -130,6 +131,7 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     const route = routes[path];
     let entry;
     if (!route.key) entry = memo(path, route.ttl, () => route.fn(params), route);
+    else if (route.few) entry = memo(`${path}?${route.key(params)}`, route.ttl, () => route.fn(params), route);
     else {
       const compute = () => {
         if (!budgets.get(path).take()) throw new Busy();
