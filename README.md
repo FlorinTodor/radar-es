@@ -6,8 +6,8 @@
 de trenes, metros, tranvías y autobuses de España, cruzado con incidencias de tráfico, terremotos,
 avisos meteorológicos, incendios y el estado de la red eléctrica. Los vehículos salen en su posición
 en directo cuando el operador la publica y, si solo publica su horario, en una posición estimada
-marcada como tal. Todo a partir de **datos públicos**: de sus 45 fuentes, 20 no piden nada y 25
-necesitan la clave gratuita del Punto de Acceso Nacional (NAP).
+marcada como tal. Todo a partir de **datos públicos**: de sus 45 fuentes, 19 no piden nada, 25
+necesitan la clave gratuita del Punto de Acceso Nacional (NAP) y una, la de EMT Madrid (MobilityLabs).
 
 Un motor de reglas vigila situaciones que merecen atención humana: trenes detenidos en
 plena vía, varios trenes parados en la misma zona, saltos bruscos de retraso, desapariciones
@@ -33,7 +33,9 @@ node --test test/domain/rules.test.js   # un solo fichero
 
 Requiere Node.js 22.9 o superior. Para los trazados de líneas y las posiciones estimadas por
 horario hace falta `NAP_API_KEY` en `.env` (clave gratuita del Punto de Acceso Nacional): sin ella
-se desactivan las 25 fuentes que la necesitan, y el registro lo avisa al arrancar. El primer
+se desactivan las 25 fuentes que la necesitan, y el registro lo avisa al arrancar. Los avisos de EMT
+Madrid piden además `EMT_MADRID_CLIENT_ID` y `EMT_MADRID_PASSKEY`, de una aplicación gratuita en
+[MobilityLabs](https://mobilitylabs.emtmadrid.es). El primer
 arranque descarga los horarios GTFS en `data/` y tarda unos minutos; los siguientes los leen de ahí.
 Para contar visitas en producción se pone `GOATCOUNTER_URL` (GoatCounter, sin cookies); sin ella
 no se carga ningún contador y la página de privacidad lo indica.
@@ -152,7 +154,8 @@ publica con licencia CC BY en el portal del Cabildo. La licencia y la atribució
 en `/legal`.
 
 Todas son públicas. Solo las marcadas con 🔑 necesitan `NAP_API_KEY`, una clave gratuita del NAP. En
-total son 45 fuentes (34 de vehículos, 10 de incidencias y 1 de métricas): 20 sin clave y 25 con ella.
+total son 45 fuentes (34 de vehículos, 10 de incidencias y 1 de métricas): 19 sin clave, 25 con la del
+NAP y una con la de EMT Madrid.
 
 | Fuente | Qué aporta | Refresco |
 |---|---|---|
@@ -171,7 +174,7 @@ total son 45 fuentes (34 de vehículos, 10 de incidencias y 1 de métricas): 20 
 | 🔑 AMB (GTFS del NAP + trip updates de `ambmobilitat.cat`) | autobús metropolitano de Barcelona: **posición estimada** con su **retraso real** | 60 s |
 | Autobuses La Unión (GTFS-RT, NAP) y AUVASA Valladolid (GTFS-RT, CC BY 3.0 ES) | posición | 60 s |
 | 🔑 83 horarios de autobús del NAP, en 9 grupos (`autobuses-nap.js`) | **posición estimada** de Avanza, Sagalés, Moventis, Grupo Ruiz, AISA, Vectalia, urbanos de ciudades, interurbanos autonómicos e insulares y otras empresas | 60 s |
-| EMT Madrid (GTFS-RT del NAP) | avisos de servicio | 5 min |
+| EMT Madrid (GTFS-RT, listado en el NAP; con las claves gratuitas de MobilityLabs) | avisos de servicio | 5 min |
 | 🔑 GTFS de 16 redes en el NAP + líneas del tranvía de Tenerife (Cabildo de Tenerife) | trazados de Cercanías, metros, tranvías, FGC y Euskotren | 24 h |
 | Adif, «Tramos en servicio» ([datos abiertos de Adif en ArcGIS](https://www.arcgis.com/home/item.html?id=4ec7c0fb3cab42b0b488d65e65eeb7aa)) | vías en servicio, para dibujar por la vía el recorrido de AVE, Larga y Media Distancia y lo que les queda | 30 días |
 | DGT DATEX II v3.7 (`nap.dgt.es`) | ~1.000 incidencias de tráfico | 5 min |
