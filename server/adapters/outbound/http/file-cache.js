@@ -22,9 +22,11 @@ export async function writeFileAtomic(file, data) {
 }
 
 /**
- * @param {{ http: import('./http-client.js').HttpClient, dir: URL, log: import('../../../application/ports.js').LoggerPort }} deps
+ * @param {{ http: import('./http-client.js').HttpClient, dir: URL, log: import('../../../application/ports.js').LoggerPort,
+ *           now?: () => number }} deps
+ *   now: reloj con el que se mide la edad de las copias (para los tests).
  */
-export function createFileCache({ http, dir, log }) {
+export function createFileCache({ http, dir, log, now = Date.now }) {
   return {
     /**
      * `validate(bytes)`, si se da, lanza cuando la respuesta no vale aunque llegue con un 200 (las
@@ -34,7 +36,7 @@ export function createFileCache({ http, dir, log }) {
     async bytes(url, name, maxAgeMs, { validate, ...opts } = {}) {
       const file = new URL(name, dir);
       try {
-        if (Date.now() - (await stat(file)).mtimeMs < maxAgeMs) return new Uint8Array(await readFile(file));
+        if (now() - (await stat(file)).mtimeMs < maxAgeMs) return new Uint8Array(await readFile(file));
       } catch { /* sin caché */ }
       try {
         // Los GTFS más grandes rondan los 20 MB: 256 MB es un tope muy holgado, pero un tope.

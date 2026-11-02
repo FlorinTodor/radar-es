@@ -2,11 +2,10 @@
 // datos: Renfe Operadora"): la lista oficial de estaciones (coordenadas, población) y, para
 // tener los nombres bien escritos, las paradas de sus GTFS de Cercanías y de AV/LD/MD.
 // Los códigos coinciden con los stopId del GTFS-RT. Se refresca una vez al día.
-import { mkdir, readFile } from 'node:fs/promises';
-import { writeFileAtomic } from '../http/file-cache.js';
 import { distanceKm } from '../../../domain/geo.js';
 import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
 import { RETIRED_PHOTOS_VERSION, loadStationExtras, padCode, wheelchair } from './station-extras.js';
+import { createStationStore } from './station-store.js';
 
 const REFRESH_MS = 24 * 3600_000;
 // Si algo ha fallado al rehacerlo (Wikidata, Commons, un GTFS), se vuelve a intentar a la hora y no
@@ -66,10 +65,11 @@ function* semicolonRows(bytes) {
 
 /**
  * @param {{ cache: ReturnType<typeof import('../http/file-cache.js').createFileCache>, cacheDir: URL,
- *           log: import('../../../application/ports.js').LoggerPort }} deps
+ *           log: import('../../../application/ports.js').LoggerPort, now?: () => number }} deps
+ *   now: reloj con el que se fecha y se renueva la copia (para los tests).
  * @returns {import('../../../application/ports.js').StationCatalogPort}
  */
-export function createRenfeStationCatalog({ cache, cacheDir, log }) {
+export function createRenfeStationCatalog({ cache, cacheDir, log, now = Date.now }) {
   // v3: con dirección, provincia, ancho métrico, accesibilidad y los datos de Wikidata y Commons
   // (las cachés anteriores no los tienen).
   const cacheFile = new URL('renfe-stations-v3.json', cacheDir);
@@ -79,8 +79,6 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
   // 6: todas las fotos de Wikidata y candidatas en orden, sin derechos de imagen ni fotos repetidas dudosas.
   // 7: lista de fotos retiradas; su huella va detrás, así que retirar una foto también recalcula.
   const CATALOG_VERSION = `7-${RETIRED_PHOTOS_VERSION}`;
-  /** @type {Map<string, import('../../../domain/model.js').Station & { cercanias: boolean }>} */
-  const stations = new Map();
 
   async function download(log) {
     // Paradas de los GTFS oficiales: nombres bien escritos y estaciones que faltan en la lista
@@ -125,53 +123,28 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
       }
     }
     const stations = withoutDuplicates([...list.values()], new Set(gtfsStops.keys()));
-    return withExtras(stations, await loadStationExtras({ cache, log, maxAgeMs: REFRESH_MS, stations }));
+    const complete = withExtras(stations, await loadStationExtras({ cache, log, maxAgeMs: REFRESH_MS, stations }));
+    // La ficha cita la fuente y la fecha de sus datos, como pide la licencia de Renfe.
+    const source = { credit: 'Origen de los datos: Renfe Operadora', downloaded: new Date(now()).toISOString() };
+    for (const s of complete) s.source = source;
+    return complete;
   }
 
-  let version = null;
-  let savedAt = 0;
-  let refreshing = null;
-
-  async function refresh() {
-    try {
-      // Cualquier aviso mientras se rehace quiere decir que falta algo (fotos, fichas, nombres).
-      let incomplete = false;
-      const watched = { ...log, warn: (msg) => { incomplete = true; log.warn(msg); } };
-      const list = await download(watched);
-      if (!list.length) throw new Error('lista vacía');
-      // La ficha cita la fuente y la fecha de sus datos, como pide la licencia de Renfe.
-      const source = { credit: 'Origen de los datos: Renfe Operadora', downloaded: new Date().toISOString() };
-      for (const s of list) s.source = source;
-      stations.clear();
-      for (const s of list) stations.set(s.code, s);
-      version = CATALOG_VERSION;
-      savedAt = incomplete ? Date.now() - REFRESH_MS + RETRY_MS : Date.now();
-      await mkdir(cacheDir, { recursive: true });
-      await writeFileAtomic(cacheFile, JSON.stringify({ version, savedAt, stations: list }));
-      log.info(`[estaciones] ${stations.size} estaciones de Renfe (lista oficial + paradas GTFS)`);
-    } catch (err) {
-      log.warn(`[estaciones] no se pudo descargar el catálogo (${err.message}); ${stations.size} en caché`);
-    }
-  }
+  // Cualquier aviso mientras se rehace quiere decir que falta algo (fotos, fichas, nombres): se
+  // reintenta a la hora. Recalcular son minutos (Wikidata, las fotos de Commons, las fichas de Renfe)
+  // y el servidor no escucha hasta que hay estaciones: con una copia guardada, aunque sea de otra
+  // versión o de hace días, se arranca con ella y se recalcula detrás. Sólo se espera si no hay ninguna.
+  const store = createStationStore({
+    cacheFile, cacheDir, version: CATALOG_VERSION, refreshMs: REFRESH_MS, retryMs: RETRY_MS, log, now, download,
+    waitIfEmpty: true,
+    saved: (count) => `[estaciones] ${count} estaciones de Renfe (lista oficial + paradas GTFS)`,
+    failed: (err, count) => `[estaciones] no se pudo descargar el catálogo (${err.message}); ${count} en caché`,
+  });
+  /** @type {Map<string, import('../../../domain/model.js').Station & { cercanias: boolean }>} */
+  const { stations } = store;
 
   return {
-    async load() {
-      if (!stations.size) {
-        try {
-          const cached = JSON.parse(await readFile(cacheFile, 'utf8'));
-          for (const s of cached.stations) stations.set(s.code, s);
-          ({ version = null, savedAt = 0 } = cached);
-        } catch { /* todavía no hay caché */ }
-      }
-      if (version === CATALOG_VERSION && Date.now() - savedAt < REFRESH_MS) return stations.size;
-
-      // Recalcular son minutos (Wikidata, las fotos de Commons, las fichas de Renfe) y el servidor
-      // no escucha hasta que hay estaciones: con una copia guardada, aunque sea de otra versión o
-      // de hace días, se arranca con ella y se recalcula detrás. Sólo se espera si no hay ninguna.
-      refreshing ??= refresh().finally(() => { refreshing = null; });
-      if (!stations.size) await refreshing;
-      return stations.size;
-    },
+    load: store.load,
 
     get: (code) => (code ? stations.get(padCode(code)) : undefined),
 
@@ -180,18 +153,7 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
       return stations.get(padCode(code))?.name ?? `Estación ${code}`;
     },
 
-    // Fuerza bruta con prefiltro por caja: ~2.000 estaciones, de sobra para unos cientos de trenes.
-    nearest(lat, lon, maxKm = 50) {
-      const dLat = maxKm / 111;
-      let best = null;
-      let bestKm = Infinity;
-      for (const s of stations.values()) {
-        if (Math.abs(s.lat - lat) > dLat || Math.abs(s.lon - lon) > dLat * 1.4) continue;
-        const km = distanceKm(lat, lon, s.lat, s.lon);
-        if (km < bestKm && km <= maxKm) { bestKm = km; best = s; }
-      }
-      return best ? { station: best, km: bestKm } : null;
-    },
+    nearest: store.nearest,
 
     all: () => [...stations.values()],
   };
