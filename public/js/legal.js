@@ -1,4 +1,4 @@
-// Página legal: datos del titular (de /api/about), contador y estado de cada capa.
+// Página legal: si hay contador de visitas (de /api/about) y estado de cada capa.
 // Va en un fichero aparte y no en línea para que la CSP pueda prohibir los scripts en línea.
 import { esc } from './format.js';
 
@@ -12,12 +12,7 @@ const labelCells = (table) => {
 document.querySelectorAll('.doc-body table').forEach(labelCells);
 
 fetch('/api/about').then((r) => r.json()).then((about) => {
-  for (const el of document.querySelectorAll('[data-about]')) {
-    const value = about[el.dataset.about];
-    if (!value) continue;
-    el.textContent = value;
-    if (el.dataset.about === 'contact' && value.includes('@')) el.innerHTML = `<a href="mailto:${esc(value)}">${esc(value)}</a>`;
-  }
+  // El titular y el contacto ya vienen escritos en la página (los pone el servidor; también sin JS).
   for (const el of document.querySelectorAll('[data-analitica]')) el.hidden = (el.dataset.analitica === 'si') !== Boolean(about.goatcounter);
 }).catch(() => {});
 
