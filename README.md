@@ -33,7 +33,10 @@ node --test test/domain/rules.test.js   # un solo fichero
 
 Requiere Node.js 22.9 o superior. Para los trazados de líneas y las posiciones estimadas por
 horario hace falta `NAP_API_KEY` en `.env` (clave gratuita del Punto de Acceso Nacional): sin ella
-se desactivan las 25 fuentes que la necesitan, y el registro lo avisa al arrancar. El primer
+se desactivan las 25 fuentes que la necesitan, y el registro lo avisa al arrancar. Los avisos de EMT
+Madrid usan además, si están, `EMT_MADRID_CLIENT_ID` y `EMT_MADRID_PASSKEY`, de una aplicación gratuita
+en [MobilityLabs](https://mobilitylabs.emtmadrid.es); sin ellas, o si EMT no las acepta, se leen sin
+identificarse. El primer
 arranque descarga los horarios GTFS en `data/` y tarda unos minutos; los siguientes los leen de ahí.
 Para contar visitas en producción se pone `GOATCOUNTER_URL` (GoatCounter, sin cookies); sin ella
 no se carga ningún contador y la página de privacidad lo indica.
@@ -171,7 +174,7 @@ total son 45 fuentes (34 de vehículos, 10 de incidencias y 1 de métricas): 20 
 | 🔑 AMB (GTFS del NAP + trip updates de `ambmobilitat.cat`) | autobús metropolitano de Barcelona: **posición estimada** con su **retraso real** | 60 s |
 | Autobuses La Unión (GTFS-RT, NAP) y AUVASA Valladolid (GTFS-RT, CC BY 3.0 ES) | posición | 60 s |
 | 🔑 83 horarios de autobús del NAP, en 9 grupos (`autobuses-nap.js`) | **posición estimada** de Avanza, Sagalés, Moventis, Grupo Ruiz, AISA, Vectalia, urbanos de ciudades, interurbanos autonómicos e insulares y otras empresas | 60 s |
-| EMT Madrid (GTFS-RT del NAP) | avisos de servicio | 5 min |
+| EMT Madrid (GTFS-RT, listado en el NAP; con las claves gratuitas de MobilityLabs si están) | avisos de servicio | 5 min |
 | 🔑 GTFS de 16 redes en el NAP + líneas del tranvía de Tenerife (Cabildo de Tenerife) | trazados de Cercanías, metros, tranvías, FGC y Euskotren | 24 h |
 | Adif, «Tramos en servicio» ([datos abiertos de Adif en ArcGIS](https://www.arcgis.com/home/item.html?id=4ec7c0fb3cab42b0b488d65e65eeb7aa)) | vías en servicio, para dibujar por la vía el recorrido de AVE, Larga y Media Distancia y lo que les queda | 30 días |
 | DGT DATEX II v3.7 (`nap.dgt.es`) | ~1.000 incidencias de tráfico | 5 min |
@@ -254,8 +257,10 @@ después (con jq, DuckDB o pandas).
   - La web muestra al entrar un aviso sobre estos huecos (`#notice` en `public/index.html`). Si
     cambias el texto, sube `NOTICE_VERSION` en `public/js/app.js` para que vuelva a salir a todos.
 - **TMB y EMT Madrid**: ya salen el metro y los autobuses de TMB (estimados por su horario del NAP)
-  y los avisos de EMT Madrid. Sin integrar: el tiempo real de TMB y las posiciones de los autobuses
-  de EMT Madrid, cuyas API piden clave gratuita y registro.
+  y los avisos de EMT Madrid. Sin integrar: el tiempo real de TMB, cuya API pide clave gratuita, y las
+  posiciones de los autobuses de EMT Madrid: el NAP no las publica y su horario va por frecuencias
+  (estimarlas con él da cifras irreales). Su API sí las da, con nuestra aplicación de MobilityLabs,
+  cuando EMT la apruebe (está pendiente de moderación).
 - **Metro de Madrid**: solo publica tiempos de llegada, y su horario del NAP caducó en mayo de 2026;
   sin un horario vigente no se pueden estimar sus posiciones. Metro Ligero, Metrovalencia, Granada
   y Zaragoza ya salen con posición estimada.
@@ -441,7 +446,8 @@ Ninguna por ahora.
 ## Posibles mejoras
 
 - Botón en el mapa para cambiar entre español e inglés.
-- Tiempo real de TMB y posiciones de los autobuses de EMT Madrid, con sus claves gratuitas (ver
+- Tiempo real de TMB y posiciones de los autobuses de EMT Madrid desde sus API, cuando EMT apruebe nuestra
+  aplicación de MobilityLabs (ver
   *Pendiente y conocido*).
 - Estadísticas de puntualidad por línea y franja horaria.
 - Pasos a nivel en el mapa.
