@@ -11,17 +11,25 @@ const ALERTS = 'https://openapi.emtmadrid.es/v1/bus/servicealerts/proto';
 const LOGIN = 'https://openapi.emtmadrid.es/v1/mobilitylabs/user/login/';
 // Margen para no usar un token a punto de caducar.
 const TOKEN_MARGIN_MS = 5 * 60_000;
+// Si EMT no acepta las claves (la aplicación puede estar aún «pendiente de moderación»), los avisos se
+// leen sin token, como antes de tenerlas, y no se vuelve a intentar entrar hasta pasado este rato.
+const LOGIN_RETRY_MS = 30 * 60_000;
 const SEVERE_EFFECTS = new Set(['NO_SERVICE', 'REDUCED_SERVICE', 'SIGNIFICANT_DELAYS']);
 
 const text = (t) => ((t?.translation ?? []).find((x) => !x.language || x.language.startsWith('es')) ?? t?.translation?.[0])?.text?.trim() ?? '';
 
 /**
- * @param {{ http: import('../http/http-client.js').HttpClient, env?: Record<string, string | undefined>, now?: () => number }} deps
- *   env: EMT_MADRID_CLIENT_ID y EMT_MADRID_PASSKEY. Ni ellas ni el token salen nunca en un error o en el registro.
+ * @param {{ http: import('../http/http-client.js').HttpClient, env?: Record<string, string | undefined>,
+ *           log?: import('../../../application/ports.js').LoggerPort, now?: () => number }} deps
+ *   env: EMT_MADRID_CLIENT_ID y EMT_MADRID_PASSKEY. Sin ellas, o si EMT no las acepta, los avisos se leen
+ *   sin token. Ni las claves ni el token salen nunca en un error o en el registro.
  */
-export function createEmtMadridAlertsSource({ http, env = {}, now = Date.now }) {
+export function createEmtMadridAlertsSource({ http, env = {}, log, now = Date.now }) {
+  const hasKeys = Boolean(env.EMT_MADRID_CLIENT_ID && env.EMT_MADRID_PASSKEY);
   let token = null;
   let tokenUntil = 0;
+  let loginFailedAt = -Infinity;
+  let warned = false;
 
   async function login() {
     const res = await http.json(LOGIN, { headers: { 'X-ClientId': env.EMT_MADRID_CLIENT_ID ?? '', passKey: env.EMT_MADRID_PASSKEY ?? '' } });
@@ -32,15 +40,36 @@ export function createEmtMadridAlertsSource({ http, env = {}, now = Date.now }) 
     tokenUntil = now() + (Number(session.tokenSecExpiration) || 0) * 1000 - TOKEN_MARGIN_MS;
   }
 
-  /** Los avisos con el token vigente; si EMT lo da por caducado antes de tiempo, se entra otra vez. */
+  /** Entra si hace falta. false si no hay claves o EMT no las acepta (se avisa una vez, sin las claves). */
+  async function session() {
+    if (!hasKeys) return false;
+    if (token && now() < tokenUntil) return true;
+    if (now() - loginFailedAt < LOGIN_RETRY_MS) return false;
+    try {
+      await login();
+      loginFailedAt = -Infinity;
+      warned = false;
+      return true;
+    } catch (err) {
+      token = null;
+      loginFailedAt = now();
+      if (!warned) log?.warn(`[emt-madrid-avisos] ${err.message}; se leen sin token y se reintenta en 30 min`);
+      warned = true;
+      return false;
+    }
+  }
+
+  /**
+   * Los avisos con el token vigente. Ante cualquier fallo con él (EMT lo da por caducado antes de tiempo,
+   * un corte) se entra otra vez y se reintenta; si no se puede entrar, se leen sin token.
+   */
   async function alerts() {
-    if (!token || now() >= tokenUntil) await login();
+    if (!(await session())) return http.bytes(ALERTS);
     try {
       return await http.bytes(ALERTS, { headers: { accessToken: token } });
-    } catch (err) {
-      if (!/HTTP 40[13]\b/.test(err.message)) throw err;
-      await login();
-      return http.bytes(ALERTS, { headers: { accessToken: token } });
+    } catch {
+      token = null;
+      return (await session()) ? http.bytes(ALERTS, { headers: { accessToken: token } }) : http.bytes(ALERTS);
     }
   }
 
@@ -50,7 +79,6 @@ export function createEmtMadridAlertsSource({ http, env = {}, now = Date.now }) 
     kind: 'events',
     interval: 300_000,
     url: ALERTS,
-    requires: ['EMT_MADRID_CLIENT_ID', 'EMT_MADRID_PASSKEY'],
     license: 'Powered by MITRAMS (Punto de Acceso Nacional) · Powered by EMT de Madrid (MobilityLabs)',
     async fetch() {
       const feed = decodeFeed(await alerts());

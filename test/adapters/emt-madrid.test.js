@@ -16,34 +16,41 @@ const feed = () => rt.FeedMessage.encode(rt.FeedMessage.fromObject({
   } })),
 })).finish();
 
-/** EMT de mentira: cuenta los logins y exige el token vigente. */
-function fakeEmt({ tokenSec = 86_400, code = '00' } = {}) {
+/**
+ * EMT de mentira: cuenta los logins y rechaza un token que no es el vigente. Sin token, como el de
+ * verdad, los avisos se leen igual. `refuse`: el login da 403 (aplicación pendiente de moderación).
+ */
+function fakeEmt({ tokenSec = 86_400, code = '00', refuse = false } = {}) {
   const calls = { login: [], alerts: [] };
   let valid = null;
   let n = 0;
   return {
     calls,
     expire() { valid = null; },
+    accept() { refuse = false; },
     http: {
       async json(url, { headers }) {
         calls.login.push({ url, headers });
+        if (refuse) throw new Error('HTTP 403 en openapi.emtmadrid.es');
         if (code !== '00') return { code, description: 'Credenciales no válidas', data: [] };
         valid = `token-${++n}`;
         return { code: '00', description: `Register user: x with token: ${valid}`, data: [{ accessToken: valid, tokenSecExpiration: tokenSec }] };
       },
-      async bytes(url, { headers }) {
-        calls.alerts.push(headers.accessToken);
-        if (headers.accessToken !== valid) throw new Error('HTTP 401 en openapi.emtmadrid.es');
+      async bytes(url, opts = {}) {
+        const token = opts.headers?.accessToken ?? null;
+        calls.alerts.push(token);
+        if (token && token !== valid) throw new Error('HTTP 401 en openapi.emtmadrid.es');
         return feed();
       },
     },
   };
 }
+const logger = () => { const warnings = []; return { warnings, log: { warn: (m) => warnings.push(m), info() {} } }; };
 
 test('entra con X-ClientId y passKey, y lee los avisos con su token (sin repetidos)', async () => {
   const emt = fakeEmt();
   const source = createEmtMadridAlertsSource({ http: emt.http, env: ENV, now: () => NOW });
-  assert.deepEqual(source.requires, ['EMT_MADRID_CLIENT_ID', 'EMT_MADRID_PASSKEY']);
+  assert.equal(source.requires, undefined, 'sin claves sigue funcionando: no se desactiva');
   assert.match(source.license, /Powered by EMT de Madrid/);
   const result = await source.fetch();
   assert.equal(emt.calls.login[0].url, 'https://openapi.emtmadrid.es/v1/mobilitylabs/user/login/');
@@ -77,12 +84,49 @@ test('si EMT da el token por caducado antes de tiempo, se entra otra vez y se re
   assert.deepEqual(emt.calls.alerts, ['token-1', 'token-1', 'token-2']);
 });
 
-test('con claves rechazadas, el error no lleva ni las claves ni nada de la respuesta', async () => {
+test('si EMT no acepta las claves (403), los avisos se leen sin token y se avisa una sola vez', async () => {
+  let t = NOW;
+  const emt = fakeEmt({ refuse: true });
+  const { warnings, log } = logger();
+  const source = createEmtMadridAlertsSource({ http: emt.http, env: ENV, log, now: () => t });
+  assert.equal((await source.fetch()).events.length, 1, 'los avisos siguen saliendo');
+  t += 5 * 60_000;
+  await source.fetch();
+  assert.equal(emt.calls.login.length, 1, 'no se intenta entrar en cada lectura');
+  assert.deepEqual(emt.calls.alerts, [null, null]);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /HTTP 403/);
+  assert.doesNotMatch(warnings.join(' '), /prueba/, 'sin las claves');
+  // Cuando EMT modera la aplicación, a la media hora se entra y se usa el token.
+  emt.accept();
+  t += 30 * 60_000;
+  await source.fetch();
+  assert.deepEqual(emt.calls.alerts.at(-1), 'token-1');
+});
+
+test('un login con otro código tampoco deja sin avisos, y el aviso no lleva nada de la respuesta', async () => {
   const emt = fakeEmt({ code: '80' });
+  const { warnings, log } = logger();
+  const source = createEmtMadridAlertsSource({ http: emt.http, env: ENV, log, now: () => NOW });
+  assert.equal((await source.fetch()).events.length, 1);
+  assert.match(warnings[0], /no acepta las claves de MobilityLabs \(código 80\)/);
+  assert.doesNotMatch(warnings[0], /prueba|Credenciales/);
+});
+
+test('sin claves en .env, se leen sin token y sin intentar entrar', async () => {
+  const emt = fakeEmt();
+  const source = createEmtMadridAlertsSource({ http: emt.http, env: {}, now: () => NOW });
+  assert.equal((await source.fetch()).events.length, 1);
+  assert.deepEqual([emt.calls.login.length, emt.calls.alerts], [0, [null]]);
+});
+
+test('ante cualquier fallo con el token se entra otra vez, no sólo con 401 o 403', async () => {
+  const emt = fakeEmt();
   const source = createEmtMadridAlertsSource({ http: emt.http, env: ENV, now: () => NOW });
-  await assert.rejects(source.fetch(), (err) => {
-    assert.match(err.message, /no acepta las claves de MobilityLabs \(código 80\)/);
-    assert.doesNotMatch(err.message, /prueba|Credenciales/);
-    return true;
-  });
+  await source.fetch();
+  const bytes = emt.http.bytes;
+  let failed = false;
+  emt.http.bytes = async (url, opts) => { if (!failed) { failed = true; throw new Error('HTTP 500 en openapi.emtmadrid.es'); } return bytes(url, opts); };
+  assert.equal((await source.fetch()).events.length, 1);
+  assert.equal(emt.calls.login.length, 2);
 });
