@@ -1,10 +1,7 @@
 // Caso de uso: servir las teselas de las capas externas (IGN, EFFIS) y las áreas quemadas bajo un
 // clic. Decide qué se puede pedir (el dominio acota las teselas a España y a un zoom máximo por
 // capa) antes de que el proveedor descargue nada o lo guarde en disco.
-import { isServableTile } from '../../domain/tiles.js';
-
-/** Lado máximo, en grados, de la caja de áreas quemadas: lo que hay bajo un clic, no una región. */
-const MAX_BURNT_BOX_DEG = 0.5;
+import { burntAreaBox, isServableTile } from '../../domain/tiles.js';
 
 /**
  * @param {{ tiles: import('../ports.js').TileProviderPort }} deps
@@ -22,14 +19,13 @@ export function makeServeTiles({ tiles }) {
     },
 
     /**
-     * Áreas quemadas (GeoJSON) en una caja lon/lat pequeña. null si la caja no es válida; si EFFIS
-     * falla, la promesa se rechaza.
+     * Áreas quemadas (GeoJSON) en una caja lon/lat pequeña de España, ampliada a la rejilla del
+     * dominio. null si la caja no es válida; si EFFIS falla, la promesa se rechaza.
      * @param {number[]} bbox  [oeste, sur, este, norte]
      */
     async burntAreas(bbox) {
-      const valid = bbox.length === 4 && bbox.every(Number.isFinite) && bbox[2] > bbox[0] && bbox[3] > bbox[1]
-        && bbox[2] - bbox[0] < MAX_BURNT_BOX_DEG && bbox[3] - bbox[1] < MAX_BURNT_BOX_DEG;
-      return valid ? tiles.burntAreas(bbox) : null;
+      const box = burntAreaBox(bbox);
+      return box ? tiles.burntAreas(box) : null;
     },
   };
 }

@@ -73,3 +73,27 @@ export function maxTileCount(layer, { layers = TILE_LAYERS, bounds = SPAIN_BOUND
   }
   return total;
 }
+
+/** Lado máximo, en grados, de la caja de áreas quemadas: lo que hay bajo un clic, no una región. */
+export const MAX_BURNT_BOX_DEG = 0.5;
+/**
+ * Rejilla, en grados (unos 5 km), a la que se amplía la caja de áreas quemadas. Los clics cercanos
+ * piden la misma caja, que Cloudflare guarda una vez, y nadie puede generar infinitas variantes
+ * distintas para que las pidamos todas a EFFIS. El mismo valor está en public/js/map.js.
+ */
+export const BURNT_GRID_DEG = 0.05;
+
+/**
+ * Caja [oeste, sur, este, norte] que se pide a EFFIS: la del clic, ampliada a la rejilla. null si no
+ * es una caja bien formada, es más grande que lo que hay bajo un clic o no toca España.
+ * @param {unknown} bbox
+ */
+export function burntAreaBox(bbox, { bounds = SPAIN_BOUNDS } = {}) {
+  if (!Array.isArray(bbox) || bbox.length !== 4 || !bbox.every(Number.isFinite)) return null;
+  const [west, south, east, north] = bbox;
+  if (!(east > west && north > south) || east - west >= MAX_BURNT_BOX_DEG || north - south >= MAX_BURNT_BOX_DEG) return null;
+  if (east < bounds[0] || west > bounds[2] || north < bounds[1] || south > bounds[3]) return null;
+  // El ±1e-9 evita que un valor que ya está en la rejilla (-3.9 = -78 × 0,05) salte a la siguiente.
+  const grid = (v, round) => Math.round(round(v / BURNT_GRID_DEG + (round === Math.floor ? 1e-9 : -1e-9)) * BURNT_GRID_DEG * 100) / 100;
+  return [grid(west, Math.floor), grid(south, Math.floor), grid(east, Math.ceil), grid(north, Math.ceil)];
+}

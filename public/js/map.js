@@ -55,7 +55,7 @@ const RAIL_TILES = `${location.origin}/tiles/ign-rail/{z}/{x}/{y}.png`;
 // año de la tabla de productos del SCNE (scne.es/tablaProductos.php).
 const RAIL_ATTRIBUTION = 'Red ferroviaria: Obra derivada de IGR-RT 2026 CC-BY 4.0 <a href="https://www.scne.es" target="_blank" rel="noopener">scne.es</a>';
 
-// Áreas quemadas de los últimos 30 días (Copernicus EFFIS, WMS con CORS abierto).
+// Áreas quemadas de los últimos 30 días (Copernicus EFFIS): sus teselas también salen de /tiles.
 const EFFIS_TILES = `${location.origin}/tiles/effis/{z}/{x}/{y}.png`;
 const EFFIS_ATTRIBUTION = '© European Union, 1995-2025 · <a href="https://forest-fire.emergency.copernicus.eu/about-effis/data-license" '
   + 'target="_blank" rel="noopener">EFFIS – Copernicus Emergency Management Service</a> · CC BY 4.0';
@@ -484,8 +484,12 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     const at = map.unproject(point);
     const sw = map.unproject([point.x - 4, point.y + 4]);
     const ne = map.unproject([point.x + 4, point.y - 4]);
+    // Ampliada a la rejilla de 0,05° del servidor (BURNT_GRID_DEG en server/domain/tiles.js): los clics
+    // cercanos piden la misma caja y Cloudflare la sirve de su copia sin preguntar a EFFIS.
+    const grid = (v, round) => Math.round(round(v / 0.05) * 5) / 100;
+    const box = [grid(sw.lng, Math.floor), grid(sw.lat, Math.floor), grid(ne.lng, Math.ceil), grid(ne.lat, Math.ceil)];
     try {
-      const res = await fetch(`/api/burnt-areas?bbox=${sw.lng},${sw.lat},${ne.lng},${ne.lat}`);
+      const res = await fetch(`/api/burnt-areas?bbox=${box.join(',')}`);
       const { features = [] } = res.ok ? await res.json() : {};
       if (click !== clicks) return;
       const areas = features.map((f) => lonLatFeature(f, at));

@@ -5,8 +5,8 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { writeFileAtomic } from '../http/file-cache.js';
 import { distanceKm } from '../../../domain/geo.js';
-import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
-import { RETIRED_PHOTOS_VERSION, loadStationExtras } from './station-extras.js';
+import { csvRows, openGtfs, wheelchair } from '../gtfs/gtfs-reader.js';
+import { RETIRED_PHOTOS_VERSION, loadStationExtras, padCode } from './station-extras.js';
 
 const REFRESH_MS = 24 * 3600_000;
 // Si algo ha fallado al rehacerlo (Wikidata, Commons, un GTFS), se vuelve a intentar a la hora y no
@@ -18,7 +18,6 @@ export const RENFE_FILES = {
   largaDistancia: 'https://ssl.renfe.com/gtransit/Fichero_AV_LD/google_transit.zip',
 };
 
-const padCode = (c) => String(c ?? '').trim().padStart(5, '0');
 const titleCase = (s) => s.toLowerCase().replace(/(^|[\s(/'-])(\p{L})/gu, (_, p, c) => p + c.toUpperCase());
 
 const plainName = (s) => s.normalize('NFD').replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
@@ -59,7 +58,6 @@ export function withExtras(stations, extras) {
 }
 
 /** wheelchair_boarding del GTFS: 1 accesible, 2 no accesible; vacío o 0, sin datos. */
-const wheelchair = (v) => (v === '1' ? true : v === '2' ? false : null);
 
 /** CSV de Renfe: separado por ';', cada campo entre comillas y en Latin-1. */
 function* semicolonRows(bytes) {
@@ -189,7 +187,7 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
       for (const s of stations.values()) {
         if (Math.abs(s.lat - lat) > dLat || Math.abs(s.lon - lon) > dLat * 1.4) continue;
         const km = distanceKm(lat, lon, s.lat, s.lon);
-        if (km < bestKm) { bestKm = km; best = s; }
+        if (km < bestKm && km <= maxKm) { bestKm = km; best = s; }
       }
       return best ? { station: best, km: bestKm } : null;
     },

@@ -124,3 +124,17 @@ test('una caché de hace días también sirve para arrancar mientras se renueva'
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('la estación más cercana nunca está más lejos de lo pedido', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'estaciones-'));
+  try {
+    const files = { [RENFE_FILES.stations]: CSV, [RENFE_FILES.cercanias]: gtfs([]), [RENFE_FILES.largaDistancia]: gtfs([]) };
+    const catalog = createRenfeStationCatalog({ cache: { bytes: async (url) => files[url] }, cacheDir: pathToFileURL(`${dir}/`), log: { info() {}, warn() {} } });
+    await catalog.load();
+    // Oviedo está en 43,366 -5,855: a unos 9 km al norte y 9 al este, dentro de la caja de 10 km pero a ~12 km.
+    assert.equal(catalog.nearest(43.447, -5.744, 10), null);
+    assert.equal(catalog.nearest(43.447, -5.744, 15)?.station.code, '15211');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

@@ -17,10 +17,15 @@ export function makeRefreshCatalogs({ stations, networkStations, network, railNe
    * recorridos, así que se cargan detrás sin bloquear; si fallan, sólo se registra.
    * @returns {Promise<void>}
    */
+  // Lo que sigue cargando de la vez anterior: el planificador lo pide cada hora, y una carga que
+  // tarde más (un trazado que se rehace entero con el NAP lento) no se duplica.
+  const running = {};
+  const once = (name, load) => (running[name] ??= Promise.resolve().then(load).finally(() => { running[name] = null; }));
+
   return async function refreshCatalogs() {
-    await stations.load();
-    await networkStations?.load().catch((err) => log.warn(`[estaciones de otras redes] ${err.message}`));
-    network.load().catch((err) => log.warn(`[líneas] ${err.message}`));
-    railNetwork?.load().catch((err) => log.warn(`[red ferroviaria] ${err.message}`));
+    await once('stations', () => stations.load());
+    await once('networkStations', () => networkStations?.load()).catch((err) => log.warn(`[estaciones de otras redes] ${err.message}`));
+    once('network', () => network.load()).catch((err) => log.warn(`[líneas] ${err.message}`));
+    once('railNetwork', () => railNetwork?.load()).catch((err) => log.warn(`[red ferroviaria] ${err.message}`));
   };
 }

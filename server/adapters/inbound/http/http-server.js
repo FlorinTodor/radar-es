@@ -1,6 +1,6 @@
-// Adaptador de entrada HTTP: API REST, stream SSE en tiempo real y ficheros estáticos.
-// Sólo habla con casos de uso (query, watchSituation, serveTiles): no conoce los puertos de salida
-// ni las fuentes.
+// Adaptador de entrada HTTP: API REST, teselas y ficheros estáticos. La web consulta el directo
+// (/api/live) cada pocos segundos. Sólo habla con casos de uso (query, serveTiles): no conoce los
+// puertos de salida ni las fuentes.
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
@@ -8,7 +8,6 @@ import { pipeline } from 'node:stream';
 import { extname, join, resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
-import { createConnectionLimiter } from './connection-limiter.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -18,21 +17,15 @@ const MIME = {
   '.jpg': 'image/jpeg', '.webp': 'image/webp',
 };
 
-const SSE_HEARTBEAT_MS = 25_000;
-// El estado de las fuentes (decenas, con sus licencias) cambia con cada lectura: se agrupa y se envía
-// como mucho cada 15 s por conexión, en vez de en cada actualización.
-const SSE_HEALTH_EVERY_MS = 15_000;
-
 /**
  * @param {{ query: ReturnType<typeof import('../../../application/use-cases/query-situation.js').makeQuerySituation>,
- *           watchSituation?: ReturnType<typeof import('../../../application/use-cases/watch-situation.js').makeWatchSituation>,
  *           serveTiles?: ReturnType<typeof import('../../../application/use-cases/serve-tiles.js').makeServeTiles>,
  *           log: import('../../../application/ports.js').LoggerPort,
  *           publicDir: string, vendorDirs: Record<string, string>, about?: object, now?: () => number }} deps
  *   now: reloj de los memos y de los presupuestos de cálculo (los tests lo fijan: no pueden depender de
  *   lo rápida que sea la máquina).
  */
-export function createHttpServer({ query, watchSituation, serveTiles, log, publicDir, vendorDirs, about = {}, now = Date.now }) {
+export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs, about = {}, now = Date.now }) {
   // Todas las respuestas JSON se calculan, comprimen y firman (ETag) como mucho una vez cada `ttl`,
   // así que pedirlas mil veces cuesta lo mismo que pedirlas una. Sin esto, /api/lines (1 MB)
   // saturaba un núcleo con unas 20 peticiones por segundo. `key` separa las variantes por parámetros.
@@ -67,12 +60,11 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
   // petición: un núcleo saturado con 28 peticiones por segundo).
   const memoParams = createJsonMemo({ max: 100, now });
   const budgets = new Map(Object.keys(routes).filter((path) => routes[path].key).map((path) => [path, createBudget({ now })]));
+  // Cada caja de áreas quemadas que no está en la caché de Cloudflare es una consulta a EFFIS: como
+  // mucho unas pocas por segundo, para no cargarles y que una ráfaga no deje esperando a las demás.
+  const burntBudget = createBudget({ perSecond: 2, burst: 10, now });
 
   const security = Object.entries(securityHeaders(about));
-  // El directo SSE sólo lo usan ya las pestañas abiertas antes del cambio a consultas periódicas:
-  // con 300 hay de sobra, y cada conexión abierta es trabajo en cada actualización.
-  const streams = createConnectionLimiter({ maxTotal: 300 });
-  const frames = new WeakMap(); // datos → mensaje SSE ya serializado (todos reciben el mismo objeto)
   // Dominio canónico (PUBLIC_URL): www.<dominio> redirige a él para que los buscadores no vean dos
   // webs iguales. Sólo esa variante: localhost, la IP y el chequeo de salud siguen igual.
   const canonical = about.publicUrl ? new URL(about.publicUrl) : null;
@@ -92,8 +84,6 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
       // sin nadie que lo recoja, Node cerraría el proceso entero.
       if (url.pathname.startsWith('/tiles/')) return await sendTile(res, url.pathname);
       if (url.pathname === '/api/burnt-areas') return await sendBurntAreas(res, url.searchParams.get('bbox'));
-      // El directo antiguo (SSE) se mantiene para las pestañas que se abrieron antes del cambio.
-      if (url.pathname === '/api/stream') return stream(req, res, url.searchParams.get('buses') === '1');
       // Ficha completa de una estación: una búsqueda en memoria, sin cálculo que acotar.
       if (url.pathname.startsWith('/api/stations/')) {
         // Renfe: 5 cifras. Otras redes: la red y el código de su GTFS («fgc:PC», «tmb:P.6660111»).
@@ -181,6 +171,11 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
 
   /** Áreas quemadas en una caja lon/lat pequeña (lo que hay bajo un clic en el mapa). */
   async function sendBurntAreas(res, bboxParam) {
+    if (!burntBudget.take()) {
+      res.setHeader('Retry-After', '5');
+      res.setHeader('Cache-Control', 'no-store');
+      return send(res, 429, { error: 'Demasiadas consultas de áreas quemadas; prueba en unos segundos' });
+    }
     let geojson;
     try {
       geojson = serveTiles ? await serveTiles.burntAreas((bboxParam ?? '').split(',').map(Number)) : null;
@@ -190,56 +185,6 @@ export function createHttpServer({ query, watchSituation, serveTiles, log, publi
     if (!geojson) return send(res, 400, { error: 'Caja no válida' });
     res.setHeader('Cache-Control', 'public, max-age=600, s-maxage=1800');
     return send(res, 200, geojson);
-  }
-
-  /** @param {boolean} buses  El cliente tiene activada la capa de autobuses. */
-  function stream(req, res, buses) {
-    // Detrás del túnel todas las conexiones vienen de cloudflared (127.0.0.1); la IP real la pone
-    // Cloudflare. Es fiable porque el puerto sólo escucha en local y no se puede llegar saltándose el túnel.
-    const release = streams.acquire(req.headers['cf-connecting-ip'] ?? req.socket.remoteAddress);
-    if (!release) {
-      res.setHeader('Retry-After', '30');
-      return send(res, 429, { error: 'Demasiadas conexiones en directo; prueba dentro de un momento' });
-    }
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    });
-    const emit = (event, data) => {
-      let frame = frames.get(data);
-      if (!frame) frames.set(data, (frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
-      res.write(frame);
-    };
-    // La foto inicial (~700 KB) y el estado de las fuentes salen del memo: abrir muchas conexiones
-    // seguidas no los vuelve a serializar cada vez.
-    const emitJson = (event, { json }) => {
-      res.write(`event: ${event}\ndata: `);
-      res.write(json);
-      res.write('\n\n');
-    };
-    emitJson('snapshot', memo(`stream:snapshot:${buses}`, 5_000, () => query.snapshot({ buses })));
-
-    let healthTimer = null;
-    const emitHealthSoon = () => {
-      healthTimer ??= setTimeout(() => {
-        healthTimer = null;
-        emitJson('health', memo('stream:health', 5_000, () => query.health()));
-      }, SSE_HEALTH_EVERY_MS);
-    };
-    const unwatch = watchSituation({ buses }, {
-      onSource: (payload) => emit('source', payload),
-      onHealthChange: emitHealthSoon,
-      onAlerts: (payload) => emit('alerts', payload),
-    });
-    const heartbeat = setInterval(() => res.write(': ping\n\n'), SSE_HEARTBEAT_MS);
-    req.on('close', () => {
-      clearInterval(heartbeat);
-      clearTimeout(healthTimer);
-      unwatch();
-      release();
-    });
   }
 
   return server;

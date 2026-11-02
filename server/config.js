@@ -19,7 +19,7 @@ export function loadConfig(env = process.env) {
   };
 }
 
-/** Acepta sólo la URL de recuento de GoatCounter (https://CODIGO.goatcounter.com/count). */
+/** Acepta sólo una URL https que acabe en /count, como la de GoatCounter (https://CODIGO.goatcounter.com/count). */
 export function goatcounterUrl(value) {
   const url = value?.trim();
   return url && /^https:\/\/[a-z0-9.-]+\/count$/i.test(url) ? url : null;

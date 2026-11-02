@@ -41,8 +41,3 @@ export function roughCentroid(geometry) {
   return { lon: pts.reduce((s, p) => s + p[0], 0) / pts.length, lat: pts.reduce((s, p) => s + p[1], 0) / pts.length };
 }
 
-export function bearing(lat1, lon1, lat2, lon2) {
-  const y = Math.sin((lon2 - lon1) * RAD) * Math.cos(lat2 * RAD);
-  const x = Math.cos(lat1 * RAD) * Math.sin(lat2 * RAD) - Math.sin(lat1 * RAD) * Math.cos(lat2 * RAD) * Math.cos((lon2 - lon1) * RAD);
-  return (Math.atan2(y, x) / RAD + 360) % 360;
-}

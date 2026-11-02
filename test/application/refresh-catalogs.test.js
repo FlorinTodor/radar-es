@@ -54,3 +54,22 @@ test('la red ferroviaria también se carga detrás, y si falla sólo se registra
   assert.equal(loading, 1);
   assert.deepEqual(warnings, ['[red ferroviaria] Adif no responde']);
 });
+
+test('si la recarga anterior sigue en marcha, no se lanza otra a la vez', async () => {
+  let loads = 0;
+  let finish;
+  const refresh = makeRefreshCatalogs({
+    stations: { load: async () => 900 },
+    network: { load: () => { loads++; return new Promise((resolve) => { finish = resolve; }); } },
+    log: { warn() {} },
+  });
+  await refresh();
+  await refresh(); // el planificador vuelve a pedirla mientras los trazados siguen construyéndose
+  await flush();
+  assert.equal(loads, 1);
+  finish(10);
+  await flush();
+  await refresh();
+  await flush();
+  assert.equal(loads, 2, 'terminada la anterior, la siguiente recarga sí carga');
+});

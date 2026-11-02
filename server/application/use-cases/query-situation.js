@@ -1,4 +1,4 @@
-// Casos de uso de consulta: lo que los adaptadores de entrada (API, SSE...) pueden preguntar.
+// Casos de uso de consulta: lo que los adaptadores de entrada (la API HTTP) pueden preguntar.
 import { sortAlerts } from '../../domain/alerts/lifecycle.js';
 import { headingOf } from '../../domain/tracking.js';
 import { headingOfPath, pathThroughStops } from '../../domain/route-ahead.js';
