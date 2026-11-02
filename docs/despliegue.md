@@ -1,8 +1,7 @@
 # Despliegue
 
-Radar ES corre en un VPS de Contabo (Ubuntu 26.04, `IP_DEL_VPS`) en contenedores Docker, detrás
-de un túnel de Cloudflare. El VPS no tiene puertos web abiertos: el cortafuegos solo deja pasar
-SSH (con clave), y el tráfico web entra por el túnel, que conecta desde dentro.
+Radar ES corre en un VPS en contenedores Docker, detrás de un túnel de Cloudflare. El VPS no
+tiene puertos web abiertos: el tráfico web entra por el túnel, que conecta desde dentro.
 
 ```
 navegador ──HTTPS──▶ Cloudflare ──túnel──▶ cloudflared (VPS) ──▶ 127.0.0.1:8080 ──▶ nginx (proxy)
@@ -50,7 +49,7 @@ preguntan a GitHub si la rama ha cambiado (unas décimas de segundo de CPU); la 
 systemd al preparar cada entorno: si cambia un `deploy/*.timer`, hay que volver a instalarlo
 (`install -m 644 deploy/radar-actualizar.timer /etc/systemd/system/ && systemctl daemon-reload`
 desde la carpeta de producción, y lo mismo con `radar-pruebas.timer` desde la de pruebas). El VPS clona
-el repo con una deploy key de solo lectura (`/root/.ssh/deploy_radar-es`).
+el repo con una deploy key de solo lectura.
 
 **Pruebas** (`/opt/radar-pruebas`, `radar-pruebas.timer`): si `dev` ha cambiado, construye la
 imagen, la arranca y pasa `deploy/comprobar.mjs`, que compara con producción en el mismo
@@ -88,107 +87,25 @@ Un despliegue roto no tumba la web (en los dos entornos):
   responder, ~2 min seguidos), lo reinicia. Docker sólo reinicia solo los que terminan.
 - **Limpieza**: una vez a la semana, producción borra la caché de compilación de Docker de más
   de 7 días y la de paquetes de apt. En `data/` (de producción y de pruebas) borra las teselas del
-  mapa que nadie ha vuelto a mirar en el doble de lo que duran (60 días las de la red ferroviaria y
-  7 las de áreas quemadas) y los restos de escrituras cortadas. Las imágenes viejas ya se borran en
+  mapa que nadie ha vuelto a mirar en 60 días (red ferroviaria) o en 7 (áreas quemadas) y los
+  restos de escrituras cortadas. Las imágenes viejas ya se borran en
   cada despliegue (se guardan la anterior y las 5 últimas verificadas).
 
-```bash
-ssh root@IP_DEL_VPS
-cat /opt/radar-pruebas/.estado              # ¿está verificado lo último de dev?
-journalctl -u radar-pruebas -n 50           # pruebas: construcción y comprobación
-journalctl -u radar-actualizar -n 50        # producción: últimos despliegues
-/opt/radar/deploy/actualizar.sh --forzar    # urgencia: desplegar ya, aunque no haya pasado pruebas
-cd /opt/radar && docker compose --profile relevo logs -f   # logs de la aplicación (y de nginx)
-cat /opt/radar/data/proxy/activo.conf       # cuál de los dos está en servicio
-```
+El resultado de pruebas está en su `.estado`, y los registros de los dos temporizadores
+(`journalctl -u radar-pruebas` y `journalctl -u radar-actualizar`) dicen qué se ha comprobado y
+desplegado. `deploy/actualizar.sh --forzar` despliega aunque no haya pasado pruebas: sólo para
+urgencias.
 
-### Montar el entorno de pruebas
+## Entorno de pruebas, secretos y servidor
 
-1. Con `deploy/preparar-pruebas.sh` ya en `dev`: `ssh root@IP_DEL_VPS 'bash -s' < deploy/preparar-pruebas.sh`.
-   Clona `dev` en `/opt/radar-pruebas`, crea su `.env` (el de producción sin `GOATCOUNTER_URL`,
-   con `RADAR_IMAGEN=radar-es-pruebas` y `RADAR_PUERTO=8081`), añade `pruebas.xn--radarespaa-19a.es`
-   al `config.yml` del túnel (reinicia `cloudflared`: unos segundos sin servicio) y activa el
-   temporizador.
-2. **Antes de darlo de alta en el DNS**, protegerlo en Cloudflare Zero Trust → Access →
-   Applications → Self-hosted: dominio `pruebas.radarespaña.es`, política *Allow* con tu correo y
-   acceso con código por email (One-time PIN). Así nunca está abierto, ni a los buscadores.
-3. `cloudflared tunnel route dns radar pruebas.radarespaña.es` (con ñ).
-
-Si cambia el `.env` de producción, se borra `/opt/radar-pruebas/.env` y se relanza el paso 1.
-
-### Token para marcar los commits
-
-GitHub → Settings → Developer settings → Fine-grained tokens → Generate new token: sólo el
-repositorio `radar-es` y un único permiso, *Commit statuses: Read and write*. Se guarda en los dos
-entornos (en ningún caso en el `.env`, que también llega al contenedor):
-
-```bash
-ssh -t root@IP_DEL_VPS 'umask 077; read -rsp "Token: " t; echo; for d in /opt/radar /opt/radar-pruebas; do printf %s "$t" > $d/.github-token; done'
-```
-
-## Datos y secretos
-
-- `/opt/radar/.env`: `NAP_API_KEY`, titular, contacto, `GOATCOUNTER_URL`. No está en git; se copia a mano con `scp`.
-- `/opt/radar-pruebas/.env`: copia del de producción para pruebas (ver arriba).
-- `/opt/radar/.github-token` y `/opt/radar-pruebas/.github-token`: token que sólo marca commits.
-- `/opt/radar/data/`: cachés de GTFS e histórico JSONL. Sobrevive a los redespliegues y, si se
-  pierde, se regenera solo.
-- `/etc/cloudflared/config.yml` y `<id>.json`: credenciales del túnel.
-
-El `.env` y las credenciales del túnel deben estar copiados en un gestor de contraseñas: es lo
-único que no está en GitHub. Las comprobaciones y tareas de seguridad pendientes están en
-`docs/privado/seguridad.md`, fuera de git (el repositorio es público).
-
-## Túnel de Cloudflare
-
-El túnel `radar` es del servidor, no de este proyecto: cuando haya más proyectos en el VPS,
-cada uno tendrá su puerto en `127.0.0.1` y su entrada en `/etc/cloudflared/config.yml`:
-
-```yaml
-tunnel: <id>
-credentials-file: /etc/cloudflared/<id>.json
-ingress:
-  - hostname: xn--radarespaa-19a.es       # radarespaña.es en punycode
-    service: http://localhost:8080
-  - hostname: www.xn--radarespaa-19a.es
-    service: http://localhost:8080
-  - hostname: pruebas.xn--radarespaa-19a.es  # entorno de pruebas, detrás de Cloudflare Access
-    service: http://localhost:8081
-  - service: http_status:404
-```
-
-Para añadir un nombre: `cloudflared tunnel route dns radar <nombre>`, añadir la entrada
-al `config.yml` y `systemctl restart cloudflared`.
-
-Ojo con la ñ: en `route dns` hay que escribir el nombre **con ñ** (`www.radarespaña.es`). En
-punycode, Cloudflare no lo reconoce como parte de la zona y crea `www.xn--radarespaa-19a.es.radarespaña.es`.
-En el `config.yml`, en cambio, va en punycode, que es lo que llega en la cabecera `Host`.
-
-Las actualizaciones de `cloudflared` las instala `unattended-upgrades`
-(`/etc/apt/apt.conf.d/53-cloudflared`).
-
-## Montar un VPS desde cero
-
-1. Copiar la clave SSH (`ssh-copy-id`), lanzar `ssh root@VPS 'bash -s' < deploy/endurecer-ssh.sh`
-   y activar `ufw` dejando sólo el 22 (`ufw limit 22/tcp && ufw enable`).
-2. `ssh root@VPS 'bash -s' < deploy/preparar-vps.sh`. La primera vez se para y pide añadir la
-   deploy key en GitHub; se añade y se relanza.
-3. `scp .env root@VPS:/opt/radar/.env`
-4. Dar de alta el dominio en Cloudflare y cambiar los DNS en DonDominio.
-5. En el VPS: `cloudflared tunnel login` (abre una URL para autorizar), `cloudflared tunnel create radar`,
-   `cloudflared tunnel route dns radar radarespaña.es` (y `www.radarespaña.es`), copiar
-   `~/.cloudflared/<id>.json` a `/etc/cloudflared/`, escribir `/etc/cloudflared/config.yml` y
-   `cloudflared service install`.
-
-### Si se pierde el VPS y hay copia de los secretos
-
-Más rápido que lo anterior: se reutiliza el mismo túnel, así que no hay que tocar Cloudflare ni el DNS.
-
-1. VPS nuevo con Ubuntu: pasos 1 a 3 de arriba (SSH, `preparar-vps.sh`, `.env`).
-2. Instalar `cloudflared` (lo hace `preparar-vps.sh`), copiar `config.yml` y `<id>.json` a
-   `/etc/cloudflared/` y `cloudflared service install`.
-3. En cuanto el túnel conecta, Cloudflare manda el tráfico al VPS nuevo. Los datos (`data/`) se
-   regeneran solos en unos minutos.
+- **Pruebas** se monta con `deploy/preparar-pruebas.sh` y no está abierto al público.
+- **Secretos**: el `.env` (`NAP_API_KEY`, titular y contacto), el token que marca los commits y las
+  credenciales del túnel no están en git. El token sólo puede escribir el estado de los commits de
+  este repositorio y no va en el `.env`, que también llega al contenedor.
+- **`data/`**: cachés de GTFS e histórico. Sobrevive a los redespliegues y, si se pierde, se
+  regenera sola.
+- Cómo montar el servidor desde cero o recuperarlo, el acceso y la configuración del túnel están
+  documentados fuera del repositorio.
 
 ### Paso a dos contenedores (una sola vez)
 

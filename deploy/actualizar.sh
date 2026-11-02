@@ -102,7 +102,8 @@ proxy_al_dia() {
 
 # nginx pasa a $1: las peticiones en curso terminan con el anterior. Cada paso se comprueba (dentro
 # de un `if`, bash no para en los errores) y, al final, se pregunta a nginx quién atiende: sólo si es
-# $1 se puede parar el otro. La cabecera X-Radar-Activo sólo sale si se pide (X-Radar-Relevo: 1).
+# $1 se puede parar el otro. La cabecera X-Radar-Activo sólo sale si se pide (X-Radar-Relevo: 1)
+# desde el propio servidor, no por Cloudflare.
 cambiar_a() {
   local destino=$1 atiende=
   printf 'set $radar_activo %s;\n' "$destino" > "$ACTIVO.nuevo" || return 1
@@ -279,9 +280,9 @@ desplegar() {
   docker image prune -f >/dev/null
 }
 
-# Teselas del mapa que nadie ha vuelto a mirar desde hace el doble de lo que duran (ign-rail 30 días
-# y effis 3 h en server/adapters/outbound/tiles/wms-tiles.js; se guardan algo más como copia por si
-# el IGN o EFFIS fallan) y restos de escrituras cortadas (*.tmp de más de un día), en producción y en
+# Teselas del mapa que nadie ha vuelto a mirar en 60 días (ign-rail, que dura 30) o en 7 (effis, que
+# dura 3 h; ver server/adapters/outbound/tiles/wms-tiles.js): se guardan más de lo que duran como copia
+# por si el IGN o EFFIS fallan y restos de escrituras cortadas (*.tmp de más de un día), en producción y en
 # pruebas. Sin esto, cada tesela que alguien mira se queda para siempre (580 MB en dos días).
 limpiar_datos() {
   local d

@@ -10,5 +10,5 @@ data/
 .github-token
 .limpieza
 .vuelta
-# Notas que no deben ser públicas (comprobaciones de seguridad del VPS…)
+# Notas locales
 docs/privado/
