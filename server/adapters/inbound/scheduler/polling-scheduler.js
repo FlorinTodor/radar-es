@@ -44,7 +44,14 @@ export function startPolling({ feeds, ingestSource, detectAlerts, refreshCatalog
 
   const loop = async (feed, failures = 0) => {
     if (stopped) return;
-    const ok = await ingestSource(feed.id);
+    // Pase lo que pase en la lectura, se programa la siguiente: si un fallo inesperado (al avisar de
+    // otro fallo, por ejemplo) escapara de aquí, la fuente dejaría de leerse hasta reiniciar.
+    let ok = false;
+    try {
+      ok = await ingestSource(feed.id);
+    } catch (err) {
+      log.error(`[${feed.id}] ${err?.stack ?? err}`);
+    }
     scheduleDetect();
     const nextFailures = ok ? 0 : failures + 1;
     if (!stopped) timers.set(feed.id, setTimeout(() => loop(feed, nextFailures), nextDelay(feed.interval, nextFailures)));
