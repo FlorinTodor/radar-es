@@ -1,6 +1,7 @@
 // Estado vivo en memoria. Si en el futuro hace falta compartirlo entre procesos
 // (varias réplicas, workers), se sustituye por otro adaptador (Redis, Postgres...)
-// que implemente el mismo puerto SituationRepository.
+// que implemente el mismo puerto SituationRepository: los casos de uso sólo leen lo que
+// devuelve y cambian los recorridos y las alertas activas con updateTracks y updateActiveAlerts.
 
 /** @returns {import('../../../application/ports.js').SituationRepositoryPort} */
 export function createInMemorySituation() {
@@ -55,7 +56,9 @@ export function createInMemorySituation() {
     health: () => [...sources.values()].map(({ meta, status }) => ({ ...meta, ...status })),
 
     tracks: () => tracks,
+    updateTracks: (update) => update(tracks),
     activeAlerts: () => active,
+    updateActiveAlerts: (update) => update(active),
     addResolved(list) {
       if (list.length) resolved = [...list, ...resolved].slice(0, 100);
     },

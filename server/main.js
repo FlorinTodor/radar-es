@@ -25,8 +25,8 @@ import { createWmsTiles } from './adapters/outbound/tiles/wms-tiles.js';
 import { createCpuPool, parseThreads } from './adapters/outbound/workers/cpu-pool.js';
 
 const config = loadConfig();
-const log = createConsoleLogger();
-const clock = { now: () => Date.now() };
+const log = assertPort('Logger', createConsoleLogger(), PORT_MEMBERS.Logger);
+const clock = assertPort('Clock', { now: () => Date.now() }, PORT_MEMBERS.Clock);
 const http = createHttpClient({ userAgent: config.userAgent });
 
 // --- Adaptadores de salida -------------------------------------------------

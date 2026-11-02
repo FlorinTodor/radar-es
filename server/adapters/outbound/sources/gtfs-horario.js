@@ -5,9 +5,9 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { decodeFeed } from './gtfs-rt.js';
-import { activeFrequencyOffsets, pointAlong, scheduledPosition, serviceRuns, stopsAlongShape } from '../../../domain/schedule.js';
+import { activeFrequencyOffsets, pointAlong, serviceRuns, stopsAlongShape } from '../../../domain/schedule.js';
+import { estimatePosition } from '../../../domain/estimated-position.js';
 import { madridLocalToMs } from './parse.js';
-import { bearingDeg } from '../../../domain/geo.js';
 import { napDatasetPage } from '../nap/nap-client.js';
 import { createCpuPool } from '../workers/cpu-pool.js';
 import { packSchedule, unpackSchedule } from '../gtfs/gtfs-schedule.js';
@@ -20,9 +20,6 @@ const sha1 = (data) => createHash('sha1').update(data).digest('hex');
 // Huella del código que calcula los horarios: un despliegue que lo cambie no reutiliza lo guardado.
 const PARSER = sha1(['../gtfs/gtfs-schedule.js', '../gtfs/gtfs-reader.js', '../gtfs/gtfs-modes.js', '../../../domain/schedule.js']
   .map((f) => readFileSync(new URL(f, import.meta.url), 'utf8')).join('\n')).slice(0, 12);
-const PATH_WINDOW_S = 45 * 60; // el mismo tramo que el recorrido de los vehículos con GPS
-// Sin trazado, lo que le queda se dibuja uniendo paradas sólo en estos modos (paradas cercanas).
-const STRAIGHT_AHEAD = new Set(['metro', 'tranvia', 'cercanias']);
 // Sin pool inyectado (tests, herramientas), los horarios se leen en el hilo principal de uno en uno.
 const inlinePool = createCpuPool({ threads: 0 });
 
@@ -122,43 +119,13 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
     const tt = t - offset;
     if (tt < trip.first || tt > trip.last) return null; // descarte barato antes de crear objetos
     const stops = tripStops(trip, schedule);
-    const pos = scheduledPosition(stops, tt);
-    if (!pos) return null;
+    const along = alongShape(schedule, trip, stops);
+    // Dónde está, lo recorrido, lo que le queda y hacia dónde va: reglas del dominio.
+    const est = estimatePosition({ stops, mode: trip.route.mode, shape: along ? schedule.shapes[trip.shape] : null, along, t: tt });
+    if (!est) return null;
     const instance = offset ? `:${offset}` : '';
     const vid = `${id}:${feeds.length > 1 ? `${fi}:` : ''}${trip.id}:${day.ymd}${instance}`;
-    let { lat, lon } = pos;
-    let atLastStop = false;
-    const along = alongShape(schedule, trip, stops);
-    // Distancia sobre el trazado: a la misma fracción del tramo entre paradas, pero medida sobre él.
-    const alongAt = (p) => along[p.i] + ((along[p.i + 1] ?? along[p.i]) - along[p.i]) * p.k;
-    if (along) {
-      const shape = schedule.shapes[trip.shape];
-      if (!pos.atStop) ({ lat, lon } = pointAlong(shape, alongAt(pos)));
-      const before = scheduledPosition(stops, Math.max(tt - PATH_WINDOW_S, stops[0].dep));
-      nextPaths.set(vid, { shape, from: before ? alongAt(before) : 0, to: alongAt(pos), end: along.at(-1) });
-    } else if (!pos.atStop && trip.route.mode === 'bus') {
-      // Sin trazado, en línea recta un autobús interurbano cruzaría el campo: se deja en la última
-      // parada por la que ha pasado. Los trenes sí siguen la recta (las vías suelen ser bastante rectas).
-      ({ lat, lon } = pos.prev);
-      atLastStop = true;
-      nextPaths.set(vid, null);
-    } else if (trip.route.mode === 'bus') {
-      nextPaths.set(vid, null);
-    } else if (STRAIGHT_AHEAD.has(trip.route.mode)) {
-      // Metro o tranvía sin trazado: va en línea recta entre paradas, como el mapa dibuja su red, y
-      // lo que le queda también. Un tren de larga distancia no: entre ciudades la recta se sale de la vía.
-      nextPaths.set(vid, { at: [lon, lat], stops: stops.slice(pos.i + 1).map((s) => [s.lon, s.lat]) });
-    }
-    const p = nextPaths.get(vid);
-    const ahead = p ? (p.stops ? p.stops.length > 0 : p.to < p.end) : false;
-    // Hacia dónde va: por su recorrido, 100 m más allá. Con el rastro, cada cambio de retraso
-    // (la posición retrocede o salta) giraría la flecha.
-    let heading = null;
-    if (p?.stops?.length) heading = bearingDeg(lat, lon, p.stops[0][1], p.stops[0][0]);
-    else if (p && p.end - p.to > 20) {
-      const q = pointAlong(p.shape, Math.min(p.to + 100, p.end));
-      heading = bearingDeg(lat, lon, q.lat, q.lon);
-    }
+    if (est.path !== undefined) nextPaths.set(vid, est.path);
     const { operator } = feeds[fi];
     return {
       id: vid,
@@ -167,18 +134,18 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
       service: operator,
       line: options.line ? options.line(trip.route.line) : trip.route.line,
       label: options.label?.(trip) ?? trip.label ?? null,
-      lat,
-      lon,
+      lat: est.lat,
+      lon: est.lon,
       delay: delaySec === null ? null : Math.round(delaySec / 60),
       estimated: true,
-      ...(ahead ? { ahead: true } : {}),
-      ...(heading !== null ? { heading } : {}),
-      atLastStop,
+      ...(est.ahead ? { ahead: true } : {}),
+      ...(est.heading !== null ? { heading: est.heading } : {}),
+      atLastStop: est.atLastStop,
       origin: stops[0].name,
       destination: stops.at(-1).name,
-      current: pos.atStop || atLastStop ? pos.prev.name : null,
-      next: pos.atStop ? pos.next?.name ?? null : pos.next.name,
-      nextEta: pos.next ? `${day.iso}T${hhmmss(pos.next.arr + offset + (delaySec ?? 0))}` : null,
+      current: est.current,
+      next: est.next,
+      nextEta: est.nextArr !== null ? `${day.iso}T${hhmmss(est.nextArr + offset + (delaySec ?? 0))}` : null,
     };
   }
 
