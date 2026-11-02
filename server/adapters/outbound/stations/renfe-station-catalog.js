@@ -2,12 +2,16 @@
 // datos: Renfe Operadora"): la lista oficial de estaciones (coordenadas, población) y, para
 // tener los nombres bien escritos, las paradas de sus GTFS de Cercanías y de AV/LD/MD.
 // Los códigos coinciden con los stopId del GTFS-RT. Se refresca una vez al día.
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
+import { writeFileAtomic } from '../http/file-cache.js';
 import { distanceKm } from '../../../domain/geo.js';
 import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
 import { RETIRED_PHOTOS_VERSION, loadStationExtras } from './station-extras.js';
 
 const REFRESH_MS = 24 * 3600_000;
+// Si algo ha fallado al rehacerlo (Wikidata, Commons, un GTFS), se vuelve a intentar a la hora y no
+// al día siguiente: mientras, se usa lo que sí se ha conseguido.
+const RETRY_MS = 3600_000;
 export const RENFE_FILES = {
   stations: 'https://ssl.renfe.com/ftransit/Fichero_estaciones/estaciones.csv',
   cercanias: 'https://ssl.renfe.com/ftransit/Fichero_CER_FOMENTO/fomento_transit.zip',
@@ -82,7 +86,7 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
   /** @type {Map<string, import('../../../domain/model.js').Station & { cercanias: boolean }>} */
   const stations = new Map();
 
-  async function download() {
+  async function download(log) {
     // Paradas de los GTFS oficiales: nombres bien escritos y estaciones que faltan en la lista
     // (muchas de Cercanías sólo están ahí).
     const gtfsStops = new Map();
@@ -134,14 +138,17 @@ export function createRenfeStationCatalog({ cache, cacheDir, log }) {
 
   async function refresh() {
     try {
-      const list = await download();
+      // Cualquier aviso mientras se rehace quiere decir que falta algo (fotos, fichas, nombres).
+      let incomplete = false;
+      const watched = { ...log, warn: (msg) => { incomplete = true; log.warn(msg); } };
+      const list = await download(watched);
       if (!list.length) throw new Error('lista vacía');
       stations.clear();
       for (const s of list) stations.set(s.code, s);
       version = CATALOG_VERSION;
-      savedAt = Date.now();
+      savedAt = incomplete ? Date.now() - REFRESH_MS + RETRY_MS : Date.now();
       await mkdir(cacheDir, { recursive: true });
-      await writeFile(cacheFile, JSON.stringify({ version, savedAt, stations: list }));
+      await writeFileAtomic(cacheFile, JSON.stringify({ version, savedAt, stations: list }));
       log.info(`[estaciones] ${stations.size} estaciones de Renfe (lista oficial + paradas GTFS)`);
     } catch (err) {
       log.warn(`[estaciones] no se pudo descargar el catálogo (${err.message}); ${stations.size} en caché`);

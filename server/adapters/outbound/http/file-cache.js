@@ -5,6 +5,23 @@ import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { deserialize, serialize } from 'node:v8';
 
 /**
+ * Escribe un fichero de golpe: primero aparte y luego se cambia de nombre. Si el servidor se para a
+ * mitad (un despliegue, un reinicio) o dos servidores escriben el mismo a la vez (durante un relevo
+ * comparten data/), nunca queda un fichero cortado con fecha de hoy que se siga usando todo el día.
+ * @param {URL|string} file
+ */
+export async function writeFileAtomic(file, data) {
+  const tmp = file instanceof URL ? new URL(`${file.href}.${randomUUID()}.tmp`) : `${file}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(tmp, data);
+    await rename(tmp, file);
+  } catch (err) {
+    await rm(tmp, { force: true }).catch(() => {});
+    throw err;
+  }
+}
+
+/**
  * @param {{ http: import('./http-client.js').HttpClient, dir: URL, log: import('../../../application/ports.js').LoggerPort }} deps
  */
 export function createFileCache({ http, dir, log }) {
@@ -24,7 +41,7 @@ export function createFileCache({ http, dir, log }) {
         const bytes = await http.bytes(url, { timeout: 180_000, maxBytes: 256 * 1024 * 1024, ...opts });
         validate?.(bytes);
         await mkdir(dir, { recursive: true });
-        await writeFile(file, bytes);
+        await writeFileAtomic(file, bytes);
         return bytes;
       } catch (err) {
         try {
@@ -49,16 +66,13 @@ export function createFileCache({ http, dir, log }) {
       }
     },
 
-    /** Se escribe aparte y se cambia de nombre: durante un relevo hay dos servidores con la misma
-     * carpeta, y ninguno debe leer un fichero a medio escribir por el otro. */
+    /** De golpe (writeFileAtomic): durante un relevo hay dos servidores con la misma carpeta, y
+     * ninguno debe leer un fichero a medio escribir por el otro. */
     async writeValue(name, value) {
-      const tmp = new URL(`${name}.${randomUUID()}.tmp`, dir);
       try {
         await mkdir(dir, { recursive: true });
-        await writeFile(tmp, serialize(value));
-        await rename(tmp, new URL(name, dir));
+        await writeFileAtomic(new URL(name, dir), serialize(value));
       } catch (err) {
-        await rm(tmp, { force: true }).catch(() => {});
         log.warn(`[caché] ${name}: no se pudo guardar (${err.message})`);
       }
     },

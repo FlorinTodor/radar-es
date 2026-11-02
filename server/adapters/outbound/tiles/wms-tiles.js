@@ -8,7 +8,8 @@
 // de ahí. Si el servicio falla, se sirve la última copia aunque esté caducada; sin copia, error
 // (el mapa deja ese hueco y no reintenta en bucle). Qué teselas se pueden pedir (sólo España y
 // hasta un zoom por capa) lo decide antes el caso de uso serve-tiles: aquí no se filtra nada.
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat } from 'node:fs/promises';
+import { writeFileAtomic } from '../http/file-cache.js';
 import { dirname, join } from 'node:path';
 
 const HALF_WORLD = 20037508.342789244; // EPSG:3857
@@ -72,7 +73,7 @@ export function createWmsTiles({ http, dir, log }) {
       const bytes = await http.bytes(LAYERS[layer].url(tileBbox(z, x, y)), { timeout: 15_000 });
       if (!isPng(bytes)) throw new Error('el servicio no ha devuelto una imagen');
       await mkdir(dirname(file), { recursive: true });
-      await writeFile(file, bytes);
+      await writeFileAtomic(file, bytes);
       return bytes;
     } finally {
       release();

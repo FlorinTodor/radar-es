@@ -22,3 +22,38 @@ test('guarda y lee un resultado con Map y arrays tipados; si no está o está da
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('escribir de golpe: quien lee a la vez ve el fichero viejo o el nuevo, nunca uno cortado', async () => {
+  const { writeFileAtomic } = await import('../../server/adapters/outbound/http/file-cache.js');
+  const { readFile } = await import('node:fs/promises');
+  const dir = await mkdtemp(join(tmpdir(), 'radar-cache-'));
+  try {
+    const file = join(dir, 'gtfs-1.zip');
+    const before = Buffer.alloc(1 << 20, 'a');
+    const after = Buffer.alloc(8 << 20, 'b');
+    await writeFile(file, before);
+    const reads = [];
+    const writing = writeFileAtomic(file, after);
+    for (let i = 0; i < 20; i++) reads.push(readFile(file));
+    await writing;
+    for (const got of await Promise.all(reads)) assert.ok(got.equals(before) || got.equals(after), `leídos ${got.length} bytes`);
+    assert.ok((await readFile(file)).equals(after));
+    assert.deepEqual(await readdir(dir), ['gtfs-1.zip'], 'sin ficheros temporales');
+    await assert.rejects(writeFileAtomic(dir, 'x'), 'no se puede poner un fichero encima de una carpeta');
+    assert.deepEqual(await readdir(dir), ['gtfs-1.zip'], 'si falla, tampoco queda el temporal');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('una descarga se guarda de golpe y sin restos', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'radar-cache-'));
+  try {
+    const bytes = new Uint8Array(3 << 20).fill(7);
+    const cache = createFileCache({ http: { bytes: async () => bytes }, dir: pathToFileURL(`${dir}/`), log: { warn() {} } });
+    assert.equal((await cache.bytes('https://x.example/gtfs.zip', 'gtfs-2.zip', 60_000)).length, bytes.length);
+    assert.deepEqual(await readdir(dir), ['gtfs-2.zip']);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

@@ -1,7 +1,8 @@
 // Trazados de las redes de metro, tranvía y Cercanías a partir de los GTFS del NAP.
 // Si el GTFS trae shapes.txt se usan; si no, la línea une sus estaciones en orden.
 // El resultado se cachea en disco un día: la licencia del NAP exige mostrar datos actualizados.
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat } from 'node:fs/promises';
+import { writeFileAtomic } from '../http/file-cache.js';
 import { createPacer, csvColumns, csvRows, openGtfs, own } from '../gtfs/gtfs-reader.js';
 import { modeOf } from '../gtfs/gtfs-modes.js';
 
@@ -20,6 +21,7 @@ export const NETWORKS = [
 
 // El tranvía de Tenerife no sale del NAP (su GTFS allí caducó en julio de 2025), sino del trazado
 // que Metropolitano de Tenerife publica en el portal de datos abiertos del Cabildo (CC BY).
+const TENERIFE = 'Tranvía de Tenerife';
 const TENERIFE_LINES = 'https://datos.tenerife.es/ckan/dataset/64182a24-3418-42dd-94e7-d66cf92bc020/resource/2085c33e-b6c9-4565-bfdd-658f293b2dca/download/lineas-de-tranvia.geojson';
 
 export const DEFAULT_COLOR = { metro: '#8a7fd1', tranvia: '#4fb3a9', cercanias: '#c45a5a', otros: '#8b8b85' };
@@ -173,7 +175,7 @@ function buildTenerife(bytes) {
     features.push({
       type: 'Feature',
       geometry: { type: 'LineString', coordinates: simplify(f.geometry.coordinates, TOLERANCE_DEG).map(round) },
-      properties: { network: 'Tranvía de Tenerife', line, color: DEFAULT_COLOR.tranvia, mode: 'tranvia' },
+      properties: { network: TENERIFE, line, color: DEFAULT_COLOR.tranvia, mode: 'tranvia' },
     });
   }
   return features;
@@ -190,41 +192,59 @@ export function createGtfsNetworkCatalog({ nap, cache, cacheDir, log, pool }) {
   // Nombre nuevo para no reutilizar una caché sin los shape_id de cada trazado ni los colores aclarados.
   const cacheFile = new URL('trazados-red-v3.json', cacheDir);
   let collection = { type: 'FeatureCollection', features: [] };
+  let builtAt = 0;
+  // Redes que fallaron en la última construcción: se reintentan en la siguiente recarga (cada hora)
+  // sin rehacer las demás, y no un día entero después.
+  let failed = [];
+
+  /** Trazados de una red, por su nombre. */
+  async function build(name) {
+    if (name === TENERIFE) return buildTenerife(await cache.bytes(TENERIFE_LINES, 'tenerife-lineas-tranvia.geojson', MAX_AGE_MS));
+    const zip = await nap.gtfs(NETWORKS.find(([, n]) => n === name)[0], MAX_AGE_MS);
+    return pool ? pool.run('network', [zip, name]) : buildNetwork(zip, name);
+  }
 
   return {
     async load() {
-      try {
-        if (Date.now() - (await stat(cacheFile)).mtimeMs < MAX_AGE_MS) {
-          collection = JSON.parse(await readFile(cacheFile, 'utf8'));
-          return collection.features.length;
-        }
-      } catch { /* sin caché */ }
+      if (!builtAt) {
+        try {
+          const saved = JSON.parse(await readFile(cacheFile, 'utf8'));
+          // builtAt: las copias anteriores no lo llevan; vale la fecha del fichero.
+          builtAt = saved.builtAt ?? (await stat(cacheFile)).mtimeMs;
+          collection = { type: 'FeatureCollection', features: saved.features };
+          failed = saved.failed ?? [];
+        } catch { /* sin caché */ }
+      }
+      const stale = Date.now() - builtAt >= MAX_AGE_MS;
+      if (!stale && !failed.length) return collection.features.length;
       if (!nap.enabled) {
         log.warn('[líneas] sin NAP_API_KEY no se pueden descargar los trazados');
-        return 0;
+        return collection.features.length;
       }
 
-      const features = [];
-      for (const [ficheroId, name] of NETWORKS) {
+      // Todas si toca renovarlas; si no, sólo las que fallaron la última vez.
+      const todo = stale ? [...NETWORKS.map(([, name]) => name), TENERIFE] : failed;
+      const built = [];
+      const nowFailed = [];
+      for (const name of todo) {
         try {
-          const zip = await nap.gtfs(ficheroId, MAX_AGE_MS);
-          const built = pool ? await pool.run('network', [zip, name]) : await buildNetwork(zip, name);
-          features.push(...built);
+          built.push(...await build(name));
         } catch (err) {
+          nowFailed.push(name);
           log.warn(`[líneas] ${name}: ${err.message}`);
         }
       }
-      try {
-        features.push(...buildTenerife(await cache.bytes(TENERIFE_LINES, 'tenerife-lineas-tranvia.geojson', MAX_AGE_MS)));
-      } catch (err) {
-        log.warn(`[líneas] Tranvía de Tenerife: ${err.message}`);
-      }
-      if (features.length) {
-        collection = { type: 'FeatureCollection', features };
-        await mkdir(cacheDir, { recursive: true });
-        await writeFile(cacheFile, JSON.stringify(collection));
-        log.info(`[líneas] ${features.length} trazados de ${NETWORKS.length + 1} redes`);
-      }
+      // Lo que no se ha podido rehacer se queda como estaba (mejor la versión anterior que nada).
+      const redone = new Set(todo.filter((name) => !nowFailed.includes(name)));
+      const features = [...collection.features.filter((f) => !redone.has(f.properties.network)), ...built];
+      if (!features.length) return 0;
+      collection = { type: 'FeatureCollection', features };
+      failed = nowFailed;
+      if (stale) builtAt = Date.now();
+      await mkdir(cacheDir, { recursive: true });
+      await writeFileAtomic(cacheFile, JSON.stringify({ ...collection, builtAt, failed }));
+      log.info(`[líneas] ${features.length} trazados de ${NETWORKS.length + 1 - failed.length} redes`
+        + (failed.length ? `; se reintentarán: ${failed.join(', ')}` : ''));
       return features.length;
     },
     lines: () => collection,
