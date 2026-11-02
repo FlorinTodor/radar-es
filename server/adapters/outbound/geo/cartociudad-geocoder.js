@@ -2,6 +2,7 @@
 // sus coordenadas. Servicio REST público y sin clave, catalogado en datos.gob.es con licencia
 // CC BY 4.0 («Servicio REST de geocodificación de España (CartoCiudad)»).
 import { fold } from '../../../domain/emergencias.js';
+import { inBounds, SPAIN_BOUNDS } from '../../../domain/geo.js';
 
 /**
  * Sitúa en el mapa un lugar que sólo se conoce por su nombre (el municipio o la localidad de un aviso
@@ -20,8 +21,9 @@ const BASE = 'https://www.cartociudad.es/geocoder/api/geocoder';
 // calles ni portales: un aviso del 112 sólo dice el pueblo.
 const TYPES = ['poblacion', 'Municipio'];
 const MAX_CACHE = 5000;
-// Lo que quede fuera de España (o el 0,0 con el que CartoCiudad responde a veces) no vale.
-const inSpain = (lat, lon) => lat >= 27 && lat <= 44.5 && lon >= -18.5 && lon <= 4.6 && !(lat === 0 && lon === 0);
+// Lo que quede fuera de España no vale: tampoco el 0,0 con el que CartoCiudad responde a veces, que
+// cae en el golfo de Guinea, fuera de la caja.
+const inSpain = (lat, lon) => inBounds(SPAIN_BOUNDS, lat, lon);
 
 /**
  * @param {{ http: import('../http/http-client.js').HttpClient, log?: import('../../../application/ports.js').LoggerPort, base?: string }} deps

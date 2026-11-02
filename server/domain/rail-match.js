@@ -15,13 +15,11 @@
 //
 // Puro: sin red ni disco. La red llega ya descargada como lista de líneas [lon, lat].
 
-const RAD = Math.PI / 180;
-const KY = 110_540; // metros por grado de latitud
-const kx = (lat) => 111_320 * Math.cos(lat * RAD); // metros por grado de longitud a esa latitud
+import { M_PER_DEG_LAT, mPerDegLon } from './geo.js';
 
 /** Distancia en metros entre dos puntos cercanos (proyección local; sobra para unos cientos de km). */
 export function meters(lon1, lat1, lon2, lat2) {
-  return Math.hypot((lon2 - lon1) * kx((lat1 + lat2) / 2), (lat2 - lat1) * KY);
+  return Math.hypot((lon2 - lon1) * mPerDegLon((lat1 + lat2) / 2), (lat2 - lat1) * M_PER_DEG_LAT);
 }
 
 // Más lejos que esto de la vía, la posición no está en la red (un tramo que no está en servicio, una
@@ -256,11 +254,11 @@ function bisect(arr, key) {
 
 /** Proyección de un punto sobre el trozo g: { d (metros), t (0-1 a lo largo del trozo) }. */
 function project(net, g, lon, lat) {
-  const k = kx(lat);
+  const k = mPerDegLon(lat);
   const ax = (net.lon[g] - lon) * k;
-  const ay = (net.lat[g] - lat) * KY;
+  const ay = (net.lat[g] - lat) * M_PER_DEG_LAT;
   const dx = (net.lon[g + 1] - lon) * k - ax;
-  const dy = (net.lat[g + 1] - lat) * KY - ay;
+  const dy = (net.lat[g + 1] - lat) * M_PER_DEG_LAT - ay;
   const len2 = dx * dx + dy * dy;
   const t = len2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
   return { d: Math.hypot(ax + t * dx, ay + t * dy), t };

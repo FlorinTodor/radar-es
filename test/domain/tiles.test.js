@@ -1,7 +1,8 @@
 // Qué teselas de IGN y EFFIS se sirven: sólo las que tocan España y hasta el zoom de cada capa.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { burntAreaBox, isServableTile, maxTileCount, SPAIN_BOUNDS, TILE_LAYERS, tileRange } from '../../server/domain/tiles.js';
+import { burntAreaBox, isServableTile, maxTileCount, TILE_LAYERS, tileRange } from '../../server/domain/tiles.js';
+import { SPAIN_BOUNDS } from '../../server/domain/geo.js';
 
 /** Tesela XYZ que contiene un punto (fórmula estándar de las teselas web). */
 function tileAt(lon, lat, z) {

@@ -6,13 +6,7 @@
 //
 // Los mismos valores están en las fuentes raster de public/js/map.js (`bounds`, `minzoom`,
 // `maxzoom`), para que el mapa nunca pida una tesela que aquí se rechaza.
-
-/**
- * Caja lon/lat [oeste, sur, este, norte] que cubre la Península, Baleares, Canarias, Ceuta y
- * Melilla con un margen de unos 20-35 km: de El Hierro (-18,16) a Menorca (4,33) y de La Restinga
- * (27,64) a Estaca de Bares (43,79).
- */
-export const SPAIN_BOUNDS = Object.freeze([-18.5, 27.4, 4.6, 44.0]);
+import { SPAIN_BOUNDS } from './geo.js';
 
 /**
  * Zooms de tesela (256 px) que se sirven de cada capa. Una capa que no está aquí no se sirve.
