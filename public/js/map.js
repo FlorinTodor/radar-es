@@ -765,6 +765,8 @@ function createDetailCard(host, onVehicle) {
   };
 }
 
+const CREDIT_LINKS = [['MITRAMS', 'https://www.transportes.gob.es/'], ['CRTM', 'https://www.crtm.es/'], ['TRAM Barcelona', 'https://www.tram.cat/']];
+
 function stationDetail(st, { stopped, arriving, notices, lines, connections = [] }) {
   const train = (v, when) => `<li><button type="button" class="link" data-vehicle="${esc(v.id)}">${esc(vehicleTitle(v))}</button>
     ${v.destination ? ` → ${esc(v.destination)}` : ''}${v.platform ? ` · vía ${esc(v.platform)}` : ''}${when ? ` · ${esc(when)}` : ''}
@@ -785,8 +787,11 @@ function stationDetail(st, { stopped, arriving, notices, lines, connections = []
     !st.networkId && ['Código', st.code],
   ].filter(Boolean);
   // Las de otras redes salen del GTFS de su operador en el NAP: su atribución y la fecha de sus datos.
+  // «Powered by MITRAMS», «Powered by CRTM» y «Powered by TRAM Barcelona» van con su enlace, como pide
+  // su licencia (igual que en el pie del mapa).
   const updated = /^\d{4}-\d{2}-\d{2}/.test(st.source?.updated ?? '') ? st.source.updated.slice(0, 10).split('-').reverse().join('/') : null;
-  const source = st.source?.credit ? `<p class="st-source">Datos de la estación: ${esc(st.source.credit)}${updated ? ` · actualizados el ${esc(updated)}` : ''}</p>` : '';
+  const credit = (text) => CREDIT_LINKS.reduce((html, [name, url]) => html.replace(name, link(url, name)), esc(text));
+  const source = st.source?.credit ? `<p class="st-source">Datos de la estación: ${credit(st.source.credit)}${updated ? ` · actualizados el ${esc(updated)}` : ''}</p>` : '';
   // La foto viene de Wikimedia Commons: su licencia pide citar autor y licencia junto a ella.
   const photo = st.photo && safeUrl(st.photo.url) ? `<figure class="st-photo"><img src="${esc(safeUrl(st.photo.url))}" alt="Estación de ${esc(st.name)}" loading="lazy">
     <figcaption>Foto: ${esc(st.photo.author)} · ${st.photo.licenseUrl ? link(st.photo.licenseUrl, st.photo.license) : esc(st.photo.license)} · ${link(st.photo.page, 'Wikimedia Commons')}</figcaption></figure>` : '';
