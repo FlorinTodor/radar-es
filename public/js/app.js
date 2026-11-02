@@ -1,6 +1,6 @@
 import { createMap } from './map.js';
 import { connect } from './stream.js';
-import { delayClass } from './format.js';
+import { delayClass, esc } from './format.js';
 import * as P from './panels.js';
 import { stationBoard } from './station-board.js';
 
@@ -19,7 +19,7 @@ const state = {
   selected: new Map(), // 'tipo|id' → { kind, id }: alertas, incidencias y trenes marcados; el mapa muestra sólo eso
   multi: false,         // interruptor "Varias a la vez"
   forced: new Set(),    // 'mode:x' / 'group:y': capas que ha encendido lo marcado; se apagan al quitar la selección
-  stations: new Map(),  // código → estación de Renfe (para su ficha)
+  stations: new Map(),  // código → estación de Renfe o de otra red (para su ficha)
   lines: [],            // trazados de las líneas (para saber qué líneas pasan por cada estación)
 };
 
@@ -69,6 +69,8 @@ map.ready.then(async () => {
     const stations = await (await fetch('/api/stations')).json();
     for (const s of stations) state.stations.set(s.code, s);
     map.setStations(stations);
+    const select = document.getElementById('station-network');
+    select.insertAdjacentHTML('beforeend', P.stationNetworks(stations).map(([id, name]) => `<option value="${esc(id)}">${esc(name)}</option>`).join(''));
   } catch { /* sin estaciones no pasa nada */ }
   loadLines();
 });
@@ -170,10 +172,11 @@ function renderStationsPanel() {
   const trainsByName = new Map();
   for (const v of allVehicles()) {
     const at = v.stopped ? v.current : v.next;
-    if (at) trainsByName.set(at, (trainsByName.get(at) ?? 0) + 1);
+    if (at) trainsByName.set(P.stationKey(at), (trainsByName.get(P.stationKey(at)) ?? 0) + 1);
   }
   const query = document.getElementById('station-search').value;
-  P.renderStations(document.getElementById('stations-list'), P.filterStations([...state.stations.values()], query), query, trainsByName);
+  const network = document.getElementById('station-network').value;
+  P.renderStations(document.getElementById('stations-list'), P.filterStations([...state.stations.values()], query, network), query, trainsByName, network);
 }
 
 /**
@@ -188,7 +191,7 @@ async function openStation(code, fly = false) {
   if (fly) map.flyTo(st.lon, st.lat, 14);
   if (stationDetails.has(code)) return;
   try {
-    const res = await fetch(`/api/stations/${code}`);
+    const res = await fetch(`/api/stations/${encodeURIComponent(code)}`);
     if (!res.ok) return;
     stationDetails.set(code, await res.json());
     map.refreshStation(stationDetails.get(code), boardFor(st));
@@ -498,6 +501,7 @@ document.getElementById('station-search').addEventListener('input', () => {
   clearTimeout(stationTimer);
   stationTimer = setTimeout(renderStationsPanel, 150);
 });
+document.getElementById('station-network').addEventListener('change', renderStationsPanel);
 
 let searchTimer = null;
 document.getElementById('vehicle-search').addEventListener('input', (ev) => {

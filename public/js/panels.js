@@ -125,23 +125,38 @@ export function filterVehicles(vehicles, query) {
 // Sin tildes ni mayúsculas: «castellon» encuentra Castellón.
 const plain = (s) => String(s ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 
-/**
- * Estaciones cuyo nombre o población tiene todas las palabras buscadas, en cualquier orden
- * («atocha almudena» encuentra Madrid-Puerta de Atocha-Almudena Grandes); primero las que empiezan así.
- */
-export function filterStations(stations, query) {
-  const q = plain(query.trim());
-  const words = q.split(/[\s-]+/).filter(Boolean);
-  if (!words.length) return [];
-  const rank = (s) => (plain(s.name).startsWith(q) ? 0 : plain(s.name).includes(q) ? 1 : 2);
-  return stations.filter((s) => { const text = `${plain(s.name)} ${plain(s.place)}`; return words.every((w) => text.includes(w)); })
-    .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name, 'es'));
+/** Clave con la que se cuentan los trenes de cada estación: su nombre sin tildes, mayúsculas ni espacios dobles. */
+export const stationKey = (name) => plain(name).replace(/\s+/g, ' ').trim();
+
+/** Redes del selector de la pestaña: Renfe y las demás que haya en la lista, por orden alfabético. */
+export function stationNetworks(stations) {
+  const nets = new Map();
+  for (const s of stations) if (s.networkId) nets.set(s.networkId, s.network);
+  return [['renfe', 'Renfe'], ...[...nets].sort((a, b) => a[1].localeCompare(b[1], 'es'))];
 }
 
-/** @param {Map<string, number>} trainsByName trenes parados en cada estación o que van hacia ella */
-export function renderStations(el, stations, query, trainsByName) {
-  if (!query.trim()) {
-    el.innerHTML = '<div class="empty">Escribe el nombre de una estación de Renfe o de su población.<br>Al pulsarla, el mapa va a ella y muestra sus trenes.</div>';
+/**
+ * Estaciones cuyo nombre, población o red tiene todas las palabras buscadas, en cualquier orden
+ * («atocha almudena» encuentra Madrid-Puerta de Atocha-Almudena Grandes); primero las que empiezan así.
+ * Con una red elegida («renfe» o el id de otra), sólo las suyas; sin palabras, todas las de esa red.
+ */
+export function filterStations(stations, query, network = '') {
+  const q = plain(query.trim());
+  const words = q.split(/[\s-]+/).filter(Boolean);
+  if (!words.length && !network) return [];
+  const inNetwork = (s) => !network || (network === 'renfe' ? !s.networkId : s.networkId === network);
+  const rank = (s) => (plain(s.name).startsWith(q) ? 0 : plain(s.name).includes(q) ? 1 : 2);
+  return stations.filter((s) => {
+    if (!inNetwork(s)) return false;
+    const text = `${plain(s.name)} ${plain(s.place)} ${plain(s.network ?? 'renfe')}`;
+    return words.every((w) => text.includes(w));
+  }).sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name, 'es'));
+}
+
+/** @param {Map<string, number>} trainsByName trenes parados en cada estación o que van hacia ella (por stationKey) */
+export function renderStations(el, stations, query, trainsByName, network = '') {
+  if (!query.trim() && !network) {
+    el.innerHTML = '<div class="empty">Escribe el nombre de una estación de tren, metro o tranvía, o el de su población, o elige una red.<br>Al pulsarla, el mapa va a ella y muestra sus trenes.</div>';
     return;
   }
   if (!stations.length) {
@@ -149,13 +164,13 @@ export function renderStations(el, stations, query, trainsByName) {
     return;
   }
   const rows = stations.slice(0, MAX_ROWS).map((s) => {
-    const trains = trainsByName.get(s.name) ?? 0;
-    const tags = [s.cercanias && 'Cercanías', s.accessible === true && 'Accesible', s.metricGauge && 'Ancho métrico'].filter(Boolean);
+    const trains = trainsByName.get(stationKey(s.name)) ?? 0;
+    const tags = [s.network, s.cercanias && 'Cercanías', s.accessible === true && 'Accesible', s.metricGauge && 'Ancho métrico'].filter(Boolean);
     return `
     <button class="item srow" data-station="${esc(s.code)}">
       <span class="title">${esc(s.name)}</span>
       <span class="delay">${trains ? `${fmtNum(trains)} ${trains === 1 ? 'tren' : 'trenes'}` : ''}</span>
-      <span class="sub">${esc([s.place, s.province !== s.place && s.province].filter(Boolean).join(' · ') || '—')}${tags.length ? ` · ${esc(tags.join(' · '))}` : ''}</span>
+      <span class="sub">${esc([s.place, s.province !== s.place && s.province, ...tags].filter(Boolean).join(' · ') || '—')}</span>
     </button>`;
   }).join('');
   const more = stations.length > MAX_ROWS ? `<div class="empty">Mostrando ${MAX_ROWS} de ${fmtNum(stations.length)}. Afina la búsqueda.</div>` : '';
@@ -217,7 +232,7 @@ export const groupOn = (prefs, g) => prefs.groups[g] ?? !GROUPS_OFF_BY_DEFAULT.i
 export const GROUP_ITEMS = [
   ['rail', 'Red ferroviaria', 'Red ferroviaria', 'Ferrocarril'],
   ['lines', 'Líneas urbanas', 'Líneas de metro, tranvía y Cercanías', 'Ferrocarril'],
-  ['stations', 'Estaciones', 'Estaciones de Renfe: aparecen al acercar el mapa; púlsalas para ver sus trenes', 'Ferrocarril'],
+  ['stations', 'Estaciones', 'Estaciones de tren, metro y tranvía: aparecen al acercar el mapa; púlsalas para ver sus trenes', 'Ferrocarril'],
   ['renfe-avisos', 'Avisos Renfe', 'Avisos ferroviarios de Renfe y Rodalies', 'Ferrocarril'],
   ['trails', 'Estelas', 'Estelas de todos los trenes (últimos 15 min)', 'Ferrocarril'],
   ['meteo', 'Meteo (AEMET)', 'Avisos meteorológicos de AEMET', 'Emergencias'],
