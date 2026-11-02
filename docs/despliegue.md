@@ -13,7 +13,7 @@ La web va en dos contenedores que se relevan en cada despliegue, `radar` y `rada
 pasa las visitas al que está en servicio (`data/proxy/activo.conf`). Así un despliegue no corta
 nada: no hay 502 de Cloudflare mientras arranca la versión nueva. Si alguna vez no responde
 ninguno, nginx enseña `deploy/nginx/actualizando.html` (y la API responde 503 «actualizando», que
-la web convierte en un aviso). El plan gratuito de Cloudflare no permite cambiar su página de 502.
+la web convierte en un aviso). La página de 502 de Cloudflare no se puede cambiar.
 
 ## Ramas
 
@@ -21,17 +21,17 @@ la web convierte en un aviso). El plan gratuito de Cloudflare no permite cambiar
 |---|---|
 | `produccion` | Lo que ejecuta el VPS. **Nunca se trabaja directamente en ella.** |
 | `dev` | Integración. Aquí se mergean las ramas de cada mejora, y es lo que corre en pruebas. |
-| `feature/…` | Una por mejora, creada desde `dev`. |
+| `feature/…`, `fix/…` | Una por mejora o por arreglo, creada desde `dev`. |
 
 ## Del commit a producción
 
 ```
 push a dev ──▶ GitHub → Actions → pipeline
                1. Tests
-               2. Pruebas en el VPS (rama dev, 127.0.0.1:8081, pruebas.radarespaña.es)
+               2. Pruebas en el VPS (rama dev, 127.0.0.1:8081, el subdominio privado de pruebas)
                   imagen con los tests dentro → arranque → deploy/comprobar.mjs
                   → imagen verificada para ese árbol de ficheros
-               3. ⏸ Subir a producción: revisar pruebas.radarespaña.es y aprobar
+               3. ⏸ Subir a producción: revisar pruebas y aprobar
                   («Review deployments» → produccion → Approve) → merge de dev en produccion
                4. Producción usa la imagen verificada, sin recompilar
 ```
@@ -40,7 +40,7 @@ El panel es `.github/workflows/pipeline.yml`. La aprobación es el entorno `prod
 (Settings → Environments): pide la del dueño del repo y sólo admite la rama `dev`. Un push nuevo
 a `dev` sustituye al pipeline que estuviera esperando. El VPS marca cada commit con los checks
 «Pruebas VPS» (en `dev`) y «Producción» (en el merge), que son los que espera el pipeline; para
-eso necesita un token en `.github-token` (ver abajo). El merge a mano en la terminal sigue
+eso necesita un token en `.github-token`, que sólo puede escribir el estado de los commits. El merge a mano en la terminal sigue
 funcionando igual: producción tampoco lo despliega si no está verificado.
 
 Dos temporizadores lanzan `deploy/actualizar.sh` cada 30 s, uno por entorno. Casi siempre sólo

@@ -39,11 +39,8 @@ Si se rehace con otras capas, hay que añadir su atribución.
    - Inspección de URL → pegar la portada y cada página de contenido → «Solicitar indexación».
 2. **Bing Webmaster Tools** (<https://www.bing.com/webmasters>): «Importar desde Google Search Console». Bing
    alimenta también a DuckDuckGo, Ecosia y Yahoo.
-3. **Cloudflare**:
-   - Caching → Configuration → **Crawler Hints**: activado. Avisa a Bing y Yandex (IndexNow) cuando cambia algo.
-   - Si está activado el «robots.txt gestionado» o el bloqueo de bots de IA, comprobar en
-     `https://radarespaña.es/robots.txt` que sigue nuestro contenido y que no bloquea a Googlebot ni a Bingbot.
-   - Bot Fight Mode no bloquea a los buscadores verificados; no hace falta tocarlo.
+3. **robots.txt**: comprobar en `https://radarespaña.es/robots.txt` que sigue nuestro contenido y que no
+   bloquea a Googlebot ni a Bingbot.
 4. **GitHub**: poner la web en el repositorio (About → Website), que da un enlace desde un sitio con mucha autoridad:
    `gh repo edit FlorinTodor/radar-es --homepage "https://radarespaña.es"`.
 
