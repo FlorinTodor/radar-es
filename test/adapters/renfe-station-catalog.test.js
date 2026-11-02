@@ -2,7 +2,6 @@
 // ancho métrico; los GTFS, los nombres bien escritos y si la estación es accesible.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -59,32 +58,38 @@ test('se quitan las estaciones repetidas sin horarios, pero no las distintas que
   assert.deepEqual(withoutDuplicates(list, scheduled).map((s) => s.code), ['18000', '15211', '13200', '05451']);
 });
 
-// Espera a que pase algo que va en segundo plano (hasta 2 s).
-async function until(check) {
-  for (let i = 0; i < 200 && !check(); i++) await new Promise((r) => setTimeout(r, 10));
-  assert.ok(check(), 'no ha llegado a pasar');
+// El catálogo se rehace en segundo plano y lo apunta en el registro al terminar (bien o mal): se
+// espera a eso, tarde lo que tarde la máquina (nunca un tiempo fijo). El tope del test sólo salta si
+// nunca termina.
+function whenRebuilt() {
+  let done;
+  const rebuilt = new Promise((resolve) => { done = resolve; });
+  return { rebuilt, log: { info: () => done(), warn: (msg) => { if (/no se pudo descargar el catálogo/.test(msg)) done(); } } };
 }
+const NEVER_ENDS = { timeout: 120_000 };
 
-test('una caché de hoy hecha con una versión anterior se recalcula detrás; la de la versión actual, no', async () => {
+test('una caché de hoy hecha con una versión anterior se recalcula detrás; la de la versión actual, no', NEVER_ENDS, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'estaciones-'));
   try {
     const file = join(dir, 'renfe-stations-v3.json');
     await writeFile(file, JSON.stringify({ savedAt: Date.now(), stations: [{ code: '15211', name: 'De la caché vieja' }] }));
     let downloads = 0;
     const files = { [RENFE_FILES.stations]: CSV, [RENFE_FILES.cercanias]: gtfs(['15211,Oviedo,43.3663577,-5.8548380,1']), [RENFE_FILES.largaDistancia]: gtfs([]) };
-    const make = () => createRenfeStationCatalog({
+    const make = (log = { info() {}, warn() {} }) => createRenfeStationCatalog({
       cache: { bytes: async (url) => { if (url === RENFE_FILES.stations) downloads++; return files[url]; } },
       cacheDir: pathToFileURL(`${dir}/`),
-      log: { info() {}, warn() {} },
+      log,
     });
-    const first = make();
+    const { rebuilt, log } = whenRebuilt();
+    const first = make(log);
     await first.load();
     assert.equal(first.get('15211').name, 'De la caché vieja', 'arranca con la copia anterior sin esperar');
-    await until(() => first.get('15211').name === 'Oviedo');
-    await until(() => downloads === 1 && first.get('05100'));
+    await rebuilt;
+    assert.equal(first.get('15211').name, 'Oviedo');
+    assert.ok(first.get('05100'));
     await first.load();
     assert.equal(downloads, 1, 'recalculada una vez');
-    await until(() => /^7-[0-9a-f]{8}$/.test(JSON.parse(readFileSync(file, 'utf8')).version ?? ''));
+    assert.match(JSON.parse(await readFile(file, 'utf8')).version, /^7-[0-9a-f]{8}$/);
     await make().load();
     assert.equal(downloads, 1, 'la caché de la versión actual se reutiliza');
   } finally {
@@ -92,27 +97,29 @@ test('una caché de hoy hecha con una versión anterior se recalcula detrás; la
   }
 });
 
-test('una caché de hace días también sirve para arrancar mientras se renueva', async () => {
+test('una caché de hace días también sirve para arrancar mientras se renueva', NEVER_ENDS, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'estaciones-'));
   try {
     const file = join(dir, 'renfe-stations-v3.json');
     const files = { [RENFE_FILES.stations]: CSV, [RENFE_FILES.cercanias]: gtfs([]), [RENFE_FILES.largaDistancia]: gtfs([]) };
     let gate = Promise.resolve();
     let release;
-    const make = () => createRenfeStationCatalog({
+    const make = (log = { info() {}, warn() {} }) => createRenfeStationCatalog({
       cache: { bytes: async (url) => { await gate; return files[url]; } },
       cacheDir: pathToFileURL(`${dir}/`),
-      log: { info() {}, warn() {} },
+      log,
     });
     await make().load(); // sin ninguna copia, sí se espera
     const saved = JSON.parse(await readFile(file, 'utf8'));
     await writeFile(file, JSON.stringify({ ...saved, savedAt: Date.now() - 3 * 24 * 3600_000, stations: [{ code: '15211', name: 'De hace tres días' }] }));
     gate = new Promise((r) => { release = r; });
-    const catalog = make();
+    const { rebuilt, log } = whenRebuilt();
+    const catalog = make(log);
     assert.equal(await catalog.load(), 1, 'no espera a la descarga');
     assert.equal(catalog.get('15211').name, 'De hace tres días');
     release();
-    await until(() => catalog.get('15211').name === 'Oviedo');
+    await rebuilt;
+    assert.equal(catalog.get('15211').name, 'Oviedo');
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

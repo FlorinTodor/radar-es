@@ -35,7 +35,8 @@ function ldZip() {
 }
 
 const cacheWith = (zips) => ({ bytes: async (url, name) => zips[name] });
-// Las recargas van en segundo plano: tiempo real para que terminen (descomprimir va por el pool de libuv).
+// Sólo para comprobar que algo NO pasa (en una máquina lenta, como mucho no lo vería): lo que sí
+// tiene que pasar se espera con señales, nunca con un tiempo fijo.
 const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
 
 test('el nombre de la línea son dos columnas de 40 caracteres, aunque un nombre lleve guion', () => {
@@ -101,10 +102,17 @@ test('Larga distancia: con el horario de otro periodo, el tren se encuentra por 
   assert.equal(t.ld('9999912026-10-31', '99999'), undefined);
 });
 
-test('Larga distancia: si muchos trenes no están en el horario guardado, se vuelve a leer (una vez por hora)', async (t) => {
+test('Larga distancia: si muchos trenes no están en el horario guardado, se vuelve a leer (una vez por hora)', { timeout: 120_000 }, async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-01T10:00:00Z') });
   const reads = [];
-  const cache = { bytes: async (url, name, maxAgeMs) => { reads.push(maxAgeMs); return ldZip(); } };
+  const waiting = [];
+  const cache = { bytes: async (url, name, maxAgeMs) => {
+    reads.push(maxAgeMs);
+    for (const w of waiting.filter((x) => reads.length >= x.n)) w.resolve();
+    return ldZip();
+  } };
+  // La relectura va en segundo plano: se espera a que pida el fichero, tarde lo que tarde la máquina.
+  const readsReach = (n) => (reads.length >= n ? Promise.resolve() : new Promise((resolve) => waiting.push({ n, resolve })));
   const feed = { entity: ['0515212026-10-31', '0600012026-10-31'].map((tripId, i) => ({ vehicle: {
     trip: { tripId }, position: { latitude: 40, longitude: -3 }, vehicle: { id: tripId.slice(0, 5) }, stopId: '65000', currentStatus: 'IN_TRANSIT_TO', timestamp: i,
   } })) };
@@ -112,14 +120,14 @@ test('Larga distancia: si muchos trenes no están en el horario guardado, se vue
   const [, ld] = createRenfeSources({ http, cache, stations, log });
   const first = await ld.fetch();
   assert.equal(first.vehicles[0].origin, 'València-Estació del Nord', 'mientras tanto, por número');
-  await settle();
+  await readsReach(2);
   assert.deepEqual(reads, [24 * 3600_000, 3600_000], 'la copia de un día y, al ver que no están, una de menos de una hora');
   await ld.fetch();
   await settle();
   assert.equal(reads.length, 2, 'no otra vez en la misma hora');
   t.mock.timers.tick(61 * 60_000);
   await ld.fetch();
-  await settle();
+  await readsReach(3);
   assert.equal(reads.length, 3, 'pasada la hora, sí');
 });
 
