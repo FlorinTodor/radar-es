@@ -4,6 +4,7 @@
 // a Vinaròs uno que acaba en Castelló y a algunos C2 uno que no pasa por Fuente de la Mora. Siguiendo
 // el trazado sólo entre paradas que están sobre él, en el orden del viaje, nunca se dibuja por donde
 // no va el tren: donde el trazado se aparta de sus paradas, el dibujo se corta.
+import { M_PER_DEG_LAT, mPerDegLon, roundBearing5 } from './geo.js';
 
 // Más lejos que esto del trazado, el tren o la parada no están sobre él.
 const NEAR_M = 500;
@@ -53,8 +54,8 @@ function prepared(coords) {
   let p = preparedShapes.get(coords);
   if (!p) {
     const lat = coords.reduce((sum, c) => sum + c[1], 0) / coords.length;
-    const kx = 111_320 * Math.cos((lat * Math.PI) / 180);
-    const ky = 110_540;
+    const kx = mPerDegLon(lat);
+    const ky = M_PER_DEG_LAT;
     const xy = coords.map(([lon, lat]) => [lon * kx, lat * ky]);
     const cum = [0];
     for (let i = 1; i < xy.length; i++) cum.push(cum[i - 1] + Math.hypot(xy[i][0] - xy[i - 1][0], xy[i][1] - xy[i - 1][1]));
@@ -70,13 +71,13 @@ function prepared(coords) {
 export function headingOfPath(path) {
   if (!path || path.length < 2) return null;
   const [x0, y0] = path[0];
-  const kx = 111_320 * Math.cos((y0 * Math.PI) / 180);
-  const ky = 110_540;
+  const kx = mPerDegLon(y0);
+  const ky = M_PER_DEG_LAT;
   const dist = ([x, y]) => Math.hypot((x - x0) * kx, (y - y0) * ky);
   const far = path.find((p) => dist(p) > 100) ?? (dist(path.at(-1)) > 20 ? path.at(-1) : null);
   if (!far) return null;
   const deg = (Math.atan2((far[0] - x0) * kx, (far[1] - y0) * ky) * 180) / Math.PI;
-  return (Math.round(((deg + 360) % 360) / 5) * 5) % 360;
+  return roundBearing5(deg);
 }
 
 /**

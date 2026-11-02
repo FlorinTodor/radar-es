@@ -46,7 +46,6 @@ export function createInMemorySituation() {
       Object.assign(sources.get(id).status, { ok: false, lastError: at, error: publicError(error) });
     },
 
-    source: (id) => sources.get(id),
     vehicles: () => collect('vehicles', 'vehicles'),
     events: () => collect('events', 'events'),
     metrics() {
@@ -56,6 +55,9 @@ export function createInMemorySituation() {
     },
     health: () => [...sources.values()].map(({ meta, status }) => ({ ...meta, ...status })),
 
+    // Los recorridos y las alertas activas salen sin copiar: se leen en cada consulta del directo y
+    // copiarlos (miles de recorridos) costaría más que el cálculo. El puerto los da como ReadonlyMap:
+    // sólo las reglas del dominio los cambian, a través de updateTracks y updateActiveAlerts.
     tracks: () => tracks,
     updateTracks: (update) => update(tracks),
     activeAlerts: () => active,
@@ -67,11 +69,14 @@ export function createInMemorySituation() {
 
     setKpis(k) { kpis = k; },
     kpis: () => kpis,
-    pushKpiSample(sample, max = 1440) {
+    // El tope lo pone quien toma las muestras (detect-alerts, que sabe cada cuánto las toma): aquí no
+    // hay otro por defecto que pueda quedarse distinto.
+    pushKpiSample(sample, max) {
       kpiHistory.push(sample);
       while (kpiHistory.length > max) kpiHistory.shift();
     },
-    kpiHistory: () => kpiHistory,
+    // Una copia: quien la lea (las reglas, /api/kpis) no puede cambiar el histórico guardado.
+    kpiHistory: () => kpiHistory.slice(),
   };
 }
 

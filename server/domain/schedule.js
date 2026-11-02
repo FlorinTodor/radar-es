@@ -1,5 +1,6 @@
 // Posición estimada de un tren a partir de su horario teórico (GTFS). Se usa para
 // operadores que no publican GPS (p. ej. Ouigo). Es una estimación: no sabe de retrasos.
+import { M_PER_DEG_LAT, mPerDegLon } from './geo.js';
 
 /**
  * @typedef {{ stopId: string, name: string, lat: number, lon: number, arr: number, dep: number }} ScheduledStop
@@ -52,10 +53,7 @@ export function scheduledPosition(stops, t) {
 
 // ---------- Trazados (shapes.txt) ----------
 // Para que un vehículo estimado vaya por su calle o carretera y no en línea recta entre paradas.
-// Distancias en metros con una proyección local (equirectangular): sobra para tramos de pocos km.
-
-const M_PER_DEG_LAT = 110_540;
-const mPerDegLon = (lat) => 111_320 * Math.cos((lat * Math.PI) / 180);
+// Distancias en metros con la proyección local de geo.js: sobra para tramos de pocos km.
 
 /**
  * Trazado listo para interpolar: quita los puntos a menos de `minStep` metros del anterior (hay
