@@ -101,7 +101,7 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
       if (url.pathname.startsWith('/api/ahead/')) {
         const id = decodeOrNull(url.pathname.slice('/api/ahead/'.length));
         if (id === null) return send(res, 400, { error: 'Ruta inválida' });
-        return sendTrain(req, res, `ahead:${id}`, () => query.ahead?.(id) ?? null, 'Sin recorrido previsto');
+        return sendTrain(req, res, `ahead:${id}`, () => query.ahead(id) ?? null, 'Sin recorrido previsto');
       }
       if (url.pathname.startsWith('/api/tracks/')) {
         const id = decodeOrNull(url.pathname.slice('/api/tracks/'.length));
