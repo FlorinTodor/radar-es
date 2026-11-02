@@ -56,6 +56,17 @@ export const fmtTime = (ms) => (ms ? timeFmt.format(ms) : '—');
 export const fmtDateTime = (ms) => (ms ? dateTimeFmt.format(ms) : '—');
 const dateFmt = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', year: 'numeric' });
 export const fmtDate = (ms) => (ms ? dateFmt.format(ms) : '—');
+const dayFmt = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Madrid' }); // «2026-11-02»: el día en Madrid
+
+/**
+ * Cuándo es un dato: «de las 14:12» si es de hoy (en Madrid) y «del 01/11/2026 a las 14:12» si no.
+ * Varias licencias piden la fecha de la última actualización (Llicència oberta de Catalunya, Govern
+ * de les Illes Balears, Junta de Castilla y León, Red Eléctrica), y la hora sola parece de hoy.
+ */
+export function fmtDataTime(ms, now = Date.now()) {
+  if (!ms) return '—';
+  return dayFmt.format(ms) === dayFmt.format(now) ? `de las ${fmtTime(ms)}` : `del ${fmtDate(ms)} a las ${fmtTime(ms)}`;
+}
 
 // "2026-10-30T19:17:00" (hora local de Madrid) → "19:17"
 export const fmtLocalHour = (s) => (s ? s.slice(11, 16) : '—');

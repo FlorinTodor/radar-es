@@ -6,13 +6,7 @@
 //
 // Los mismos valores están en las fuentes raster de public/js/map.js (`bounds`, `minzoom`,
 // `maxzoom`), para que el mapa nunca pida una tesela que aquí se rechaza.
-
-/**
- * Caja lon/lat [oeste, sur, este, norte] que cubre la Península, Baleares, Canarias, Ceuta y
- * Melilla con un margen de unos 20-35 km: de El Hierro (-18,16) a Menorca (4,33) y de La Restinga
- * (27,64) a Estaca de Bares (43,79).
- */
-export const SPAIN_BOUNDS = Object.freeze([-18.5, 27.4, 4.6, 44.0]);
+import { SPAIN_BOUNDS } from './geo.js';
 
 /**
  * Zooms de tesela (256 px) que se sirven de cada capa. Una capa que no está aquí no se sirve.
@@ -62,7 +56,11 @@ export function isServableTile(layer, z, x, y, { layers = TILE_LAYERS, bounds = 
   return x >= r.minX && x <= r.maxX && y >= r.minY && y <= r.maxY;
 }
 
-/** Número máximo de teselas que puede llegar a guardar una capa (todas las de la caja en su rango de zoom). */
+/**
+ * Número máximo de teselas que puede llegar a guardar una capa (todas las de la caja en su rango de zoom).
+ * Herramienta de cálculo: el servidor no la usa. Sirve para elegir el zoom máximo de cada capa sabiendo
+ * cuánto disco puede llegar a ocupar (las cifras de TILE_LAYERS salen de aquí, y las pruebas las vigilan).
+ */
 export function maxTileCount(layer, { layers = TILE_LAYERS, bounds = SPAIN_BOUNDS } = {}) {
   const zooms = layers[layer];
   if (!zooms) return 0;
@@ -75,7 +73,7 @@ export function maxTileCount(layer, { layers = TILE_LAYERS, bounds = SPAIN_BOUND
 }
 
 /** Lado máximo, en grados, de la caja de áreas quemadas: lo que hay bajo un clic, no una región. */
-export const MAX_BURNT_BOX_DEG = 0.5;
+const MAX_BURNT_BOX_DEG = 0.5;
 /**
  * Rejilla, en grados (unos 5 km), a la que se amplía la caja de áreas quemadas. Los clics cercanos
  * piden la misma caja, que Cloudflare guarda una vez, y nadie puede generar infinitas variantes

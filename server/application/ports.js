@@ -14,6 +14,8 @@
  * @property {string} [license]
  * @property {string} [url]
  * @property {string} [page]                   Ficha pública del conjunto de datos, para enlazarla en vez de `url`.
+ * @property {string} [paused]               Motivo por el que la fuente está en pausa: se registra y se cita en /legal,
+ *                                              pero no se lee (sale como desactivada, con este motivo).
  * @property {string[]} [requires]             Variables de entorno necesarias (claves de API).
  * @property {Record<string, string>} [operatorLicenses]  Fuentes que agrupan a varios operadores: la atribución
  *                                              de cada uno, por el `operator` de sus vehículos, para citar sólo la suya.
@@ -51,10 +53,26 @@
  */
 
 /**
+ * Trazado de una línea: una Feature GeoJSON de la colección de NetworkCatalogPort.lines().
+ * @typedef {object} NetworkLine
+ * @property {'Feature'} type
+ * @property {{ type: 'LineString', coordinates: number[][] }} geometry  [lon, lat]: el trazado de los viajes con `shapes`.
+ * @property {object} properties
+ * @property {string} properties.network    Red a la que pertenece (la `shapeNetwork` de las fuentes).
+ * @property {string} [properties.line]
+ * @property {string} [properties.color]
+ * @property {import('../domain/model.js').Mode} [properties.mode]
+ * @property {string[]} [properties.shapes]  Trazados (shape_id de su GTFS) que dibuja: los viajes de las fuentes
+ *   con `shapeNetwork` se buscan por «red + shape_id» (el `shape` de cada vehículo).
+ */
+
+/**
  * Red de líneas de metro, tranvía y Cercanías (trazados estáticos para pintar en el mapa).
  * @typedef {object} NetworkCatalogPort
  * @property {() => Promise<number>} load
- * @property {() => { type: 'FeatureCollection', features: object[] }} lines
+ * @property {() => { type: 'FeatureCollection', features: NetworkLine[] }} lines
+ *   Devuelve el MISMO objeto mientras no se recargue (load): query-situation usa su identidad para
+ *   saber si los trazados han cambiado y tirar lo que calculó con los anteriores. Una recarga da otro.
  * @property {() => Array<{ name: string, credit: string, updated: number | null }>} sources
  *   De dónde sale el trazado de cada red: la atribución y la fecha de actualización que pide su licencia.
  */
@@ -66,6 +84,8 @@
  * @typedef {object} RailNetworkPort
  * @property {() => Promise<number>} load  Lee la red (de disco o descargándola) y la prepara; devuelve cuántos tramos tiene.
  * @property {() => import('../domain/rail-match.js').RailNetwork | null} network
+ *   Devuelve el MISMO objeto mientras no se recargue con otra red: query-situation usa su identidad
+ *   para tirar los recorridos que calculó con la anterior.
  */
 
 /**
@@ -78,11 +98,10 @@
  * @property {(source: DataSourcePort, status: { enabled: boolean, reason?: string }) => void} registerSource
  * @property {(id: string, result: import('../domain/model.js').SourceResult, at: number, ms: number) => void} saveResult
  * @property {(id: string, error: Error, at: number) => void} saveFailure
- * @property {(id: string) => { meta: object, status: object, data: object|null } | undefined} source
  * @property {() => import('../domain/model.js').Vehicle[]} vehicles
  * @property {() => import('../domain/model.js').IncidentEvent[]} events
  * @property {() => Record<string, any>} metrics
- * @property {() => object[]} health
+ * @property {() => import('../domain/model.js').SourceHealth[]} health
  * @property {() => ReadonlyMap<string, readonly import('../domain/tracking.js').TrackPoint[]>} tracks
  * @property {<T>(update: (tracks: Map<string, import('../domain/tracking.js').TrackPoint[]>) => T) => T} updateTracks
  *   Un salto de posición retenido a la espera de la lectura siguiente (domain/tracking.js) va ligado a
@@ -93,8 +112,9 @@
  * @property {() => import('../domain/model.js').Alert[]} resolvedAlerts
  * @property {(kpis: object) => void} setKpis
  * @property {() => object|null} kpis
- * @property {(sample: object, max?: number) => void} pushKpiSample  max: muestras que se guardan como mucho.
- * @property {() => object[]} kpiHistory
+ * @property {(sample: object, max: number) => void} pushKpiSample  max: muestras que se guardan como mucho; lo
+ *   decide quien las toma (detect-alerts), sin otro tope por defecto en el almacén.
+ * @property {() => object[]} kpiHistory  Una copia: cambiarla no cambia el histórico guardado.
  */
 
 /**
@@ -113,15 +133,6 @@
  * @property {(layer: string) => string} cacheControl
  * @property {(layer: string, z: number, x: number, y: number) => Promise<Uint8Array | null>} tile
  * @property {(bbox: [number, number, number, number]) => Promise<object>} burntAreas
- */
-
-/**
- * Sitúa en el mapa un lugar que sólo se conoce por su nombre (el municipio o la localidad de un aviso
- * del 112). Lo usan las fuentes de avisos oficiales, que no traen coordenadas.
- * @typedef {object} GeocoderPort
- * @property {(place: string, scope?: { region?: string, province?: string }) => Promise<{ name: string, lat: number, lon: number } | null>} locate
- *   region: código de comunidad autónoma del INE («01» Andalucía…), para no confundir pueblos con el
- *   mismo nombre; province: nombre de la provincia. null si no lo encuentra o el servicio no responde.
  */
 
 /**
@@ -146,12 +157,11 @@ export const PORT_MEMBERS = {
   StationCatalog: ['load', 'get', 'name', 'nearest', 'all'],
   NetworkCatalog: ['load', 'lines', 'sources'],
   RailNetwork: ['load', 'network'],
-  SituationRepository: ['registerSource', 'saveResult', 'saveFailure', 'source', 'vehicles', 'events', 'metrics', 'health',
+  SituationRepository: ['registerSource', 'saveResult', 'saveFailure', 'vehicles', 'events', 'metrics', 'health',
     'tracks', 'updateTracks', 'activeAlerts', 'updateActiveAlerts', 'addResolved', 'resolvedAlerts', 'setKpis', 'kpis',
     'pushKpiSample', 'kpiHistory'],
   History: ['append'],
   TileProvider: ['layers', 'cacheControl', 'tile', 'burntAreas'],
-  Geocoder: ['locate'],
   Clock: ['now'],
   Logger: ['info', 'warn', 'error'],
 };

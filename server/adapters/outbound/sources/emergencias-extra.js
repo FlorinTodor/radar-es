@@ -1,8 +1,13 @@
 // Alertas de catástrofes de GDACS (Naciones Unidas y Comisión Europea). Públicas y sin clave.
 import { arr, lookup, num, text, xmlParser } from './parse.js';
+import { inBounds, SPAIN_BOUNDS, widenBounds } from '../../../domain/geo.js';
 
-// Zona de interés: España peninsular, Baleares, Canarias y su entorno inmediato.
-const inZone = (lat, lon) => lat >= 26 && lat <= 44.5 && lon >= -19.5 && lon <= 5;
+// Zona de interés: la caja de España con un grado (~100 km) más por cada lado. GDACS sitúa cada
+// catástrofe en un punto (el epicentro de un terremoto, el de un tsunami, el ojo de un ciclón), que
+// puede estar en el mar, lejos de la costa, y aun así afectar a España: el margen de la caja (20-35 km),
+// pensado para las teselas y los pueblos, se quedaría corto.
+const GDACS_ZONE = widenBounds(SPAIN_BOUNDS, 1);
+const inZone = (lat, lon) => inBounds(GDACS_ZONE, lat, lon);
 
 // ---------- Catástrofes (GDACS, ONU/Comisión Europea) ----------
 const GDACS = 'https://www.gdacs.org/xml/rss.xml';

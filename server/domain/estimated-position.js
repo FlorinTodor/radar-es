@@ -7,7 +7,7 @@ import { bearingDeg } from './geo.js';
 import { pointAlong, scheduledPosition } from './schedule.js';
 
 /** El mismo tramo que el recorrido de los vehículos con GPS. */
-export const PATH_WINDOW_S = 45 * 60;
+const PATH_WINDOW_S = 45 * 60;
 // Sin trazado, lo que le queda se dibuja uniendo paradas sólo en estos modos (paradas cercanas).
 const STRAIGHT_AHEAD = new Set(['metro', 'tranvia', 'cercanias']);
 

@@ -22,7 +22,7 @@ export function tileBbox(z, x, y) {
   return [minx, maxy - size, minx + size, maxy];
 }
 
-export const LAYERS = {
+const LAYERS = {
   'ign-rail': {
     url: (bbox) => 'https://servicios.idee.es/wms-inspire/transportes?service=WMS&request=GetMap&version=1.3.0'
       + '&layers=TN.RailTransportNetwork.RailwayLink&styles=&format=image/png&transparent=true&crs=EPSG:3857'

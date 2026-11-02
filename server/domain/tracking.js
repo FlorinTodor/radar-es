@@ -2,15 +2,15 @@
 // saltos de retraso y dibujar la estela en el mapa.
 import { bearingDeg, distanceKm } from './geo.js';
 
-export const TRACK_WINDOW_MS = 45 * 60_000;
+const TRACK_WINDOW_MS = 45 * 60_000;
 
 // Más rápido que esto entre dos posiciones no es un tren moviéndose: el operador ha pasado su
 // identificador a otro convoy (en Renfe, el mismo número de tren sale en Oviedo y 20 s después en
 // Infiesto, a 40 km). Los saltos cortos son ruido del GPS y no cuentan. El tiempo se mide con la
 // hora del GPS si la fuente la da: en un túnel largo (Guadarrama, 28 km) la fuente puede repetir la
 // última posición durante minutos, y al salir no es un salto.
-export const MAX_SPEED_KMH = 400;
-export const MIN_JUMP_KM = 10;
+const MAX_SPEED_KMH = 400;
+const MIN_JUMP_KM = 10;
 // Un salto imposible pero corto (Renfe: 2,5 km en 20 s y vuelta atrás) es un punto suelto erróneo o
 // la fuente poniéndose al día: lo dice el punto siguiente. Por debajo de esto, el ruido del GPS.
 const MIN_SPIKE_KM = 0.5;
@@ -43,13 +43,13 @@ export function isTeleport(a, b) {
 }
 
 /** ¿Es `b` un salto imposible desde `a` (para un vehículo de ese modo), pero demasiado corto para ser otro viaje? */
-export function isSpike(a, b, mode) {
+function isSpike(a, b, mode) {
   const km = distanceKm(a.lat, a.lon, b.lat, b.lon);
   return km >= MIN_SPIKE_KM && km < MIN_JUMP_KM && tooFast(a, b, km, SPIKE_KMH[mode]);
 }
 
 /** ¿Repite `p` exacta una de las últimas posiciones del historial, después de haber estado en otra? */
-export function isEcho(track, p, now) {
+function isEcho(track, p, now) {
   for (let j = track.length - 2; j >= Math.max(0, track.length - 1 - ECHO_BACK); j--) {
     const q = track[j];
     if (now - (q.seen ?? q.t) > ECHO_MS) break;

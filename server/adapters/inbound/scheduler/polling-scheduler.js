@@ -4,7 +4,7 @@
 const FIRST_RETRY_MS = 30_000;
 const MIN_RETRY_CAP_MS = 10 * 60_000;
 // Cada evaluación de alertas recorre todos los vehículos: tras una lectura se espera un poco por si
-// llegan otras, y así se agrupan (con 45 fuentes, era una cada 1,5 s).
+// llegan otras, y así se agrupan (con unas 50 fuentes, era una cada segundo y medio).
 const DETECT_DEBOUNCE_MS = 5000;
 const DETECT_HEARTBEAT_MS = 30_000; // las alertas dependen del tiempo transcurrido, no sólo de datos nuevos
 // Cada hora: si están al día no cuesta nada, y lo que falló la vez anterior (una red de líneas, las

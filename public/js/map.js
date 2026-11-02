@@ -1,5 +1,5 @@
 import * as maplibregl from '/vendor/maplibre/maplibre-gl.mjs';
-import { DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, STATUS, esc, fmtDate, fmtDateTime, fmtDelay, fmtLocalHour, fmtTime, creditHtml, photoTitleOf, safeUrl, timeAgo, vehicleTitle } from './format.js';
+import { DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, STATUS, esc, fmtDataTime, fmtDate, fmtDateTime, fmtDelay, fmtLocalHour, fmtTime, creditHtml, photoTitleOf, safeUrl, timeAgo, vehicleTitle } from './format.js';
 import { PICTOS, pictoFor, vehicleImage } from './icons.js';
 import { headingAlong, matchTrack, pathBetween } from './track-match.js';
 
@@ -76,6 +76,8 @@ const ATTRIBUTION = [
   'Origen de los datos: Renfe Operadora',
   '© Administrador de infraestructuras ferroviarias',
   `Obra derivada de Catálogo de terremotos IGN ${today} · CC-BY 4.0 <a href="https://www.ign.es" target="_blank" rel="noopener">ign.es</a>`,
+  // Los avisos oficiales que sólo nombran un municipio se sitúan con CartoCiudad (licencia del IGN).
+  'Obra derivada de CartoCiudad 2026 CC-BY 4.0 <a href="https://www.scne.es" target="_blank" rel="noopener">scne.es</a>',
   '© AEMET',
   'Fuente: DGT',
   '<a href="https://www.gdacs.org" target="_blank" rel="noopener">GDACS</a>',
@@ -970,7 +972,7 @@ function sourceRows(id, operator) {
   const schedule = s.datasetUpdatedBy?.[operator] ?? s.datasetUpdated;
   const dates = [
     schedule && `horario del ${fmtDate(schedule)}`,
-    s.sourceTime ? `datos de las ${fmtTime(s.sourceTime)}` : !schedule && s.lastOk && `leídos a las ${fmtTime(s.lastOk)}`,
+    s.sourceTime ? `datos ${fmtDataTime(s.sourceTime)}` : !schedule && s.lastOk && `leídos ${fmtDataTime(s.lastOk)}`,
   ].filter(Boolean);
   // «Atribución» y no «Fuente»: muchas ya empiezan por «Fuente: …» u «Origen de los datos: …».
   // La atribución va como HTML: las que lo piden llevan su enlace (ver creditHtml).
@@ -1075,7 +1077,7 @@ const fmtArea = (ha) => new Intl.NumberFormat('es-ES', { maximumFractionDigits: 
 // Los avisos oficiales no traen coordenadas: se sitúan en el centro de lo que nombran.
 const APPROX_LABEL = {
   isla: 'aproximada: el centro de la isla',
-  municipio: 'aproximada: el centro de la localidad (CartoCiudad CC BY 4.0 scne.es)',
+  municipio: 'aproximada: el centro de la localidad (Obra derivada de CartoCiudad 2026 CC-BY 4.0 scne.es)',
   provincia: 'aproximada: el centro de la provincia',
   comunidad: 'aproximada: el aviso no dice el lugar exacto (centro de la comunidad)',
 };

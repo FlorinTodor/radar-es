@@ -9,6 +9,11 @@
  *   networkStations: estaciones de metro, tranvía y otras redes; usan las de Renfe (sus fotos), así que van después.
  */
 export function makeRefreshCatalogs({ stations, networkStations, network, railNetwork, log }) {
+  // Lo que sigue cargando de la vez anterior: el planificador lo pide cada hora, y una carga que
+  // tarde más (un trazado que se rehace entero con el NAP lento) no se duplica.
+  const running = {};
+  const once = (name, load) => (running[name] ??= Promise.resolve().then(load).finally(() => { running[name] = null; }));
+
   /**
    * Termina cuando las estaciones están cargadas: las fichas y las alertas las necesitan. Las de las
    * otras redes sólo hacen esperar a leer su copia (lo que tarden en recalcularse va detrás): así la
@@ -17,11 +22,6 @@ export function makeRefreshCatalogs({ stations, networkStations, network, railNe
    * recorridos, así que se cargan detrás sin bloquear; si fallan, sólo se registra.
    * @returns {Promise<void>}
    */
-  // Lo que sigue cargando de la vez anterior: el planificador lo pide cada hora, y una carga que
-  // tarde más (un trazado que se rehace entero con el NAP lento) no se duplica.
-  const running = {};
-  const once = (name, load) => (running[name] ??= Promise.resolve().then(load).finally(() => { running[name] = null; }));
-
   return async function refreshCatalogs() {
     await once('stations', () => stations.load());
     await once('networkStations', () => networkStations?.load()).catch((err) => log.warn(`[estaciones de otras redes] ${err.message}`));

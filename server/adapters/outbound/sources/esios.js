@@ -29,22 +29,24 @@ const RECENT_MS = 2 * 3_600_000; // «lo que consumía hace poco»: las dos últ
  * @returns {Array<{ id: number, name: string, real: number, programmed: number|null, recentMax: number, at: number }>}
  */
 export function parseEsiosDemand(real, programmed) {
+  // Sólo valen los números: Number(null) y Number('') dan 0, y un dato vacío no es «0 MW» (un apagón falso).
+  const mw = (v) => (typeof v.value === 'number' && Number.isFinite(v.value) ? v.value : null);
   const planned = new Map();
-  for (const v of programmed?.indicator?.values ?? []) planned.set(`${v.geo_id}|${v.datetime_utc}`, Number(v.value));
+  for (const v of programmed?.indicator?.values ?? []) if (mw(v) !== null) planned.set(`${v.geo_id}|${v.datetime_utc}`, mw(v));
   const atOf = (v) => Date.parse(v.datetime_utc) + (CANARIAS.has(v.geo_id) ? CANARY_SHIFT : 0);
   const bySystem = new Map();
   for (const v of real?.indicator?.values ?? []) {
-    if (!SYSTEMS.has(v.geo_id) || !Number.isFinite(Number(v.value)) || !Number.isFinite(atOf(v))) continue;
+    if (!SYSTEMS.has(v.geo_id) || mw(v) === null || !Number.isFinite(atOf(v))) continue;
     if (!bySystem.has(v.geo_id)) bySystem.set(v.geo_id, []);
     bySystem.get(v.geo_id).push(v);
   }
   return [...bySystem.values()].map((values) => {
     const last = values.reduce((a, b) => (atOf(b) > atOf(a) ? b : a));
     const at = atOf(last);
-    const recent = values.filter((v) => atOf(v) >= at - RECENT_MS).map((v) => Number(v.value));
+    const recent = values.filter((v) => atOf(v) >= at - RECENT_MS).map(mw);
     const plan = planned.get(`${last.geo_id}|${last.datetime_utc}`);
     return {
-      id: last.geo_id, name: SYSTEMS.get(last.geo_id), real: Number(last.value), programmed: Number.isFinite(plan) ? plan : null,
+      id: last.geo_id, name: SYSTEMS.get(last.geo_id), real: mw(last), programmed: Number.isFinite(plan) ? plan : null,
       recentMax: Math.max(...recent), at,
     };
   });

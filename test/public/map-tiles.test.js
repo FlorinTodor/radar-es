@@ -3,7 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { SPAIN_BOUNDS, TILE_LAYERS } from '../../server/domain/tiles.js';
+import { TILE_LAYERS } from '../../server/domain/tiles.js';
+import { SPAIN_BOUNDS } from '../../server/domain/geo.js';
 
 const map = await readFile(new URL('../../public/js/map.js', import.meta.url), 'utf8');
 
