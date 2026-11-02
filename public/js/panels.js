@@ -93,7 +93,9 @@ export function renderEventFilters(el, prefs) {
 export function filterEvents(events, prefs) {
   return events
     .filter((e) => prefs.eventCats.includes(e.category) && (prefs.obras || e.type !== 'roadMaintenance'))
-    .sort((a, b) => (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0) || (b.start ?? 0) - (a.start ?? 0));
+    // A igual gravedad, los cortes de luz primero (como en las alertas).
+    .sort((a, b) => (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0) || (b.power ? 1 : 0) - (a.power ? 1 : 0)
+      || (b.start ?? b.issued ?? 0) - (a.start ?? a.issued ?? 0));
 }
 
 export function renderEvents(el, events, sel = NO_SELECTION) {
