@@ -44,10 +44,6 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     // Vacíos mientras el servidor los carga al arrancar: entonces no se guardan (ver isEmpty).
     '/api/stations': { fn: () => query.stations(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.length },
     '/api/lines': { fn: () => query.lines(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.features?.length },
-    // De dónde sale cada trazado, con su fecha de actualización (la piden su licencia; la enseñan
-    // /legal y la pestaña Fuentes). Aparte de /api/lines, que pesa 1 MB. Mientras falte alguna fecha
-    // cuenta como vacía: ni el navegador ni Cloudflare la guardan una hora sin ella.
-    '/api/lines/sources': { fn: () => query.lineSources(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.length || b.some((s) => s.updated === null) },
     '/api/trails': { fn: (p) => query.trails(trailMinutes(p)), key: trailMinutes, ttl: 15_000, cache: REVALIDATE },
     '/api/snapshot': { fn: () => query.snapshot(), ttl: 5_000, cache: REVALIDATE },
     '/api/vehicles': { fn: (p) => query.vehicles(vehicleFilter(p)), key: (p) => JSON.stringify(vehicleFilter(p)), ttl: 5_000, cache: REVALIDATE },
@@ -56,6 +52,10 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     '/api/kpis': { fn: () => query.kpis(), ttl: 5_000, cache: REVALIDATE },
     '/api/metrics': { fn: () => query.metrics(), ttl: 5_000, cache: REVALIDATE },
     '/api/about': { fn: () => about, ttl: 60_000, cache: REVALIDATE },
+    // De dónde sale cada trazado, con su fecha de actualización (la piden su licencia; la enseñan
+    // /legal y la pestaña Fuentes). Aparte de /api/lines, que pesa 1 MB. Mientras falte alguna fecha
+    // cuenta como vacía: ni el navegador ni Cloudflare la guardan una hora sin ella.
+    '/api/lines/sources': { fn: () => query.lineSources(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.length || b.some((s) => s.updated === null) },
   };
   const memo = createJsonMemo({ now });
   // Las rutas con parámetros tienen memo y presupuesto propios: quien pide variantes sin fin no
