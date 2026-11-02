@@ -415,6 +415,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Pruebas automáticas que no dependen de la velocidad de la máquina: dan lo mismo en el servidor,
   más lento y ocupado, que en un ordenador rápido.
 - Limpieza automática del servidor, también de las teselas del mapa que ya nadie mira.
+- El repositorio público ya no detalla cómo se prepara ni se protege el servidor: esas notas se
+  guardan fuera de él.
 - Estadísticas de visitas sin cookies.
 
 **Licencias**
