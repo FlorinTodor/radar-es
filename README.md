@@ -392,6 +392,12 @@ Ninguna por ahora.
 - Estadísticas de puntualidad por línea y franja horaria.
 - Pasos a nivel en el mapa.
 - Estado oficial de la red de Adif, si llega a publicarse con licencia de reutilización.
+- Ouigo por la vía: su recorrido y lo que le queda por la red de Adif, pasando por las paradas de su
+  horario, como ya se hace con AVE, Larga y Media Distancia (ahora va en línea recta entre estaciones).
+- Renfe AV/LD/MD: algunos números de tren salen dos veces en el tiempo real con posiciones a decenas
+  de kilómetros (tres regionales la mañana del 2-nov); quedarse con la que sigue al tren.
+- Capa discreta con las vías subterráneas de FGC y de los metros: el mapa base oscuro no dibuja las
+  vías en túnel, y el recorrido parece pasar por encima de los edificios.
 - Accesibilidad de las estaciones con más detalle:
   - en Madrid, qué accesos y andenes son accesibles, con los datos abiertos del
     [Consorcio de Transportes](https://www.crtm.es/licencia-de-uso/), cuando se revise su calidad;
