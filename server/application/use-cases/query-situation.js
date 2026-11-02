@@ -3,6 +3,7 @@ import { sortAlerts } from '../../domain/alerts/lifecycle.js';
 import { headingOf } from '../../domain/tracking.js';
 import { headingOfPath, pathThroughStops } from '../../domain/route-ahead.js';
 import { gaugeFactors, matchToRail, routeAhead } from '../../domain/rail-match.js';
+import { round5 } from '../../domain/geo.js';
 
 // Cálculos por tren que se guardan (recorrido por la vía, ~30 KB cada uno; lo que le queda): el mapa
 // pide los del tren seleccionado cada 15 s, /api/live la flecha de cada Cercanías, y sólo cambian
@@ -10,7 +11,6 @@ import { gaugeFactors, matchToRail, routeAhead } from '../../domain/rail-match.j
 // fueran menos que los que se miran, cada cálculo nuevo echaría otro y el memo se vaciaría en bucle.
 const TRAIN_MEMO_MAX = 1_000;
 const SWEEP_MIN = 64; // por debajo de esto no se barre: es poca memoria
-const round5 = (x) => Math.round(x * 1e5) / 1e5;
 
 /**
  * Cálculos por tren guardados mientras no cambien `key` ni la red: `get(id, net, key, compute)`. Sin
@@ -204,14 +204,13 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
       if (![...withStops.values()].some((s) => s.stopsAhead(id))) return null;
       const v = situation.vehicles().find((x) => x.id === id);
       const path = v ? stopsPath(v) : null;
-      return path && path.length > 1 ? path.map(([lon, lat]) => [Math.round(lon * 1e5) / 1e5, Math.round(lat * 1e5) / 1e5]) : null;
+      return path && path.length > 1 ? path.map(([lon, lat]) => [round5(lon), round5(lat)]) : null;
     },
 
     /** Estelas de todos los trenes (sin autobuses) en los últimos `minutes` minutos, como GeoJSON. */
     trails(minutes = 15) {
       const since = clock.now() - minutes * 60_000;
       const modes = new Map(situation.vehicles().map((v) => [v.id, v.mode]));
-      const round = (x) => Math.round(x * 1e5) / 1e5;
       const features = [];
       for (const [id, track] of situation.tracks()) {
         const mode = modes.get(id);
@@ -220,7 +219,7 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
         if (points.length < 2) continue;
         features.push({
           type: 'Feature',
-          geometry: { type: 'LineString', coordinates: points.map((p) => [round(p.lon), round(p.lat)]) },
+          geometry: { type: 'LineString', coordinates: points.map((p) => [round5(p.lon), round5(p.lat)]) },
           properties: { id, mode },
         });
       }
