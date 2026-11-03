@@ -20,6 +20,11 @@ export function makeLinesOnRail({ network, railGeometry = null, yieldTurn = () =
   let ready = null;
   let refined = new Set(); // redes con algún tramo rehecho: su atribución cita la red de vías
   let job = null;
+  let provisional = null; // { base, value }: las del operador marcadas como provisionales (el mismo objeto cada vez)
+  const provisionalOf = (base) => {
+    if (provisional?.base !== base) provisional = { base, value: { ...base, provisional: true } };
+    return provisional.value;
+  };
 
   async function prepare(base, net) {
     const features = [];
@@ -35,20 +40,25 @@ export function makeLinesOnRail({ network, railGeometry = null, yieldTurn = () =
     }
     // Si mientras tanto han cambiado las líneas o la red, esto ya no vale: lo rehará la siguiente consulta.
     if (network.lines() !== base || railGeometry.network() !== net) return;
+    provisional = null;
     ready = { ...base, features };
     refined = touched;
     from = base;
     fromNet = net;
   }
 
+  // Mientras se rehacen (o mientras la red de vías se carga por primera vez) se sirven las del operador
+  // marcadas `provisional`: el servidor web no las guarda ni deja que Cloudflare las guarde (ver
+  // http-server.js), y así nadie se queda una hora con las líneas sin rehacer tras cada despliegue.
   const lines = () => {
     const base = network.lines();
     const net = railGeometry?.network() ?? null;
-    if (!base || !net) return base;
+    if (!base) return base;
+    if (!net) return railGeometry?.pending?.() ? provisionalOf(base) : base;
     if (base === from && net === fromNet) return ready;
     job ??= prepare(base, net).finally(() => { job = null; });
     // Hasta que estén, las rehechas con la red anterior (si son de estas mismas líneas) o las del operador.
-    return ready && from === base ? ready : base;
+    return ready && from === base ? ready : provisionalOf(base);
   };
 
   return {

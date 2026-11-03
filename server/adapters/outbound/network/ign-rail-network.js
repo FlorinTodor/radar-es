@@ -117,6 +117,7 @@ const unpack = ({ offsets, coords }) => {
 export function createIgnRailNetwork({ http, cache, log, url = IGN_WFS, areas = AREAS, tileDeg = TILE_DEG, minLinks = MIN_LINKS, now = Date.now, retryMs = 5000 }) {
   let network = null;
   let savedAt = null; // fecha de la copia con la que se preparó: la recarga periódica no la repite
+  let pending = true; // hasta que acaba la primera carga, haya ido bien o no
 
   /** Todos los tramos, cuadrícula a cuadrícula y de uno en uno (sin prisa: es una vez al mes). */
   async function download() {
@@ -154,26 +155,36 @@ export function createIgnRailNetwork({ http, cache, log, url = IGN_WFS, areas = 
 
   return {
     async load() {
-      let saved = await cache.readValue(CACHE_NAME);
-      if (!saved || now() - saved.at > MAX_AGE_MS) {
-        try {
-          const lines = await download();
-          saved = { at: now(), ...pack(lines) };
-          await cache.writeValue(CACHE_NAME, saved);
-        } catch (err) {
-          if (!saved) throw err;
-          log.warn(`[vías del IGN] ${err.message}; uso la copia guardada`);
-        }
+      try {
+        return await loadOnce();
+      } finally {
+        pending = false;
       }
-      if (network && saved.at === savedAt) return network.edges;
-      const lines = unpack(saved);
-      network = buildRailNetwork(lines);
-      savedAt = saved.at;
-      log.info(`[vías del IGN] ${lines.length} tramos: ${network.edges} piezas y ${network.nodes} nudos`
-        + ` (${(network.bytes / 1048576).toFixed(1)} MB)`);
-      return lines.length;
     },
     network: () => network,
+    pending: () => pending,
     credit: IGN_RAIL_CREDIT,
   };
+
+  /** La copia de disco si sigue vigente; si no, la descarga (o, si falla, la copia vieja). */
+  async function loadOnce() {
+    let saved = await cache.readValue(CACHE_NAME);
+    if (!saved || now() - saved.at > MAX_AGE_MS) {
+      try {
+        const lines = await download();
+        saved = { at: now(), ...pack(lines) };
+        await cache.writeValue(CACHE_NAME, saved);
+      } catch (err) {
+        if (!saved) throw err;
+        log.warn(`[vías del IGN] ${err.message}; uso la copia guardada`);
+      }
+    }
+    if (network && saved.at === savedAt) return network.edges;
+    const lines = unpack(saved);
+    network = buildRailNetwork(lines);
+    savedAt = saved.at;
+    log.info(`[vías del IGN] ${lines.length} tramos: ${network.edges} piezas y ${network.nodes} nudos`
+      + ` (${(network.bytes / 1048576).toFixed(1)} MB)`);
+    return lines.length;
+  }
 }

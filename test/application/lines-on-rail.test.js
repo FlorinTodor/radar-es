@@ -25,10 +25,14 @@ const credit = 'Obra derivada de IGR-RT 2026 CC-BY 4.0 scne.es';
 
 test('se rehacen detrás; hasta entonces, las del operador', async () => {
   const lines = makeLinesOnRail({ network: catalog, railGeometry: { network: () => net, credit }, yieldTurn: async () => {} });
-  assert.equal(lines.lines(), base, 'la primera consulta no espera');
+  const first = lines.lines();
+  assert.deepEqual(first.features, base.features, 'la primera consulta no espera: las del operador');
+  assert.equal(first.provisional, true, 'marcadas provisionales: no se guardan');
+  assert.equal(lines.lines(), first, 'el mismo objeto mientras se rehacen');
   await lines.settled();
   const ready = lines.lines();
   assert.notEqual(ready, base);
+  assert.equal(ready.provisional, undefined, 'ya no son provisionales');
   assert.equal(lines.lines(), ready, 'el mismo objeto mientras no cambien las líneas ni la red');
   const [sevilla, malaga] = ready.features;
   assert.equal(malaga, good, 'lo que ya va por la vía, el mismo objeto');
@@ -41,9 +45,30 @@ test('se rehacen detrás; hasta entonces, las del operador', async () => {
   assert.equal(sources[1].credit, 'Metro de Málaga', 'sin tramos rehechos, sólo la del operador');
 });
 
-test('sin red de vías, las del operador tal cual', () => {
-  const lines = makeLinesOnRail({ network: catalog, railGeometry: { network: () => null, credit } });
-  assert.equal(lines.lines(), base);
+test('sin red de vías, las del operador tal cual (provisionales mientras se carga por primera vez)', () => {
+  let pending = true;
+  const lines = makeLinesOnRail({ network: catalog, railGeometry: { network: () => null, pending: () => pending, credit } });
+  assert.equal(lines.lines().provisional, true, 'cargándose: no se guardan');
+  pending = false;
+  assert.equal(lines.lines(), base, 'no se pudo cargar: las del operador, que sí se guardan');
   assert.deepEqual(lines.sources(), catalog.sources());
   assert.equal(makeLinesOnRail({ network: catalog }).lines(), base);
+});
+
+test('unas líneas provisionales se sirven, pero ni el navegador ni Cloudflare las guardan', async (t) => {
+  const { createHttpServer } = await import('../../server/adapters/inbound/http/http-server.js');
+  let lines = { ...base, provisional: true };
+  let clock = 0;
+  const server = createHttpServer({ query: { lines: () => lines }, log: { error() {} }, publicDir: '/nonexistent', vendorDirs: {}, now: () => clock });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => server.close());
+  const get = () => fetch(`http://127.0.0.1:${server.address().port}/api/lines`);
+  const res = await get();
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('cache-control'), 'no-store');
+  assert.equal((await res.json()).features.length, 2);
+  lines = base;
+  clock += 3000; // pasa la vida corta de un catálogo vacío
+  const ready = await get();
+  assert.match(ready.headers.get('cache-control'), /public, max-age=600/, 'las rehechas, sí');
 });

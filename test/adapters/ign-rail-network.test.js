@@ -48,8 +48,10 @@ test('descarga por cuadrículas, reintenta, guarda la copia y sigue con ella si 
     };
     const cache = createFileCache({ http, dir: pathToFileURL(`${dir}/`), log: quiet });
     const ign = createIgnRailNetwork({ http, cache, log: quiet, areas: [[-4, 40, -3, 40.5]], tileDeg: 0.5, minLinks: 3, now: () => now, retryMs: 0 });
+    assert.equal(ign.pending(), true, 'hasta la primera carga no se sabe si habrá red');
     // Dos cuadrículas de 0,5°; la del oeste se parte en cuatro: 2 + 4 tramos propios y uno compartido.
     assert.equal(await ign.load(), 6);
+    assert.equal(ign.pending(), false);
     assert.ok(ign.network().edges >= 6);
     assert.match(ign.credit, /^Obra derivada de IGR-RT 2026 CC-BY 4\.0 scne\.es$/);
     const first = asked.length;
@@ -80,6 +82,7 @@ test('sin copia y sin IGN no hay red (los trazados se quedan como los publica ca
     const ign = createIgnRailNetwork({ http, cache, log: quiet, areas: [[-4, 40, -3.5, 40.5]], retryMs: 0 });
     await assert.rejects(ign.load(), /503/);
     assert.equal(ign.network(), null);
+    assert.equal(ign.pending(), false, 'falló: las líneas ya no esperan a la red');
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
