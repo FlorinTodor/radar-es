@@ -341,8 +341,10 @@ es un mensaje JSON-RPC completo (`server/adapters/inbound/mcp/mcp.js`).
 | `estado_fuentes` | estado, licencia y atribución de cada fuente |
 
 Cada resultado lleva la atribución de las fuentes de lo que devuelve (`sources`), la hora de los datos
-y el aviso de que la web no es oficial. Tiene presupuesto propio (5 mensajes por segundo de media,
-ráfagas de 30, 429 al pasarse) y no comparte caché con la web: los POST no los guarda Cloudflare.
+y el aviso de que la web no es oficial. Los POST no los guarda Cloudflare, así que cada herramienta
+guarda su respuesta unos segundos según sus argumentos (5 s los vehículos, las alertas y el resumen;
+15 s las incidencias y las fuentes; 10 s una estación; 10 min la búsqueda de estaciones) y sólo lo que
+hay que calcular gasta su presupuesto propio (5 por segundo de media, ráfagas de 30, 429 al pasarse).
 
 ```bash
 curl -s https://radarespaña.es/mcp -H 'Content-Type: application/json' \
