@@ -615,11 +615,15 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   cuando ya ha cargado los datos. Si algún día el servidor no respondiera, se ve un aviso de que se
   está actualizando en vez de un error.
 - Las subidas se detectan en unos segundos y el pipeline avanza en cuanto cada paso termina.
+- Un fallo pasajero de GitHub mientras el pipeline espera a las pruebas ya no lo para: vuelve a
+  preguntar al momento.
 - Pruebas automáticas que no dependen de la velocidad de la máquina: dan lo mismo en el servidor,
   más lento y ocupado, que en un ordenador rápido.
 - Limpieza automática del servidor, también de las teselas del mapa que ya nadie mira.
 - El repositorio público ya no detalla cómo se prepara ni se protege el servidor: esas notas se
   guardan fuera de él.
+- Diagramas de la arquitectura, del camino de cada dato hasta el mapa, de las ramas y del despliegue,
+  en el README y en `docs/despliegue.md`, que GitHub dibuja solos.
 - Estadísticas de visitas sin cookies.
 
 **Licencias**
