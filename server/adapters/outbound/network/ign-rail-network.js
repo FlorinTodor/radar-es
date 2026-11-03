@@ -169,6 +169,7 @@ const unpack = ({ offsets, coords }) => {
 export function createIgnRailNetwork({ http, cache, log, url = IGN_WFS, areas = AREAS, tileDeg = TILE_DEG, minLinks = MIN_LINKS, now = Date.now, retryMs = 5000 }) {
   let network = null;
   let savedAt = null; // fecha de la copia con la que se preparó: la recarga periódica no la repite
+  let waiting = null; // fecha de una copia más nueva, guardada para el siguiente arranque
   let pending = true; // hasta que acaba la primera carga, haya ido bien o no
 
   /** Todos los tramos, cuadrícula a cuadrícula y de uno en uno (sin prisa: es una vez al mes). */
@@ -246,6 +247,13 @@ export function createIgnRailNetwork({ http, cache, log, url = IGN_WFS, areas = 
       }
     }
     if (network && saved.at === savedAt) return network.edges;
+    if (network) {
+      // Con la red ya montada, la copia nueva se usa en el siguiente arranque: montarla cuesta ~100 MB de
+      // memoria de paso, y en un servidor que lleva días encendido eso lo acercaba al límite de Node.
+      if (waiting !== saved.at) log.info('[vías del IGN] copia nueva guardada: se usará en el siguiente arranque');
+      waiting = saved.at;
+      return network.edges;
+    }
     const lines = unpack(saved);
     network = buildRailNetwork(lines);
     savedAt = saved.at;

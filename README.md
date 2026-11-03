@@ -516,7 +516,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   muchas visitas abren trenes distintos a la vez, el mapa vuelve a pedirlos solo un momento después.
 - Las líneas se rehacen por la vía en segundo plano, una a una y sin dejar de atender al mapa;
   mientras tanto se sirven las del operador sin guardarlas en caché, para que nadie se quede con
-  ellas. La red del IGN se descarga una vez al mes y se guarda en disco ya reducida.
+  ellas. La red del IGN se descarga una vez al mes y se guarda en disco ya reducida; la nueva se monta
+  en el siguiente arranque, no con el servidor en marcha.
 - La búsqueda del camino por la vía de AVE, Larga y Media Distancia sólo mira las vías del ancho del
   tren y no busca en la red métrica, a la que no puede llegar; los regionales de la antigua Feve van
   por la suya.

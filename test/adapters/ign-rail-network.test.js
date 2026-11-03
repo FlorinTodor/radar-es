@@ -86,6 +86,44 @@ test('descarga por cuadrículas, reintenta, guarda la copia y sigue con ella si 
   }
 });
 
+test('con la red ya montada, la copia nueva del mes se guarda y se usa en el siguiente arranque', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'radar-ign-'));
+  try {
+    let now = Date.parse('2026-11-03T12:00:00Z');
+    let asked = 0;
+    let extra = 0; // el mes que viene hay un tramo más
+    const http = {
+      bytes: async (url) => {
+        asked++;
+        const [s, w] = bbox(url);
+        const links = [[`T${w},${s}`, [[w + 0.1, s + 0.1], [w + 0.11, s + 0.11]]]];
+        for (let i = 0; i < extra; i++) links.push([`N${i}`, [[w + 0.2, s + 0.2], [w + 0.21, s + 0.21]]]);
+        return new TextEncoder().encode(gml(links));
+      },
+    };
+    const cache = createFileCache({ http, dir: pathToFileURL(`${dir}/`), log: quiet });
+    const make = () => createIgnRailNetwork({ http, cache, log: quiet, areas: [[-4, 40, -3, 40.5]], tileDeg: 0.5, minLinks: 2, now: () => now, retryMs: 0 });
+    const ign = make();
+    assert.equal(await ign.load(), 2);
+    const net = ign.network();
+
+    now += 31 * 24 * 3600_000;
+    extra = 1;
+    const before = asked;
+    await ign.load();
+    assert.ok(asked > before, 'pasado el mes se descarga otra vez');
+    assert.equal(ign.network(), net, 'pero la red en marcha no se vuelve a montar');
+
+    // En el siguiente arranque, la copia nueva sin descargar nada.
+    const asked2 = asked;
+    const restarted = make();
+    assert.equal(await restarted.load(), 3);
+    assert.equal(asked, asked2);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('una zona con la que el IGN no da abasto (502) se pide en cuadrículas más pequeñas', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'radar-ign-'));
   try {
