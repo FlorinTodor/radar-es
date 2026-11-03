@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createFileCache } from '../../server/adapters/outbound/http/file-cache.js';
-import { createIgnRailNetwork, parseRailwayLinks } from '../../server/adapters/outbound/network/ign-rail-network.js';
+import { createIgnRailNetwork, readRailwayLinks } from '../../server/adapters/outbound/network/ign-rail-network.js';
 
 const quiet = { info() {}, warn() {}, error() {} };
 /** Respuesta del WFS con estos tramos: [id, [[lon, lat], …]] (el GML da «lat lon»). */
@@ -19,11 +19,23 @@ const gml = (links, returned = links.length) => `<?xml version="1.0"?><wfs:Featu
     + '</tn-ra:RailwayLink></wfs:member>').join('')}</wfs:FeatureCollection>`;
 const bbox = (url) => new URL(url).searchParams.get('BBOX').split(',').slice(0, 4).map(Number); // s, w, n, e
 
-test('lee los tramos del GML en [lon, lat]', () => {
-  const { links, returned } = parseRailwayLinks(gml([['L1', [[-3.7, 40.4], [-3.69, 40.41]]], ['L2', [[-3.6, 40.5], [-3.59, 40.5]]]]));
+test('lee los tramos del GML en [lon, lat], redondeados a 5 decimales, como los leería Number', () => {
+  const read = (xml) => {
+    const out = [];
+    const returned = readRailwayLinks(xml, (id, line, points) => out.push({ id, line: Array.from(line.subarray(0, points * 2)) }));
+    return { out, returned };
+  };
+  const { out, returned } = read(gml([['L1', [[-3.7, 40.4], [-3.69, 40.41]]], ['L2', [[-3.6, 40.5], [-3.59, 40.5]]]]));
   assert.equal(returned, 2);
-  assert.deepEqual(links.map((l) => l.id), ['L1', 'L2']);
-  assert.deepEqual(links[0].line, [[-3.7, 40.4], [-3.69, 40.41]]);
+  assert.deepEqual(out.map((l) => l.id), ['L1', 'L2']);
+  assert.deepEqual(out[0].line, [-3.7, 40.4, -3.69, 40.41]);
+  // Muchas cifras, enteros, signo, exponente y algo que no es un número (ese punto se salta).
+  const raw = '40.123456789012 -3.987654321098 41 2 -0.000004999 0.5e1 x 1 39.5 -0.1234567890123456789';
+  const xml = `<wfs:FeatureCollection numberReturned="1"><tn-ra:RailwayLink gml:id="R"><gml:posList>${raw}</gml:posList></tn-ra:RailwayLink></wfs:FeatureCollection>`;
+  const v = raw.split(' ').map(Number);
+  const expected = [];
+  for (let i = 0; i + 1 < v.length; i += 2) if (Number.isFinite(v[i]) && Number.isFinite(v[i + 1])) expected.push(Math.round(v[i + 1] * 1e5) / 1e5, Math.round(v[i] * 1e5) / 1e5);
+  assert.deepEqual(read(xml).out[0].line, expected);
 });
 
 test('descarga por cuadrículas, reintenta, guarda la copia y sigue con ella si el IGN falla', async () => {

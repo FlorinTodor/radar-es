@@ -31,55 +31,103 @@ const MIN_LINKS = 30_000;
 // Puntos de vía más juntos que esto sobran para pegar trazados (la red queda en la mitad de memoria).
 const SIMPLIFY_M = 3;
 
+// Una respuesta con muchas vías trae cientos de miles de coordenadas: se leen de una en una, sin crear un
+// texto y un par [lon, lat] por coordenada, y cada tramo se reduce nada más leerlo.
+let numbers = new Float64Array(4096); // las coordenadas del tramo que se está leyendo, reutilizado
+
 /**
- * Tramos de una respuesta GML del WFS: su id y su línea [lon, lat] (el GML da «lat lon» en ETRS89, que
- * para esto es lo mismo que WGS84), redondeada a 5 decimales (~1 m).
- * @param {string} xml
- * @returns {{ links: Array<{ id: string, line: Array<[number, number]> }>, returned: number }}
+ * Lee los números separados por espacios de `s` (sin crear un texto por número) y los deja en `numbers`.
+ * @returns {number} cuántos
  */
-export function parseRailwayLinks(xml) {
-  const links = [];
-  for (const m of xml.matchAll(/<tn-ra:RailwayLink\b[^>]*gml:id="([^"]+)"[\s\S]*?<gml:posList[^>]*>([^<]+)<\/gml:posList>/g)) {
-    const v = m[2].trim().split(/\s+/).map(Number);
-    const line = [];
-    for (let i = 0; i + 1 < v.length; i += 2) {
-      if (Number.isFinite(v[i]) && Number.isFinite(v[i + 1])) line.push([Math.round(v[i + 1] * 1e5) / 1e5, Math.round(v[i] * 1e5) / 1e5]);
+function readNumbers(s) {
+  let n = 0;
+  for (let i = 0; i < s.length;) {
+    let c = s.charCodeAt(i);
+    if (c <= 32) { i++; continue; }
+    const start = i;
+    const neg = c === 45; // «-»
+    if (neg) i++;
+    let v = 0;
+    let scale = 1;
+    let dot = false;
+    let digits = 0;
+    for (; i < s.length; i++) {
+      c = s.charCodeAt(i);
+      if (c >= 48 && c <= 57) { v = v * 10 + (c - 48); digits++; if (dot) scale *= 10; } else if (c === 46 && !dot) dot = true; else break;
     }
-    if (line.length > 1) links.push({ id: m[1], line });
+    if (n === numbers.length) { const bigger = new Float64Array(n * 2); bigger.set(numbers); numbers = bigger; }
+    if ((i < s.length && s.charCodeAt(i) > 32) || digits === 0 || digits > 15) {
+      // Algo que no es «-123.456» (un exponente, demasiadas cifras…): como lo lea Number.
+      while (i < s.length && s.charCodeAt(i) > 32) i++;
+      numbers[n++] = Number(s.slice(start, i));
+    } else numbers[n++] = (neg ? -v : v) / scale; // entero exacto entre potencia de 10 exacta: lo mismo que Number
   }
-  const returned = Number(/numberReturned="(\d+)"/.exec(xml)?.[1] ?? links.length);
-  return { links, returned };
+  return n;
 }
 
-/** Douglas-Peucker en metros (proyección local). */
-function simplify(line, tolM) {
-  if (line.length < 3) return line;
-  const kx = mPerDegLon(line[0][1]);
-  const xy = line.map(([lon, lat]) => [lon * kx, lat * M_PER_DEG_LAT]);
-  const keep = new Uint8Array(line.length);
+/**
+ * Recorre los tramos de una respuesta GML del WFS: su id y su línea como [lon, lat, lon, lat…] (el GML da
+ * «lat lon» en ETRS89, que para esto es lo mismo que WGS84), redondeada a 5 decimales (~1 m). La línea se
+ * reutiliza en el siguiente tramo: hay que copiarla si se quiere guardar.
+ * @param {string} xml
+ * @param {(id: string, line: Float64Array, points: number) => void} onLink
+ * @returns {number} cuántos tramos dice la respuesta que trae (numberReturned)
+ */
+export function readRailwayLinks(xml, onLink) {
+  let line = new Float64Array(4096);
+  let found = 0;
+  for (const m of xml.matchAll(/<tn-ra:RailwayLink\b[^>]*gml:id="([^"]+)"[\s\S]*?<gml:posList[^>]*>([^<]+)<\/gml:posList>/g)) {
+    found++;
+    const n = readNumbers(m[2]);
+    if (line.length < n) line = new Float64Array(numbers.length);
+    let points = 0;
+    for (let i = 0; i + 1 < n; i += 2) {
+      const lat = numbers[i];
+      const lon = numbers[i + 1];
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      line[points * 2] = Math.round(lon * 1e5) / 1e5;
+      line[points * 2 + 1] = Math.round(lat * 1e5) / 1e5;
+      points++;
+    }
+    if (points > 1) onLink(m[1], line, points);
+  }
+  return Number(/numberReturned="(\d+)"/.exec(xml)?.[1] ?? found);
+}
+
+/** Douglas-Peucker en metros (proyección local) sobre [lon, lat, …]: los puntos que se quedan, en Float32Array. */
+function simplify(line, points, tolM) {
+  if (points < 3) return Float32Array.from(line.subarray(0, points * 2));
+  const kx = mPerDegLon(line[1]);
+  const keep = new Uint8Array(points);
   keep[0] = 1;
-  keep[line.length - 1] = 1;
-  const stack = [[0, line.length - 1]];
+  keep[points - 1] = 1;
+  let kept = 2;
+  const stack = [0, points - 1];
   while (stack.length) {
-    const [a, b] = stack.pop();
-    const [ax, ay] = xy[a];
-    const dx = xy[b][0] - ax;
-    const dy = xy[b][1] - ay;
+    const b = stack.pop();
+    const a = stack.pop();
+    const ax = line[a * 2] * kx;
+    const ay = line[a * 2 + 1] * M_PER_DEG_LAT;
+    const dx = line[b * 2] * kx - ax;
+    const dy = line[b * 2 + 1] * M_PER_DEG_LAT - ay;
     const len = Math.hypot(dx, dy);
     let worst = 0;
     let at = -1;
     for (let i = a + 1; i < b; i++) {
-      const px = xy[i][0] - ax;
-      const py = xy[i][1] - ay;
+      const px = line[i * 2] * kx - ax;
+      const py = line[i * 2 + 1] * M_PER_DEG_LAT - ay;
       const d = len ? Math.abs(dx * py - dy * px) / len : Math.hypot(px, py);
       if (d > worst) { worst = d; at = i; }
     }
     if (worst > tolM) {
       keep[at] = 1;
-      stack.push([a, at], [at, b]);
+      kept++;
+      stack.push(a, at, at, b);
     }
   }
-  return line.filter((_, i) => keep[i]);
+  const out = new Float32Array(kept * 2);
+  for (let i = 0, j = 0; i < points; i++) if (keep[i]) { out[j++] = line[i * 2]; out[j++] = line[i * 2 + 1]; }
+  return out;
 }
 
 /** Cuadrículas de `deg` grados que cubren las zonas. */
@@ -153,14 +201,19 @@ export function createIgnRailNetwork({ http, cache, log, url = IGN_WFS, areas = 
         continue;
       }
       failedInARow = 0;
-      const { links, returned } = parseRailwayLinks(xml);
+      const tileLinks = [];
+      const returned = readRailwayLinks(xml, (id, line, points) => {
+        if (!byId.has(id)) tileLinks.push([id, simplify(line, points, SIMPLIFY_M)]);
+      });
       if (returned >= PAGE) {
         // No caben: la cuadrícula se parte en cuatro y se pide otra vez.
         queue.unshift(...quarters(tile.bbox));
         continue;
       }
-      // Ya reducido y en un array tipado: decenas de miles de tramos como listas de pares ocuparían varias veces más.
-      for (const l of links) if (!byId.has(l.id)) byId.set(l.id, Float32Array.from(simplify(l.line, SIMPLIFY_M).flat()));
+      // Ya reducidos y en arrays tipados: decenas de miles de tramos como listas de pares ocuparían varias veces más.
+      // El id, como copia propia: un trozo de un texto largo sigue apuntando al texto entero (así lo guarda V8),
+      // y los 60.000 ids tenían en memoria todas las respuestas de la descarga (~160 MB) hasta el final.
+      for (const [id, line] of tileLinks) if (!byId.has(id)) byId.set(Buffer.from(id).toString(), line);
     }
     if (byId.size < minLinks) throw new Error(`la red del IGN llega con ${byId.size} tramos`);
     return [...byId.values()];
