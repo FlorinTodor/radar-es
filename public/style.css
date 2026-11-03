@@ -41,6 +41,23 @@ button { font: inherit; color: inherit; }
 .live[data-state="stale"] .dot { background: var(--st-warning); }
 @keyframes pulse { 50% { opacity: .35; } }
 
+/* Autor: su foto y su nombre llevan al portafolio; el icono, al código en GitHub. */
+.author { display: flex; align-items: center; gap: 6px; padding-left: 16px; border-left: 1px solid var(--border); }
+.author a { color: inherit; text-decoration: none; }
+.author-link { display: flex; align-items: center; gap: 8px; padding: 2px 10px 2px 2px; border-radius: 999px; }
+.author img { flex: none; width: 32px; height: 32px; border-radius: 50%; object-fit: cover; border: 1px solid var(--border); }
+.author-txt { display: flex; flex-direction: column; line-height: 1.25; white-space: nowrap; }
+.author-by { font-size: 11px; color: var(--muted); }
+.author-name { font-size: 13px; font-weight: 600; color: var(--ink); }
+.author-gh { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; color: var(--ink-2); }
+.author-link:hover, .author-link:focus-visible, .author-gh:hover, .author-gh:focus-visible { background: var(--surface-2); color: var(--ink); }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* Con poco ancho, sólo la foto y el icono, para no quitar sitio a los indicadores. */
+@media (max-width: 1280px) {
+  .author-txt { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .author-link { padding: 2px; }
+}
+
 .kpis { display: flex; gap: 24px; margin-left: auto; overflow-x: auto; scrollbar-width: none; }
 .kpi { display: flex; flex-direction: column; min-width: 0; }
 .kpi .label { font-size: 11px; color: var(--muted); white-space: nowrap; }
@@ -337,6 +354,9 @@ body.doc { overflow: auto; display: block; }
   .topbar { flex-wrap: wrap; gap: 2px 12px; min-height: 0; padding: 6px 12px 4px; }
   .brand { font-size: 15px; }
   .live { margin-left: auto; }
+  .author { gap: 2px; padding-left: 8px; }
+  .author img { width: 28px; height: 28px; }
+  .author-gh { width: 30px; height: 30px; }
   .kpis {
     order: 3; width: calc(100% + 24px); margin: 0 -12px; padding: 0 12px 2px; gap: 18px;
     -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);

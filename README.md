@@ -467,6 +467,9 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Se puede instalar en el móvil como una app, desde Chrome o Safari («Añadir a pantalla de inicio»).
 - Preparada para los buscadores: título y descripción a medida en cada página (sin que Google las
   corte), sitemap con la fecha de cada cambio y datos estructurados del sitio y de su autor.
+- La barra de arriba dice quién lo ha creado: la foto y el nombre llevan a su portafolio, y un icono,
+  al código en GitHub. En el móvil solo salen la foto y el icono. La foto se sirve desde la propia
+  web, sin pedir nada a otros sitios.
 
 **Rendimiento y fiabilidad**
 - Directo servido desde caché, preparado para picos de muchas visitas a la vez.
