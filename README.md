@@ -625,6 +625,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Diagramas de la arquitectura, del camino de cada dato hasta el mapa, de las ramas y del despliegue,
   en el README y en `docs/despliegue.md`, que GitHub dibuja solos.
 - Estadísticas de visitas sin cookies.
+- Guía para contribuir ([CONTRIBUTING.md](CONTRIBUTING.md)): cómo avisar de fallos, proponer fuentes y
+  enviar cambios, y qué pasa con lo que se aporta, ya que el código no es libre.
 
 **Licencias**
 - Sólo datos públicos cuya licencia permite reutilizarlos, con las atribuciones que exige cada
@@ -713,6 +715,13 @@ Ninguna por ahora.
     [docs/solicitudes](docs/solicitudes/README.md));
   - los cortes por barrio o por calle sólo los tienen las distribuidoras eléctricas, que no los
     publican con licencia de reutilización: pedir permiso a e-distribución, i-DE y UFD.
+
+## Contribuir
+
+Se agradecen avisos de fallos, fuentes de datos con licencia de reutilización y mejoras del código.
+Cómo hacerlo (issues, fuentes nuevas, ramas, tests, commits y pull requests) y qué pasa con lo que
+aportas, en [CONTRIBUTING.md](CONTRIBUTING.md). Los fallos de seguridad, por correo y no en una
+issue pública.
 
 ## Licencia
 
