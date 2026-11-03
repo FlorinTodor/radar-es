@@ -3,10 +3,13 @@
 Radar ES corre en un VPS en contenedores Docker, detrás de un túnel de Cloudflare. El VPS no
 tiene puertos web abiertos: el tráfico web entra por el túnel, que conecta desde dentro.
 
-```
-navegador ──HTTPS──▶ Cloudflare ──túnel──▶ cloudflared (VPS) ──▶ 127.0.0.1:8080 ──▶ nginx (proxy)
-                                                                                  ├──▶ radar    (uno en servicio,
-                                                                                  └──▶ radar-b   el otro parado)
+```mermaid
+flowchart LR
+  nav(["navegador"]) -->|"HTTPS"| cf["Cloudflare"]
+  cf -->|"túnel"| cfd["cloudflared<br/>en el VPS"]
+  cfd --> ngx["nginx (proxy)<br/>127.0.0.1:8080"]
+  ngx -->|"en servicio"| r1["radar"]
+  ngx -.->|"parado hasta<br/>el siguiente relevo"| r2["radar-b"]
 ```
 
 La web va en dos contenedores que se relevan en cada despliegue, `radar` y `radar-b`, y nginx
@@ -25,15 +28,14 @@ la web convierte en un aviso). La página de 502 de Cloudflare no se puede cambi
 
 ## Del commit a producción
 
-```
-push a dev ──▶ GitHub → Actions → pipeline
-               1. Tests
-               2. Pruebas en el VPS (rama dev, 127.0.0.1:8081, el subdominio privado de pruebas)
-                  imagen con los tests dentro → arranque → deploy/comprobar.mjs
-                  → imagen verificada para ese árbol de ficheros
-               3. ⏸ Subir a producción: revisar pruebas y aprobar
-                  («Review deployments» → produccion → Approve) → merge de dev en produccion
-               4. Producción usa la imagen verificada, sin recompilar
+```mermaid
+flowchart TB
+  push(["push a dev"]) --> t["1 · Tests<br/>GitHub Actions"]
+  t --> p["2 · Pruebas en el VPS<br/>rama dev, 127.0.0.1:8081, subdominio privado<br/>imagen con los tests dentro → arranque → deploy/comprobar.mjs"]
+  p -->|"pasa"| v[("imagen verificada<br/>para ese árbol de ficheros")]
+  p --> ap["⏸ 3 · Subir a producción<br/>revisar pruebas y aprobar<br/>Review deployments → produccion → Approve"]
+  ap -->|"merge de dev en produccion"| prod["4 · Producción usa la imagen<br/>verificada, sin recompilar"]
+  v -.-> prod
 ```
 
 El panel es `.github/workflows/pipeline.yml`. La aprobación es el entorno `produccion` de GitHub
