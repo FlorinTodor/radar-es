@@ -35,7 +35,7 @@
 // en el hilo principal.
 import {
   NOTICE_MAX_AGE, currentNotices, expiresAt, fold, illesIn, isEndNotice, isPlanNotice, isPressPlanNotice, islandsIn, mentionsPlan, mentionsPowerBack,
-  mentionsPowerCut, placeCandidates, powerClauses, provincesIn, severityOf, subjectsOf,
+  mentionsPowerCut, placeCandidates, powerClauses, provincesIn, severityOf, subjectsOf, wholeRegionIn,
 } from '../../../domain/emergencias.js';
 import { COMUNIDADES, ILLES_BALEARS, ISLAS_CANARIAS, PROVINCIAS } from '../../../domain/lugares.js';
 import { arr, htmlText, madridLocalToMs, text, xmlParser } from './parse.js';
@@ -315,7 +315,8 @@ export function parseAndaluciaNews(json) {
     const province = provincesIn(title, 'andalucia')[0] ?? null;
     if (isPlanNotice(title)) {
       out.push({
-        ...base, id: `${id}:plan`, end: isEndNotice(title), subjects: subjectsOf(title), places: provincesIn(title, 'andalucia'),
+        ...base, id: `${id}:plan`, end: isEndNotice(title), subjects: subjectsOf(title),
+        places: wholeRegionIn(title) ? ['*'] : provincesIn(title, 'andalucia'),
         title, description: subtitle, power: mentionsPowerCut(title), severity: severityOf(title) ?? 'media',
       });
     }
@@ -385,7 +386,8 @@ export function parseClmPlans(xml) {
       at: Date.parse(datetime) || Date.parse(text(it.pubDate)) || 0,
       end: isEndNotice(title),
       subjects: subjectsOf(title),
-      places: provincesIn(title, 'castilla-la-mancha'),
+      // «METEOCAM. Toledo»: lo que va tras el punto es el lugar; «METEOCAM. Castilla-La Mancha», toda la comunidad.
+      places: fold(title.split('. ').pop()) === 'castilla-la mancha' || wholeRegionIn(title) ? ['*'] : provincesIn(title, 'castilla-la-mancha'),
       title,
       description: '',
       url: link,
@@ -649,7 +651,7 @@ export function pressNotices(items, region) {
     const provinces = provincesIn(title, region);
     out.push({
       id, at, end: back || (plan && isEndNotice(title)), subjects,
-      places: plan ? provinces : [],
+      places: plan ? (wholeRegionIn(title) ? ['*'] : provinces) : [],
       ...(plan ? {} : { candidates: placeCandidates(title), province: provinces[0] ?? null }),
       title, description: summary, url, power: plan ? mentionsPowerCut(title) : true,
       severity: back ? 'baja' : (severityOf(title) ?? 'media'),

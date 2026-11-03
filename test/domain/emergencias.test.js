@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CUT_MAX_AGE, PLAN_MAX_AGE, currentNotices, expiresAt, illesIn, withCurrentCuts, islandsIn, isEndNotice, isPlanNotice, maxAgeOf, mentionsPlan, mentionsPowerBack,
+  CUT_MAX_AGE, PLAN_MAX_AGE, currentNotices, wholeRegionIn, expiresAt, illesIn, withCurrentCuts, islandsIn, isEndNotice, isPlanNotice, maxAgeOf, mentionsPlan, mentionsPowerBack,
   mentionsPowerCut, placeCandidates, powerClauses, provincesIn, severityOf, subjectsOf,
 } from '../../server/domain/emergencias.js';
 
@@ -147,6 +147,13 @@ test('en vigor: un aviso nuevo de todo el territorio sustituye a los anteriores 
   const got = list.map(({ notice: n, place }) => `${n.id}@${place ?? 'todo'}`).sort();
   // El corte de luz es otro riesgo: sigue hasta su fin o su vigencia.
   assert.deepEqual(got, ['cero-energetico-lp@La Palma', 'prealerta-lluvias-toda-canarias@todo', 'prealerta-tormentas-todo@todo']);
+});
+
+test('toda la comunidad: sólo si el aviso lo dice; el nombre de quien firma la nota no cuenta', () => {
+  for (const t of ['La Xunta activa el PLATERGA en toda Galicia', 'Prealerta por lluvias en todo el territorio',
+    'La Junta activa el plan en las ocho provincias andaluzas', 'Alerta en toda la comunidad por el temporal']) assert.equal(wholeRegionIn(t), true, t);
+  for (const t of ['La Xunta de Galicia activa el PLATERGA en Lugo', 'El Gobierno Vasco activa el LABI en Gipuzkoa',
+    'METEOCAM. Castilla-La Mancha']) assert.equal(wholeRegionIn(t), false, t);
 });
 
 test('en vigor: un aviso sin lugar (no se ha podido situar) no tapa los anteriores de cada pueblo', () => {

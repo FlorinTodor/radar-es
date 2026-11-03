@@ -406,6 +406,14 @@ test('Castilla-La Mancha y La Rioja: un enlace acabado en «/» no deja a todos 
   assert.deepEqual(rioja.map((n) => n.id), ['averia-1', 'averia-2']);
 });
 
+test('Castilla-La Mancha: «METEOCAM. Castilla-La Mancha» es de toda la comunidad y sustituye al de una provincia', () => {
+  const clm = parseClmPlans(rss([
+    clmItem('meteocam-toledo/', 'METEOCAM. Toledo', '2026-11-01T10:00:00+01:00'),
+    clmItem('meteocam-clm/', 'METEOCAM. Castilla-La Mancha', '2026-11-02T10:00:00+01:00'),
+  ].join(''))).notices;
+  assert.deepEqual(clm.map((n) => n.places), [['Toledo'], ['*']]);
+});
+
 test('Cataluña: sólo los planes con «SI»; si el campo cambia o falta, ninguno (mejor nada que todo activo)', () => {
   assert.deepEqual(parseCatalunaPlans([{ planom: 'INUNCAT', plafase: 'ALERTA' }, { planom: 'NEUCAT', plafase: 'ALERTA', plaactivat: 'true' }]), []);
   assert.equal(parseCatalunaPlans([{ planom: 'INUNCAT', plafase: 'ALERTA', plaactivat: 'Sí' }]).length, 1);

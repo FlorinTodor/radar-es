@@ -248,6 +248,13 @@ export function islandsIn(text) {
   return [...out];
 }
 
+// Frases con las que un aviso dice que es de toda su comunidad. El nombre de la comunidad no basta:
+// suele ser quien firma la nota («La Xunta de Galicia activa el PLATERGA en Lugo»).
+const WHOLE_REGION = /\b(?:toda (?:la comunidad|la region|andalucia|galicia|cataluna|catalunya|castilla-la mancha|castilla y leon|euskadi)|todo (?:el territorio|euskadi)|todas las provincias|las (?:tres|cuatro|cinco|ocho|nueve) provincias|los tres territorios)\b/;
+
+/** El aviso dice expresamente que es de toda su comunidad («en toda Galicia», «las ocho provincias»). */
+export const wholeRegionIn = (text) => WHOLE_REGION.test(fold(text));
+
 /** Islas de Baleares que nombra un texto (en castellano o en catalán); ['*'] si habla de todas; [] si no nombra ninguna. */
 export function illesIn(text) {
   const t = fold(text);
