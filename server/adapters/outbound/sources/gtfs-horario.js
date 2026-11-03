@@ -5,7 +5,8 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { decodeFeed } from './gtfs-rt.js';
-import { activeFrequencyOffsets, pointAlong, serviceRuns, stopsAlongShape } from '../../../domain/schedule.js';
+import { activeFrequencyOffsets, buildShape, pointAlong, serviceRuns, stopsAlongShape } from '../../../domain/schedule.js';
+import { refineToRail } from '../../../domain/rail-match.js';
 import { estimatePosition } from '../../../domain/estimated-position.js';
 import { round5 } from '../../../domain/geo.js';
 import { madridLocalToMs } from './parse.js';
@@ -39,13 +40,16 @@ function tripStops(trip, { times, stopList }, keep = false) {
   return out;
 }
 
-/**
- * Distancia sobre el trazado de cada parada del viaje (se calcula una vez por viaje, sólo para los
- * que llegan a circular). null si no tiene trazado o sus paradas no encajan en él.
- */
-function alongShape(schedule, trip, stops) {
-  if (trip.along === undefined) trip.along = trip.shape >= 0 ? stopsAlongShape(stops, schedule.shapes[trip.shape]) : null;
-  return trip.along;
+// Trazados por la vía (domain/rail-match.js, refineToRail): los de cada horario se rehacen la primera vez
+// que circula un viaje que los usa, y no más de REFINE_PER_READ en cada lectura (al llegar la red de
+// vías, cientos de viajes a la vez pararían la web; los demás esperan a la lectura siguiente).
+const REFINE_PER_READ = 40;
+
+/** Puntos [lon, lat] de un trazado preparado (buildShape). */
+function shapePoints(shape) {
+  const out = [];
+  for (let i = 0; i + 1 < shape.coords.length; i += 2) out.push([shape.coords[i], shape.coords[i + 1]]);
+  return out;
 }
 
 const MADRID_DATE = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Madrid' });
@@ -98,7 +102,10 @@ function stretch(shape, from, to) {
 
 /**
  * @param {{ nap: ReturnType<typeof import('../nap/nap-client.js').createNapClient>, http: import('../http/http-client.js').HttpClient,
- *           log?: import('../../../application/ports.js').LoggerPort, pool?: import('../workers/cpu-pool.js').CpuPool }} deps
+ *           log?: import('../../../application/ports.js').LoggerPort, pool?: import('../workers/cpu-pool.js').CpuPool,
+ *           railGeometry?: import('../../../application/ports.js').RailNetworkPort | null }} deps
+ *   railGeometry: red de vías detallada (con metro y tranvía) para llevar a la vía los trazados que se
+ *   salen de ella; sin ella, los de cada operador tal cual.
  *   pool: hilos de cálculo donde se leen los horarios (de uno en uno por hilo en todo el servidor: al
  *   arrancar, o al cambiar de día, se juntarían en memoria decenas de ZIP descomprimidos a la vez).
  * @param {{ id: string, name: string, operator?: string, ficheroId?: number, dataset?: number, feeds?: Feed[], credit?: string,
@@ -111,7 +118,7 @@ function stretch(shape, from, to) {
  * @typedef {{ ficheroId: number, dataset: number, operator: string, credit?: string, excludeAgency?: RegExp, excludeRoute?: RegExp }} Feed
  * @returns {import('../../../application/ports.js').DataSourcePort}
  */
-export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlinePool }, options) {
+export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlinePool, railGeometry = null }, options) {
   const { id, name, mode, tripUpdatesUrl, interval = 30_000 } = options;
   const feeds = options.feeds ?? [{ ficheroId: options.ficheroId, dataset: options.dataset, operator: options.operator }];
   const loaded = new Map(); // índice del fichero → { schedule, updatedAt }
@@ -123,9 +130,49 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
   // dónde llega su viaje: id → { shape, from, to, end } (distancias en metros), o null si se queda
   // en la última parada.
   let paths = new Map();
+  // Los que no son autobuses pueden ir por las vías del IGN (ver tripShape): su licencia pide citarlas.
+  const viaCredit = mode !== 'bus' && railGeometry?.credit ? ` · trazado por la vía: ${railGeometry.credit}` : '';
   const estimatedLicense = (credit) => `Powered by MITRAMS (Punto de Acceso Nacional) · ${credit} · `
-    + 'Posición estimada a partir del horario (dato explotado, no GPS)';
+    + `Posición estimada a partir del horario (dato explotado, no GPS)${viaCredit}`;
   const feedCredit = (f) => f.credit ?? f.operator;
+  let refineBudget = REFINE_PER_READ; // trazados que aún se pueden rehacer en esta lectura
+
+  /**
+   * Trazado del viaje y distancia de cada parada sobre él (se calcula una vez por viaje, sólo para los que
+   * llegan a circular); null si no tiene o sus paradas no encajan en él. Con la red de vías, los tramos que
+   * se salen de la vía se rehacen por ella y un viaje de metro, tranvía o tren sin trazado lo toma de la
+   * vía entre sus paradas. Los autobuses no: no van por vías.
+   */
+  function tripShape(schedule, trip, stops) {
+    const net = trip.route.mode === 'bus' ? null : railGeometry?.network() ?? null;
+    if (trip.onShape !== undefined && trip.onShapeNet === net) return trip.onShape;
+    const original = trip.shape >= 0 ? schedule.shapes[trip.shape] : null;
+    let shape = original;
+    let usedNet = null;
+    if (net) {
+      if (schedule.onRail?.net !== net) schedule.onRail = { net, shapes: new Map(), byStops: new Map() };
+      const memo = original ? schedule.onRail.shapes : schedule.onRail.byStops;
+      const key = original ? trip.shape : stops.map((st) => `${st.lon},${st.lat}`).join(';');
+      if (!memo.has(key) && refineBudget > 0) {
+        refineBudget--;
+        const points = original ? shapePoints(original) : stops.map((st) => [st.lon, st.lat]);
+        const out = refineToRail(net, points);
+        memo.set(key, out === points ? original : buildShape(out.flat()));
+      }
+      if (memo.has(key)) {
+        shape = memo.get(key);
+        usedNet = net;
+      } else if (trip.onShape !== undefined) return trip.onShape; // sin turno: el de antes, hasta la próxima lectura
+    }
+    let along = shape ? stopsAlongShape(stops, shape) : null;
+    if (!along && original && shape !== original) {
+      shape = original; // las paradas no encajan en el rehecho: el del operador
+      along = stopsAlongShape(stops, original);
+    }
+    trip.onShape = along ? { shape, along } : null;
+    trip.onShapeNet = usedNet;
+    return trip.onShape;
+  }
 
   function vehicle(fi, schedule, trip, day, t, delaySec, offset = 0, nextPaths = paths) {
     const tt = t - offset;
@@ -134,9 +181,9 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
       return null;
     }
     const stops = tripStops(trip, schedule, true);
-    const along = alongShape(schedule, trip, stops);
+    const onShape = tripShape(schedule, trip, stops);
     // Dónde está, lo recorrido, lo que le queda y hacia dónde va: reglas del dominio.
-    const est = estimatePosition({ stops, mode: trip.route.mode, shape: along ? schedule.shapes[trip.shape] : null, along, t: tt });
+    const est = estimatePosition({ stops, mode: trip.route.mode, shape: onShape?.shape ?? null, along: onShape?.along ?? null, t: tt });
     if (!est) return null;
     const instance = offset ? `:${offset}` : '';
     const vid = `${id}:${feeds.length > 1 ? `${fi}:` : ''}${trip.id}:${day.ymd}${instance}`;
@@ -239,6 +286,7 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
       return p ? stretch(p.shape, p.to, p.end) : p;
     },
     async fetch() {
+      refineBudget = REFINE_PER_READ;
       // Se recarga cada día (sólo se guardan los viajes de hoy y los de ayer que pasan de medianoche).
       const today = madridServiceDay(Date.now(), 0).ymd;
       if (!loaded.size || today !== loadedDay || Date.now() - loadedAt > RELOAD_MS) await load(today);

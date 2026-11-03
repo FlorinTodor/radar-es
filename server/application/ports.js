@@ -86,6 +86,8 @@
  * @property {() => import('../domain/rail-match.js').RailNetwork | null} network
  *   Devuelve el MISMO objeto mientras no se recargue con otra red: query-situation usa su identidad
  *   para tirar los recorridos que calculó con la anterior.
+ * @property {string} [credit]  Atribución que pide su licencia, si lo que se dibuja con ella la necesita
+ *   aparte (las vías del IGN, en las líneas que se rehacen por ellas).
  */
 
 /**
