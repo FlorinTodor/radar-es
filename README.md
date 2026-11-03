@@ -99,7 +99,7 @@ superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`]
                    │ stations/        estaciones de Renfe y de otras 15 redes,  │
                    │                  con datos de Wikidata y fotos de Commons  │
                    │ network/, gtfs/, nap/   trazados de líneas desde el NAP    │
-                   │                         y red ferroviaria de Adif          │
+                   │                         y redes ferroviarias de Adif e IGN │
                    │ persistence/     estado en memoria + histórico JSONL       │
                    │ tiles/           teselas de IGN y EFFIS con copia en disco │
                    │ geo/             sitúa pueblos por su nombre (CartoCiudad) │
@@ -128,8 +128,8 @@ Los puertos están en `server/application/ports.js`:
 |---|---|---|
 | `DataSource` | `sources/*` (uno por fuente) | leer cada fuente: vehículos, incidencias o métricas |
 | `StationCatalog` | `stations/renfe-station-catalog.js`, `stations/network-station-catalog.js` | estaciones de Renfe y de las demás redes |
-| `NetworkCatalog` | `network/gtfs-network-catalog.js` | trazados de las líneas |
-| `RailNetwork` | `network/adif-rail-network.js` | red ferroviaria de Adif, para dibujar por la vía |
+| `NetworkCatalog` | `network/gtfs-network-catalog.js`, a través del caso de uso `lines-on-rail` | trazados de las líneas; los tramos que van en recta entre estaciones se rehacen por la vía |
+| `RailNetwork` | `network/adif-rail-network.js`, `network/ign-rail-network.js` | red de Adif, para dibujar por la vía AVE, Larga y Media Distancia; red del IGN (también metro, tranvía y funicular), para rehacer por la vía los trazados en recta y los de Ouigo |
 | `SituationRepository` | `persistence/in-memory-situation.js` | estado actual: último dato de cada fuente, recorridos, alertas, KPIs |
 | `History` | `persistence/jsonl-history.js` | histórico de alertas y KPIs |
 | `TileProvider` | `tiles/wms-tiles.js` | teselas de IGN y EFFIS con copia en disco |
@@ -186,6 +186,7 @@ Todas son públicas. Las marcadas con 🔑 necesitan una clave gratuita: casi to
 | EMT Madrid (GTFS-RT, listado en el NAP; con las claves gratuitas de MobilityLabs si están) | avisos de servicio | 5 min |
 | 🔑 GTFS de 16 redes en el NAP + líneas del tranvía de Tenerife (Cabildo de Tenerife) | trazados de Cercanías, metros, tranvías, FGC y Euskotren | 24 h |
 | Adif, «Tramos en servicio» ([datos abiertos de Adif en ArcGIS](https://www.arcgis.com/home/item.html?id=4ec7c0fb3cab42b0b488d65e65eeb7aa)) | vías en servicio, para dibujar por la vía el recorrido de AVE, Larga y Media Distancia y lo que les queda | 30 días |
+| IGN-CNIG, red ferroviaria de la IGR-RT (WFS INSPIRE de transportes `servicios.idee.es`, CC BY 4.0) | vías de toda España, también de metro, tranvía y funicular, para rehacer por la vía los trazados que van en recta entre estaciones y los que no se publican (Ouigo) | 30 días |
 | DGT DATEX II v3.7 (`nap.dgt.es`) | ~1.000 incidencias de tráfico | 5 min |
 | Servei Català de Trànsit (GML) | incidencias de carreteras catalanas | 5 min |
 | Tráfico Euskadi (API Trafikoa) | incidencias de carreteras vascas | 5 min |
@@ -279,17 +280,26 @@ completas: depende de lo que publica cada operador, y donde no hay datos públic
 | AVE, Larga y Media Distancia | sus posiciones, por la vía (tramos de Adif) | por la vía hasta su destino, pasando por las paradas de su horario |
 | FGC | sus posiciones, por el trazado de su línea | por el trazado de su línea |
 | Metro Bilbao | sus posiciones tal y como llegan: Open Data Euskadi pide no alterar el contenido | por el trazado de su viaje |
-| Euskotren, metros y tranvías con posición estimada | la posición estimada, por su trazado | por su trazado, según su horario |
-| Ouigo | la posición estimada, en línea recta entre estaciones | no se dibuja |
+| Euskotren, metros y tranvías con posición estimada | la posición estimada, por su trazado (por la vía donde el del operador va en recta) | por su trazado, según su horario |
+| Ouigo | la posición estimada, por la vía entre sus estaciones (red del IGN) | por la vía hasta su destino, según su horario |
+
+Hay operadores que publican el trazado de sus líneas casi solo con las estaciones (Metrovalencia,
+Metro de Sevilla, TRAM d'Alacant, partes de FGC, Euskotren y Cercanías) y otros que no lo publican
+(Ouigo). Ahí, las líneas del mapa y los vehículos con posición estimada van por la vía de la red
+ferroviaria del IGN, que también tiene metro, tranvía y funicular. Solo se rehacen los tramos que se
+salen de la vía; lo demás queda como lo publica cada operador. Si el trazado de un viaje no pasa por
+sus paradas, el vehículo va por la vía entre ellas.
 
 Lo que no se puede dibujar por falta de datos públicos:
 
-- **Ouigo** solo publica su horario, sin trazado: ni lo que le queda ni el recorrido por la vía.
 - **Iryo y los trenes de mercancías** no publican nada: no salen en el mapa.
 - **Adif** no publica las circulaciones ni el estado de la red (ver «Pendiente y conocido»).
 - **Trenes que no están en el horario publicado** (servicios especiales, números que Renfe no
   incluye): sin paradas no se sabe lo que les queda.
 - **AVE internacionales mientras van por Francia**: la red de Adif solo cubre España.
+- **Vías que la red del IGN aún no tiene** (la ampliación del tranvía de Sevilla, la variante de
+  Durango de Euskotren) **y las de Francia** (Euskotren hasta Hendaia): ahí se queda el trazado del
+  operador, aunque vaya en recta.
 - **Cercanías cuyo trazado publicado no coincide con su viaje** (algún C5 de Sevilla, Rodalies a
   Reus, Bilbao la Concordia–Karrantza): el trazado que publica Renfe no pasa por el tren o por sus
   paradas, y el dibujo se corta donde se aparta en vez de ir por donde no pasa el tren.
@@ -394,6 +404,11 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   Larga y Media Distancia por la red de Adif; en Metro Bilbao con el trazado de su viaje, en FGC con
   el de su línea y en metros y tranvías estimados con su horario. Comprobado con todos los viajes de
   sus horarios.
+- Todos los trenes, metros y tranvías van por su vía, también donde el operador publica su trazado
+  casi solo con las estaciones o no lo publica: esos tramos se rehacen con la red ferroviaria del IGN,
+  que también tiene metro, tranvía y funicular. Revisado con todos los vehículos del mapa:
+  Metrovalencia, Metro de Sevilla, TRAM d'Alacant, FGC y Ouigo ya no cortan en recta por calles y
+  campos, y Ouigo dibuja también lo que le queda hasta su destino.
 - Flecha de hacia dónde va cada vehículo al acercar el mapa, por su vía cuando se conoce su
   recorrido.
 - En Cercanías, el origen, el destino y la próxima parada salen de las paradas de cada viaje: ni el
@@ -499,6 +514,9 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - El recorrido y lo que le queda de cada tren se calculan como mucho una vez cada pocos segundos, se
   comparten entre todas las visitas (también en Cloudflare) y tienen su propio tope de cálculos: si
   muchas visitas abren trenes distintos a la vez, el mapa vuelve a pedirlos solo un momento después.
+- Las líneas se rehacen por la vía en segundo plano, una a una y sin dejar de atender al mapa;
+  mientras tanto se sirven las del operador sin guardarlas en caché, para que nadie se quede con
+  ellas. La red del IGN se descarga una vez al mes y se guarda en disco ya reducida.
 - La búsqueda del camino por la vía de AVE, Larga y Media Distancia sólo mira las vías del ancho del
   tren y no busca en la red métrica, a la que no puede llegar; los regionales de la antigua Feve van
   por la suya.
@@ -544,6 +562,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   dice que todos los datos se muestran sin alterar: cada fuente indica qué se hace con ella.
 - Atribuciones al día de lo que se dibuja con la red de Adif y con los horarios del Punto de Acceso
   Nacional de FGC y Metro Bilbao (dato explotado y fecha de actualización).
+- Lo que se rehace por la vía con la red del IGN lo dice en el mapa, en la ficha de cada vehículo, en
+  la pestaña Fuentes y en el aviso legal («Obra derivada de IGR-RT 2026 CC-BY 4.0 scne.es»).
 - Cercanías y Metro Bilbao citan también el trazado del Punto de Acceso Nacional con el que se
   dibuja lo que le queda a cada tren, y cada red de trazados muestra su fecha de actualización en el
   aviso legal y en la pestaña Fuentes.
@@ -569,10 +589,10 @@ Ninguna por ahora.
   tanto tarda más en responder (alguna vez 1–3 s). Para los vehículos con posición estimada bastaría
   con el recorrido que ya sale de su horario, o con repartir ese trabajo entre lecturas.
 - Estado oficial de la red de Adif, si llega a publicarse con licencia de reutilización.
-- Ouigo por la vía: su recorrido y lo que le queda por la red de Adif, pasando por las paradas de su
-  horario, como ya se hace con AVE, Larga y Media Distancia (ahora va en línea recta entre estaciones).
 - Renfe AV/LD/MD: algunos números de tren salen dos veces en el tiempo real con posiciones a decenas
   de kilómetros (tres regionales la mañana del 2-nov); quedarse con la que sigue al tren.
+- Las vías que aún no tiene la red del IGN (la ampliación del tranvía de Sevilla, la variante de
+  Durango de Euskotren), con otra fuente con licencia abierta cuando la haya.
 - Capa discreta con las vías subterráneas de FGC y de los metros: el mapa base oscuro no dibuja las
   vías en túnel, y el recorrido parece pasar por encima de los edificios.
 - Obras en carretera con su fecha de fin y su última actualización. Ahora solo se muestra cuándo
