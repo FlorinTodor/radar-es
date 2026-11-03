@@ -60,6 +60,14 @@ git switch -c feature/mi-mejora     # trabajar y hacer commits
 git switch dev && git merge --no-ff feature/mi-mejora && git push
 ```
 
+```mermaid
+flowchart LR
+  f["feature/… o fix/…<br/>una rama por cambio"] -->|"merge --no-ff"| d["dev"]
+  d -->|"push"| t["GitHub Actions<br/>tests y sintaxis"]
+  t --> p["pruebas en el VPS<br/>fuentes, directo, páginas,<br/>memoria y reinicios"]
+  p -->|"aprobación manual"| prod["produccion<br/>con la imagen ya probada"]
+```
+
 Cada push a `dev` arranca el pipeline de GitHub Actions: tests, pruebas en el VPS y, cuando están
 en verde, una aprobación manual que hace el merge de `dev` en `produccion`. Además de los tests, la
 integración continua comprueba la sintaxis del código de la web (`node --check`) y de los scripts de
@@ -71,41 +79,51 @@ superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`]
 
 ## Arquitectura hexagonal
 
-```
-                   ┌───────────────────── adapters/inbound ─────────────────────┐
-  navegador ──────▶│ http/http-server.js  (API REST + teselas + estáticos)      │
-  reloj ──────────▶│ scheduler/polling-scheduler.js (sondeo, alertas, catálogos)│
-                   └──────────────┬─────────────────────────────────────────────┘
-                                  ▼ sólo casos de uso
-                   ┌──────────── application ─────────────┐
-                   │ use-cases/ingest-source.js           │
-                   │ use-cases/detect-alerts.js           │
-                   │ use-cases/query-situation.js         │──▶ ports.js (contratos)
-                   │ use-cases/serve-tiles.js             │
-                   │ use-cases/refresh-catalogs.js        │
-                   └──────────────┬───────────────────────┘
-                                  ▼
-                   ┌──────────────── domain ──────────────┐
-                   │ model.js · geo.js · tracking.js      │  puro: sin red, sin disco,
-                   │ kpis.js · tiles.js · rail-match.js   │  sin dependencias externas
-                   │ schedule.js · route-ahead.js         │
-                   │ estimated-position.js                │
-                   │ emergencias.js · lugares.js          │
-                   │ alerts/{rules,lifecycle,thresholds}  │
-                   └──────────────────────────────────────┘
-                                  ▲ implementan los puertos
-                   ┌──────────── adapters/outbound ─────────────────────────────┐
-                   │ sources/*        Renfe, FGC, Ouigo, DGT, SCT, AEMET, FIRMS…│
-                   │ stations/        estaciones de Renfe y de otras 15 redes,  │
-                   │                  con datos de Wikidata y fotos de Commons  │
-                   │ network/, gtfs/, nap/   trazados de líneas desde el NAP    │
-                   │                         y redes ferroviarias de Adif e IGN │
-                   │ persistence/     estado en memoria + histórico JSONL       │
-                   │ tiles/           teselas de IGN y EFFIS con copia en disco │
-                   │ geo/             sitúa pueblos por su nombre (CartoCiudad) │
-                   │ workers/         hilos para leer GTFS y XML (CPU)          │
-                   │ http/, logging/                                            │
-                   └────────────────────────────────────────────────────────────┘
+Quien llama entra por la izquierda, el núcleo no sabe nada de red ni de disco, y todo lo externo
+queda a la derecha, detrás de un puerto:
+
+```mermaid
+flowchart LR
+  nav(["Navegador<br/>el mapa"])
+  reloj(["Reloj<br/>cada fuente a su ritmo"])
+
+  subgraph IN["adapters/inbound"]
+    httpIn["http/http-server.js<br/>API, teselas y web"]
+    schedIn["scheduler/polling-scheduler.js<br/>sondeo, alertas y catálogos"]
+  end
+
+  subgraph CORE["núcleo"]
+    subgraph APP["application"]
+      uc["casos de uso<br/>ingest-source<br/>detect-alerts<br/>query-situation<br/>serve-tiles<br/>refresh-catalogs<br/>lines-on-rail"]
+      ports{{"ports.js<br/>los contratos"}}
+    end
+    subgraph DOM["domain: puro, sin red ni disco"]
+      dom["model · geo · tracking<br/>kpis · tiles · schedule<br/>estimated-position<br/>route-ahead · rail-match<br/>alerts/: rules, lifecycle,<br/>thresholds<br/>emergencias · lugares<br/>red-aislada"]
+    end
+  end
+
+  subgraph OUT["adapters/outbound"]
+    direction LR
+    o1["sources/*<br/>una por fuente"]
+    o2["stations/<br/>estaciones, Wikidata y Commons"]
+    o3["network/ · gtfs/ · nap/<br/>trazados y redes de Adif e IGN"]
+    o4["persistence/<br/>estado en memoria e histórico JSONL"]
+    o5["tiles/ · geo/<br/>teselas de IGN y EFFIS · CartoCiudad"]
+    o6["workers/ · http/ · logging/<br/>hilos de CPU, red y registro"]
+  end
+
+  ext[("Fuentes públicas<br/>Renfe, NAP, DGT,<br/>AEMET, IGN, REE…")]
+  disco[("data/<br/>copias en disco<br/>e histórico")]
+
+  nav --> httpIn
+  reloj --> schedIn
+  httpIn -->|"sólo casos de uso"| uc
+  schedIn --> uc
+  uc --> dom
+  uc --> ports
+  ports -. "los implementan" .-> OUT
+  OUT --> ext
+  OUT --> disco
 ```
 
 - **`server/domain/`**: modelo y reglas puras. Se prueba sin red (`test/domain`).
@@ -122,6 +140,34 @@ superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`]
 - **`server/main.js`**: raíz de composición; el único sitio donde se eligen las implementaciones.
   Al arrancar comprueba con `assertPort` que cada adaptador tiene todo lo que pide su puerto.
 
+### Del dato al mapa
+
+Cada fuente se lee a su ritmo y lo que llega se guarda en el estado; los catálogos (estaciones,
+trazados y redes de vías) se recargan al arrancar y cada hora. La web sólo pregunta: no hay
+conexiones abiertas con cada visita, y Cloudflare reparte las mismas respuestas a todas.
+
+```mermaid
+flowchart LR
+  subgraph DIR["el directo: cada fuente a su ritmo"]
+    direction LR
+    F[("fuente pública<br/>GTFS-RT, XML, RSS…")] -->|"sondeo"| I["ingest-source<br/>normaliza y descarta<br/>datos imposibles"]
+    I --> R[("estado<br/>último dato, recorridos<br/>y KPIs")]
+    R --> A["detect-alerts<br/>reglas del dominio"]
+    A -->|"alertas"| R
+    A --> H[("histórico<br/>alertas y KPIs")]
+  end
+  subgraph CAT["los catálogos: al arrancar y cada hora"]
+    direction LR
+    G[("GTFS del NAP, Adif,<br/>IGN, Wikidata…")] --> RC["refresh-catalogs"]
+    RC --> E["estaciones y<br/>trazados de líneas"]
+    E --> LR["lines-on-rail<br/>los tramos en recta,<br/>por la vía del IGN"]
+  end
+  R --> Q["query-situation<br/>posiciones, lo que le queda<br/>a cada tren, fichas"]
+  LR --> Q
+  Q -->|"/api/live, /api/ahead,<br/>/api/lines…"| C["Cloudflare<br/>caché"]
+  C --> N(["mapa en el navegador"])
+```
+
 Los puertos están en `server/application/ports.js`:
 
 | Puerto | Adaptador | Para qué |
@@ -133,7 +179,7 @@ Los puertos están en `server/application/ports.js`:
 | `SituationRepository` | `persistence/in-memory-situation.js` | estado actual: último dato de cada fuente, recorridos, alertas, KPIs |
 | `History` | `persistence/jsonl-history.js` | histórico de alertas y KPIs |
 | `TileProvider` | `tiles/wms-tiles.js` | teselas de IGN y EFFIS con copia en disco |
-| `Geocoder` | `geo/cartociudad-geocoder.js` | situar el municipio que cita un aviso del 112 (no traen coordenadas) |
+| `Geocoder` | `geo/cartociudad-geocoder.js` | situar el municipio que cita un aviso del 112 (no traen coordenadas). Lo usan las fuentes de avisos, no los casos de uso: su contrato está en el propio adaptador |
 
 `Clock` (la hora, para poder simularla en los tests) y `Logger` (el registro) también son puertos.
 
