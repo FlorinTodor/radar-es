@@ -65,3 +65,16 @@ test('un tramo cuyos extremos no están junto a una vía, o que por la vía da u
   const atajo = [arc(O, 2000, 0, 300, 120)[0], arc(O, 2000, 0, 300, 120).at(-1)]; // 2 km en recta, 10,5 km por la vía
   assert.equal(refineToRail(rodeo, atajo), atajo);
 });
+
+test('si a la red le falta la vía de un tramo, se rehacen los demás y sólo ese se queda en recta', () => {
+  // Dos curvas con un hueco sin vía entre ellas (como la L9 del TRAM entre Altea y Calp en la red del IGN).
+  const A = arc(O, 2000, 0, 90);
+  const B = arc(at(O, -6000, 2000), 2000, 0, 90);
+  const red = buildRailNetwork([A, B]);
+  const coarse = [A[0], A.at(-1), B[0], B.at(-1)]; // estaciones: principio y final de cada curva
+  const refined = refineToRail(red, coarse);
+  assert.notEqual(refined, coarse);
+  const onRail = refined.filter(([lon, lat]) => nearestOnRail(red, lon, lat, 5)).length;
+  assert.ok(onRail > 60, 'las dos curvas, por la vía');
+  assert.ok(meters(...refined[0], ...A[0]) < 5 && meters(...refined.at(-1), ...B.at(-1)) < 5);
+});

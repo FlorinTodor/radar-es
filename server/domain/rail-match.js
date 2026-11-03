@@ -725,11 +725,20 @@ export function refineToRail(net, coords) {
     if (!bad[s]) continue;
     let e = s;
     while (e + 1 < n && bad[e]) e++; // los tramos de s a e - 1 se salen: puntos s..e
-    const path = railThrough(net, coords, s, e);
-    if (path) {
-      for (; done < s; done++) append(out, [coords[done]]);
+    // De una vez, pasando por los puntos de en medio; si no se puede (a la red le falta la vía de uno de
+    // los tramos), tramo a tramo: los que tienen vía se rehacen y sólo el que no la tiene se queda en recta.
+    const whole = railThrough(net, coords, s, e);
+    const pieces = whole ? [[s, e, whole]] : [];
+    if (!whole && e - s > 1) {
+      for (let k = s; k < e; k++) {
+        const piece = railThrough(net, coords, k, k + 1);
+        if (piece) pieces.push([k, k + 1, piece]);
+      }
+    }
+    for (const [a, b, path] of pieces) {
+      for (; done < a; done++) append(out, [coords[done]]);
       append(out, path);
-      done = e + 1;
+      done = b + 1;
       changed = true;
     }
     s = e - 1;
