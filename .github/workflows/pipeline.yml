@@ -54,8 +54,14 @@ jobs:
           # El VPS lo recoge en unos 30 s; construir, cargar todas las fuentes y comprobarlas lleva
           # unos minutos más.
           for i in $(seq 1 270); do
-            check=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/statuses" \
-              --jq 'map(select(.context == "Pruebas VPS")) | first // empty | "\(.state): \(.description)"')
+            # Un fallo pasajero de la API de GitHub (una respuesta vacía o cortada: «unexpected end of
+            # JSON input») no para la espera: se vuelve a preguntar a los 10 s.
+            if ! check=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/statuses" \
+              --jq 'map(select(.context == "Pruebas VPS")) | first // empty | "\(.state): \(.description)"'); then
+              echo "$(date +%H:%M) la API de GitHub no ha respondido bien; se vuelve a preguntar"
+              sleep 10
+              continue
+            fi
             echo "$(date +%H:%M) ${check:-el VPS todavía no lo ha recogido}"
             case $check in
               success*) exit 0 ;;
