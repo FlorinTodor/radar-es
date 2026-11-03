@@ -53,3 +53,21 @@ test('un autobús no se lleva a la vía', async (t) => {
   const { vehicles: [v] } = await source.fetch();
   assert.deepEqual([v.lon, v.lat], [-6.0, 37.0], 'sin trazado se queda en su última parada, como siempre');
 });
+
+test('un viaje con un trazado que no pasa por sus paradas va por la vía entre ellas', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: NOW });
+  // El operador le pone el trazado de otra línea, a varios km de sus paradas.
+  const zip = zipSync({
+    'agency.txt': strToU8('agency_id,agency_name\nA,Operador\n'),
+    'routes.txt': strToU8('route_id,agency_id,route_short_name,route_type\nL1,A,L1,0\n'),
+    'trips.txt': strToU8('route_id,service_id,trip_id,shape_id\nL1,S,T1,OTRA\n'),
+    'calendar.txt': strToU8('service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nS,1,1,1,1,1,1,1,20260101,20271231\n'),
+    'stops.txt': strToU8('stop_id,stop_name,stop_lat,stop_lon\nA,Alfa,37.0,-6.0\nB,Beta,37.0,-5.99\nC,Gamma,37.01,-5.99\n'),
+    'stop_times.txt': strToU8('trip_id,arrival_time,departure_time,stop_id,stop_sequence\nT1,11:55:00,11:55:00,A,1\nT1,12:05:00,12:05:00,B,2\nT1,12:15:00,12:15:00,C,3\n'),
+    'shapes.txt': strToU8('shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence\nOTRA,37.1,-6.1,1\nOTRA,37.1,-6.05,2\n'),
+  });
+  const source = createGtfsScheduleSource({ nap: napOf(zip), http: {}, railGeometry }, { id: 'tram-prueba', name: 'Prueba', operator: 'Operador', ficheroId: 1, dataset: 1 });
+  const { vehicles: [v] } = await source.fetch();
+  assert.ok(onRail([v.lon, v.lat]), `el tranvía, en la vía (${v.lon}, ${v.lat})`);
+  assert.ok(source.ahead(v.id).every((p) => onRail(p)), 'lo que le queda, por la vía');
+});

@@ -140,37 +140,53 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
   /**
    * Trazado del viaje y distancia de cada parada sobre él (se calcula una vez por viaje, sólo para los que
    * llegan a circular); null si no tiene o sus paradas no encajan en él. Con la red de vías, los tramos que
-   * se salen de la vía se rehacen por ella y un viaje de metro, tranvía o tren sin trazado lo toma de la
-   * vía entre sus paradas. Los autobuses no: no van por vías.
+   * se salen de la vía se rehacen por ella, y un viaje de metro, tranvía o tren sin trazado (o con uno que
+   * no pasa por sus paradas: en el TRAM d'Alacant hay viajes con el de otra línea) lo toma de la vía entre
+   * sus paradas. Los autobuses no: no van por vías.
    */
   function tripShape(schedule, trip, stops) {
     const net = trip.route.mode === 'bus' ? null : railGeometry?.network() ?? null;
     if (trip.onShape !== undefined && trip.onShapeNet === net) return trip.onShape;
-    const original = trip.shape >= 0 ? schedule.shapes[trip.shape] : null;
-    let shape = original;
-    let usedNet = null;
-    if (net) {
-      if (schedule.onRail?.net !== net) schedule.onRail = { net, shapes: new Map(), byStops: new Map() };
-      const memo = original ? schedule.onRail.shapes : schedule.onRail.byStops;
-      const key = original ? trip.shape : stops.map((st) => `${st.lon},${st.lat}`).join(';');
-      if (!memo.has(key) && refineBudget > 0) {
+    if (net && schedule.onRail?.net !== net) schedule.onRail = { net, shapes: new Map(), byStops: new Map() };
+    let complete = true; // false: algún trazado se queda para la próxima lectura (sin turno en esta)
+    /** El trazado por la vía de estos puntos, guardado por clave; undefined si en esta lectura ya no hay turno. */
+    const onRail = (memo, key, points, unchanged) => {
+      if (!memo.has(key)) {
+        if (refineBudget <= 0) {
+          complete = false;
+          return undefined;
+        }
         refineBudget--;
-        const points = original ? shapePoints(original) : stops.map((st) => [st.lon, st.lat]);
-        const out = refineToRail(net, points);
-        memo.set(key, out === points ? original : buildShape(out.flat()));
+        const pts = points();
+        const out = refineToRail(net, pts);
+        memo.set(key, out === pts ? unchanged : buildShape(out.flat()));
       }
-      if (memo.has(key)) {
-        shape = memo.get(key);
-        usedNet = net;
-      } else if (trip.onShape !== undefined) return trip.onShape; // sin turno: el de antes, hasta la próxima lectura
+      return memo.get(key);
+    };
+    const original = trip.shape >= 0 ? schedule.shapes[trip.shape] : null;
+    let shape = null;
+    let along = null;
+    if (original) {
+      const refined = net ? onRail(schedule.onRail.shapes, trip.shape, () => shapePoints(original), original) ?? original : original;
+      along = stopsAlongShape(stops, refined);
+      shape = refined;
+      if (!along && refined !== original) {
+        along = stopsAlongShape(stops, original); // las paradas no encajan en el rehecho: el del operador
+        shape = original;
+      }
     }
-    let along = shape ? stopsAlongShape(stops, shape) : null;
-    if (!along && original && shape !== original) {
-      shape = original; // las paradas no encajan en el rehecho: el del operador
-      along = stopsAlongShape(stops, original);
+    if (!along && net) {
+      const key = stops.map((st) => `${st.lon},${st.lat}`).join(';');
+      const byStops = onRail(schedule.onRail.byStops, key, () => stops.map((st) => [st.lon, st.lat]), null);
+      const fit = byStops ? stopsAlongShape(stops, byStops) : null;
+      if (fit) {
+        shape = byStops;
+        along = fit;
+      }
     }
+    if (!complete && trip.onShape !== undefined) return trip.onShape; // el de antes, hasta la próxima lectura
     trip.onShape = along ? { shape, along } : null;
-    trip.onShapeNet = usedNet;
+    trip.onShapeNet = complete ? net : null;
     return trip.onShape;
   }
 
