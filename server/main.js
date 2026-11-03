@@ -21,6 +21,8 @@ import { createJsonlHistory } from './adapters/outbound/persistence/jsonl-histor
 import { createSources } from './adapters/outbound/sources/index.js';
 import { startPolling } from './adapters/inbound/scheduler/polling-scheduler.js';
 import { createHttpServer } from './adapters/inbound/http/http-server.js';
+import { createMcpHandler } from './adapters/inbound/mcp/mcp.js';
+import pkg from '../package.json' with { type: 'json' };
 import { createWmsTiles } from './adapters/outbound/tiles/wms-tiles.js';
 import { createCartoCiudadGeocoder, GEOCODER_MEMBERS } from './adapters/outbound/geo/cartociudad-geocoder.js';
 import { createCpuPool, parseThreads } from './adapters/outbound/workers/cpu-pool.js';
@@ -84,6 +86,8 @@ const server = createHttpServer({
   log,
   about: config.about,
   serveTiles,
+  // Servidor MCP en POST /mcp: los asistentes de IA consultan el directo con herramientas.
+  mcp: createMcpHandler({ query, about: config.about, version: pkg.version, now: clock.now }),
   publicDir: fileURLToPath(new URL('../public/', import.meta.url)).replace(/\/$/, ''),
   vendorDirs: { '/vendor/maplibre/': fileURLToPath(new URL('../node_modules/maplibre-gl/dist/', import.meta.url)).replace(/\/$/, '') },
 });
