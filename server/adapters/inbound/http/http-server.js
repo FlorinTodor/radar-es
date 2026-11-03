@@ -9,7 +9,7 @@ import { extname, join, resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { isStationCode } from '../../../domain/model.js';
-import { PROTOCOL_VERSIONS } from '../mcp/mcp.js';
+import { McpBusy, PROTOCOL_VERSIONS } from '../mcp/mcp.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -78,7 +78,8 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
   const memoTrains = createJsonMemo({ max: TRAIN_MEMO_MAX, maxBytes: TRAIN_MEMO_BYTES, now });
   const trainBudget = createBudget({ perSecond: TRAIN_BUDGET.perSecond, burst: TRAIN_BUDGET.burst, now });
   // Cada mensaje MCP es un POST, que Cloudflare no guarda: todos llegan al servidor y algunas
-  // herramientas recorren todos los vehículos. Presupuesto propio, para que no le quiten sitio al mapa.
+  // herramientas recorren todos los vehículos. Presupuesto propio, para que no le quiten sitio al mapa;
+  // sólo lo gasta lo que hay que calcular (el adaptador MCP guarda unos segundos cada respuesta).
   const mcpBudget = createBudget({ perSecond: MCP_BUDGET.perSecond, burst: MCP_BUDGET.burst, now });
 
   const security = Object.entries(securityHeaders(about));
@@ -225,10 +226,6 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
       return send(res, 400, rpcFailure(-32600, `Versión del protocolo MCP no admitida: ${version}`));
     }
     if (!/^application\/json\b/i.test(req.headers['content-type'] ?? '')) return send(res, 415, rpcFailure(-32700, 'Se espera application/json'));
-    if (!mcpBudget.take()) {
-      res.setHeader('Retry-After', '2');
-      return send(res, 429, rpcFailure(-32000, 'Demasiadas consultas a la vez; prueba dentro de un momento'));
-    }
     const body = await readBody(req, MCP_MAX_BODY);
     if (body === null) return send(res, 413, rpcFailure(-32600, 'Mensaje demasiado grande'));
     let message;
@@ -237,7 +234,14 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     } catch {
       return send(res, 400, rpcFailure(-32700, 'JSON no válido'));
     }
-    const reply = mcp(message);
+    let reply;
+    try {
+      reply = mcp(message, { budget: mcpBudget });
+    } catch (err) {
+      if (!(err instanceof McpBusy)) throw err;
+      res.setHeader('Retry-After', '2');
+      return send(res, 429, { jsonrpc: '2.0', id: message?.id ?? null, error: { code: -32000, message: 'Demasiadas consultas a la vez; prueba dentro de un momento' } });
+    }
     if (reply === null) {
       res.writeHead(202);
       return res.end();
@@ -294,7 +298,7 @@ const TRAIN_MEMO_MAX = 2_000; // más que todos los vehículos que puede haber a
 const TRAIN_MEMO_BYTES = 32 * 1024 * 1024;
 const PARAMS_MEMO_BYTES = 48 * 1024 * 1024;
 const TRAIN_BUDGET = { perSecond: 4, burst: 20 };
-// Un asistente hace unas pocas llamadas por pregunta (initialize, tools/list y una o dos herramientas).
+// Cálculos de herramientas MCP (las respuestas guardadas no cuentan): un asistente hace una o dos por pregunta.
 const MCP_BUDGET = { perSecond: 5, burst: 30 };
 const MCP_MAX_BODY = 64 * 1024; // los mensajes de un cliente MCP ocupan pocos cientos de bytes
 // Los ids de vehículo llevan el trip_id de su operador (los más largos, unos 80 caracteres). Más de esto

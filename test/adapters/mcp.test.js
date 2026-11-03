@@ -1,7 +1,7 @@
 // Servidor MCP: el protocolo (JSON-RPC sin estado), cada herramienta con su atribución y la ruta POST /mcp.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createMcpHandler, PROTOCOL_VERSIONS } from '../../server/adapters/inbound/mcp/mcp.js';
+import { createMcpHandler, McpBusy, PROTOCOL_VERSIONS } from '../../server/adapters/inbound/mcp/mcp.js';
 import { createHttpServer } from '../../server/adapters/inbound/http/http-server.js';
 
 const T = Date.UTC(2026, 10, 3, 9, 0);
@@ -149,6 +149,37 @@ test('alertas, resumen y estado de las fuentes', () => {
   assert.equal(fuentes.find((s) => s.id === 'fgc').attribution, 'Font: FGC');
 });
 
+test('las respuestas se guardan el ttl de su herramienta; el texto sin tildes ni mayúsculas comparte copia', () => {
+  let t = T;
+  let reads = 0;
+  const counted = { ...query, vehicles: (f) => { reads++; return query.vehicles(f); } };
+  const cached = createMcpHandler({ query: counted, now: () => t });
+  const ask = (args) => cached({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'buscar_trenes', arguments: args } }).result;
+  const first = ask({ text: 'Valencia', limit: 5 });
+  assert.deepEqual(ask({ limit: 5, text: 'valéncia' }), first);
+  assert.equal(reads, 1);
+  ask({ text: 'Valencia', limit: 6 });
+  assert.equal(reads, 2);
+  t += 5_000; // ttl de buscar_trenes
+  ask({ text: 'Valencia', limit: 5 });
+  assert.equal(reads, 3);
+});
+
+test('presupuesto: sólo lo gasta lo que hay que calcular; sin fichas, McpBusy; un error de la herramienta lo devuelve', () => {
+  let tokens = 1;
+  let refunds = 0;
+  const budget = { take: () => (tokens > 0 ? (tokens--, true) : false), refund: () => { tokens++; refunds++; } };
+  const fresh = createMcpHandler({ query, now: () => T });
+  const ask = (name, args) => fresh({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }, { budget });
+  assert.equal(ask('estacion', { code: '99999' }).result.isError, true);
+  assert.equal(refunds, 1);
+  ask('alertas', {});
+  assert.equal(tokens, 0);
+  ask('alertas', {}); // guardada
+  assert.deepEqual(fresh({ jsonrpc: '2.0', id: 2, method: 'tools/list' }, { budget }).result.tools.length, 7);
+  assert.throws(() => ask('resumen', {}), McpBusy);
+});
+
 // ---------- POST /mcp ----------
 
 let server;
@@ -197,14 +228,19 @@ test('/mcp: mensaje demasiado grande, 413; las demás rutas siguen sin aceptar P
   assert.equal((await fetch(`${base}/api/health`, { method: 'POST' })).status, 405);
 });
 
-test('/mcp: con el presupuesto gastado, 429 con Retry-After; con el tiempo vuelve', async () => {
+test('/mcp: con el presupuesto gastado, 429 con Retry-After; lo ya guardado y ping siguen; con el tiempo vuelve', async () => {
   clock += 60_000; // cubo lleno
+  // Cada límite es una variante nueva que hay que calcular.
+  const trains = (limit, id = limit) => post({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'buscar_trenes', arguments: { limit } } });
   const statuses = [];
-  for (let i = 0; i < 40; i++) statuses.push((await post({ jsonrpc: '2.0', id: i, method: 'ping' })).status);
+  for (let limit = 1; limit <= 40; limit++) statuses.push((await trains(limit)).status);
   assert.ok(statuses.includes(429));
-  const busy = await post({ jsonrpc: '2.0', id: 99, method: 'ping' });
+  const busy = await trains(45);
   assert.equal(busy.status, 429);
   assert.equal(busy.headers.get('retry-after'), '2');
+  assert.equal((await busy.json()).id, 45);
+  assert.equal((await trains(1, 'otra vez')).status, 200); // ya guardada: no gasta
+  assert.equal((await post({ jsonrpc: '2.0', id: 1, method: 'ping' })).status, 200);
   clock += 10_000;
-  assert.equal((await post({ jsonrpc: '2.0', id: 100, method: 'ping' })).status, 200);
+  assert.equal((await trains(50)).status, 200);
 });

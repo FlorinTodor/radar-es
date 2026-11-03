@@ -22,6 +22,7 @@ const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
 const MAX_TEXT = 100;
 const MAX_DESCRIPTION = 400;
+const MEMO_MAX = 500; // variantes guardadas: cada una, como mucho MAX_LIMIT elementos
 
 const NOTE = 'Radar España no es una web oficial: reúne datos públicos con retraso, algunos con posición estimada '
   + 'a partir del horario (estimated: true). No sirven para decisiones operativas ni de seguridad.';
@@ -40,6 +41,8 @@ class RpcError extends Error {
 }
 /** Error de una herramienta (estación que no existe…): va en el resultado con isError, para que el modelo lo lea. */
 class ToolError extends Error {}
+/** Hay que calcular una respuesta y se ha gastado el presupuesto: el adaptador HTTP contesta 429. */
+export class McpBusy extends Error {}
 
 /**
  * @param {{ query: ReturnType<typeof import('../../../application/use-cases/query-situation.js').makeQuerySituation>,
@@ -89,6 +92,7 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
   const tools = {
     buscar_trenes: {
       title: 'Buscar trenes y otros vehículos',
+      ttl: 5_000,
       description: 'Busca trenes, metros, tranvías y autobuses en circulación ahora en España: número, línea, '
         + 'origen, destino, estación actual o próxima, vía, retraso en minutos y posición. Filtra por texto '
         + '(número de tren, línea, estación, ciudad u operador), tipo y retraso mínimo.',
@@ -116,6 +120,7 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
 
     buscar_estaciones: {
       title: 'Buscar estaciones',
+      ttl: 600_000, // el catálogo cambia unas pocas veces al día
       description: 'Busca estaciones de tren (Renfe), metro, tranvía y otras redes por nombre, población o provincia. '
         + 'Devuelve su código, que sirve para ver su ficha con la herramienta «estacion».',
       inputSchema: {
@@ -148,6 +153,7 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
 
     estacion: {
       title: 'Ficha de una estación',
+      ttl: 10_000,
       description: 'Trenes parados en una estación y los que van hacia ella (con vía, hora prevista y retraso) y los '
         + 'avisos de Renfe de la estación. El código sale de «buscar_estaciones».',
       inputSchema: {
@@ -174,6 +180,7 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
 
     incidencias: {
       title: 'Incidencias y avisos',
+      ttl: 15_000,
       description: 'Incidencias activas en España: avisos ferroviarios de Renfe, tráfico (DGT y otras), avisos '
         + 'meteorológicos de AEMET, incendios, terremotos, catástrofes (GDACS) y emergencias oficiales (planes de '
         + 'protección civil y cortes de luz). De más a menos grave.',
@@ -203,6 +210,7 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
 
     alertas: {
       title: 'Alertas activas',
+      ttl: 5_000,
       description: 'Alertas que detecta Radar España ahora: retrasos fuertes o agrupados, trenes parados, avisos '
         + 'graves y fuentes de datos caídas, de más a menos grave.',
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -214,6 +222,7 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
 
     resumen: {
       title: 'Resumen del estado actual',
+      ttl: 5_000,
       description: 'Cifras del momento: vehículos en el mapa por tipo, cuántos llevan 5 minutos o más de retraso, '
         + 'retraso mediano y máximo, alertas activas, fuentes funcionando y demanda eléctrica.',
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -237,6 +246,7 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
 
     estado_fuentes: {
       title: 'Estado de las fuentes de datos',
+      ttl: 15_000,
       description: 'Cada fuente de datos que usa Radar España: si funciona, cuándo se leyó por última vez, por qué '
         + 'está desactivada si lo está, y su licencia y atribución.',
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -254,18 +264,42 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
     name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: { readOnlyHint: true, openWorldHint: false },
   }));
 
-  function callTool(params) {
+  // Resultados ya calculados, unos segundos (el `ttl` de cada herramienta, el mismo ritmo que su ruta de
+  // la API): muchos asistentes preguntando lo mismo cuestan lo que uno. La clave son la herramienta y sus
+  // argumentos, con el texto sin tildes ni mayúsculas, que es como se busca. Como mucho MEMO_MAX
+  // variantes; las caducadas se tiran en cuanto hay que calcular otra.
+  const memo = new Map();
+  function remember(key, ttl, compute) {
+    const t = now();
+    const hit = memo.get(key);
+    if (hit && t - hit.at < ttl) return hit.result;
+    for (const [k, e] of memo) if (t - e.at >= e.ttl) memo.delete(k);
+    const result = compute();
+    memo.delete(key);
+    memo.set(key, { at: t, ttl, result });
+    while (memo.size > MEMO_MAX) memo.delete(memo.keys().next().value);
+    return result;
+  }
+
+  function callTool(params, { budget } = {}) {
     const tool = Object.hasOwn(tools, params?.name ?? '') ? tools[params.name] : null;
     if (!tool) throw new RpcError(-32602, `Herramienta desconocida: ${params?.name}`);
     const args = params.arguments ?? {};
     if (typeof args !== 'object' || Array.isArray(args)) throw new RpcError(-32602, 'arguments tiene que ser un objeto');
-    try {
-      const data = tool.run(checkArgs(tool.inputSchema, args));
-      return { content: [{ type: 'text', text: JSON.stringify(data) }], structuredContent: data };
-    } catch (err) {
-      if (!(err instanceof ToolError)) throw err;
-      return { content: [{ type: 'text', text: err.message }], isError: true };
-    }
+    checkArgs(tool.inputSchema, args);
+    const key = `${params.name}?${JSON.stringify(Object.keys(args).sort().map((k) => [k, k === 'text' ? plain(args[k]) : args[k]]))}`;
+    return remember(key, tool.ttl, () => {
+      // Sólo se gasta presupuesto al calcular; un error de la herramienta (una estación que no existe) no cuesta nada.
+      if (budget && !budget.take()) throw new McpBusy();
+      try {
+        const data = tool.run(args);
+        return { content: [{ type: 'text', text: JSON.stringify(data) }], structuredContent: data };
+      } catch (err) {
+        if (!(err instanceof ToolError)) throw err;
+        budget?.refund();
+        return { content: [{ type: 'text', text: err.message }], isError: true };
+      }
+    });
   }
 
   const methods = {
@@ -284,9 +318,12 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
 
   /**
    * Atiende un mensaje JSON-RPC ya leído. Devuelve la respuesta, o null si es una notificación o una
-   * respuesta (no llevan contestación).
+   * respuesta (no llevan contestación). `budget` (take/refund) acota los cálculos de las herramientas:
+   * sin fichas lanza McpBusy. Los demás métodos y las respuestas ya guardadas no lo gastan.
+   * @param {object} message
+   * @param {{ budget?: { take(): boolean, refund(): void } }} [options]
    */
-  return function handle(message) {
+  return function handle(message, options) {
     if (!message || typeof message !== 'object' || Array.isArray(message) || message.jsonrpc !== '2.0') {
       return rpcError(message?.id ?? null, -32600, 'Petición JSON-RPC 2.0 no válida');
     }
@@ -295,7 +332,7 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
     const method = Object.hasOwn(methods, message.method) ? methods[message.method] : null;
     if (!method) return rpcError(message.id, -32601, `Método no disponible: ${message.method}`);
     try {
-      return { jsonrpc: '2.0', id: message.id, result: method(message.params) };
+      return { jsonrpc: '2.0', id: message.id, result: method(message.params, options) };
     } catch (err) {
       if (err instanceof RpcError) return rpcError(message.id, err.code, err.message);
       throw err;
