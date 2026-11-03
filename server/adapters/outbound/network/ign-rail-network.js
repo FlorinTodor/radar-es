@@ -20,8 +20,12 @@ const MAX_AGE_MS = 30 * 24 * 3600_000;
 const AREAS = [[-9.6, 35.8, 4.5, 44.0], [-18.3, 27.5, -13.3, 29.5]];
 const TILE_DEG = 0.5;
 const PAGE = 5000;
-// El servicio corta a veces una respuesta a medias: cada cuadrícula se pide hasta TRIES veces.
+// El servicio corta a veces una respuesta a medias y, cuando va cargado, no da abasto con las zonas con
+// muchas vías (Madrid, Barcelona…): tras un minuto responde 502. Una cuadrícula que falla se pide en
+// cuatro más pequeñas, que responde antes; las más pequeñas (1/8 de la normal) se piden hasta TRIES
+// veces. Si fallan GIVE_UP peticiones seguidas, el servicio no está y se deja para la próxima vez.
 const TRIES = 4;
+const GIVE_UP = 8;
 // Menos tramos que esto es una descarga rota y no se guarda (hoy hay unos 60.000).
 const MIN_LINKS = 30_000;
 // Puntos de vía más juntos que esto sobran para pegar trazados (la red queda en la mitad de memoria).
@@ -122,28 +126,37 @@ export function createIgnRailNetwork({ http, cache, log, url = IGN_WFS, areas = 
   /** Todos los tramos, cuadrícula a cuadrícula y de uno en uno (sin prisa: es una vez al mes). */
   async function download() {
     const byId = new Map(); // un tramo que cruza dos cuadrículas llega en las dos
-    const queue = tiles(areas, tileDeg);
+    const queue = tiles(areas, tileDeg).map((bbox) => ({ bbox, tries: 0 }));
+    const minDeg = tileDeg / 8;
+    const quarters = ([w, s, e, n]) => {
+      const mx = (w + e) / 2;
+      const my = (s + n) / 2;
+      return [[w, s, mx, my], [mx, s, e, my], [w, my, mx, n], [mx, my, e, n]].map((bbox) => ({ bbox, tries: 0 }));
+    };
+    let failedInARow = 0;
     while (queue.length) {
-      const [w, s, e, n] = queue.shift();
+      const tile = queue.shift();
+      const [w, s, e, n] = tile.bbox;
       const q = `${url}?service=WFS&version=2.0.0&request=GetFeature&typeNames=tn-ra:RailwayLink&count=${PAGE}`
         + `&BBOX=${s},${w},${n},${e},urn:ogc:def:crs:EPSG::4326`;
-      let xml = null;
-      for (let i = 1; xml === null; i++) {
-        try {
-          xml = new TextDecoder().decode(await http.bytes(q, { timeout: 180_000, maxBytes: 64 * 1024 * 1024 }));
-          if (!xml.includes('FeatureCollection')) throw new Error('el WFS del IGN no devuelve tramos');
-        } catch (err) {
-          xml = null;
-          if (i >= TRIES) throw err;
-          await new Promise((resolve) => setTimeout(resolve, retryMs * i));
-        }
+      let xml;
+      try {
+        xml = new TextDecoder().decode(await http.bytes(q, { timeout: 180_000, maxBytes: 64 * 1024 * 1024 }));
+        if (!xml.includes('FeatureCollection')) throw new Error('el WFS del IGN no devuelve tramos');
+      } catch (err) {
+        failedInARow++;
+        tile.tries++;
+        if (failedInARow >= GIVE_UP || (e - w <= minDeg && tile.tries >= TRIES)) throw err;
+        await new Promise((resolve) => setTimeout(resolve, retryMs * failedInARow));
+        // En cuatro más pequeñas o, si ya es de las más pequeñas, otra vez la misma.
+        queue.unshift(...(e - w > minDeg ? quarters(tile.bbox) : [tile]));
+        continue;
       }
+      failedInARow = 0;
       const { links, returned } = parseRailwayLinks(xml);
       if (returned >= PAGE) {
         // No caben: la cuadrícula se parte en cuatro y se pide otra vez.
-        const mx = (w + e) / 2;
-        const my = (s + n) / 2;
-        queue.unshift([w, s, mx, my], [mx, s, e, my], [w, my, mx, n], [mx, my, e, n]);
+        queue.unshift(...quarters(tile.bbox));
         continue;
       }
       // Ya reducido y en un array tipado: decenas de miles de tramos como listas de pares ocuparían varias veces más.

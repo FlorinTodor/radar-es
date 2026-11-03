@@ -1,6 +1,6 @@
-// Vías del IGN: se descargan por cuadrículas (las que no caben en una respuesta, en cuatro), un tramo que
-// llega en dos cuadrículas cuenta una vez, una respuesta cortada se pide otra vez, se guardan en disco una
-// vez al mes y, si el IGN falla, se sigue con la copia guardada.
+// Vías del IGN: se descargan por cuadrículas (las que no caben en una respuesta o fallan, en cuatro), un
+// tramo que llega en dos cuadrículas cuenta una vez, se guardan en disco una vez al mes y, si el IGN falla,
+// se sigue con la copia guardada.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -74,13 +74,38 @@ test('descarga por cuadrículas, reintenta, guarda la copia y sigue con ella si 
   }
 });
 
+test('una zona con la que el IGN no da abasto (502) se pide en cuadrículas más pequeñas', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'radar-ign-'));
+  try {
+    const widths = [];
+    const http = {
+      bytes: async (url) => {
+        const [s, w, , e] = bbox(url);
+        widths.push(e - w);
+        // En la mitad oeste (con muchas vías) sólo responde a las cuadrículas de 0,125°.
+        if (w < -3.5 && e - w > 0.2) throw new Error('HTTP 502 en servicios.idee.es');
+        return new TextEncoder().encode(gml([[`T${w},${s}`, [[w + 0.01, s + 0.01], [w + 0.02, s + 0.02]]]]));
+      },
+    };
+    const cache = createFileCache({ http, dir: pathToFileURL(`${dir}/`), log: quiet });
+    const ign = createIgnRailNetwork({ http, cache, log: quiet, areas: [[-4, 40, -3, 40.5]], tileDeg: 0.5, minLinks: 3, retryMs: 0 });
+    // La del este, entera; la del oeste, en 16 de 0,125°.
+    assert.equal(await ign.load(), 17);
+    assert.ok(widths.includes(0.125));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('sin copia y sin IGN no hay red (los trazados se quedan como los publica cada operador)', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'radar-ign-'));
   try {
-    const http = { bytes: async () => { throw new Error('HTTP 503 en servicios.idee.es'); } };
+    let asked = 0;
+    const http = { bytes: async () => { asked++; throw new Error('HTTP 503 en servicios.idee.es'); } };
     const cache = createFileCache({ http, dir: pathToFileURL(`${dir}/`), log: quiet });
     const ign = createIgnRailNetwork({ http, cache, log: quiet, areas: [[-4, 40, -3.5, 40.5]], retryMs: 0 });
     await assert.rejects(ign.load(), /503/);
+    assert.ok(asked <= 8, `se rinde tras unos pocos fallos seguidos, no pide toda la zona en trozos (${asked})`);
     assert.equal(ign.network(), null);
     assert.equal(ign.pending(), false, 'falló: las líneas ya no esperan a la red');
   } finally {
