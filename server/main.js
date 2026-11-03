@@ -8,6 +8,7 @@ import { makeDetectAlerts } from './application/use-cases/detect-alerts.js';
 import { makeQuerySituation } from './application/use-cases/query-situation.js';
 import { makeServeTiles } from './application/use-cases/serve-tiles.js';
 import { makeRefreshCatalogs } from './application/use-cases/refresh-catalogs.js';
+import { makeLinesOnRail } from './application/use-cases/lines-on-rail.js';
 import { createHttpClient } from './adapters/outbound/http/http-client.js';
 import { createFileCache } from './adapters/outbound/http/file-cache.js';
 import { createConsoleLogger } from './adapters/outbound/logging/console-logger.js';
@@ -16,6 +17,7 @@ import { createNetworkStationCatalog } from './adapters/outbound/stations/networ
 import { createNapClient } from './adapters/outbound/nap/nap-client.js';
 import { createGtfsNetworkCatalog } from './adapters/outbound/network/gtfs-network-catalog.js';
 import { createAdifRailNetwork } from './adapters/outbound/network/adif-rail-network.js';
+import { createIgnRailNetwork } from './adapters/outbound/network/ign-rail-network.js';
 import { createInMemorySituation } from './adapters/outbound/persistence/in-memory-situation.js';
 import { createJsonlHistory } from './adapters/outbound/persistence/jsonl-history.js';
 import { createSources } from './adapters/outbound/sources/index.js';
@@ -43,8 +45,12 @@ const nap = createNapClient({ cache, apiKey: config.env.NAP_API_KEY });
 const stations = assertPort('StationCatalog', createRenfeStationCatalog({ cache, cacheDir, log }), PORT_MEMBERS.StationCatalog);
 // Estaciones de metro, tranvía y las demás redes: aparte, para que las alertas y Rodalies sólo vean las de Renfe.
 const networkStations = assertPort('StationCatalog(redes)', createNetworkStationCatalog({ nap, cache, cacheDir, log, renfe: stations }), PORT_MEMBERS.StationCatalog);
-const network = assertPort('NetworkCatalog', createGtfsNetworkCatalog({ nap, cache, cacheDir, log, pool }), PORT_MEMBERS.NetworkCatalog);
 const railNetwork = assertPort('RailNetwork', createAdifRailNetwork({ cache, log }), PORT_MEMBERS.RailNetwork);
+// Vías de toda España, con metro, tranvía y funicular (IGN): los trazados que los operadores publican
+// casi sólo con sus estaciones, o no publican, se llevan por ellas (líneas del mapa y posiciones estimadas).
+const railGeometry = assertPort('RailNetwork(IGN)', createIgnRailNetwork({ http, cache, log }), PORT_MEMBERS.RailNetwork);
+const network = assertPort('NetworkCatalog',
+  makeLinesOnRail({ network: createGtfsNetworkCatalog({ nap, cache, cacheDir, log, pool }), railGeometry }), PORT_MEMBERS.NetworkCatalog);
 const situation = assertPort('SituationRepository', createInMemorySituation(), PORT_MEMBERS.SituationRepository);
 const history = assertPort('History', createJsonlHistory({ dir: new URL('history/', config.dataDir), log }), PORT_MEMBERS.History);
 const tiles = assertPort('TileProvider', createWmsTiles({ http, dir: fileURLToPath(new URL('tiles/', config.dataDir)), log }), PORT_MEMBERS.TileProvider);
@@ -53,7 +59,7 @@ const tiles = assertPort('TileProvider', createWmsTiles({ http, dir: fileURLToPa
 // aplicación (ningún caso de uso lo usa): sólo se lo pasan las fuentes de avisos oficiales.
 const geocoder = assertPort('Geocoder', createCartoCiudadGeocoder({ http, log }), GEOCODER_MEMBERS);
 
-const sources = createSources({ http, cache, stations, nap, log, env: config.env, pool, xmlPool, geocoder })
+const sources = createSources({ http, cache, stations, nap, log, env: config.env, pool, xmlPool, geocoder, railGeometry })
   .map((s) => assertPort(`DataSource(${s.id})`, s, PORT_MEMBERS.DataSource));
 
 const enabledSources = [];
@@ -71,7 +77,7 @@ const ingestSource = makeIngestSource({ sources: enabledSources, situation, cloc
 const detectAlerts = makeDetectAlerts({ situation, stations, history, clock });
 const query = makeQuerySituation({ situation, stations, networkStations, network, clock, sources, railNetwork });
 const serveTiles = makeServeTiles({ tiles });
-const refreshCatalogs = makeRefreshCatalogs({ stations, networkStations, network, railNetwork, log });
+const refreshCatalogs = makeRefreshCatalogs({ stations, networkStations, network, railNetwork, railGeometry, log });
 
 // --- Adaptadores de entrada ------------------------------------------------
 await refreshCatalogs(); // espera a las estaciones; los trazados y la red ferroviaria siguen cargándose detrás

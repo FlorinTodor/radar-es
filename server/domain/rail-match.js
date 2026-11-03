@@ -621,8 +621,26 @@ export function routeAhead(net, at, stops, { factors } = {}) {
   }
   if (layers.length < 2) return null;
   const capOf = (k) => LEG_DETOUR * meters(...layers[k - 1].point, ...layers[k].point) + LEG_EXTRA_M;
+  const legs = bestPath(net, layers, capOf, factors);
+  if (!legs) return null;
+  const path = [layers[0].point];
+  append(path, legs);
+  return path.length > 1 ? path : null;
+}
+
+/**
+ * Camino por la vía que pasa, en orden, por una de las vías de cada capa (las de una estación o un punto),
+ * el de menor coste total: programación dinámica sobre las vías de cada capa. `capOf(k)`: lo más largo
+ * que puede ser el trozo entre las capas k - 1 y k. null si algún trozo no tiene un camino que quepa.
+ * @param {RailNetwork} net
+ * @param {Array<{ sites: Array<{ edge: number, m: number, lon: number, lat: number, d: number }> }>} layers
+ * @param {(k: number) => number} capOf
+ * @param {number[]|null|undefined} factors  coste por ancho de vía (ver explore)
+ * @returns {Array<[number, number]> | null}  desde la vía elegida de la primera capa
+ */
+function bestPath(net, layers, capOf, factors) {
   const maxFactor = boundFactor(factors);
-  let costs = [0]; // coste mínimo hasta cada vía de la capa anterior
+  let costs = layers[0].sites.map(() => 0); // coste mínimo hasta cada vía de la capa anterior
   const back = []; // back[k - 1][j]: vía de la capa k - 1 desde la que se llega mejor a la vía j de la capa k
   const found = []; // found[k - 1][i]: la búsqueda desde la vía i de la capa k - 1, para dibujar el camino elegido
   for (let k = 1; k < layers.length; k++) {
@@ -647,7 +665,7 @@ export function routeAhead(net, at, stops, { factors } = {}) {
   const chosen = [];
   chosen[layers.length - 1] = costs.indexOf(Math.min(...costs));
   for (let k = layers.length - 1; k >= 1; k--) chosen[k - 1] = back[k - 1][chosen[k]];
-  const path = [layers[0].point];
+  const path = [];
   for (let k = 1; k < layers.length; k++) {
     // El camino elegido ya lo encontró la búsqueda de la programación dinámica: se dibuja sin repetirla.
     const { goals, via } = found[k - 1][chosen[k - 1]];
@@ -655,7 +673,96 @@ export function routeAhead(net, at, stops, { factors } = {}) {
     if (leg.length > capOf(k)) return null; // el coste no mide la longitud: más largo que el tope
     append(path, leg.path);
   }
-  return path.length > 1 ? path : null;
+  return path;
+}
+
+// --- Trazados de los operadores, por la vía ---------------------------------------------------------
+// Hay operadores que publican el trazado de sus líneas casi sólo con las estaciones (la L1 del Metro de
+// Sevilla: 20 puntos para 18 km) o no lo publican (se unen las paradas): entre estación y estación la
+// recta corta las curvas y se sale de la vía cientos de metros. Con una red de vías detallada (la del
+// IGN, con metro, tranvía y funicular), esos tramos se rehacen por la vía. Sólo los tramos rectos y
+// largos: un trazado con muchos puntos que va por donde la red no tiene vía (una variante nueva que la
+// red todavía no tiene) es del operador y se respeta.
+const REFINE_SAMPLE_M = 20; // cada cuánto se mira si un tramo va por la vía
+const REFINE_OFF_M = 40; // más lejos que esto de cualquier vía, el tramo se sale
+const REFINE_SEGMENT_M = 120; // sólo los tramos rectos de al menos esto (los de un trazado detallado son cortos)
+const REFINE_ANCHOR_M = 150; // los puntos del trazado (estaciones) se pegan a una vía a menos de esto,
+const REFINE_SPREAD_M = 30; // y valen las paralelas a menos de esto más que la más cercana
+const REFINE_DETOUR = 1.6; // por la vía, como mucho 1,6 veces lo que mide el trazado, más 400 m
+const REFINE_EXTRA_M = 400;
+
+/**
+ * El trazado de una línea, con los tramos rectos que se salen de la vía rehechos por ella. Un tramo que
+ * no se puede rehacer (sus extremos no están junto a una vía, o la vía da un rodeo) se queda como venía.
+ * @param {RailNetwork|null} net
+ * @param {Array<[number, number]>} coords  trazado [lon, lat] (o las paradas en orden, si no tiene)
+ * @returns {Array<[number, number]>} el mismo array si no cambia nada
+ */
+export function refineToRail(net, coords) {
+  if (!net || !Array.isArray(coords) || coords.length < 2) return coords;
+  const n = coords.length;
+  const bad = new Uint8Array(n - 1);
+  let any = false;
+  for (let i = 0; i + 1 < n; i++) {
+    const [lon1, lat1] = coords[i];
+    const [lon2, lat2] = coords[i + 1];
+    const len = meters(lon1, lat1, lon2, lat2);
+    if (len < REFINE_SEGMENT_M) continue;
+    const steps = Math.ceil(len / REFINE_SAMPLE_M);
+    for (let k = 1; k < steps; k++) {
+      if (!nearestOnRail(net, lon1 + ((lon2 - lon1) * k) / steps, lat1 + ((lat2 - lat1) * k) / steps, REFINE_OFF_M)) {
+        bad[i] = 1;
+        any = true;
+        break;
+      }
+    }
+  }
+  if (!any) return coords;
+  const out = [];
+  let done = 0; // primer punto de coords que aún no está en out
+  let changed = false;
+  for (let s = 0; s + 1 < n; s++) {
+    if (!bad[s]) continue;
+    let e = s;
+    while (e + 1 < n && bad[e]) e++; // los tramos de s a e - 1 se salen: puntos s..e
+    // De una vez, pasando por los puntos de en medio; si no se puede (a la red le falta la vía de uno de
+    // los tramos), tramo a tramo: los que tienen vía se rehacen y sólo el que no la tiene se queda en recta.
+    const whole = railThrough(net, coords, s, e);
+    const pieces = whole ? [[s, e, whole]] : [];
+    if (!whole && e - s > 1) {
+      for (let k = s; k < e; k++) {
+        const piece = railThrough(net, coords, k, k + 1);
+        if (piece) pieces.push([k, k + 1, piece]);
+      }
+    }
+    for (const [a, b, path] of pieces) {
+      for (; done < a; done++) append(out, [coords[done]]);
+      append(out, path);
+      done = b + 1;
+      changed = true;
+    }
+    s = e - 1;
+  }
+  if (!changed) return coords;
+  for (; done < n; done++) append(out, [coords[done]]);
+  return out;
+}
+
+/** Por la vía, de coords[s] a coords[e] pasando junto a los puntos de en medio que están en una vía. */
+function railThrough(net, coords, s, e) {
+  const layers = [];
+  for (let k = s; k <= e; k++) {
+    const sites = sitesNear(net, coords[k][0], coords[k][1], REFINE_ANCHOR_M, REFINE_SPREAD_M);
+    if (sites.length) layers.push({ k, sites });
+    else if (k === s || k === e) return null; // un extremo lejos de la vía: no se sabe por dónde empalmar
+  }
+  const along = (a, b) => {
+    let m = 0;
+    for (let k = a; k < b; k++) m += meters(coords[k][0], coords[k][1], coords[k + 1][0], coords[k + 1][1]);
+    return m;
+  };
+  const capOf = (q) => REFINE_DETOUR * along(layers[q - 1].k, layers[q].k) + REFINE_EXTRA_M;
+  return bestPath(net, layers, capOf, null);
 }
 
 /** Añade puntos a una línea sin repetir el último ni dejar pasos más largos que MAX_STEP_M. */
