@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CUT_MAX_AGE, PLAN_MAX_AGE, currentNotices, expiresAt, illesIn, withCurrentCuts, islandsIn, isEndNotice, isPlanNotice, maxAgeOf, mentionsPlan, mentionsPowerBack,
+  CUT_MAX_AGE, PLAN_MAX_AGE, currentNotices, wholeRegionIn, expiresAt, illesIn, withCurrentCuts, islandsIn, isEndNotice, isPlanNotice, maxAgeOf, mentionsPlan, mentionsPowerBack,
   mentionsPowerCut, placeCandidates, powerClauses, provincesIn, severityOf, subjectsOf,
 } from '../../server/domain/emergencias.js';
 
@@ -131,6 +131,37 @@ test('en vigor: el aviso más nuevo de cada riesgo y lugar; un «finaliza» cier
   ], { now: NOW });
   const got = list.map(({ notice: n, place }) => `${n.id}@${place ?? 'todo'}`).sort();
   assert.deepEqual(got, ['alerta-lp-lg@La Palma', 'cero-lp@La Palma', 'prealerta-todas@todo']);
+});
+
+test('en vigor: un aviso nuevo de todo el territorio sustituye a los anteriores de su riesgo en cada isla (Canarias, 31-10 a 3-11)', () => {
+  // El 3-11 el Gobierno de Canarias pasó a prealerta en todo el archipiélago; el mapa seguía con la
+  // alerta por lluvias del 2-11 en tres islas y la del 31-10 en Tenerife, más graves que la situación real.
+  const list = currentNotices([
+    notice('prealerta-tormentas-occidentales', 59, { subjects: ['tormenta'], places: ['El Hierro', 'La Palma', 'La Gomera', 'Tenerife', 'Gran Canaria'] }),
+    notice('alerta-lluvias-lp-tf', 52, { places: ['La Palma', 'Tenerife'] }),
+    notice('alerta-lluvias-lp-lg-eh', 15, { places: ['El Hierro', 'La Palma', 'La Gomera'] }),
+    notice('cero-energetico-lp', 14, { subjects: ['luz'], places: ['La Palma'] }),
+    notice('prealerta-tormentas-todo', 3, { subjects: ['tormenta'], places: ['*'] }),
+    notice('prealerta-lluvias-toda-canarias', 2, { places: ['*'] }),
+  ], { now: NOW });
+  const got = list.map(({ notice: n, place }) => `${n.id}@${place ?? 'todo'}`).sort();
+  // El corte de luz es otro riesgo: sigue hasta su fin o su vigencia.
+  assert.deepEqual(got, ['cero-energetico-lp@La Palma', 'prealerta-lluvias-toda-canarias@todo', 'prealerta-tormentas-todo@todo']);
+});
+
+test('toda la comunidad: sólo si el aviso lo dice; el nombre de quien firma la nota no cuenta', () => {
+  for (const t of ['La Xunta activa el PLATERGA en toda Galicia', 'Prealerta por lluvias en todo el territorio',
+    'La Junta activa el plan en las ocho provincias andaluzas', 'Alerta en toda la comunidad por el temporal']) assert.equal(wholeRegionIn(t), true, t);
+  for (const t of ['La Xunta de Galicia activa el PLATERGA en Lugo', 'El Gobierno Vasco activa el LABI en Gipuzkoa',
+    'METEOCAM. Castilla-La Mancha']) assert.equal(wholeRegionIn(t), false, t);
+});
+
+test('en vigor: un aviso sin lugar (no se ha podido situar) no tapa los anteriores de cada pueblo', () => {
+  const list = currentNotices([
+    notice('corte-espera', 5, { subjects: ['luz'], places: ['Espera'] }),
+    notice('corte-sin-situar', 1, { subjects: ['luz'], places: [] }),
+  ], { now: NOW });
+  assert.deepEqual(list.map(({ notice: n }) => n.id), ['corte-sin-situar', 'corte-espera']);
 });
 
 test('en vigor: un fin sin lugares cierra el riesgo en todo el territorio; lo viejo caduca', () => {

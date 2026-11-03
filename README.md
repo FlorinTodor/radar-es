@@ -426,6 +426,10 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   Qué hay de cada comunidad y por qué falta lo que falta, en *Emergencias y cortes de luz: qué hay de
   cada comunidad*. La página de incidencias y la leyenda del mapa explican cuándo sale un corte de luz
   y cuándo no.
+- Un aviso nuevo que dice ser de todo el archipiélago o de toda la comunidad («pasando a prealerta por
+  lluvias en toda Canarias», «METEOCAM. Castilla-La Mancha», «en toda Galicia») sustituye a los
+  anteriores de su riesgo en cada isla o provincia: el mapa ya no sigue mostrando una alerta que se ha
+  rebajado. Uno que no se ha podido situar no tapa a los demás.
 - Apagón total de una isla de Canarias, de Ceuta o de Melilla: alerta a los pocos minutos cuando su
   demanda real cae muy por debajo de la esperada en dos datos seguidos (uno suelto puede estar mal
   medido), con datos de Red Eléctrica. Con los del 2-11-2026 avisa del apagón de La Palma con el dato
