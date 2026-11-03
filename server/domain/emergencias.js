@@ -325,7 +325,8 @@ export function powerClauses(text) {
  * @property {number} at          Epoch ms de publicación.
  * @property {boolean} end        Da por terminada la situación («finaliza», «restablecido»…).
  * @property {string[]} subjects  De qué trata (ver subjectsOf). La primera es la principal.
- * @property {string[]} places    Dónde (islas, municipios…); vacío o ['*'] = todo su territorio.
+ * @property {string[]} places    Dónde (islas, municipios…). ['*']: todo su territorio, dicho por el aviso
+ *                                («toda Canarias»); vacío: sin lugar conocido (se muestra en el centro de la comunidad).
  * @property {boolean} [power]    Habla de un corte de luz.
  * @property {string} [title]     Título tal cual lo publica la fuente.
  */
@@ -387,7 +388,9 @@ export function withCurrentCuts(events, { now, grid = [], thresholds }) {
 
 /**
  * Avisos que siguen en vigor, uno por lugar: del más nuevo al más viejo, el primero de cada riesgo y
- * lugar es su estado actual. Un «finaliza» cierra lo que trata en sus lugares (o en todo el
+ * lugar es su estado actual, y uno que dice expresamente que es de todo el territorio (['*']) lo es
+ * también de cada lugar. Uno sin lugares (no se ha podido situar) cuenta como del territorio, pero no
+ * sustituye a los de cada lugar: un corte de luz en un pueblo que no se encuentra no tapa a los demás. Un «finaliza» cierra lo que trata en sus lugares (o en todo el
  * territorio si no dice ninguno) y los avisos anteriores de eso ya no cuentan. Los que pasan de su
  * vigencia (`maxAgeFor`, por omisión maxAgeOf) sin actualizarse se descartan antes de nada: un aviso
  * caducado no puede ocupar el sitio de otro más viejo que sigue en vigor (un corte de luz de hace
@@ -403,6 +406,7 @@ export function withCurrentCuts(events, { now, grid = [], thresholds }) {
 export function currentNotices(notices, { now, maxAgeFor = maxAgeOf, wholeNotice = false }) {
   const closed = new Set();
   const seen = new Set();
+  const wholeTerritory = new Set(); // riesgos con un aviso más nuevo de todo el territorio (places ['*'])
   const out = [];
   for (const n of [...notices].sort((a, b) => b.at - a.at)) {
     const places = n.places.length ? n.places : ['*'];
@@ -411,6 +415,9 @@ export function currentNotices(notices, { now, maxAgeFor = maxAgeOf, wholeNotice
       continue;
     }
     if (isExpired(n, now, maxAgeFor)) continue; // antes de marcarlo como visto
+    // Uno más nuevo que dice expresamente que es de todo el territorio («pasando a prealerta por
+    // lluvias en toda Canarias») es el estado actual de su riesgo en cada isla o provincia.
+    if (wholeTerritory.has(n.subjects[0]) || wholeTerritory.has('*')) continue;
     const isShut = (p) => closed.has(`*|${p}`) || closed.has('*|*')
       || n.subjects.some((s) => closed.has(`${s}|${p}`) || closed.has(`${s}|*`));
     if (wholeNotice && places.some(isShut)) continue;
@@ -423,6 +430,7 @@ export function currentNotices(notices, { now, maxAgeFor = maxAgeOf, wholeNotice
       seen.add(key);
       out.push({ notice: n, place: p === '*' ? null : p });
     }
+    if (n.places.includes('*')) wholeTerritory.add(n.subjects[0]);
   }
   return out;
 }

@@ -204,7 +204,7 @@ export function parseCanariasAlertas(xml) {
       at: Date.parse(text(it.pubDate)) || 0,
       end: isEndNotice(title),
       subjects: subjectsOf(title, body),
-      places: islands.includes('*') ? [] : islands,
+      places: islands, // ['*'] si dice todo el archipiélago: sustituye a los avisos anteriores de cada isla
       title,
       description: notes ?? htmlText(text(it.description)).replace(/\s*\[…\]$/, '…'),
       url: link,
@@ -591,7 +591,7 @@ export function parseBalearsPremsa(xml) {
       at: Date.parse(text(it.pubDate)) || 0,
       end: isEndNotice(title),
       subjects,
-      places: illes.includes('*') ? [] : illes,
+      places: illes, // ['*'] si dice todas las islas: sustituye a los avisos anteriores de cada isla
       title,
       description: '',
       url: link || null,
