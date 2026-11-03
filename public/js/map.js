@@ -1086,7 +1086,7 @@ const APPROX_LABEL = {
 function eventDetail(e, others = []) {
   const rows = [
     ['Gravedad', SEVERITY_LABEL[e.severity] ?? e.severity],
-    e.issued && ['Emitido', fmtDateTime(e.issued)],
+    e.issued && ['Emitido', e.issuedDayOnly ? fmtDate(e.issued) : fmtDateTime(e.issued)], // algunas fuentes sólo dan el día
     e.start && ['Inicio', fmtDateTime(e.start)],
     e.end && ['Fin previsto', fmtDateTime(e.end)],
     e.area && ['Lugar', e.area],

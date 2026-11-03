@@ -101,7 +101,10 @@ export function photoTitleOf(page) {
 
 // Atribuciones que piden su enlace (la del NAP, la del CRTM y la de TRAM Barcelona), igual que en el pie
 // del mapa. Sólo se enlaza a sus portadas.
-const CREDIT_LINKS = [['MITRAMS', 'https://www.transportes.gob.es/'], ['CRTM', 'https://www.crtm.es/'], ['TRAM Barcelona', 'https://www.tram.cat/']];
+const CREDIT_LINKS = [
+  ['MITRAMS', 'https://www.transportes.gob.es/'], ['CRTM', 'https://www.crtm.es/'], ['TRAM Barcelona', 'https://www.tram.cat/'],
+  ['CC BY 3.0 ES', 'https://creativecommons.org/licenses/by/3.0/es/'], // Gobierno de Cantabria: la licencia pide enlazarla
+];
 
 /** Texto de atribución como HTML, escapado y con el enlace de las que lo piden. */
 export function creditHtml(text) {
