@@ -6,10 +6,10 @@ tiene puertos web abiertos: el tráfico web entra por el túnel, que conecta des
 ```mermaid
 flowchart LR
   nav(["navegador"]) -->|"HTTPS"| cf["Cloudflare"]
-  cf -->|"túnel"| cfd["cloudflared<br/>en el VPS"]
-  cfd --> ngx["nginx (proxy)<br/>127.0.0.1:8080"]
+  cf -->|"túnel"| cfd["cloudflared"]
+  cfd --> ngx["nginx<br/>127.0.0.1:8080"]
   ngx -->|"en servicio"| r1["radar"]
-  ngx -.->|"parado hasta<br/>el siguiente relevo"| r2["radar-b"]
+  ngx -.->|"parado"| r2["radar-b"]
 ```
 
 La web va en dos contenedores que se relevan en cada despliegue, `radar` y `radar-b`, y nginx
@@ -30,11 +30,11 @@ la web convierte en un aviso). La página de 502 de Cloudflare no se puede cambi
 
 ```mermaid
 flowchart TB
-  push(["push a dev"]) --> t["1 · Tests<br/>GitHub Actions"]
-  t --> p["2 · Pruebas en el VPS<br/>rama dev, 127.0.0.1:8081, subdominio privado<br/>imagen con los tests dentro → arranque → deploy/comprobar.mjs"]
-  p -->|"pasa"| v[("imagen verificada<br/>para ese árbol de ficheros")]
-  p --> ap["⏸ 3 · Subir a producción<br/>revisar pruebas y aprobar<br/>Review deployments → produccion → Approve"]
-  ap -->|"merge de dev en produccion"| prod["4 · Producción usa la imagen<br/>verificada, sin recompilar"]
+  push(["push a dev"]) --> t["1 · tests<br/>GitHub Actions"]
+  t --> p["2 · pruebas en el VPS<br/>imagen con los tests,<br/>arranque y comprobar.mjs"]
+  p -->|"pasa"| v[("imagen verificada<br/>para ese árbol")]
+  p --> ap["3 · subir a producción<br/>revisar y aprobar"]
+  ap -->|"merge de dev<br/>en produccion"| prod["4 · producción usa<br/>la imagen verificada"]
   v -.-> prod
 ```
 
