@@ -7,10 +7,10 @@ import { buildRailNetwork } from '../../server/domain/rail-match.js';
 const MIN = 60_000;
 const T0 = Date.UTC(2026, 0, 18, 18, 0);
 
-function fakeSituation({ vehicles = [], tracks = new Map() } = {}) {
+function fakeSituation({ vehicles = [], tracks = new Map(), events = [] } = {}) {
   return {
     vehicles: () => vehicles,
-    events: () => [],
+    events: () => events,
     tracks: () => tracks,
     metrics: () => ({}),
     health: () => [],
@@ -150,4 +150,28 @@ test('la flecha de cientos de Cercanías: lo calculado de los que acaban su viaj
     const live = query.live().vehicles;
     assert.ok(live.every((v) => v.heading === 0), `ronda ${round}: todas hacia el norte`);
   }
+});
+
+test('un aviso oficial que ya pasó de su vigencia no sale aunque su fuente no haya vuelto a responder', () => {
+  const events = [
+    { id: 'corte-viejo', category: 'emergencia', power: true, expires: T0 - MIN },
+    { id: 'corte-en-vigor', category: 'emergencia', power: true, expires: T0 + MIN },
+    { id: 'obra', category: 'carretera' }, // sin vigencia: la decide su fuente en cada lectura
+  ];
+  const query = makeQuerySituation({ situation: fakeSituation({ events }), stations: {}, network: {}, clock: { now: () => T0 } });
+  assert.deepEqual(query.events().map((e) => e.id), ['corte-en-vigor', 'obra']);
+  assert.deepEqual(query.events({ category: 'emergencia' }).map((e) => e.id), ['corte-en-vigor']);
+  assert.deepEqual(query.liveEvents().events.map((e) => e.id), ['corte-en-vigor', 'obra']);
+  assert.deepEqual(query.snapshot().events.map((e) => e.id), ['corte-en-vigor', 'obra']);
+});
+
+test('un plan activado por un apagón se muestra como plan, no como corte de luz, pasado un día', () => {
+  const plateca = {
+    id: 'plateca', category: 'emergencia', type: 'apagon', power: true, severity: 'alta', area: 'La Palma',
+    title: 'El Gobierno de Canarias activa el PLATECA en situación de alerta por cero energético en La Palma',
+  };
+  const events = [{ ...plateca, issued: T0 - 25 * 60 * MIN, expires: T0 + 60 * 60 * MIN }];
+  const query = makeQuerySituation({ situation: fakeSituation({ events }), stations: {}, network: {}, clock: { now: () => T0 } });
+  assert.deepEqual(query.events().map((e) => [e.type, e.power]), [['plan', false]]);
+  assert.deepEqual(query.liveEvents().events.map((e) => e.type), ['plan'], 'también en el mapa');
 });

@@ -8,7 +8,7 @@ import { decodeFeed } from './gtfs-rt.js';
 import { activeFrequencyOffsets, pointAlong, serviceRuns, stopsAlongShape } from '../../../domain/schedule.js';
 import { estimatePosition } from '../../../domain/estimated-position.js';
 import { round5 } from '../../../domain/geo.js';
-import { madridLocalToMs } from './parse.js';
+import { madridDate, madridLocalToMs } from './parse.js';
 import { napDatasetPage } from '../nap/nap-client.js';
 import { createCpuPool } from '../workers/cpu-pool.js';
 import { packSchedule, unpackSchedule } from '../gtfs/gtfs-schedule.js';
@@ -48,11 +48,9 @@ function alongShape(schedule, trip, stops) {
   return trip.along;
 }
 
-const MADRID_DATE = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Madrid' });
-
 /** Día de servicio en Madrid desplazado `offset` días. */
 function madridServiceDay(now, offset) {
-  const [y, m, d] = MADRID_DATE.format(now).split('-').map(Number);
+  const [y, m, d] = madridDate(now).split('-').map(Number);
   const day = new Date(Date.UTC(y, m - 1, d + offset));
   const iso = day.toISOString().slice(0, 10);
   return { ymd: iso.replaceAll('-', ''), iso, weekday: (day.getUTCDay() + 6) % 7, midnight: madridLocalToMs(`${iso}T00:00:00`) };

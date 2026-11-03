@@ -19,6 +19,9 @@ const networkGtfs = () => zipSync({
   'shapes.txt': csv(['shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence', 'sh,40.40,-3.70,1', 'sh,40.45,-3.65,2']),
 });
 const quiet = { info() {}, warn() {} };
+// Reloj fijo: la edad de la copia guardada no depende de cuándo se pasen las pruebas.
+const NOW = Date.parse('2026-11-02T12:00:00Z');
+const now = () => NOW;
 const [[cercaniasId, cercanias, cercaniasDataset], [ligeroId, ligero]] = NETWORKS;
 
 async function tempDir(t) {
@@ -35,7 +38,7 @@ test('cada red lleva la atribución y la fecha de su horario en el NAP', async (
     gtfs: async (id) => { if (id !== cercaniasId && id !== ligeroId) throw new Error('no disponible'); return networkGtfs(); },
     updatedAt: async (dataset, ficheroId) => { asked.push([dataset, ficheroId]); return ficheroId === cercaniasId ? '2026-11-02T06:21:27' : null; },
   };
-  const catalog = createGtfsNetworkCatalog({ nap, cache: { bytes: async () => { throw new Error('sin red'); } }, cacheDir: pathToFileURL(`${dir}/`), log: quiet });
+  const catalog = createGtfsNetworkCatalog({ nap, cache: { bytes: async () => { throw new Error('sin red'); } }, cacheDir: pathToFileURL(`${dir}/`), log: quiet, now });
   await catalog.load();
   assert.deepEqual(catalog.sources(), [
     { name: cercanias, credit: 'Powered by MITRAMS (Punto de Acceso Nacional) · Origen de los datos: Renfe Operadora · Trazado simplificado (dato explotado)', updated: madridLocalToMs('2026-11-02T06:21:27') },
@@ -49,13 +52,13 @@ test('cada red lleva la atribución y la fecha de su horario en el NAP', async (
 test('una copia guardada sin fechas las pide al NAP sin rehacer los trazados', async (t) => {
   const dir = await tempDir(t);
   const feature = { type: 'Feature', geometry: { type: 'LineString', coordinates: [[-3.7, 40.4], [-3.6, 40.5]] }, properties: { network: cercanias, line: 'C1' } };
-  await writeFile(join(dir, 'trazados-red-v3.json'), JSON.stringify({ type: 'FeatureCollection', features: [feature], builtAt: Date.now(), failed: [] }));
+  await writeFile(join(dir, 'trazados-red-v3.json'), JSON.stringify({ type: 'FeatureCollection', features: [feature], builtAt: NOW - 3600_000, failed: [] }));
   const nap = {
     enabled: true,
     gtfs: async () => { throw new Error('no debería descargar nada'); },
     updatedAt: async () => '2026-10-30T10:00:00',
   };
-  const catalog = createGtfsNetworkCatalog({ nap, cache: {}, cacheDir: pathToFileURL(`${dir}/`), log: quiet });
+  const catalog = createGtfsNetworkCatalog({ nap, cache: {}, cacheDir: pathToFileURL(`${dir}/`), log: quiet, now });
   await catalog.load();
   assert.deepEqual(catalog.sources().map((s) => [s.name, s.updated]), [[cercanias, madridLocalToMs('2026-10-30T10:00:00')]]);
   const saved = JSON.parse(await readFile(join(dir, 'trazados-red-v3.json'), 'utf8'));

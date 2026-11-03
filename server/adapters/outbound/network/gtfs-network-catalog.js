@@ -198,11 +198,13 @@ function buildTenerife(bytes) {
 /**
  * @param {{ nap: ReturnType<typeof import('../nap/nap-client.js').createNapClient>,
  *           cache: ReturnType<typeof import('../http/file-cache.js').createFileCache>, cacheDir: URL,
- *           log: import('../../../application/ports.js').LoggerPort, pool?: import('../workers/cpu-pool.js').CpuPool }} deps
+ *           log: import('../../../application/ports.js').LoggerPort, pool?: import('../workers/cpu-pool.js').CpuPool,
+ *           now?: () => number }} deps
  *   pool: hilos de cálculo para leer los GTFS; sin él, en el hilo principal.
+ *   now: reloj con el que se mide la edad de los trazados guardados (para los tests).
  * @returns {import('../../../application/ports.js').NetworkCatalogPort}
  */
-export function createGtfsNetworkCatalog({ nap, cache, cacheDir, log, pool }) {
+export function createGtfsNetworkCatalog({ nap, cache, cacheDir, log, pool, now = Date.now }) {
   // Nombre nuevo para no reutilizar una caché sin los shape_id de cada trazado ni los colores aclarados.
   const cacheFile = new URL('trazados-red-v3.json', cacheDir);
   let collection = { type: 'FeatureCollection', features: [] };
@@ -248,7 +250,7 @@ export function createGtfsNetworkCatalog({ nap, cache, cacheDir, log, pool }) {
       }
       // Una copia de antes de guardar las fechas (o con alguna que faltó): se piden ahora, sin rehacer
       // los trazados, y se guardan.
-      const stale = Date.now() - builtAt >= MAX_AGE_MS;
+      const stale = now() - builtAt >= MAX_AGE_MS;
       if (nap.enabled && !stale) {
         let filled = false;
         for (const [, name] of NETWORKS) {
@@ -285,7 +287,7 @@ export function createGtfsNetworkCatalog({ nap, cache, cacheDir, log, pool }) {
       if (!features.length) return 0;
       collection = { type: 'FeatureCollection', features };
       failed = nowFailed;
-      if (stale) builtAt = Date.now();
+      if (stale) builtAt = now();
       await mkdir(cacheDir, { recursive: true });
       await writeFileAtomic(cacheFile, JSON.stringify({ ...collection, builtAt, failed, updated }));
       log.info(`[líneas] ${features.length} trazados de ${NETWORKS.length + 1 - failed.length} redes`

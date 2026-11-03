@@ -238,7 +238,7 @@ oficial.
 | Andalucía | ✅ Planes activados y cortes de luz en los pueblos que citan | Solo el general de la península | Noticias de Emergencias 112 de la Junta (CC BY 4.0) |
 | Aragón | ❌ | Solo el general de la península | Licencia contradictoria (el pie de la web dice CC BY 4.0 y el aviso legal, «uso personal», sin fines comerciales ni modificación) y ningún conjunto de emergencias |
 | Asturias | ❌ | Solo el general de la península | El 112 no tiene RSS y su licencia es no comercial; las noticias del Principado (CC BY 4.0) no tienen RSS |
-| Illes Balears | ✅ Alertas y emergencias por isla, su fin y cortes de luz | ❌ | Sala de prensa del Govern (CC BY, conjunto de su catálogo de datos abiertos). Su robots.txt prohíbe esa ruta, en contra de su propio catálogo: se usa la URL del catálogo cada 15 minutos y se pide confirmación al Govern; si no lo aceptan, se retira. Red Eléctrica no publica en tiempo real la demanda real de Baleares, solo la programada |
+| Illes Balears | ✅ Alertas y emergencias por isla, su fin y cortes de luz | ❌ | Sala de prensa del Govern, en catalán (CC BY, conjunto de su catálogo de datos abiertos). Su robots.txt prohíbe esa ruta, en contra de su propio catálogo: se usa la URL exacta que publica el catálogo cada 15 minutos y se pide confirmación al Govern; si no lo aceptan, se retira. Red Eléctrica no publica en tiempo real la demanda real de Baleares, solo la programada |
 | Canarias | ✅ Declaraciones del PLATECA por isla (prealerta, alerta, emergencia y su fin), ceros energéticos incluidos | ✅ Cada isla o grupo de islas | Gobierno de Canarias (CC BY 4.0) y e·sios |
 | Cantabria | ❌ (por ahora) | Solo el general de la península | Su RSS del 112 tiene licencia válida (CC BY 3.0 ES), pero solo trae avisos meteorológicos y del PLATERCANT y nunca ha publicado un corte de luz. Se puede añadir para los planes |
 | Castilla-La Mancha | ✅ Planes activados por provincia (PLATECAM, METEOCAM…) | Solo el general de la península | RSS del 112 Castilla-La Mancha (aviso legal: reutilización citando la fuente) |
@@ -324,9 +324,6 @@ después (con jq, DuckDB o pandas).
 
 ## Pendiente y conocido
 
-- **Avisos oficiales de Cataluña, Andalucía, Castilla-La Mancha, La Rioja, Castilla y León y Baleares**:
-  en pausa mientras se revisa cómo se leen sus avisos (frases que no son un corte de luz, notas que no
-  son emergencias). Siguen citados en `/legal`; los de Canarias y el apagón por isla (e·sios), activos.
 - **Adif (estado de la red, incidencias, circulaciones)**: su web responde 403 a cualquier
   cliente automatizado y no publica nada en el NAP. No se esquiva el bloqueo; se pide acceso
   formalmente.
@@ -367,8 +364,11 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   Qué hay de cada comunidad y por qué falta lo que falta, en *Emergencias y cortes de luz: qué hay de
   cada comunidad*.
 - Apagón total de una isla de Canarias, de Ceuta o de Melilla: alerta a los pocos minutos cuando su
-  demanda real cae muy por debajo de la esperada (datos de Red Eléctrica). Con los datos del
-  2-11-2026 habría avisado del apagón de La Palma a los 3 minutos, una hora antes que el aviso oficial.
+  demanda real cae muy por debajo de la esperada en dos datos seguidos (uno suelto puede estar mal
+  medido), con datos de Red Eléctrica. Con los del 2-11-2026 avisa del apagón de La Palma con el dato
+  de las 06:45 (el corte fue a las 06:42), en cuanto e·sios lo publica, y la alerta sigue hasta que
+  la isla recupera más de la mitad de lo esperado, sin cerrarse por el camino. En tres días normales,
+  ninguna alerta.
 - Red ferroviaria, líneas de metro, tranvía y Cercanías, y estaciones.
 - Nombres del mapa base en español.
 - Se descartan los retrasos imposibles que a veces llegan en los datos.
@@ -457,6 +457,18 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   selección.
 - Un Cercanías que Renfe da parado en una estación lejana (su posición no está al día) ya no da un
   aviso falso de tren detenido en plena vía.
+- Avisos oficiales más fiables:
+  - no cuentan como corte de luz las frases que lo niegan («no se han registrado cortes»), lo prevén
+    («ante posibles cortes»), son de un simulacro, hablan de otro apagón con su fecha o de un solo
+    edificio;
+  - Andalucía sólo muestra un corte si la noticia dice dónde, y una luz que vuelve en un sitio que no
+    se sabe situar no cierra los cortes del resto;
+  - una sequía o una alerta sanitaria o alimentaria no es un plan de protección civil, y un aviso que
+    no dice su riesgo ni su nivel no sustituye ni cierra los de los demás;
+  - cada aviso deja el mapa y las alertas a su hora aunque su fuente deje de responder;
+  - un plan activado por un apagón deja de mostrarse como «corte de luz» al día, o antes si es en una
+    isla y su demanda eléctrica pasa de la mitad de lo que consumía: el 2-11-2026, La Palma a las 09:45;
+  - la demanda de las islas no toma un dato vacío por 0 MW.
 
 **Interfaz**
 - Vista para el móvil, con el mapa a pantalla completa y un panel que sube desde abajo.
@@ -511,6 +523,9 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   lectura de los horarios y la evaluación de alertas repiten menos trabajo.
 - Las respuestas guardadas de la API caducan y tienen un tope de memoria, aunque se pidan muchas
   variantes distintas.
+- Las fuentes de avisos oficiales descargan con un tope de tamaño, la de Baleares sólo lee sus notas
+  recientes y la búsqueda de pueblos en CartoCiudad tiene un máximo por lectura y se detiene si el
+  servicio no responde.
 
 **Despliegue y seguridad**
 - La aplicación funciona aislada, en un contenedor con recursos limitados y cabeceras de

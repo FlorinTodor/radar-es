@@ -1,8 +1,9 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { createHttpServer } from '../../server/adapters/inbound/http/http-server.js';
+import { madridDate } from '../../server/adapters/outbound/sources/parse.js';
 
 // Comprobaciones de SEO de las páginas públicas: así una página nueva no se publica sin título,
 // descripción, canonical ni entrada en el sitemap.
@@ -58,12 +59,18 @@ test('el sitemap sólo enlaza páginas que existen y robots.txt lo anuncia', () 
   assert.match(robots, new RegExp(`^Sitemap: ${SITE}/sitemap\\.xml$`, 'm'));
 });
 
-test('cada URL del sitemap lleva su fecha de última modificación, y no es futura', () => {
+test('cada URL del sitemap lleva su fecha de última modificación, y no es futura', async () => {
+  // «No es futura» sin mirar el reloj: una fecha no puede ser posterior al día (de Madrid) en que se
+  // escribió el propio sitemap (su fecha en el disco; al clonar o copiar el repositorio sólo puede ser
+  // más tarde). Así el resultado no depende de cuándo se pase la prueba: con `new Date()`, entre las
+  // 00:00 y la 01:00 de Madrid fallaba la fecha del día, que en UTC aún es mañana.
+  const written = madridDate((await stat(`${PUBLIC}/sitemap.xml`)).mtimeMs);
   const urls = [...sitemap.matchAll(/<url>([\s\S]*?)<\/url>/g)].map((m) => m[1]);
   for (const url of urls) {
     const lastmod = url.match(/<lastmod>(\d{4}-\d{2}-\d{2})<\/lastmod>/)?.[1];
     assert.ok(lastmod, `lastmod en ${url.match(/<loc>([^<]+)/)?.[1]}`);
-    assert.ok(new Date(lastmod) <= new Date(), `lastmod ${lastmod} no es futura`);
+    assert.equal(new Date(lastmod).toISOString().slice(0, 10), lastmod, `lastmod ${lastmod} es una fecha que existe`);
+    assert.ok(lastmod <= written, `lastmod ${lastmod}: no puede ser posterior al día en que se escribió el sitemap (${written})`);
   }
 });
 

@@ -5,7 +5,7 @@
 // no tienen licencia de reutilización.
 import { createPacer, csvColumns, csvColumnsStreamed, csvRows, openGtfs, own, zipLocalDate } from '../gtfs/gtfs-reader.js';
 import { RENFE_FILES } from '../stations/renfe-station-catalog.js';
-import { num } from './parse.js';
+import { madridDateTime, madridToday, num } from './parse.js';
 import { distanceKm } from '../../../domain/geo.js';
 
 const GTFSRT = 'https://gtfsrt.renfe.com';
@@ -39,10 +39,7 @@ const PRODUCTS = {
 };
 const product = (short) => PRODUCTS[(short ?? '').toUpperCase()] ?? [short || 'Renfe', 'ld'];
 
-const MADRID_ISO = new Intl.DateTimeFormat('sv-SE', {
-  timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
-});
-const madridIso = (epochSec) => MADRID_ISO.format(epochSec * 1000).replace(' ', 'T');
+const madridIso = (epochSec) => madridDateTime(epochSec * 1000);
 
 /** Horarios oficiales de Renfe, cargados una vez al día y compartidos por las dos fuentes. */
 export function createTimetables({ cache, stations, log }) {
@@ -94,7 +91,9 @@ export function createTimetables({ cache, stations, log }) {
       const stopsOf = tripStopsPatterns();
       const next = new Map();
       const byNumber = new Map(); // número → [fecha de inicio del periodo, viaje]
-      const today = new Date().toISOString().slice(0, 10);
+      // El día de Madrid, no el de UTC: entre las 00:00 y la 01:00 (las 02:00 en verano) el de UTC aún
+      // es ayer y, el día que empieza un periodo, se quedaría con el anterior.
+      const today = madridToday();
       // El periodo vigente: el que empezó más tarde sin pasar de hoy; si todos son futuros, el más próximo.
       const current = (a, b) => ((a <= today) === (b <= today) ? (a <= today ? a > b : a < b) : a <= today);
       for (const t of csvRows(f['trips.txt'])) {
