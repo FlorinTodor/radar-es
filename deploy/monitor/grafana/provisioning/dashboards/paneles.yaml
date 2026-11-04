@@ -1,0 +1,10 @@
+# Los paneles salen de grafana/dashboards/ (en git): lo que se cambie a mano en Grafana no se guarda.
+apiVersion: 1
+providers:
+  - name: radar
+    folder: Radar España
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana-paneles

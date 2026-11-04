@@ -6,6 +6,7 @@ import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream';
 import { extname, join, resolve, sep } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { isStationCode } from '../../../domain/model.js';
@@ -24,12 +25,14 @@ const MIME = {
  *           serveTiles?: ReturnType<typeof import('../../../application/use-cases/serve-tiles.js').makeServeTiles>,
  *           log: import('../../../application/ports.js').LoggerPort,
  *           publicDir: string, vendorDirs: Record<string, string>, about?: object, now?: () => number,
- *           mcp?: ReturnType<typeof import('../mcp/mcp.js').createMcpHandler> }} deps
+ *           mcp?: ReturnType<typeof import('../mcp/mcp.js').createMcpHandler>,
+ *           metrics?: Pick<import('../../../application/ports.js').MetricsPort, 'request'|'mcp'> }} deps
  *   now: reloj de los memos y de los presupuestos de cálculo (los tests lo fijan: no pueden depender de
  *   lo rápida que sea la máquina).
  *   mcp: quien atiende los mensajes del servidor MCP en POST /mcp; sin él, /mcp no existe.
+ *   metrics: cuenta cada petición (por ruta, sin parámetros) y cada mensaje MCP, para la monitorización.
  */
-export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs, about = {}, now = Date.now, mcp }) {
+export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs, about = {}, now = Date.now, mcp, metrics = NO_METRICS }) {
   // Todas las respuestas JSON se calculan, comprimen y firman (ETag) como mucho una vez cada `ttl`,
   // así que pedirlas mil veces cuesta lo mismo que pedirlas una. Sin esto, /api/lines (1 MB)
   // saturaba un núcleo con unas 20 peticiones por segundo. `key` separa las variantes por parámetros.
@@ -110,11 +113,20 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
   // Dominio canónico (PUBLIC_URL): www.<dominio> redirige a él para que los buscadores no vean dos
   // webs iguales. Sólo esa variante: localhost, la IP y el chequeo de salud siguen igual.
   const canonical = about.publicUrl ? new URL(about.publicUrl) : null;
+  const vendorPrefixes = Object.keys(vendorDirs ?? {});
   const server = createServer(async (req, res) => {
     for (const [name, value] of security) res.setHeader(name, value);
+    // Para la monitorización: ruta (sin lo que se ha pedido), código y tiempo hasta acabar de enviar.
+    // Si quien pide se va antes, cuenta como 499, como en nginx.
+    const started = performance.now();
+    const www = Boolean(canonical) && req.headers.host?.toLowerCase() === `www.${canonical.host}`;
+    const route = routeLabel(req.url, { routes, vendorPrefixes, www });
+    res.once('close', () => metrics.request({
+      route, method: req.method, status: res.writableFinished ? res.statusCode : 499, seconds: (performance.now() - started) / 1000,
+    }));
     try {
       const url = new URL(req.url, 'http://localhost');
-      if (canonical && req.headers.host?.toLowerCase() === `www.${canonical.host}`) {
+      if (www) {
         // Un POST (el servidor MCP) con 301 se repetiría como GET: 308 conserva el método y el cuerpo.
         const keepsMethod = req.method !== 'GET' && req.method !== 'HEAD';
         return redirect(res, `${canonical.origin}${url.pathname}${url.search}`, keepsMethod ? 308 : 301);
@@ -254,40 +266,60 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
   async function sendMcp(req, res) {
     res.setHeader('X-Robots-Tag', 'noindex');
     res.setHeader('Cache-Control', 'no-store');
+    // Cómo acaba cada mensaje, para la monitorización: método, herramienta y versión, sólo si existen.
+    const headerVersion = req.headers['mcp-protocol-version'];
+    const counted = (result, message, seconds) => metrics.mcp({
+      method: mcpMethodLabel(mcp, message), tool: mcpToolLabel(mcp, message),
+      era: isModernVersion(message ? versionOf(message) : headerVersion) ? 'moderna' : 'antigua', result, seconds,
+    });
     if (req.method !== 'POST') {
+      counted('metodo_http');
       res.setHeader('Allow', 'POST');
       return send(res, 405, { error: 'El servidor MCP sólo acepta POST' });
     }
     const origin = req.headers.origin;
     if (origin !== undefined && origin !== canonical?.origin && !LOOPBACK_ORIGIN.test(origin)) {
+      counted('origen');
       return send(res, 403, rpcFailure(RPC.invalidRequest, 'Origen no permitido'));
     }
-    const headerVersion = req.headers['mcp-protocol-version'];
     if (headerVersion !== undefined && !PROTOCOL_VERSIONS.includes(headerVersion)) {
+      counted('version_no_admitida');
       return send(res, 400, rpcFailure(RPC.unsupportedVersion, 'Versión del protocolo MCP no admitida',
         { supported: PROTOCOL_VERSIONS, requested: headerVersion.slice(0, 40) }));
     }
-    if (!/^application\/json\b/i.test(req.headers['content-type'] ?? '')) return send(res, 415, rpcFailure(RPC.parse, 'Se espera application/json'));
+    if (!/^application\/json\b/i.test(req.headers['content-type'] ?? '')) {
+      counted('tipo_de_contenido');
+      return send(res, 415, rpcFailure(RPC.parse, 'Se espera application/json'));
+    }
     // Lo que dice ser grande ni se lee; lo que no lo dice, se corta en cuanto pasa del tope.
-    if (Number(req.headers['content-length']) > MCP_MAX_BODY) return tooLarge(res);
-    const body = await readBody(req, MCP_MAX_BODY);
-    if (body === null) return tooLarge(res);
+    const body = Number(req.headers['content-length']) > MCP_MAX_BODY ? null : await readBody(req, MCP_MAX_BODY);
+    if (body === null) {
+      counted('demasiado_grande');
+      return tooLarge(res);
+    }
     let message;
     try {
       message = JSON.parse(body);
     } catch {
+      counted('json_no_valido');
       return send(res, 400, rpcFailure(RPC.parse, 'JSON no válido'));
     }
     const mismatch = mcpHeaderMismatch(req.headers, message);
-    if (mismatch) return send(res, 400, { jsonrpc: '2.0', id: idOf(message), error: { code: RPC.headerMismatch, message: mismatch } });
+    if (mismatch) {
+      counted('cabeceras_distintas', message);
+      return send(res, 400, { jsonrpc: '2.0', id: idOf(message), error: { code: RPC.headerMismatch, message: mismatch } });
+    }
     let reply;
+    const started = performance.now();
     try {
       reply = mcp(message, { budget: bothBudgets(clientBudget(clientAddress(req)), mcpBudget) });
     } catch (err) {
       if (!(err instanceof McpBusy)) throw err;
+      counted('ocupado', message);
       res.setHeader('Retry-After', '2');
       return send(res, 429, { jsonrpc: '2.0', id: idOf(message), error: { code: -32000, message: 'Demasiadas consultas a la vez; prueba dentro de un momento' } });
     }
+    counted(mcpResultLabel(reply), message, (performance.now() - started) / 1000);
     if (reply === null) {
       res.writeHead(202);
       return res.end();
@@ -388,6 +420,59 @@ const idParam = (p, name) => {
   if (value === null || value === '') return undefined;
   return /^[a-z0-9-]{1,40}$/.test(value) ? value : '-';
 };
+
+const NO_METRICS = { request() {}, mcp() {} };
+
+/**
+ * Ruta de una petición para las métricas: las de la API, sin lo que se ha pedido
+ * (`/api/stations/:code`); lo demás, por tipo (páginas, ficheros, teselas, librerías). Así hay pocas
+ * series y ninguna dice qué ha mirado nadie.
+ * @param {string} rawUrl  req.url
+ * @param {{ routes: Record<string, unknown>, vendorPrefixes?: string[], www?: boolean }} options
+ *   www: la petición llega a www.<dominio> y sólo se redirige.
+ */
+export function routeLabel(rawUrl, { routes, vendorPrefixes = [], www = false }) {
+  if (www) return 'www';
+  let path;
+  try {
+    path = new URL(rawUrl ?? '/', 'http://localhost').pathname;
+  } catch {
+    return 'otra';
+  }
+  if (path === '/mcp' || Object.hasOwn(routes, path) || path === '/api/burnt-areas') return path;
+  if (path.startsWith('/api/')) {
+    if (path.startsWith('/api/stations/')) return '/api/stations/:code';
+    for (const p of ['ahead', 'stops', 'tracks']) if (path.startsWith(`/api/${p}/`)) return `/api/${p}/:id`;
+    return '/api/otra';
+  }
+  if (path.startsWith('/tiles/')) return '/tiles';
+  if (vendorPrefixes.some((prefix) => path.startsWith(prefix))) return '/vendor';
+  return extname(path) ? 'fichero' : 'pagina';
+}
+
+// Etiquetas de los mensajes MCP: sólo nombres de métodos y herramientas que existen.
+const mcpMethodLabel = (mcp, message) => {
+  const method = message?.method;
+  if (typeof method !== 'string') return 'ninguno';
+  if (method.startsWith('notifications/')) return 'notificacion'; // avisos del cliente, sin respuesta
+  return mcp.methodNames?.includes(method) ? method : 'otro';
+};
+const mcpToolLabel = (mcp, message) => {
+  if (message?.method !== 'tools/call') return '';
+  const name = message.params?.name;
+  return mcp.toolNames?.includes(name) ? name : 'otra';
+};
+/** Cómo ha acabado un mensaje MCP que ha llegado al adaptador (null: una notificación, sin respuesta). */
+function mcpResultLabel(reply) {
+  if (reply === null) return 'notificacion';
+  const code = reply.error?.code;
+  if (code !== undefined) return MCP_ERROR_LABELS.get(code) ?? 'error_rpc';
+  return reply.result?.isError ? 'error_herramienta' : 'ok';
+}
+const MCP_ERROR_LABELS = new Map([
+  [RPC.invalidRequest, 'peticion_no_valida'], [RPC.methodNotFound, 'metodo_desconocido'], [RPC.invalidParams, 'parametros_no_validos'],
+  [RPC.unsupportedVersion, 'version_no_admitida'], [RPC.headerMismatch, 'cabeceras_distintas'],
+]);
 
 /** Lo lanza el cálculo de una variante nueva cuando se ha gastado el presupuesto: 503. */
 class Busy extends Error {}

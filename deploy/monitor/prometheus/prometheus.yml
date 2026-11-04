@@ -1,0 +1,5 @@
+# Prometheus sólo guarda: las métricas se las manda Alloy (remote write; ver ../alloy/config.alloy),
+# y las alertas las evalúa Grafana. 30 días o 4 GB, lo que llegue antes (compose.yaml).
+global:
+  scrape_interval: 30s
+scrape_configs: []

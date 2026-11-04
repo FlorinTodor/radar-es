@@ -12,6 +12,13 @@ x-radar: &radar
   environment:
     HOST: 0.0.0.0
     PORT: 8080
+    # Métricas para la monitorización (deploy/monitor/): dentro de la red de Docker y sin publicar, así
+    # que sólo las lee Alloy, desde el propio VPS; ni nginx ni el túnel llegan a ellas.
+    METRICS_PORT: 9464
+    METRICS_HOST: 0.0.0.0
+  labels:
+    # Alloy busca por esta etiqueta qué contenedores tienen métricas, y en qué puerto.
+    es.radarespana.metricas: "9464"
   # Un puerto local cualquiera (sólo en 127.0.0.1): lo usan las comprobaciones del despliegue
   # (`docker compose port radar 8080`). Las visitas llegan siempre a través de nginx.
   ports:
