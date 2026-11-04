@@ -271,9 +271,10 @@ loki.relabel "diario" {
     target_label  = "transporte"
   }
 
+  // «level», como lo entiende Grafana (error, warning, info…).
   rule {
     source_labels = ["__journal_priority_keyword"]
-    target_label  = "nivel"
+    target_label  = "level"
   }
 }
 
@@ -295,15 +296,43 @@ loki.process "privacidad" {
     action   = "drop"
   }
 
-  // Los bloqueos del cortafuegos ([UFW BLOCK]) son ruido: intentos de conexión de cualquiera.
+  // Del kernel, sólo lo que importa: falta de memoria, procesos que mueren y errores de disco. El
+  // resto (el cortafuegos, AppArmor…) es ruido.
   stage.match {
-    selector = "{transporte=\"kernel\"} |= \"[UFW \""
+    selector = "{transporte=\"kernel\"} !~ \"(?i)out of memory|oom|killed process|segfault|i/o error|ext4-fs error|hung task|blocked for more than\""
     action   = "drop"
   }
 
-  stage.replace {
-    expression = "(\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b)"
-    replace    = "x.x.x.x"
+  // El nivel de cada línea de la web (✖ error, ⚠ aviso; lo demás, info) y de la monitorización (level=…).
+  stage.match {
+    selector = "{origen=\"docker\", proyecto=~\"radar|radar-pruebas\"} |= \"✖\""
+    stage.static_labels {
+      values = {level = "error"}
+    }
+  }
+
+  stage.match {
+    selector = "{origen=\"docker\", proyecto=~\"radar|radar-pruebas\"} |= \"⚠\""
+    stage.static_labels {
+      values = {level = "warning"}
+    }
+  }
+
+  stage.match {
+    selector = "{origen=\"docker\", proyecto=~\"radar|radar-pruebas\", level=\"\"}"
+    stage.static_labels {
+      values = {level = "info"}
+    }
+  }
+
+  stage.match {
+    selector = "{origen=\"docker\", proyecto=\"radar-monitor\"}"
+    stage.regex {
+      expression = "(?:level|lvl)=\"?(?P<level>[a-z]+)"
+    }
+    stage.labels {
+      values = {level = ""}
+    }
   }
 
   // Ni claves: el valor de cualquier token, key, secret, password o authorization que aparezca.

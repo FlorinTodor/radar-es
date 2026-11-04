@@ -100,8 +100,10 @@ export function createPrometheusMetrics({ version = '0.0.0', now = Date.now, sta
       const enabled = sources.filter((s) => s.enabled);
       gauge('radar_source_enabled', 'Fuente activa (1) o desactivada o en pausa (0).',
         sources.map((s) => [{ source: s.id }, s.enabled ? 1 : 0]));
-      gauge('radar_source_up', 'La última lectura de la fuente fue buena (1) o no (0; también si aún no se ha leído).',
-        enabled.map((s) => [{ source: s.id }, s.ok === true ? 1 : 0]));
+      // Una fuente que aún no se ha leído no cuenta como caída (al arrancar serían todas): si nunca llega
+      // a leerse bien, avisa radar_source_seconds_since_ok.
+      gauge('radar_source_up', 'La última lectura de la fuente fue buena (1) o falló (0). Sin valor si aún no se ha leído.',
+        enabled.filter((s) => s.ok === true || s.ok === false).map((s) => [{ source: s.id }, s.ok ? 1 : 0]));
       gauge('radar_source_items', 'Vehículos, incidencias o valores de la última lectura buena.',
         enabled.map((s) => [{ source: s.id }, s.count ?? 0]));
       gauge('radar_source_interval_seconds', 'Cada cuánto se lee la fuente.',

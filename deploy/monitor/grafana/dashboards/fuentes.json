@@ -11,7 +11,7 @@
   "editable": false,
   "refresh": "1m",
   "time": {
-    "from": "now-6h",
+    "from": "now-3h",
     "to": "now"
   },
   "templating": {
@@ -54,9 +54,10 @@
             "uid": "prometheus"
           },
           "expr": "max by (source) (radar_source_up{entorno=\"$entorno\"})",
-          "refId": "B",
+          "refId": "A",
           "instant": true,
-          "range": false
+          "range": false,
+          "format": "table"
         },
         {
           "datasource": {
@@ -64,9 +65,10 @@
             "uid": "prometheus"
           },
           "expr": "max by (source) (radar_source_seconds_since_ok{entorno=\"$entorno\"})",
-          "refId": "C",
+          "refId": "B",
           "instant": true,
-          "range": false
+          "range": false,
+          "format": "table"
         },
         {
           "datasource": {
@@ -74,9 +76,10 @@
             "uid": "prometheus"
           },
           "expr": "max by (source) (radar_source_items{entorno=\"$entorno\"})",
-          "refId": "D",
+          "refId": "C",
           "instant": true,
-          "range": false
+          "range": false,
+          "format": "table"
         },
         {
           "datasource": {
@@ -84,9 +87,10 @@
             "uid": "prometheus"
           },
           "expr": "max by (source) (radar_source_interval_seconds{entorno=\"$entorno\"})",
-          "refId": "E",
+          "refId": "D",
           "instant": true,
-          "range": false
+          "range": false,
+          "format": "table"
         },
         {
           "datasource": {
@@ -94,9 +98,10 @@
             "uid": "prometheus"
           },
           "expr": "sum by (source) (increase(radar_source_reads_total{entorno=\"$entorno\",result=\"error\"}[1h]))",
-          "refId": "F",
+          "refId": "E",
           "instant": true,
-          "range": false
+          "range": false,
+          "format": "table"
         },
         {
           "datasource": {
@@ -104,9 +109,10 @@
             "uid": "prometheus"
           },
           "expr": "histogram_quantile(0.95, sum by (le, source) (rate(radar_source_read_seconds_bucket{entorno=\"$entorno\"}[1h])))",
-          "refId": "G",
+          "refId": "F",
           "instant": true,
-          "range": false
+          "range": false,
+          "format": "table"
         }
       ],
       "transformations": [
@@ -253,7 +259,7 @@
     {
       "type": "timeseries",
       "title": "Lecturas fallidas por fuente (por hora)",
-      "description": "",
+      "description": "Sólo salen las fuentes que han fallado alguna vez en los últimos 15 minutos.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -279,7 +285,8 @@
             "stacking": {
               "mode": "none"
             }
-          }
+          },
+          "noValue": "Ninguna ha fallado"
         },
         "overrides": []
       },

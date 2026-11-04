@@ -11,7 +11,7 @@
   "editable": false,
   "refresh": "1m",
   "time": {
-    "from": "now-6h",
+    "from": "now-3h",
     "to": "now"
   },
   "templating": {

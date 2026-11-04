@@ -72,6 +72,7 @@ test('las fuentes: activas, en pausa y cuánto llevan sin una lectura buena (des
         { id: 'renfe-ld', enabled: true, ok: true, interval: 20_000, count: 412, lastOk: T - 20_000 },
         { id: 'fgc', enabled: true, ok: false, interval: 30_000, count: 0, lastOk: null },
         { id: 'madrid-112', enabled: false, reason: 'En pausa', ok: null, interval: 600_000, lastOk: null },
+        { id: 'dgt', enabled: true, ok: null, interval: 300_000, count: 0, lastOk: null },
       ],
     });
     assert.equal(value(text, 'radar_source_enabled{source="renfe-ld"}'), 1);
@@ -83,6 +84,8 @@ test('las fuentes: activas, en pausa y cuánto llevan sin una lectura buena (des
     assert.equal(value(text, 'radar_source_seconds_since_ok{source="renfe-ld"}'), 20);
     assert.equal(value(text, 'radar_source_seconds_since_ok{source="fgc"}'), 300, 'nunca ha leído bien: desde el arranque');
     assert.equal(value(text, 'radar_source_up{source="madrid-112"}'), undefined, 'una fuente en pausa no puede avisar de que falla');
+    assert.equal(value(text, 'radar_source_up{source="dgt"}'), undefined, 'una fuente aún sin leer no cuenta como caída');
+    assert.equal(value(text, 'radar_source_seconds_since_ok{source="dgt"}'), 300, 'pero sí cuenta el tiempo sin datos');
   } finally {
     m.close();
   }
