@@ -72,3 +72,22 @@ test('unas líneas provisionales se sirven, pero ni el navegador ni Cloudflare l
   const ready = await get();
   assert.match(ready.headers.get('cache-control'), /public, max-age=600/, 'las rehechas, sí');
 });
+
+test('mientras las líneas son provisionales, de dónde sale cada trazado tampoco se guarda (aún no cita la vía)', async (t) => {
+  const { createHttpServer } = await import('../../server/adapters/inbound/http/http-server.js');
+  let lines = { ...base, provisional: true };
+  let sources = [{ name: 'Metro de Sevilla', credit: 'Metro de Sevilla', updated: 1 }];
+  let clock = 0;
+  const server = createHttpServer({ query: { lines: () => lines, lineSources: () => sources }, log: { error() {} }, publicDir: '/nonexistent', vendorDirs: {}, now: () => clock });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => server.close());
+  const get = () => fetch(`http://127.0.0.1:${server.address().port}/api/lines/sources`);
+  const res = await get();
+  assert.equal(res.headers.get('cache-control'), 'no-store', 'con las líneas a medias, no');
+  lines = base;
+  sources = [{ name: 'Metro de Sevilla', credit: 'Metro de Sevilla · Vía: Obra derivada de IGR-RT 2026 CC-BY 4.0 scne.es', updated: 1 }];
+  clock += 3000;
+  const ready = await get();
+  assert.match(ready.headers.get('cache-control'), /public, max-age=600/, 'rehechas, sí');
+  assert.match((await ready.json())[0].credit, /Vía: /, 'y ya cita la vía');
+});
