@@ -50,11 +50,19 @@ export async function parseSchedule(zip, forcedMode, days, { excludeAgency, excl
   }
 
   const calendar = new Map();
-  for (const c of csvRows(f['calendar.txt'])) calendar.set(c.service_id, { start: c.start_date, end: c.end_date, days: DAYS.map((d) => c[d] === '1') });
+  // Último día con servicio de todo el horario (fin de calendar.txt o día añadido en calendar_dates.txt):
+  // desde el día siguiente no circula nada y la fuente se queda vacía. Se mira antes de quedarse sólo con
+  // hoy y ayer, para avisar con tiempo de que el operador tiene que publicar uno nuevo.
+  let validUntil = '';
+  for (const c of csvRows(f['calendar.txt'])) {
+    calendar.set(c.service_id, { start: c.start_date, end: c.end_date, days: DAYS.map((d) => c[d] === '1') });
+    if (c.end_date > validUntil) validUntil = c.end_date;
+  }
   const wanted = new Set([days.today.ymd, days.yesterday.ymd]);
   const exceptions = new Map();
   for (const [serviceId, date, type] of csvColumns(f['calendar_dates.txt'], ['service_id', 'date', 'exception_type'])) {
     if (pace.due()) await pace.pause();
+    if (type === '1' && date > validUntil) validUntil = date;
     if (!wanted.has(date)) continue;
     if (!exceptions.has(serviceId)) exceptions.set(own(serviceId), new Map());
     exceptions.get(serviceId).set(own(date), +type);
@@ -175,7 +183,7 @@ export async function parseSchedule(zip, forcedMode, days, { excludeAgency, excl
       first: times[offset + 3], last: times[offset + (n - 1) * 4 + 2], shape: shapeIndex.get(t.shapeId) ?? -1 });
     offset += n * 4;
   }
-  return { calendar, exceptions, stopList, times, trips: compact, shapes };
+  return { calendar, exceptions, stopList, times, trips: compact, shapes, validUntil: /^\d{8}$/.test(validUntil) ? validUntil : null };
 }
 
 // ---------- Paso entre hilos ----------
@@ -185,7 +193,7 @@ export async function parseSchedule(zip, forcedMode, days, { excludeAgency, excl
 // columnas (arrays de cadenas y arrays tipados, que se transfieren sin copiar) se rehace en pocos ms.
 
 /** Horario → forma compacta para enviarlo a otro hilo ({ value, transfer }). */
-export function packSchedule({ calendar, exceptions, stopList, times, trips, shapes }) {
+export function packSchedule({ calendar, exceptions, stopList, times, trips, shapes, validUntil = null }) {
   const routes = [];
   const routeIndex = new Map();
   const nt = trips.length;
@@ -210,7 +218,7 @@ export function packSchedule({ calendar, exceptions, stopList, times, trips, sha
   const coords = new Float64Array(stopList.length * 2);
   stopList.forEach((st, i) => { coords[i * 2] = st.lat; coords[i * 2 + 1] = st.lon; });
   const value = {
-    exceptions, times, shapes, routes,
+    exceptions, times, shapes, routes, validUntil,
     calendar: { services, start: services.map((id) => calendar.get(id).start), end: services.map((id) => calendar.get(id).end), days: calendarDays },
     stops: { ids: stopList.map((st) => st.stopId), names: stopList.map((st) => st.name), coords },
     trips: { ids, serviceIds, labels, ints: tripInts, freqAt, freqs: Float64Array.from(freqs) },
@@ -221,7 +229,7 @@ export function packSchedule({ calendar, exceptions, stopList, times, trips, sha
 }
 
 /** Forma compacta → el mismo horario que devuelve parseSchedule. */
-export function unpackSchedule({ calendar: cal, exceptions, stops, times, trips: t, routes, shapes }) {
+export function unpackSchedule({ calendar: cal, exceptions, stops, times, trips: t, routes, shapes, validUntil = null }) {
   const calendar = new Map();
   cal.services.forEach((id, i) => calendar.set(id, { start: cal.start[i], end: cal.end[i], days: Array.from({ length: 7 }, (_, d) => (cal.days[i] & (1 << d)) !== 0) }));
   const stopList = stops.ids.map((stopId, i) => ({ stopId, name: stops.names[i], lat: stops.coords[i * 2], lon: stops.coords[i * 2 + 1] }));
@@ -232,5 +240,5 @@ export function unpackSchedule({ calendar: cal, exceptions, stops, times, trips:
     return { id, serviceId: t.serviceIds[i], route: routes[t.ints[o]], label: t.labels[i], freqs, at: t.ints[o + 1], n: t.ints[o + 2],
       first: t.ints[o + 3], last: t.ints[o + 4], shape: t.ints[o + 5] };
   });
-  return { calendar, exceptions, stopList, times, trips, shapes };
+  return { calendar, exceptions, stopList, times, trips, shapes, validUntil };
 }

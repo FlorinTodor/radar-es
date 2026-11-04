@@ -197,6 +197,7 @@ button { font: inherit; color: inherit; }
 .status.ok { color: var(--st-good); }
 .status.ko { color: var(--st-critical); }
 .status.off, .status.wait { color: var(--st-none); }
+.status.warn { color: var(--st-warning); } /* un horario que se acaba en pocos días */
 
 /* ---------- Panel de capas sobre el mapa ---------- */
 .card { background: rgba(26, 26, 25, 0.94); border: 1px solid var(--border); border-radius: 8px; backdrop-filter: blur(6px); }

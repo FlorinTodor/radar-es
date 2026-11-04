@@ -160,6 +160,22 @@ export function activeFrequencyOffsets(freq, firstDep, duration, t) {
   return offsets;
 }
 
+// Con cuántos días de antelación se avisa de que un horario se acaba (el NAP suele tardar en publicar el nuevo).
+export const SCHEDULE_ENDING_DAYS = 14;
+
+/**
+ * Días que le quedan a un horario: 0 si su último día con servicio es hoy y negativo si ya pasó.
+ * @param {string} validUntil  último día con servicio, 'YYYYMMDD'
+ * @param {string} today       hoy en Madrid, 'YYYYMMDD'
+ */
+export function daysLeft(validUntil, today) {
+  const utc = (ymd) => Date.UTC(+ymd.slice(0, 4), +ymd.slice(4, 6) - 1, +ymd.slice(6, 8));
+  return Math.round((utc(validUntil) - utc(today)) / 86_400_000);
+}
+
+/** 'YYYYMMDD' → 'YYYY-MM-DD' (como se da en la API). */
+export const isoDay = (ymd) => (ymd ? `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}` : null);
+
 /**
  * ¿Circula el servicio ese día? (calendar.txt + excepciones de calendar_dates.txt)
  * @param {{ days?: boolean[], start?: string, end?: string } | undefined} calendar  days[0] = lunes
