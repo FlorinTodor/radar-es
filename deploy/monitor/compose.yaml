@@ -111,15 +111,20 @@ services:
     <<: *endurecido
     image: grafana/alloy:v1.21.1@sha256:4039c971193053a84e53dd9ed3e7d4561c069256b024631cd3498a353ed7ece8
     network_mode: host
+    # Con su usuario (no root), y con el grupo del diario del sistema del VPS para poder leerlo
+    # (preparar-monitor.sh pone su número en el .env).
+    user: "473:473"
+    group_add:
+      - "${JOURNAL_GID:-999}"
     command:
       - run
       - --server.http.listen-addr=127.0.0.1:12345
-      - --storage.path=/var/lib/alloy
+      - --storage.path=/var/lib/alloy/data
       - --disable-reporting
       - /etc/alloy/config.alloy
     volumes:
       - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
-      - alloy:/var/lib/alloy
+      - alloy:/var/lib/alloy/data
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/host/root:ro,rslave

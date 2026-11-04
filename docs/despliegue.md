@@ -140,7 +140,8 @@ sólo en el VPS ([`.env.ejemplo`](../deploy/monitor/.env.ejemplo)).
 
 Se instala y se actualiza con `deploy/preparar-monitor.sh` desde la copia de producción
 (`bash /opt/radar/deploy/preparar-monitor.sh`). La primera vez, con `--tunel`, añade
-`monitor.radarespaña.es` al túnel y crea su DNS; antes tiene que existir la aplicación de Access.
+`monitor.radarespaña.es` al túnel sin cortar la web (una réplica temporal de `cloudflared` atiende
+mientras se reinicia el de siempre) y crea su DNS; antes tiene que existir la aplicación de Access.
 Un monitor externo (UptimeRobot) sigue avisando si se cae el VPS entero, con la monitorización dentro.
 
 ## Entorno de pruebas, secretos y servidor

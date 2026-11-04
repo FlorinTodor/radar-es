@@ -11,7 +11,7 @@
 # - La aplicación de Cloudflare Access para monitor.radarespaña.es, ANTES de que exista su DNS (--tunel
 #   lo crea): así nunca está abierto.
 #
-# --tunel reinicia cloudflared: la web queda unos segundos sin servicio.
+# --tunel cambia el túnel sin cortar la web (ver el paso 5).
 set -euo pipefail
 
 ORIGEN=$(cd "$(dirname "${BASH_SOURCE[0]}")/monitor" && pwd)
@@ -31,6 +31,10 @@ chmod 600 "$ENV"
 for var in TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID CF_ACCESS_TEAM CF_ACCESS_AUD; do
   grep -q "^$var=." "$ENV" || { echo "Falta $var en $ENV" >&2; exit 1; }
 done
+# Alloy lee el diario del sistema con el grupo systemd-journal del VPS (su número cambia de un sistema a otro).
+if ! grep -q '^JOURNAL_GID=.' "$ENV"; then
+  printf 'JOURNAL_GID=%s\n' "$(getent group systemd-journal | cut -d: -f3)" >> "$ENV"
+fi
 if ! grep -q '^GRAFANA_ADMIN_PASSWORD=.' "$ENV"; then
   # Nadie la usa (Grafana no tiene formulario de acceso), pero así no queda la de serie.
   printf 'GRAFANA_ADMIN_PASSWORD=%s\n' "$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)" >> "$ENV"
@@ -63,11 +67,25 @@ for i in $(seq 1 24); do
 done
 
 # 5. El túnel: monitor.radarespaña.es → Grafana. Sólo con --tunel y si aún no está.
+# Sin corte: cloudflared no relee su configuración en marcha, así que primero se arranca una réplica
+# temporal del mismo túnel, ya con la configuración nueva; cuando tiene sus conexiones, se reinicia el
+# de siempre (que acaba lo que estaba atendiendo antes de cerrarse) y, cuando ha vuelto, se para la
+# réplica. Cloudflare reparte las visitas entre las dos mientras tanto.
+listas() { curl -sf --max-time 3 "http://127.0.0.1:$1/ready" | grep -o '"readyConnections":[0-9]*' | cut -d: -f2; }
+esperar_conexiones() {
+  local puerto=$1 n
+  for _ in $(seq 1 60); do
+    n=$(listas "$puerto" || true)
+    [[ ${n:-0} -ge 2 ]] && return 0
+    sleep 1
+  done
+  return 1
+}
 if $CON_TUNEL; then
   if grep -q "hostname: $HOST_MONITOR" "$TUNEL_CONFIG"; then
     echo "El túnel ya lleva $HOST_MONITOR"
   else
-    cp "$TUNEL_CONFIG" "$TUNEL_CONFIG.antes-monitor"
+    NUEVA="$TUNEL_CONFIG.nueva"
     # Antes de la regla final (http_status:404), como las demás.
     awk -v host="$HOST_MONITOR" '
       /^[[:space:]]*- service: http_status:404/ && !hecho {
@@ -75,15 +93,33 @@ if $CON_TUNEL; then
         print "    service: http://localhost:3000"
         hecho = 1
       }
-      { print }' "$TUNEL_CONFIG.antes-monitor" > "$TUNEL_CONFIG"
-    if ! cloudflared tunnel ingress validate --config "$TUNEL_CONFIG" >/dev/null 2>&1; then
-      cp "$TUNEL_CONFIG.antes-monitor" "$TUNEL_CONFIG"
-      echo "La configuración del túnel no valida: se deja como estaba" >&2
+      { print }' "$TUNEL_CONFIG" > "$NUEVA"
+    if ! cloudflared tunnel --config "$NUEVA" ingress validate >/dev/null 2>&1; then
+      rm -f "$NUEVA"
+      echo "La configuración nueva del túnel no valida: no se toca nada" >&2
       exit 1
     fi
+    systemd-run --unit=cloudflared-relevo --collect --quiet \
+      /usr/bin/cloudflared --no-autoupdate --config "$NUEVA" --metrics 127.0.0.1:20242 tunnel run
+    if ! esperar_conexiones 20242; then
+      systemctl stop cloudflared-relevo || true
+      rm -f "$NUEVA"
+      echo "La réplica temporal no ha conectado en 60 s: no se toca el túnel" >&2
+      exit 1
+    fi
+    echo "Réplica temporal conectada ($(listas 20242) conexiones): se reinicia cloudflared"
+    cp "$TUNEL_CONFIG" "$TUNEL_CONFIG.antes-monitor"
+    mv "$NUEVA" "$TUNEL_CONFIG"
     systemctl restart cloudflared
-    echo "Túnel: añadido $HOST_MONITOR (copia de la configuración anterior en $TUNEL_CONFIG.antes-monitor)"
+    if ! esperar_conexiones 20241; then
+      # La réplica sigue atendiendo (con todo lo de antes y monitor): la web no se corta.
+      echo "cloudflared no ha vuelto a conectar en 60 s. La réplica temporal (cloudflared-relevo) sigue" >&2
+      echo "atendiendo; mira journalctl -u cloudflared y, cuando vuelva, systemctl stop cloudflared-relevo" >&2
+      exit 1
+    fi
+    systemctl stop cloudflared-relevo
+    echo "Túnel: añadido $HOST_MONITOR sin corte ($(listas 20241) conexiones; la configuración anterior, en $TUNEL_CONFIG.antes-monitor)"
   fi
-  # El DNS (con ñ: en punycode, Cloudflare no lo reconoce como parte de la zona).
+  # El DNS (con ñ: en punycode, Cloudflare no lo reconoce como parte de la zona y lo crea mal).
   cloudflared tunnel route dns radar monitor.radarespaña.es || echo "Aviso: el DNS de monitor no se ha podido crear (¿ya existe?)"
 fi
