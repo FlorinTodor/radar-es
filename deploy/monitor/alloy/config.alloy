@@ -38,8 +38,18 @@ prometheus.exporter.unix "vps" {
   }
 }
 
+// El exportador las etiqueta como integrations/unix: aquí, «vps», como en los paneles y las alertas.
+discovery.relabel "vps" {
+  targets = prometheus.exporter.unix.vps.targets
+
+  rule {
+    target_label = "job"
+    replacement  = "vps"
+  }
+}
+
 prometheus.scrape "vps" {
-  targets         = prometheus.exporter.unix.vps.targets
+  targets         = discovery.relabel.vps.output
   forward_to      = [prometheus.remote_write.local.receiver]
   job_name        = "vps"
   scrape_interval = "30s"
@@ -282,6 +292,12 @@ loki.process "privacidad" {
 
   stage.match {
     selector = "{origen=\"diario\", unidad!~\"radar-.+|cloudflared\\\\.service|docker\\\\.service\", transporte!=\"kernel\"}"
+    action   = "drop"
+  }
+
+  // Los bloqueos del cortafuegos ([UFW BLOCK]) son ruido: intentos de conexión de cualquiera.
+  stage.match {
+    selector = "{transporte=\"kernel\"} |= \"[UFW \""
     action   = "drop"
   }
 

@@ -46,6 +46,13 @@ services:
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
       GF_NEWS_NEWS_FEED_ENABLED: "false"
+      # Sin el instalador de plugins en segundo plano: no descarga nada de internet, y con el disco de
+      # sólo lectura, al intentar actualizar los que trae la imagen, los dejaba sin registrar (Prometheus
+      # y Loki incluidos). Y sin los plugins de datos que no se usan: menos procesos y menos memoria.
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_PLUGINS_PREINSTALL_AUTO_UPDATE: "false"
+      GF_PLUGINS_DISABLE_PLUGINS: tempo,jaeger,zipkin,elasticsearch,opentsdb,mssql,mysql,grafana-postgresql-datasource,influxdb,graphite,parca,grafana-pyroscope-datasource,cloudwatch,stackdriver,grafana-azure-monitor-datasource
+      GF_LOG_LEVEL: warn
       GF_USERS_DEFAULT_LANGUAGE: es-ES
       GF_DATE_FORMATS_DEFAULT_TIMEZONE: Europe/Madrid
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
@@ -61,7 +68,7 @@ services:
     depends_on:
       - prometheus
       - loki
-    mem_limit: 384m
+    mem_limit: 512m
     cpus: 1
     pids_limit: 256
 
