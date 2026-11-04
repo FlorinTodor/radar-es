@@ -3,7 +3,7 @@ import { sortAlerts } from '../../domain/alerts/lifecycle.js';
 import { headingOf } from '../../domain/tracking.js';
 import { headingOfPath, pathThroughStops } from '../../domain/route-ahead.js';
 import { gaugeFactors, matchToRail, routeAhead } from '../../domain/rail-match.js';
-import { round5 } from '../../domain/geo.js';
+import { distanceKm, round5 } from '../../domain/geo.js';
 import { inForce } from '../../domain/model.js';
 import { withCurrentCuts } from '../../domain/emergencias.js';
 import { withoutRepeatedQuakes } from '../../domain/sismos.js';
@@ -116,6 +116,25 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
   };
   const trackMemo = makeTrainMemo(() => situation.tracks());
   const aheadMemo = makeTrainMemo(() => situation.tracks());
+  const fillMemo = makeTrainMemo(() => situation.tracks());
+
+  // Un camino llega a la parada si acaba a menos de esto de ella.
+  const REACHES_KM = 1;
+  const reaches = (path, [lon, lat]) => path?.length > 1 && distanceKm(path.at(-1)[1], path.at(-1)[0], lat, lon) <= REACHES_KM;
+  /**
+   * Lo que le queda a un Cercanías: por el trazado de su viaje y, si ese trazado no llega a su destino,
+   * por la vía, como los trenes de la red general. Renfe da a algunos viajes el trazado de otro: a un C6
+   * a Vinaròs uno que acaba en Castelló, a un C5 a Dos Hermanas el que va a Jardines de Hércules (4-nov-2026).
+   */
+  const cercaniasAhead = (v) => {
+    const path = stopsPath(v);
+    const stops = withStops.get(v.source)?.stopsAhead(v.id);
+    const net = railNetwork?.network();
+    if (!stops?.length || !net || reaches(path, stops.at(-1))) return path;
+    const key = `${v.lon},${v.lat}|${stops.length}|${stops[0]}`;
+    const rail = fillMemo(v.id, net, key, () => routeAhead(net, [v.lon, v.lat], stops, { factors: gaugeFactors() }));
+    return reaches(rail, stops.at(-1)) ? rail : path;
+  };
 
   /**
    * Recorrido de un tren por la vía, como lista de { lon, lat } (lo mismo que dibuja el mapa con las
@@ -204,7 +223,8 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
     /**
      * Lo que le queda a un vehículo hasta el final de su viaje, por su vía: los de posición estimada,
      * con su horario; los de la red general (AVE, Larga y Media Distancia), por los tramos de Adif hasta
-     * su destino; los de Cercanías, por el trazado de su viaje pasando por sus paradas. null si no se sabe.
+     * su destino; los de Cercanías, por el trazado de su viaje pasando por sus paradas (y, si no llega a su
+     * destino, por la vía). null si no se sabe.
      */
     ahead(id) {
       for (const s of withPaths) {
@@ -218,7 +238,7 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
       // debe costar eso (ni gasta el presupuesto de /api/ahead, porque no da nada).
       if (![...withStops.values()].some((s) => s.stopsAhead(id))) return null;
       const v = situation.vehicles().find((x) => x.id === id);
-      const path = v ? stopsPath(v) : null;
+      const path = v ? cercaniasAhead(v) : null;
       return path && path.length > 1 ? path.map(([lon, lat]) => [round5(lon), round5(lat)]) : null;
     },
 
