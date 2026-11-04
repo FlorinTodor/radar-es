@@ -36,6 +36,46 @@ export function stopsCollection(data) {
   return { type: 'FeatureCollection', features };
 }
 
+// Sitios para el nombre de una parada, por orden: debajo del punto y, si ahí choca con otro nombre o con
+// el punto de otra parada, encima (en em, dejando sitio a la placa del vehículo si está en la parada).
+// A los lados no: centrado sobre su punto, cabe en el margen del encuadre (STOP_LABEL_MARGIN de map.js),
+// y a un lado el de una parada cerca del borde se saldría de la pantalla.
+export const STOP_LABEL_ANCHORS = ['top', [0, 1.6], 'bottom', [0, -1.6]];
+
+// Hueco que ocupa en el mapa el punto de cada parada, para que los nombres no caigan encima: una imagen
+// transparente de STOP_SPACE_PX px (map.js), escalada al tamaño del punto. Lo bastante para el punto
+// grande del origen, el destino y la próxima (8,5 px de radio más el borde) y para los demás.
+export const STOP_SPACE_PX = 24;
+export const STOP_SPACE_SIZE = { key: 0.9, rest: 0.65 };
+
+/** El hueco de los puntos: siempre, aunque se toquen, y apartando los nombres (no ignora la colocación). */
+export function stopSpaceLayout(keyFilter) {
+  return {
+    'icon-image': 'stop-space', 'icon-size': ['case', keyFilter, STOP_SPACE_SIZE.key, STOP_SPACE_SIZE.rest],
+    'icon-allow-overlap': true, 'icon-ignore-placement': false,
+  };
+}
+
+/**
+ * Rótulo de las paradas en el mapa. `key`: el origen, el destino y la próxima (o en la que está parado).
+ * - Esas tres salen siempre: si no caben en ningún sitio sin chocar, se pintan igual.
+ * - Las demás se ocultan si chocan, antes las ya pasadas.
+ * map.js pone la capa de esas tres encima de la de las demás, y encima de las dos el hueco de los puntos.
+ * MapLibre coloca de la capa de arriba hacia abajo: primero los puntos, luego esas tres y luego las
+ * demás, que esquivan lo ya colocado.
+ * @param {{ key: boolean, font: string[] }} opts
+ */
+export function stopLabelLayout({ key, font }) {
+  return {
+    'text-field': ['get', 'name'], 'text-font': font,
+    'text-size': key ? 12.5 : 11.5, 'text-max-width': key ? 12 : 10,
+    'text-variable-anchor-offset': STOP_LABEL_ANCHORS,
+    // La próxima y en la que está, antes que el origen y el destino; en las demás, antes las que le quedan.
+    'symbol-sort-key': key ? ['case', ['==', ['get', 'end'], 1], 1, 0] : ['get', 'rank'],
+    ...(key ? { 'text-allow-overlap': true } : {}),
+  };
+}
+
 /**
  * Puntos que encuadra el mapa al seleccionar el vehículo: todas las paradas de su viaje con posición, del
  * origen al destino, y el propio vehículo (puede ir fuera de ellas, p. ej. con la posición sin poner al día).

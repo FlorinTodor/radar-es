@@ -627,6 +627,9 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   con la hora de su horario y la prevista con su retraso (en Cercanías, sólo la prevista que publica
   Renfe; FGC no da horas). En Alta Velocidad, Larga y Media Distancia, Cercanías, FGC, metros, tranvías
   y autobuses con horario.
+- Los nombres de las paradas ya no se montan unos sobre otros ni caen sobre el punto de otra parada.
+  El origen, el destino y la próxima se colocan primero, y cada nombre va debajo de su punto o, si no
+  cabe, encima, sin salirse de la pantalla en el móvil.
 - Todos los trenes, metros y tranvías van por su vía, también donde el operador publica su trazado
   casi solo con las estaciones o no lo publica: esos tramos se rehacen con la red ferroviaria del IGN,
   que también tiene metro, tranvía y funicular. Revisado con todos los vehículos del mapa:

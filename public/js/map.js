@@ -2,7 +2,7 @@ import * as maplibregl from '/vendor/maplibre/maplibre-gl.mjs';
 import { DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, STATUS, esc, fmtDataTime, fmtDate, fmtDateTime, fmtDelay, fmtLocalHour, fmtTime, creditHtml, photoTitleOf, safeUrl, timeAgo, vehicleTitle } from './format.js';
 import { PICTOS, pictoFor, vehicleImage } from './icons.js';
 import { headingAlong, matchTrack, pathBetween } from './track-match.js';
-import { stopTipHtml, stopsCollection, stopsListHtml, tripFramePoints } from './trip-stops.js';
+import { STOP_SPACE_PX, stopLabelLayout, stopSpaceLayout, stopTipHtml, stopsCollection, stopsListHtml, tripFramePoints } from './trip-stops.js';
 
 const STYLE = 'https://tiles.openfreemap.org/styles/dark';
 const FONT = ['Noto Sans Regular'];
@@ -418,22 +418,23 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     // Nombres con borde oscuro: se leen sobre el mapa, las líneas y las placas. Por debajo de la placa y su
     // anillo: si el vehículo está en la parada, su nombre no lo tapa.
     const stopLabelPaint = { 'text-color': ['case', PASSED, '#c3c6cb', '#ffffff'], 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.8 };
-    const stopLabel = (size, maxWidth) => ({
-      'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': size, 'text-max-width': maxWidth,
-      'text-anchor': 'top', 'text-offset': [0, 1.6],
-    });
-    // Origen, destino y la próxima (o en la que está parado): siempre, aunque pisen otras etiquetas.
-    map.addLayer({
-      id: 'stops-label-key', type: 'symbol', source: 'stops', filter: KEY,
-      layout: { ...stopLabel(12.5, 12), 'text-allow-overlap': true },
-      paint: stopLabelPaint,
-    });
-    // Las demás, a cualquier escala: MapLibre oculta las que chocan con otras. Antes las que le quedan.
+    // Las demás, a cualquier escala: MapLibre oculta las que chocan con otras.
     map.addLayer({
       id: 'stops-label', type: 'symbol', source: 'stops', filter: ['!', KEY],
-      layout: { ...stopLabel(11.5, 10), 'symbol-sort-key': ['get', 'rank'] },
-      paint: stopLabelPaint,
+      layout: stopLabelLayout({ key: false, font: FONT }), paint: stopLabelPaint,
     });
+    // Origen, destino y la próxima (o en la que está parado): siempre. Va encima de la anterior para que
+    // MapLibre las coloque primero (ver trip-stops.js): así no pisan los nombres de las demás.
+    map.addLayer({
+      id: 'stops-label-key', type: 'symbol', source: 'stops', filter: KEY,
+      layout: stopLabelLayout({ key: true, font: FONT }), paint: stopLabelPaint,
+    });
+    // Encima de los nombres, el hueco (invisible) del punto de cada parada: se coloca antes que ellos y así
+    // ningún nombre cae sobre el punto de otra parada.
+    if (!map.hasImage('stop-space')) {
+      map.addImage('stop-space', { width: STOP_SPACE_PX, height: STOP_SPACE_PX, data: new Uint8Array(STOP_SPACE_PX * STOP_SPACE_PX * 4) });
+    }
+    map.addLayer({ id: 'stops-space', type: 'symbol', source: 'stops', layout: stopSpaceLayout(KEY) });
     map.addLayer({
       id: 'veh-halo', type: 'circle', source: 'vehicles',
       paint: {

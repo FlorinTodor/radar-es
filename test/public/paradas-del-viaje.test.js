@@ -1,7 +1,8 @@
 // Paradas del vehículo seleccionado en el mapa y en su ficha (public/js/trip-stops.js).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { stopTipHtml, stopWhen, stopsCollection, stopsListHtml, tripFramePoints } from '../../public/js/trip-stops.js';
+import { readFile } from 'node:fs/promises';
+import { STOP_LABEL_ANCHORS, STOP_SPACE_SIZE, stopLabelLayout, stopSpaceLayout, stopTipHtml, stopWhen, stopsCollection, stopsListHtml, tripFramePoints } from '../../public/js/trip-stops.js';
 
 const DATA = {
   partial: false,
@@ -75,4 +76,33 @@ test('al seleccionarlo, el mapa encuadra todo su viaje: las paradas con posició
   assert.deepEqual(tripFramePoints(ave, { lon: 2.0, lat: 41.4 }), [[-3.69, 40.406], [-0.911, 41.658], [2.14, 41.379], [2.0, 41.4]]);
   assert.deepEqual(tripFramePoints(DATA).length, 3, 'la parada sin posición no cuenta');
   assert.deepEqual(tripFramePoints(null, { lon: 1, lat: 2 }), [[1, 2]]);
+});
+
+test('nombres de las paradas: el origen, el destino y la próxima siempre, y sin montarse sobre otros ni sobre los puntos', async () => {
+  const font = ['Noto Sans Regular'];
+  const key = stopLabelLayout({ key: true, font });
+  const rest = stopLabelLayout({ key: false, font });
+  // Debajo del punto o, si ahí choca, encima; a los lados no, que cerca del borde se saldría de la pantalla.
+  for (const l of [key, rest]) {
+    assert.deepEqual(l['text-variable-anchor-offset'], ['top', [0, 1.6], 'bottom', [0, -1.6]]);
+    assert.equal(l['text-anchor'], undefined, 'con sitios variables, text-anchor y text-offset no se usan');
+    assert.equal(l['text-offset'], undefined);
+  }
+  assert.equal(key['text-allow-overlap'], true, 'los tres, aunque no quepan');
+  assert.equal(rest['text-allow-overlap'], undefined, 'las demás se ocultan si chocan');
+  assert.deepEqual(rest['symbol-sort-key'], ['get', 'rank']);
+  assert.equal(STOP_LABEL_ANCHORS, key['text-variable-anchor-offset']);
+
+  // El hueco de los puntos aparta los nombres: siempre está y no ignora la colocación.
+  const KEY = ['==', ['get', 'end'], 1];
+  const space = stopSpaceLayout(KEY);
+  assert.equal(space['icon-allow-overlap'], true);
+  assert.equal(space['icon-ignore-placement'], false);
+  assert.deepEqual(space['icon-size'], ['case', KEY, STOP_SPACE_SIZE.key, STOP_SPACE_SIZE.rest]);
+
+  // MapLibre coloca de la capa de arriba hacia abajo: los puntos, luego los tres y luego las demás.
+  const src = await readFile(new URL('../../public/js/map.js', import.meta.url), 'utf8');
+  const at = (id) => src.indexOf(`id: '${id}',`);
+  assert.ok(at('stops-label') > 0 && at('stops-label') < at('stops-label-key') && at('stops-label-key') < at('stops-space'),
+    'se añaden stops-label, stops-label-key y stops-space, por ese orden');
 });
