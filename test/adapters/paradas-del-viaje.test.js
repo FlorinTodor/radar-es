@@ -100,6 +100,20 @@ test('FGC: tripStops con los nombres y la posición de su GTFS', async () => {
   assert.equal(fgc.tripStops('renfe-ld:1'), undefined);
 });
 
+test('FGC: con dos registros de la misma unidad, las paradas son las del primero (el de su ficha)', async () => {
+  const gtfs = zipSync({ 'stops.txt': strToU8('stop_id,stop_name,stop_lat,stop_lon\nPC,Pl. Catalunya,41.386,2.167\nPR,Provença,41.392,2.158\nTT,Les Tres Torres,41.398,2.133\nNA,Nacions Unides,41.57,2.02\n') });
+  const record = (over) => ({ ut: '277', lin: 'S1', origen: 'PC', desti: 'NA', geo_point_2d: { lat: 41.39, lon: 2.16 }, ...over });
+  const http = { json: async () => ({ results: [
+    record({ estacionat_a: 'PC', properes_parades: '{"parada": "PR"};{"parada": "NA"}' }),
+    record({ estacionat_a: null, properes_parades: '{"parada": "TT"};{"parada": "NA"}' }),
+  ] }) };
+  const fgc = createFgcSource({ http, nap: { enabled: true, gtfs: async () => gtfs }, log });
+  const { vehicles } = await fgc.fetch();
+  assert.equal(vehicles[0].next, 'Provença');
+  const next = fgc.tripStops('fgc:277').stops.find((s) => !s.passed && !s.here);
+  assert.equal(next.name, 'Provença');
+});
+
 test('posición según horario: sus paradas con la hora del horario y las que ya ha pasado', async (t) => {
   // A las 12:00 de Madrid el vehículo va entre Alfa (11:55) y Beta (12:05).
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-01T11:00:00Z') });

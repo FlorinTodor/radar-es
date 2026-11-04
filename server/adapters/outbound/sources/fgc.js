@@ -98,7 +98,8 @@ export function createFgcSource({ http, nap, log }) {
           // recoloca a ojo: se descarta, y todos los así acabarían con el mismo id «fgc:undefined».
           if (!(r.ut || r.id) || !r.lin) continue;
           const trip = fgcTripCodes(r);
-          if (trip) next.set(`fgc:${r.ut || r.id}`, trip);
+          // FGC da a veces dos registros de la misma unidad: valen las paradas del primero, el de su ficha.
+          if (trip && !next.has(`fgc:${r.ut || r.id}`)) next.set(`fgc:${r.ut || r.id}`, trip);
           vehicles.push({
             id: `fgc:${r.ut || r.id}`,
             // L6, L7, L8, L12: servicio urbano tipo metro. S/R: suburbano.
