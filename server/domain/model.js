@@ -56,6 +56,7 @@
  * @property {'verde'|'amarillo'|'naranja'|'rojo'} [level]  Nivel del aviso: meteorológicos de AEMET (amarillo a
  *   rojo) y catástrofes de GDACS (verde a rojo). Las reglas sólo avisan de los naranja y rojo.
  * @property {number} [magnitude]    Terremotos (category 'sismo'): magnitud.
+ * @property {boolean} [backup]      Terremotos de una fuente de respaldo (EMSC): se quitan si la principal (IGN) publica el mismo.
  * @property {number} [frp]          Focos de calor (category 'incendio'): potencia radiativa del fuego, en MW.
  * @property {{ type: 'Polygon'|'MultiPolygon', coordinates: number[][][]|number[][][][] }} [geometry]  Zona afectada (avisos).
  * @property {boolean} [power]   Avisos oficiales (category 'emergencia'): habla de un corte de luz.

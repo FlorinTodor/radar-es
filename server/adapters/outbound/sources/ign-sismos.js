@@ -1,4 +1,5 @@
 // Instituto Geográfico Nacional: terremotos de los últimos 10 días (GeoRSS). Sin clave.
+import { quakeSeverity } from '../../../domain/sismos.js';
 import { arr, num, text, xmlParser } from './parse.js';
 
 // "Se ha producido un terremoto de magnitud 2.6 en NE SIDI SLIMANE.MAC en la fecha 30/10/2026 1:26:27 en la siguiente localización: ..."
@@ -30,7 +31,7 @@ export function createIgnSismosSource({ http }) {
           id: `ign:${text(it.guid)?.match(/evid=(\w+)/)?.[1] ?? time}`,
           category: 'sismo',
           type: 'terremoto',
-          severity: magnitude >= 5 ? 'muy alta' : magnitude >= 4 ? 'alta' : magnitude >= 3 ? 'media' : 'baja',
+          severity: quakeSeverity(magnitude),
           title: `Terremoto M${magnitude.toFixed(1)} · ${place}`,
           description: desc,
           magnitude,

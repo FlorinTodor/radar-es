@@ -73,6 +73,8 @@ const ATTRIBUTION = [
   'Origen de los datos: Renfe Operadora',
   '© Administrador de infraestructuras ferroviarias',
   `Obra derivada de Catálogo de terremotos IGN ${today} · CC-BY 4.0 <a href="https://www.ign.es" target="_blank" rel="noopener">ign.es</a>`,
+  // Los terremotos pequeños (menos de magnitud 2,6), que el RSS del IGN no trae.
+  'Credit: <a href="https://www.seismicportal.eu" target="_blank" rel="noopener">EMSC-CSEM SeismicPortal</a>',
   // Los avisos oficiales que sólo nombran un municipio se sitúan con CartoCiudad (licencia del IGN).
   'Obra derivada de CartoCiudad 2026 CC-BY 4.0 <a href="https://www.scne.es" target="_blank" rel="noopener">scne.es</a>',
   // Las vías del IGN: la capa «Red ferroviaria» (con sus colores invertidos) y los tramos de las líneas y de
