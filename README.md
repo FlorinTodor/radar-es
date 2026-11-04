@@ -471,19 +471,19 @@ respuesta; una notificación, que no lleva respuesta, recibe 202 vacío.
 
 ```mermaid
 flowchart TB
-  a["POST /mcp"] --> b{"¿Origin de esta web,<br/>de un navegador local<br/>o ninguno?"}
+  a["POST /mcp"] --> b("¿Origin de esta web,<br/>de un navegador local<br/>o ninguno?")
   b -->|"no"| e403["403"]
-  b --> c{"¿versión del<br/>protocolo conocida?"}
+  b -->|"sí"| c("¿versión del<br/>protocolo conocida?")
   c -->|"no"| e400a["400 · -32022<br/>con las que sí"]
-  c --> d{"¿JSON de 64 KB<br/>como mucho?"}
+  c -->|"sí"| d("¿JSON de 64 KB<br/>como mucho?")
   d -->|"no"| e41x["415 · 413 · 400"]
-  d --> f{"2026-07-28: ¿las cabeceras<br/>dicen lo mismo que el cuerpo?"}
+  d -->|"sí"| f("2026-07-28: ¿las<br/>cabeceras dicen lo<br/>mismo que el cuerpo?")
   f -->|"no"| e400b["400 · -32020"]
-  f --> g{"¿respuesta guardada?"}
+  f -->|"sí"| g("¿respuesta<br/>guardada?")
   g -->|"sí"| ok["200"]
-  g -->|"no"| h{"¿presupuesto del cliente<br/>y de todos?"}
+  g -->|"no"| h("¿presupuesto<br/>del cliente<br/>y de todos?")
   h -->|"no"| e429["429"]
-  h --> i["la herramienta busca<br/>en la foto del directo"]
+  h -->|"sí"| i["la herramienta busca<br/>en la foto del directo"]
   i --> ok
 ```
 
@@ -491,9 +491,9 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-  m["mensaje"] --> v{"¿lleva su versión<br/>en params._meta?"}
-  v -->|"sí: 2026-07-28"| moderno["moderno: sin saludo inicial,<br/>server/discover, resultType y la<br/>identidad del servidor en cada resultado"]
-  v -->|"no"| antiguo["antiguo: initialize elige<br/>2025-11-25, 2025-06-18<br/>o 2025-03-26"]
+  m["mensaje"] --> v("¿lleva su versión<br/>en params._meta?")
+  v -->|"sí: 2026-07-28"| moderno["moderno<br/>sin saludo inicial<br/>server/discover<br/>resultType e identidad<br/>en cada resultado"]
+  v -->|"no"| antiguo["antiguo<br/>initialize elige<br/>2025-11-25, 2025-06-18<br/>o 2025-03-26"]
 ```
 
 **Qué se cambió en la revisión y por qué:**
