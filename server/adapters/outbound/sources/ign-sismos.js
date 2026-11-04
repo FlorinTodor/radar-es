@@ -2,9 +2,10 @@
 // visualización INSPIRE de geofísica (capa «Terremotos últimos 10 días», que también se sirve en GeoJSON).
 // Sin clave. Trae todos, desde magnitud 1, con la localización que les pone el propio IGN («NE GÓJAR.GR»,
 // «GOLFO DE CÁDIZ»); el RSS sólo trae los de magnitud 2,6 o más. Licencia CC BY 4.0 ign.es (la que
-// declara el servicio en sus GetCapabilities y la del catálogo).
+// declara el servicio en sus GetCapabilities y la del catálogo). Se muestran los de los dos últimos días
+// (domain/sismos.js).
 import { SPAIN_BOUNDS, widenBounds } from '../../../domain/geo.js';
-import { MIN_QUAKE_MAGNITUDE, quakeSeverity, quakeWhen } from '../../../domain/sismos.js';
+import { MIN_QUAKE_MAGNITUDE, quakeExpires, quakeSeverity, quakeWhen } from '../../../domain/sismos.js';
 import { ignPlace } from './ign-place.js';
 import { num } from './parse.js';
 
@@ -23,7 +24,7 @@ const DATE = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})$/;
 export function createIgnSismosSource({ http }) {
   return {
     id: 'ign-sismos',
-    name: 'IGN terremotos (magnitud 1,5 o más, últimos 10 días)',
+    name: 'IGN terremotos (magnitud 1,5 o más, últimos 2 días)',
     kind: 'events',
     interval: 180_000,
     url: URL,
@@ -58,6 +59,7 @@ export function createIgnSismosSource({ http }) {
           lat,
           lon,
           start,
+          expires: quakeExpires(start),
           url: `${DETAILS}${evid}`,
         });
       }

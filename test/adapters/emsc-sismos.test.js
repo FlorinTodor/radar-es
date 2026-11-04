@@ -20,23 +20,23 @@ const DOC = {
 };
 // Regiones que no dicen bien el sitio o que no estaban traducidas.
 const MORE = [
-  feature({ unid: '20261102_0000214', time: '2026-11-02T05:21:00Z', flynn_region: 'STRAIT OF GIBRALTAR', lat: 36.6062, lon: -7.2136, auth: 'EMSC', mag: 2.3 }),
-  feature({ unid: '20261101_0000120', time: '2026-11-01T10:23:00Z', flynn_region: 'NEAR SOUTH COAST OF FRANCE', lat: 43.7746, lon: 3.3095, auth: 'ReNaSS', mag: 2.1 }),
-  feature({ unid: '20261029_0000099', time: '2026-10-29T03:00:00Z', flynn_region: 'WEST OF GIBRALTAR', lat: 36.44, lon: -9.94, auth: 'LDG', mag: 2.4 }),
+  feature({ unid: '20261103_0000214', time: '2026-11-03T05:21:00Z', flynn_region: 'STRAIT OF GIBRALTAR', lat: 36.6062, lon: -7.2136, auth: 'EMSC', mag: 2.3 }),
+  feature({ unid: '20261103_0000120', time: '2026-11-03T10:23:00Z', flynn_region: 'NEAR SOUTH COAST OF FRANCE', lat: 43.7746, lon: 3.3095, auth: 'ReNaSS', mag: 2.1 }),
+  feature({ unid: '20261104_0000099', time: '2026-11-04T03:00:00Z', flynn_region: 'WEST OF GIBRALTAR', lat: 36.44, lon: -9.94, auth: 'LDG', mag: 2.4 }),
 ];
 
-test('EMSC: los terremotos pequeños que no localiza el IGN, en español y marcados de respaldo; sin voladuras ni datos rotos', async () => {
+test('EMSC: los terremotos pequeños de los dos últimos días que no localiza el IGN, en español y marcados de respaldo; sin voladuras ni datos rotos', async () => {
   let asked = null;
   const http = { json: async (url) => { asked = url; return { ...DOC, features: [...DOC.features, ...MORE] }; } };
   const { events } = await createEmscSismosSource({ http, now: () => NOW }).fetch();
 
   const q = new URL(asked);
-  assert.equal(q.searchParams.get('starttime'), '2026-10-25T12:00:00', 'los mismos 10 días que el IGN');
+  assert.equal(q.searchParams.get('starttime'), '2026-11-02T12:00:00', 'los dos días que se muestran');
   assert.equal(q.searchParams.get('minmag'), '1.5');
   assert.equal(q.searchParams.get('format'), 'json');
 
   assert.deepEqual(events.map((e) => e.id), ['emsc:20261104_0000035', 'emsc:20261103_0000200', 'emsc:20261102_0000003',
-    'emsc:20261102_0000214', 'emsc:20261101_0000120', 'emsc:20261029_0000099'], 'sin el que localiza el IGN');
+    'emsc:20261103_0000214', 'emsc:20261103_0000120', 'emsc:20261104_0000099'], 'sin el que localiza el IGN');
   const [granada, canarias, otra, estrecho, francia, oeste] = events;
   assert.equal(granada.title, 'Terremoto M2.5 · España');
   assert.equal(granada.category, 'sismo');

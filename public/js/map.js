@@ -1203,6 +1203,7 @@ function eventDetail(e, others = []) {
     e.issued && ['Emitido', e.issuedDayOnly ? fmtDate(e.issued) : fmtDateTime(e.issued)], // algunas fuentes sólo dan el día
     e.start && ['Inicio', fmtDateTime(e.start)],
     e.end && ['Fin previsto', fmtDateTime(e.end)],
+    e.updated && ['Última revisión', fmtDateTime(e.updated)], // de la incidencia en su fuente (DGT)
     e.area && ['Lugar', e.area],
     e.approx && ['Ubicación', APPROX_LABEL[e.approx] ?? 'aproximada'],
     ...sourceRows(e.source),

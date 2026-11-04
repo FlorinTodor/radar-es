@@ -185,7 +185,7 @@ Los puertos están en `server/application/ports.js`:
 | `SituationRepository` | `persistence/in-memory-situation.js` | estado actual: último dato de cada fuente, recorridos, alertas, KPIs |
 | `History` | `persistence/jsonl-history.js` | histórico de alertas y KPIs |
 | `TileProvider` | `tiles/wms-tiles.js` | teselas de IGN y EFFIS con copia en disco |
-| `Geocoder` | `geo/cartociudad-geocoder.js` | situar el municipio que cita un aviso del 112 (no traen coordenadas). Lo usan las fuentes de avisos, no los casos de uso: su contrato está en el propio adaptador |
+| `Geocoder` | `geo/cartociudad-geocoder.js` | situar el municipio que cita un aviso del 112 (no traen coordenadas) y poner el municipio a los terremotos del EMSC en España. Lo usan esas fuentes, no los casos de uso: su contrato está en el propio adaptador |
 
 `Clock` (la hora, para poder simularla en los tests) y `Logger` (el registro) también son puertos.
 
@@ -239,13 +239,13 @@ Todas son públicas. Las marcadas con 🔑 necesitan una clave gratuita: casi to
 | 🔑 GTFS de 16 redes en el NAP + líneas del tranvía de Tenerife (Cabildo de Tenerife) | trazados de Cercanías, metros, tranvías, FGC y Euskotren | 24 h |
 | Adif, «Tramos en servicio» ([datos abiertos de Adif en ArcGIS](https://www.arcgis.com/home/item.html?id=4ec7c0fb3cab42b0b488d65e65eeb7aa)) | vías en servicio, para dibujar por la vía el recorrido de AVE, Larga y Media Distancia y lo que les queda | 30 días |
 | IGN-CNIG, red ferroviaria de la IGR-RT (WFS INSPIRE de transportes `servicios.idee.es`, CC BY 4.0) | vías de toda España, también de metro, tranvía y funicular, para rehacer por la vía los trazados que van en recta entre estaciones y los que no se publican (Ouigo) | 30 días |
-| DGT DATEX II v3.7 (`nap.dgt.es`) | ~1.000 incidencias de tráfico | 5 min |
+| DGT DATEX II v3.7 (`nap.dgt.es`) | ~1.000 incidencias de tráfico; las obras, con su fin previsto (salen del mapa al llegar) | 5 min |
 | Servei Català de Trànsit (GML) | incidencias de carreteras catalanas | 5 min |
 | Tráfico Euskadi (API Trafikoa) | incidencias de carreteras vascas | 5 min |
 | AEMET avisos (RSS + CAP) | avisos amarillo, naranja y rojo **con polígono** | 10 min |
 | NASA FIRMS (VIIRS NOAA-20, CSV público) | focos de calor por satélite (España, Portugal, Canarias) | 1 h |
-| IGN sismología (servicio de visualización INSPIRE de geofísica, capa «Terremotos últimos 10 días», CC BY 4.0) | terremotos de magnitud 1,5 o más de los últimos 10 días en España y alrededores, con la localización del IGN | 3 min |
-| EMSC-CSEM SeismicPortal (servicio FDSN, CC BY 4.0) | terremotos de magnitud 1,5 o más de los últimos 10 días alrededor de España que no localiza el IGN (sobre todo de Francia, Portugal y Marruecos); si el IGN publica el mismo, se queda el suyo | 5 min |
+| IGN sismología (servicio de visualización INSPIRE de geofísica, capa «Terremotos últimos 10 días», CC BY 4.0) | terremotos de magnitud 1,5 o más en España y alrededores, con la localización del IGN (la capa trae 10 días; se muestran los 2 últimos) | 3 min |
+| EMSC-CSEM SeismicPortal (servicio FDSN, CC BY 4.0) | terremotos de magnitud 1,5 o más de los 2 últimos días alrededor de España que no localiza el IGN (sobre todo de Francia, Portugal y Marruecos); si el IGN publica el mismo, se queda el suyo | 5 min |
 | GDACS (ONU / Comisión Europea) | alertas de catástrofes en la zona (verde, naranja, roja) | 15 min |
 | Copernicus EFFIS (WMS, servido por `/tiles` con copia de 3 h) | capa de áreas quemadas en los últimos 30 días y su ficha | — |
 | Red Eléctrica REData | demanda real frente a prevista | 5 min |
@@ -262,7 +262,7 @@ Todas son públicas. Las marcadas con 🔑 necesitan una clave gratuita: casi to
 | Gobierno de Cantabria (RSS de notas de prensa, CC BY 3.0 ES) | planes de emergencia con nombre (PLATERCANT…) y cortes de luz; solo el día, sin hora | 15 min |
 | Xunta de Galicia (RSS de notas de prensa: Emergencias y todas) | PLATERGA, alertas por nivel por provincia y cortes de luz | 10 min |
 | Gobierno Vasco (RSS de noticias de Seguridad en Irekia, Open Data Euskadi, CC BY 4.0) | planes de emergencia con nombre (LABI, ITSASERTZA…) por territorio histórico y cortes de luz | 15 min |
-| CartoCiudad (IGN-CNIG, CC BY 4.0) | ubicación de los pueblos que citan esos avisos y municipio de los terremotos del EMSC | al leerlos |
+| CartoCiudad (IGN-CNIG, CC BY 4.0) | ubicación de los pueblos que citan esos avisos y municipio de los terremotos del EMSC en España (los del IGN ya traen su sitio) | al leerlos |
 
 El mapa base es de OpenFreeMap (datos de OpenStreetMap), sin clave.
 
@@ -580,6 +580,10 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   quedan los que no localiza el IGN (sobre todo de Francia, Portugal y Marruecos), y ya no salen los que
   el IGN quita al revisarlos. Un terremoto que publican los dos sale una vez, el del IGN. La hora de los
   de Canarias, en hora canaria, y si se sintió, con qué intensidad.
+- Cada suceso sale del mapa cuando deja de estar vigente:
+  - los terremotos, a los dos días (la capa del IGN trae los de diez);
+  - las obras de la DGT, al llegar su fin previsto, que se muestra en su ficha con su última revisión;
+  - las incidencias de tráfico de una fuente que lleva una hora sin responder.
 - Avisos oficiales de emergencias: planes de protección civil activados y cortes de luz que publican
   Canarias, Baleares, Cataluña, Andalucía, Castilla-La Mancha, La Rioja y Castilla y León, y los de las
   notas de prensa de los gobiernos de Madrid, Murcia, Cantabria, Galicia y el País Vasco. Su texto se
@@ -828,6 +832,10 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   Nacional de FGC y Metro Bilbao (dato explotado y fecha de actualización).
 - Lo que se rehace por la vía con la red del IGN lo dice en el mapa, en la ficha de cada vehículo, en
   la pestaña Fuentes y en el aviso legal («Obra derivada de IGR-RT 2026 CC-BY 4.0 scne.es»).
+- Terremotos: los del IGN, de la capa de su servicio oficial de visualización INSPIRE de geofísica, que
+  declara la licencia CC BY 4.0 ign.es, con la misma atribución del catálogo; del EMSC-CSEM (CC BY 4.0,
+  con su crédito), sólo los que no localiza el IGN. El aviso legal dice qué se hace con cada uno: la
+  localización del IGN en texto legible, la región del EMSC en español y los dos últimos días.
 - Cercanías y Metro Bilbao citan también el trazado del Punto de Acceso Nacional con el que se
   dibuja lo que le queda a cada tren, y cada red de trazados muestra su fecha de actualización en el
   aviso legal y en la pestaña Fuentes.
@@ -853,21 +861,18 @@ Ninguna por ahora.
   tanto tarda más en responder (alguna vez 1–3 s). Para los vehículos con posición estimada bastaría
   con el recorrido que ya sale de su horario, o con repartir ese trabajo entre lecturas.
 - Estado oficial de la red de Adif, si llega a publicarse con licencia de reutilización.
+- Terremotos: leer el RSS del IGN (los de magnitud 2,6 o más) como repuesto si un día falla la capa de
+  su servicio de visualización. Y poner la isla a los de Baleares y La Gomera: en un año no ha salido
+  ninguno con su sufijo, y no se sabe cómo lo escribe el IGN.
 - Renfe AV/LD/MD: algunos números de tren salen dos veces en el tiempo real con posiciones a decenas
   de kilómetros (tres regionales la mañana del 2-nov); quedarse con la que sigue al tren.
 - Las vías que aún no tiene la red del IGN (la ampliación del tranvía de Sevilla, la variante de
   Durango de Euskotren), con otra fuente con licencia abierta cuando la haya.
 - Capa discreta con las vías subterráneas de FGC y de los metros: el mapa base oscuro no dibuja las
   vías en túnel, y el recorrido parece pasar por encima de los edificios.
-- Obras en carretera con su fecha de fin y su última actualización. Ahora solo se muestra cuándo
-  empezaron, pero el DATEX II de la DGT trae más:
-  - la fecha prevista de fin (409 de las 496 obras del 2-nov);
-  - la fecha de la última actualización de cada obra (algunas no se han actualizado desde 2023 o
-    2024).
-
-  Mostrar las dos en la ficha y marcar o esconder las que lleven mucho sin actualizarse o hayan pasado
-  su fecha de fin. Son datos oficiales de la DGT, pero que una obra siga activa depende de que quien la
-  gestiona la dé por terminada.
+- Obras de la DGT que llevan mucho sin revisarse (algunas, desde 2023 o 2024): marcarlas o
+  esconderlas. Ya se muestra su última revisión y salen al pasar su fin previsto, pero que una obra
+  siga activa depende de que quien la gestiona la dé por terminada.
 - Aviones y aeropuertos. Para los aviones hace falta una fuente de posiciones con licencia de
   reutilización: adsb.lol se quitó en su día, y otras, como OpenSky Network, son solo para uso no
   comercial (revisar sus condiciones). Los aeropuertos, con datos abiertos: su ubicación y, si se

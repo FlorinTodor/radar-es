@@ -24,7 +24,8 @@ tiempo real, que pueda conectar al proyecto.
 > **Aviso (2026-11-01): algunas fuentes de este documento ya NO se usan.** Por licencia se retiraron el visor de Renfe
 > (`flota.json`, `flotaLD.json`, `estaciones.geojson`, `trenesConEstacionesLD.json`), la API del
 > tranvía de Tenerife (`tranviaonline`), la API de la app de Rodalies (`serveisgrs`), adsb.lol e IODA.
-> MeteoAlarm, EMSC y OpenSky no llegaron a integrarse: los avisos de AEMET se leen de su RSS.
+> MeteoAlarm y OpenSky no llegaron a integrarse: los avisos de AEMET se leen de su RSS. El EMSC sí, desde el
+> 4-11-2026, sólo para los terremotos que no localiza el IGN; los del IGN se leen de su WMS INSPIRE, no del RSS.
 > Este documento recoge la exploración inicial; las fuentes vigentes y sus licencias están en
 > [radarespaña.es/legal](https://radarespaña.es/legal).
 

@@ -1,19 +1,18 @@
-// EMSC-CSEM SeismicPortal (servicio FDSN event): terremotos de magnitud 1,5 o más de los últimos 10
-// días en España y sus alrededores que no localiza el IGN: los de Francia (ReNaSS), Portugal (IPMA),
-// Marruecos o Madeira. Los que localiza el IGN salen de su propia fuente (ign-sismos.js), con su
-// localización y como él los deja tras revisarlos: aquí se saltan, porque el EMSC sigue mostrando los que
-// el IGN quita (199 en el año hasta el 4-nov-2026).
+// EMSC-CSEM SeismicPortal (servicio FDSN event): terremotos de magnitud 1,5 o más de los dos últimos
+// días (los que se muestran, domain/sismos.js) en España y sus alrededores que no localiza el IGN: los de
+// Francia (ReNaSS), Portugal (IPMA), Marruecos o Madeira. Los que localiza el IGN salen de su propia
+// fuente (ign-sismos.js), con su localización y como él los deja tras revisarlos: aquí se saltan, porque
+// el EMSC sigue mostrando los que el IGN quita (199 en el año hasta el 4-nov-2026).
 // Son de respaldo: si el IGN publica el mismo terremoto, se queda el del IGN (domain/sismos.js).
 // El EMSC sólo dice la región de Flinn-Engdahl, que es muy amplia («STRAIT OF GIBRALTAR» va del golfo
 // de Cádiz a Almería): en España, el municipio lo pone CartoCiudad.
 // Licencia CC BY 4.0 (seismicportal.eu/terms.html), con el crédito «EMSC-CSEM SeismicPortal».
 import { SPAIN_BOUNDS, inBounds, widenBounds } from '../../../domain/geo.js';
-import { MIN_QUAKE_MAGNITUDE, quakeSeverity, quakeWhen } from '../../../domain/sismos.js';
+import { MIN_QUAKE_MAGNITUDE, QUAKE_SHOWN_HOURS, quakeExpires, quakeSeverity, quakeWhen } from '../../../domain/sismos.js';
 import { lookup, num } from './parse.js';
 
 const BASE = 'https://www.seismicportal.eu/fdsnws/event/1/query';
 const PAGE = 'https://www.seismicportal.eu';
-const DAYS = 10; // los mismos que el IGN
 const [WEST, SOUTH, EAST, NORTH] = widenBounds(SPAIN_BOUNDS, 1);
 
 // Tipos de suceso: «ke» terremoto confirmado, «se» probable. Las voladuras de canteras y las
@@ -90,14 +89,15 @@ export function createEmscSismosSource({ http, now = Date.now, geocoder }) {
 
   return {
     id: 'emsc-sismos',
-    name: 'EMSC: terremotos que no localiza el IGN (magnitud 1,5 o más, últimos 10 días)',
+    name: 'EMSC: terremotos que no localiza el IGN (magnitud 1,5 o más, últimos 2 días)',
     kind: 'events',
     interval: 300_000,
     url: BASE,
     page: PAGE,
     license: 'Credit: EMSC-CSEM SeismicPortal, https://www.seismicportal.eu · CC BY 4.0 · Sólo los que no localiza el IGN (sobre todo de Francia, Portugal y Marruecos). Datos preliminares',
     async fetch() {
-      const start = new Date(now() - DAYS * 86_400_000).toISOString().slice(0, 19);
+      // Sólo los que se muestran (domain/sismos.js).
+      const start = new Date(now() - QUAKE_SHOWN_HOURS * 3600_000).toISOString().slice(0, 19);
       const url = `${BASE}?format=json&starttime=${start}&minmag=${MIN_QUAKE_MAGNITUDE}`
         + `&minlat=${SOUTH}&maxlat=${NORTH}&minlon=${WEST}&maxlon=${EAST}&limit=1000`;
       const doc = await http.json(url, { timeout: 30_000 });
@@ -133,6 +133,7 @@ export function createEmscSismosSource({ http, now = Date.now, geocoder }) {
           lat,
           lon,
           start,
+          expires: quakeExpires(start),
           url: `${PAGE}/eventdetails.html?unid=${unid}`,
           backup: true,
         };
