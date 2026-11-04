@@ -6,7 +6,7 @@ import { zipSync, strToU8 } from 'fflate';
 import { createGtfsScheduleSource } from '../../server/adapters/outbound/sources/gtfs-horario.js';
 import { packSchedule, parseSchedule, unpackSchedule } from '../../server/adapters/outbound/gtfs/gtfs-schedule.js';
 import { SCHEDULE_ENDING_DAYS, daysLeft } from '../../server/domain/schedule.js';
-import { fmtDateTime, scheduleValidity } from '../../public/js/format.js';
+import { fmtDateTime, fmtDateTimeYear, scheduleValidity } from '../../public/js/format.js';
 import { renderSources } from '../../public/js/panels.js';
 
 // Miércoles 4 de noviembre de 2026, a las 13:00 de Madrid.
@@ -63,7 +63,7 @@ test('en un grupo de horarios, el primero que se acaba y de qué operador es', a
   assert.equal(r.datasetValidUntilOf, 'Dos');
 });
 
-test('la pestaña Fuentes: hasta cuándo vale cada horario, resaltado si se acaba; las fechas de otro año llevan el año', () => {
+test('la pestaña Fuentes: hasta cuándo vale cada horario, resaltado si se acaba; sus fechas llevan siempre el año', () => {
   assert.deepEqual(scheduleValidity('2026-11-19', NOW), { text: 'válido hasta el 19/11/2026', warn: null, expired: false });
   assert.deepEqual(scheduleValidity('2026-11-18', NOW), { text: 'válido hasta el 18/11/2026', warn: 'caduca en 14 días', expired: false });
   assert.equal(scheduleValidity('2026-11-05', NOW).warn, 'caduca mañana');
@@ -73,15 +73,19 @@ test('la pestaña Fuentes: hasta cuándo vale cada horario, resaltado si se acab
 
   // El formato exacto (día con o sin cero delante, la coma) depende de la versión de ICU de Node.
   assert.match(fmtDateTime(Date.parse('2025-12-22T07:20:00Z'), NOW), /^22\/12\/2025,? 08:20$/, 'de otro año, con el año');
-  assert.match(fmtDateTime(Date.parse('2026-10-07T11:23:00Z'), NOW), /^0?7\/10,? 13:23$/, 'de este año, sin');
+  assert.match(fmtDateTime(Date.parse('2026-10-07T11:23:00Z'), NOW), /^0?7\/10,? 13:23$/, 'de este año, sin (alertas)');
+  assert.match(fmtDateTimeYear(Date.parse('2026-10-07T11:23:00Z')), /^0?7\/10\/2026,? 13:23$/, 'en Fuentes, también de este año');
+  assert.equal(fmtDateTimeYear(null), '—');
 
   const el = { innerHTML: '' };
   renderSources(el, [
     { id: 'metro-malaga', name: 'Metro de Málaga', enabled: true, ok: true, interval: 30_000, datasetUpdated: Date.parse('2026-10-07T11:23:00Z'), datasetValidUntil: '2026-11-10' },
     { id: 'tram-alacant', name: "TRAM d'Alacant", enabled: true, ok: true, interval: 30_000, datasetUpdated: Date.parse('2025-12-22T07:20:00Z'), datasetValidUntil: '2026-12-31' },
     { id: 'urbanos', name: 'Urbanos', enabled: true, ok: true, interval: 60_000, datasetValidUntil: '2026-12-03', datasetValidUntilOf: 'Dos' },
-  ], [], NOW);
+  ], [{ name: 'Metro de Sevilla', credit: 'Metro de Sevilla', updated: Date.parse('2026-04-15T09:22:00Z') }], NOW);
   assert.match(el.innerHTML, /horario válido hasta el 10\/11\/2026<\/span><span class="status warn">caduca en 6 días/);
+  assert.match(el.innerHTML, /horario actualizado el 0?7\/10\/2026,? 13:23/, 'de este año, con el año');
+  assert.match(el.innerHTML, /Metro de Sevilla[\s\S]*horario actualizado el 15\/0?4\/2026,? 11:22/, 'en los trazados, también');
   assert.match(el.innerHTML, /horario actualizado el 22\/12\/2025,? 08:20/);
   assert.match(el.innerHTML, /horario válido hasta el 31\/12\/2026<\/span>\s*<span>cada/, 'sin aviso si le queda mucho');
   assert.match(el.innerHTML, /el primer horario que se acaba \(Dos\) es válido hasta el 03\/12\/2026/);
