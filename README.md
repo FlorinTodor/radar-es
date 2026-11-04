@@ -389,9 +389,15 @@ después (con jq, DuckDB o pandas).
 ### Servidor MCP
 
 `POST /mcp` es un servidor [MCP](https://modelcontextprotocol.io) (Model Context Protocol): un
-asistente de IA (Claude, ChatGPT, Cursor…) se conecta con la dirección `https://radarespaña.es/mcp` y
-consulta el directo con herramientas de sólo lectura. HTTP «streamable» sin sesiones ni SSE: cada POST
-es un mensaje JSON-RPC completo (`server/adapters/inbound/mcp/mcp.js`).
+asistente de IA (Claude, ChatGPT, Cursor…) se conecta con la dirección `https://radarespaña.es/mcp`
+(si no admite la ñ, `https://xn--radarespaa-19a.es/mcp`) y consulta el directo con herramientas de
+sólo lectura. Sin la ñ o con `www.` hay una redirección, y algunos clientes no la siguen con un POST.
+HTTP «streamable» sin sesiones ni SSE: cada POST es un mensaje JSON-RPC completo
+(`server/adapters/inbound/mcp/mcp.js`).
+
+Habla la versión **2026-07-28** del protocolo (sin saludo inicial: cada petición lleva su versión en
+`params._meta`, y `server/discover` dice qué entiende el servidor) y, para los clientes que aún no la
+usan, la 2025-11-25, la 2025-06-18 y la 2025-03-26 (con `initialize`).
 
 | Herramienta | Qué devuelve |
 |---|---|
@@ -403,15 +409,24 @@ es un mensaje JSON-RPC completo (`server/adapters/inbound/mcp/mcp.js`).
 | `resumen` | vehículos por tipo, retrasos, alertas, fuentes funcionando y demanda eléctrica |
 | `estado_fuentes` | estado, licencia y atribución de cada fuente |
 
-Cada resultado lleva la atribución de las fuentes de lo que devuelve (`sources`), la hora de los datos
-y el aviso de que la web no es oficial. Los POST no los guarda Cloudflare, así que cada herramienta
-guarda su respuesta unos segundos según sus argumentos (5 s los vehículos, las alertas y el resumen;
-15 s las incidencias y las fuentes; 10 s una estación; 10 min la búsqueda de estaciones) y sólo lo que
-hay que calcular gasta su presupuesto propio (5 por segundo de media, ráfagas de 30, 429 al pasarse).
+Cada resultado lleva la atribución de las fuentes de lo que devuelve (`sources`), la hora de los datos,
+la fecha en que cada operador actualizó su horario (`datasetUpdated`, la que piden citar el NAP, TMB o
+FGV) y el aviso de que la web no es oficial. Un argumento que no cumple el esquema se devuelve como
+error de la herramienta, explicado, para que el asistente lo corrija.
+
+Los POST no los guarda Cloudflare, así que cada herramienta guarda su respuesta unos segundos según sus
+argumentos (5 s los vehículos, las alertas y el resumen; 15 s las incidencias y las fuentes; 10 s una
+estación; 10 min la búsqueda de estaciones), el texto de búsqueda de cada vehículo y aviso se prepara
+una vez cada 5 s, y sólo lo que hay que calcular gasta presupuesto: 1 por segundo y ráfagas de 10 por
+cliente, y 5 por segundo y ráfagas de 30 entre todos (429 al pasarse). Además, como pide el protocolo,
+una cabecera `Origin` de otra web recibe 403, y en la 2026-07-28 las cabeceras `MCP-Protocol-Version`,
+`Mcp-Method` y `Mcp-Name` tienen que coincidir con el cuerpo (400 si no).
 
 ```bash
-curl -s https://radarespaña.es/mcp -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"buscar_trenes","arguments":{"text":"AVE Valencia"}}}'
+curl -s https://xn--radarespaa-19a.es/mcp -H 'Content-Type: application/json' \
+  -H 'MCP-Protocol-Version: 2026-07-28' -H 'Mcp-Method: tools/call' -H 'Mcp-Name: buscar_trenes' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"buscar_trenes","arguments":{"text":"AVE Valencia"},
+       "_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}'
 ```
 
 ## Pendiente y conocido
@@ -595,6 +610,10 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   vehículos dejan de salir. Las fechas de otro año llevan el año.
 - La pestaña Fuentes cita la vía del IGN en cada red cuyo trazado se rehace con ella también justo
   después de cada arranque, sin esperar a que caduque la copia guardada.
+- Servidor MCP en `/mcp`: un asistente de IA (Claude, ChatGPT, Cursor…) consulta el directo (trenes,
+  estaciones, incidencias, alertas, resumen y fuentes) con herramientas de sólo lectura, citando las
+  fuentes. Habla la versión 2026-07-28 del protocolo y las anteriores. Lo propuso y escribió Edgar Milá
+  ([DemboNauta](https://github.com/DemboNauta)) en la PR #1.
 
 **Rendimiento y fiabilidad**
 - Directo servido desde caché, preparado para picos de muchas visitas a la vez.
