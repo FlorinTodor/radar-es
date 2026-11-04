@@ -1,5 +1,5 @@
 // Geocodificador con CartoCiudad (IGN-CNIG): el nombre de un municipio o de una localidad →
-// sus coordenadas. Servicio REST público y sin clave, catalogado en datos.gob.es con licencia
+// sus coordenadas, y unas coordenadas → su municipio y su provincia. Servicio REST público y sin clave, catalogado en datos.gob.es con licencia
 // CC BY 4.0 («Servicio REST de geocodificación de España (CartoCiudad)»).
 import { fold } from '../../../domain/emergencias.js';
 import { inBounds, SPAIN_BOUNDS } from '../../../domain/geo.js';
@@ -13,9 +13,12 @@ import { inBounds, SPAIN_BOUNDS } from '../../../domain/geo.js';
  *   region: código de comunidad autónoma del INE («01» Andalucía…), para no confundir pueblos con el
  *   mismo nombre; province: nombre de la provincia. null si no lo encuentra; si el servicio no responde,
  *   lanza el error: quien pregunta decide si sigue (las fuentes de avisos dejan de preguntar en esa lectura).
+ * @property {(lat: number, lon: number) => Promise<{ muni: string, province: string } | null>} placeAt
+ *   El municipio de un punto de España (el de su dirección más cercana), para nombrar dónde ha sido un
+ *   terremoto. null en el mar o fuera de España; si el servicio no responde, lanza el error.
  */
 /** Lo que main.js comprueba en el arranque (assertPort) que tiene el geocodificador. */
-export const GEOCODER_MEMBERS = Object.freeze(['locate']);
+export const GEOCODER_MEMBERS = Object.freeze(['locate', 'placeAt']);
 
 const BASE = 'https://www.cartociudad.es/geocoder/api/geocoder';
 // Primero la entidad de población (su centro, una respuesta pequeña) y si no, el municipio. Nunca
@@ -65,6 +68,25 @@ export function createCartoCiudadGeocoder({ http, log, base = BASE }) {
         return remember(key, { name: String((pick.type === 'poblacion' ? pick.poblacion : pick.muni) ?? name), lat, lon });
       } catch (err) {
         log?.warn(`[cartociudad] ${name}: ${err.message}`);
+        throw err;
+      }
+    },
+
+    async placeAt(lat, lon) {
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || !inSpain(lat, lon)) return null;
+      // A unos cientos de metros es el mismo sitio: así un punto se pregunta una vez.
+      const key = `@${lat.toFixed(3)},${lon.toFixed(3)}`;
+      if (cache.has(key)) return cache.get(key);
+      try {
+        // En el mar no hay dirección cercana: responde vacío (no es JSON) y se guarda que no hay municipio.
+        const body = await http.text(`${base}/reverseGeocode?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}`, { timeout: 10_000, maxBytes: 64 * 1024 });
+        let found = null;
+        try { found = body.trim() ? JSON.parse(body) : null; } catch { found = null; }
+        const muni = typeof found?.muni === 'string' ? found.muni.trim().slice(0, 80) : '';
+        const province = typeof found?.province === 'string' ? found.province.trim().slice(0, 60) : '';
+        return remember(key, muni ? { muni, province } : null);
+      } catch (err) {
+        log?.warn(`[cartociudad] ${lat.toFixed(3)},${lon.toFixed(3)}: ${err.message}`);
         throw err;
       }
     },

@@ -13,6 +13,7 @@ import { createGtfsScheduleSource } from './gtfs-horario.js';
 import { createDgtSource } from './dgt.js';
 import { createSctSource, createTraficoEuskadiSource } from './trafico-autonomico.js';
 import { createIgnSismosSource } from './ign-sismos.js';
+import { createEmscSismosSource } from './emsc-sismos.js';
 import { createAemetAvisosSource } from './aemet-avisos.js';
 import { createFirmsSource } from './firms.js';
 import { createReeSource } from './ree.js';
@@ -158,6 +159,8 @@ export function createSources(deps) {
     createAemetAvisosSource(deps),
     createFirmsSource(deps),
     createIgnSismosSource(deps),
+    // Los pequeños que el RSS del IGN no trae (menos de magnitud 2,6); los repetidos se quitan al leerlos.
+    createEmscSismosSource(deps),
     createGdacsSource(deps),
     // Avisos oficiales de protección civil y de los 112 (planes activados y cortes de luz). Si alguna
     // hubiera que dejar de leerla sin quitarla de /legal, se le pone `paused` con su motivo.

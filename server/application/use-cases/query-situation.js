@@ -6,6 +6,7 @@ import { gaugeFactors, matchToRail, routeAhead } from '../../domain/rail-match.j
 import { round5 } from '../../domain/geo.js';
 import { inForce } from '../../domain/model.js';
 import { withCurrentCuts } from '../../domain/emergencias.js';
+import { withoutRepeatedQuakes } from '../../domain/sismos.js';
 import { GRID_METRICS } from '../../domain/alerts/rules.js';
 import { DEFAULT_THRESHOLDS } from '../../domain/alerts/thresholds.js';
 
@@ -63,7 +64,7 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
   const currentEvents = () => {
     const now = clock.now();
     const grid = situation.metrics()[GRID_METRICS.aislados]?.systems;
-    return withCurrentCuts(situation.events().filter((e) => inForce(e, now)), { now, grid, thresholds });
+    return withoutRepeatedQuakes(withCurrentCuts(situation.events().filter((e) => inForce(e, now)), { now, grid, thresholds }));
   };
   // Fuentes que dicen las paradas que le quedan a cada tren (Cercanías de Renfe): lo que le queda se
   // dibuja por el trazado de su viaje, pero sólo entre esas paradas (ver domain/route-ahead.js).
