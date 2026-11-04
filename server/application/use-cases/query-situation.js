@@ -57,6 +57,7 @@ function makeTrainMemo(live) {
  */
 export function makeQuerySituation({ situation, stations, networkStations, network, clock, sources = [], railNetwork, thresholds = DEFAULT_THRESHOLDS }) {
   const withPaths = sources.filter((s) => typeof s.path === 'function');
+  const withTripStops = sources.filter((s) => typeof s.tripStops === 'function');
   // Los sucesos en vigor: un aviso oficial que ya pasó de su vigencia no se muestra aunque su fuente
   // esté caída y el repositorio guarde su última lectura; y un corte de luz que ya no lo es (al día, o
   // en una isla cuya demanda eléctrica ya es normal) se muestra como el plan que es.
@@ -218,6 +219,19 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
       const v = situation.vehicles().find((x) => x.id === id);
       const path = v ? stopsPath(v) : null;
       return path && path.length > 1 ? path.map(([lon, lat]) => [round5(lon), round5(lat)]) : null;
+    },
+
+    /**
+     * Paradas del viaje de un vehículo, del origen al destino, con su hora si se sabe y las que ya ha
+     * pasado (ver domain/trip-stops.js). null si ninguna fuente las sabe. Cada fuente las busca en un Map
+     * de su última lectura: un id inventado no cuesta nada.
+     */
+    stops(id) {
+      for (const s of withTripStops) {
+        const stops = s.tripStops(id);
+        if (stops !== undefined) return stops;
+      }
+      return null;
     },
 
     /** Estelas de todos los trenes (sin autobuses) en los últimos `minutes` minutos, como GeoJSON. */

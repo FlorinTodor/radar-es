@@ -40,6 +40,9 @@
  *   Sólo fuentes con onRailNetwork: ancho de vía por el que va el tren (null: cualquiera) y paradas que
  *   le quedan ([lon, lat], en orden, desde la próxima; null si no se saben), para dibujar por la vía su
  *   recorrido y lo que le queda hasta su destino. null = viaje desconocido; undefined = tren de otra fuente.
+ * @property {(vehicleId: string) => import('../domain/trip-stops.js').TripStops|null|undefined} [tripStops]  Paradas del
+ *   viaje del vehículo, del origen al destino, con su hora si se sabe y las que ya ha pasado (los vehículos llevan
+ *   `stops`). null = no se saben; undefined = vehículo de otra fuente.
  */
 
 /**

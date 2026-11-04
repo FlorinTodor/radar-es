@@ -2,6 +2,7 @@ import * as maplibregl from '/vendor/maplibre/maplibre-gl.mjs';
 import { DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, STATUS, esc, fmtDataTime, fmtDate, fmtDateTime, fmtDelay, fmtLocalHour, fmtTime, creditHtml, photoTitleOf, safeUrl, timeAgo, vehicleTitle } from './format.js';
 import { PICTOS, pictoFor, vehicleImage } from './icons.js';
 import { headingAlong, matchTrack, pathBetween } from './track-match.js';
+import { stopTipHtml, stopsCollection, stopsListHtml } from './trip-stops.js';
 
 const STYLE = 'https://tiles.openfreemap.org/styles/dark';
 const FONT = ['Noto Sans Regular'];
@@ -117,9 +118,12 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
   let anims = new Map(); // id → { from, to, t0, props }
   let raf = null;
   let selectedId = null;  // tren seleccionado: lleva anillo y su recorrido reciente
+  let selectedVehicle = null; // sus últimos datos, para repintar la ficha al llegar sus paradas
+  let tripStops = null;   // paradas de su viaje (/api/stops), si se saben
   let selectedStation = null; // código de la estación cuya ficha está abierta
   let clicks = 0;         // contador de clics en el mapa, para descartar respuestas tardías de EFFIS
   let trackFetchedAt = 0;
+  let lastRoute = null; // lo que le queda, si se dibuja aquí (drawRoute)
   let eventList = [];     // últimos sucesos: la ficha de un aviso oficial lista los demás del mismo sitio
   let lineFeatures = [];  // trazados de las líneas: el recorrido del tren seleccionado se pega a la suya
   let byShape = new Map(); // «red|shape_id» → trazado, para lo que le queda y la flecha de cada tren
@@ -214,7 +218,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
       },
     }, firstSymbol);
 
-    for (const id of ['lines', 'areas', 'stations', 'events', 'trails', 'route', 'track', 'vehicles']) map.addSource(id, { type: 'geojson', data: EMPTY });
+    for (const id of ['lines', 'areas', 'stations', 'events', 'trails', 'route', 'track', 'stops', 'vehicles']) map.addSource(id, { type: 'geojson', data: EMPTY });
 
     // Avisos meteorológicos debajo de todo lo demás, para no tapar trenes ni incidencias.
     map.addLayer({ id: 'meteo-fill', type: 'fill', source: 'areas', paint: { 'fill-color': LEVEL_COLOR, 'fill-opacity': 0.13 } }, firstSymbol);
@@ -387,6 +391,40 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
         'icon-allow-overlap': true, 'icon-ignore-placement': true,
       },
     });
+    // Paradas del viaje del vehículo seleccionado, sobre lo que le queda: blancas con borde azul las que
+    // le quedan, grises las que ya ha pasado; el origen y el destino, más grandes y siempre con su nombre.
+    // Debajo de los vehículos, para no tapar ninguno.
+    const END = ['==', ['get', 'end'], 1];
+    const PASSED = ['==', ['get', 'passed'], 1];
+    const NOW = ['any', ['==', ['get', 'next'], 1], ['==', ['get', 'here'], 1]]; // la próxima o en la que está
+    map.addLayer({
+      id: 'stops-dot', type: 'circle', source: 'stops',
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, ['case', END, 4.5, 2.5], 10, ['case', END, 6, 4], 14, ['case', END, 7.5, 5.5]],
+        'circle-color': ['case', PASSED, '#8d929a', '#ffffff'],
+        'circle-stroke-color': ['case', PASSED, '#4b5058', NOW, '#ffffff', '#6ea8fe'],
+        'circle-stroke-width': ['case', END, 3, NOW, 3, 2],
+      },
+    });
+    const stopLabelPaint = { 'text-color': ['case', PASSED, '#a3a7ad', '#ffffff'], 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.6 };
+    map.addLayer({
+      id: 'stops-label-ends', type: 'symbol', source: 'stops', filter: END,
+      layout: {
+        // Por debajo de la placa y su anillo: si el vehículo está en la parada, su nombre no lo tapa.
+        'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': 12.5, 'text-anchor': 'top', 'text-offset': [0, 1.6],
+        'text-allow-overlap': true, 'text-max-width': 12,
+      },
+      paint: stopLabelPaint,
+    });
+    // Las intermedias, al acercarse y sólo las que caben: primero la próxima, luego las que le quedan.
+    map.addLayer({
+      id: 'stops-label', type: 'symbol', source: 'stops', minzoom: 9, filter: ['!', END],
+      layout: {
+        'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': 11, 'text-anchor': 'top', 'text-offset': [0, 1.6],
+        'text-max-width': 10, 'symbol-sort-key': ['get', 'rank'],
+      },
+      paint: stopLabelPaint,
+    });
     map.addLayer({
       id: 'veh-halo', type: 'circle', source: 'vehicles',
       paint: {
@@ -444,7 +482,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     });
 
     // Por orden de prioridad: si un tren está encima de su estación, se pulsa el tren.
-    const clickable = ['vehicles', 'veh-est', 'ev-rail', 'ev-quake', 'ev-emerg', 'ev-gdacs', 'ev-road', 'ev-road-major', 'ev-works', 'stations-hit', 'netst-hit', 'ev-fire-glow', 'meteo-fill'];
+    const clickable = ['vehicles', 'veh-est', 'stops-dot', 'ev-rail', 'ev-quake', 'ev-emerg', 'ev-gdacs', 'ev-road', 'ev-road-major', 'ev-works', 'stations-hit', 'netst-hit', 'ev-fire-glow', 'meteo-fill'];
     for (const id of clickable) {
       map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
@@ -460,14 +498,30 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
         return;
       }
       if (['vehicles', 'veh-est'].includes(f.layer.id)) onVehicleClick(f.properties.id);
+      else if (f.layer.id === 'stops-dot') showStopTip(f); // su nombre y su hora; el vehículo sigue seleccionado
       else if (['stations-hit', 'netst-hit'].includes(f.layer.id)) onStationClick?.(f.properties.code);
       else onEventClick(f.properties.id, e.lngLat);
     });
+
+    // El nombre y la hora de cada parada al pasar el ratón por encima; con el dedo, al tocarla (clic).
+    map.on('mousemove', 'stops-dot', (e) => { if (e.features?.[0]) showStopTip(e.features[0]); });
+    map.on('mouseleave', 'stops-dot', () => stopTip.remove());
 
     loaded = true;
     applyFilters();
     kick();
   });
+
+  const stopTip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 10, className: 'stop-tip', maxWidth: '240px' });
+  function showStopTip(f) {
+    stopTip.setLngLat(f.geometry.coordinates).setHTML(stopTipHtml(f.properties, tripStops?.stops?.length ?? 0)).addTo(map);
+  }
+  /** Paradas del vehículo seleccionado en el mapa (null las quita). */
+  function setTripStops(data) {
+    tripStops = data;
+    map.getSource('stops')?.setData(data ? stopsCollection(data) : EMPTY);
+    if (!data) stopTip.remove();
+  }
 
   function vehicleFilter(extra) {
     const parts = ['all'];
@@ -509,6 +563,10 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
   const kick = () => { if (!raf) raf = requestAnimationFrame(frame); };
 
   function setSelected(id) {
+    if (id !== selectedId) { // otro vehículo o ninguno: las paradas del anterior se quitan
+      setTripStops(null);
+      selectedVehicle = null;
+    }
     selectedId = id;
     if (id) setStation(null);
     if (loaded) map.setFilter('veh-selected', ['==', ['get', 'id'], id ?? '']);
@@ -583,6 +641,15 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
 
   function loadTrack(v) {
     trackFetchedAt = Date.now();
+    if (v.stops) {
+      fetchTrain(`/api/stops/${encodeURIComponent(v.id)}`, v.id)
+        .then((data) => {
+          if (selectedId !== v.id) return;
+          setTripStops(data?.stops?.length > 1 ? data : null);
+          if (card.open && selectedVehicle) card.show(vehicleDetail(selectedVehicle, !!lastRoute, tripStops));
+        })
+        .catch(() => {});
+    } else setTripStops(null);
     if (v.ahead) {
       fetchTrain(`/api/ahead/${encodeURIComponent(v.id)}`, v.id)
         .then((ahead) => { if (selectedId === v.id) setRoute(ahead); })
@@ -746,19 +813,23 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
       map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), zoom), speed: 1.6, offset: centerOffset() });
     },
 
-    /** Selecciona un tren: anillo, recorrido reciente y ficha. La × de la ficha sólo la cierra. */
+    /** Selecciona un tren: anillo, recorrido reciente, sus paradas y ficha. La × de la ficha sólo la cierra. */
     showVehicle(v) {
       setSelected(v.id);
+      selectedVehicle = v;
       const route = drawRoute(v);
-      card.show(vehicleDetail(v, !!route));
+      lastRoute = route;
+      card.show(vehicleDetail(v, !!route, tripStops));
       loadTrack(v);
     },
 
     /** Actualiza la ficha y, cada 15 s, el recorrido del tren seleccionado cuando llegan datos. */
     refreshVehicle(v) {
       if (selectedId !== v.id) return;
+      selectedVehicle = v;
       const route = drawRoute(v);
-      if (card.open) card.show(vehicleDetail(v, !!route));
+      lastRoute = route;
+      if (card.open) card.show(vehicleDetail(v, !!route, tripStops));
       if (Date.now() - trackFetchedAt > 15_000) loadTrack(v);
     },
 
@@ -885,6 +956,10 @@ function createDetailCard(host, onVehicle, onEvent) {
   el.setAttribute('aria-label', 'Detalle del elemento seleccionado');
   el.innerHTML = '<button type="button" class="detail-close" aria-label="Cerrar ficha">×</button><div class="detail-body"></div>';
   el.querySelector('.detail-close').addEventListener('click', () => { el.hidden = true; });
+  // Si se abre o se cierra la lista de paradas, se queda así al repintar la ficha ('toggle' no sube: captura).
+  el.addEventListener('toggle', (ev) => {
+    if (ev.target.dataset?.keep === 'stops') stopsListOpen = ev.target.open;
+  }, true);
   // Los trenes de la ficha de una estación abren la del tren.
   el.addEventListener('click', (ev) => {
     const train = ev.target.closest('[data-vehicle]');
@@ -980,8 +1055,15 @@ function sourceRows(id, operator) {
   return [['Atribución', { html: creditHtml(s.operatorLicenses?.[operator] ?? s.license ?? s.name) }], dates.length && ['Actualizado', dates.join(' · ')]];
 }
 
-/** @param {object} v  @param {boolean} [onRoute] se dibuja lo que le queda hasta su final */
-function vehicleDetail(v, onRoute = false) {
+// La lista de paradas de la ficha se queda abierta o cerrada como la deje cada uno (la ficha se repinta
+// con cada lectura); hasta entonces, abierta en pantallas anchas y cerrada en el móvil.
+let stopsListOpen = null;
+
+/**
+ * @param {object} v  @param {boolean} [onRoute] se dibuja lo que le queda hasta su final
+ * @param {import('./trip-stops.js').TripStops|null} [stops] paradas de su viaje
+ */
+function vehicleDetail(v, onRoute = false, stops = null) {
   // La vía es la de una estación (en la que está parado o a la que llega), nunca la del trayecto:
   // va pegada a esa estación para que no se lea como la vía por la que circula.
   const via = v.platform ? ` · vía ${v.platform}` : '';
@@ -1012,8 +1094,12 @@ function vehicleDetail(v, onRoute = false) {
           + 'es el tramo que habría recorrido en los últimos 45 min según el horario.')
       + (v.ahead ? ` ${aheadText(', según el horario').trim()}` : '');
   const badge = v.estimated ? '<div class="est-badge">Posición estimada · no es GPS</div>' : '';
+  const open = stopsListOpen ?? !window.matchMedia('(max-width: 860px)').matches;
+  const list = stops ? stopsListHtml(stops, { open }) : '';
+  const stopsNote = list ? ' Los <strong>puntos</strong> son sus paradas: blancos los que le quedan y grises por los que ya ha pasado.'
+    + (v.estimated ? ' Sus horas son las del horario.' : '') : '';
   return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
-    <div class="note">${note}</div></div>`;
+    ${list}<div class="note">${note}${stopsNote}</div></div>`;
 }
 
 

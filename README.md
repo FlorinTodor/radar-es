@@ -370,6 +370,7 @@ Lo que no se puede dibujar por falta de datos públicos:
 | `GET /api/alerts` | alertas activas y resueltas |
 | `GET /api/tracks/:id` | recorrido de un vehículo en los últimos 45 min |
 | `GET /api/ahead/:id` | lo que le queda a un vehículo hasta su destino (posiciones estimadas, Cercanías y AVE, Larga y Media Distancia; el de FGC y Metro Bilbao lo dibuja el mapa con el trazado de su línea o de su viaje) |
+| `GET /api/stops/:id` | paradas del viaje de un vehículo, del origen al destino, con su hora si se sabe y las que ya ha pasado |
 | `GET /api/stations/:código` | ficha de una estación (trenes, avisos, líneas, conexiones, datos y foto) |
 | `GET /api/lines` | trazados de las líneas (GeoJSON) |
 | `GET /api/trails?min=15` | estela de cada tren en los últimos 15, 30 o 45 minutos (GeoJSON) |
@@ -463,6 +464,11 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   Larga y Media Distancia por la red de Adif; en Metro Bilbao con el trazado de su viaje, en FGC con
   el de su línea y en metros y tranvías estimados con su horario. Comprobado con todos los viajes de
   sus horarios.
+- Al seleccionar un vehículo salen en el mapa sus paradas: el origen y el destino con su nombre, las
+  intermedias por las que va a pasar (blancas) y las que ya ha pasado (grises). En la ficha, la lista
+  con la hora de su horario y la prevista con su retraso (en Cercanías, sólo la prevista que publica
+  Renfe; FGC no da horas). En Alta Velocidad, Larga y Media Distancia, Cercanías, FGC, metros, tranvías
+  y autobuses con horario.
 - Todos los trenes, metros y tranvías van por su vía, también donde el operador publica su trazado
   casi solo con las estaciones o no lo publica: esos tramos se rehacen con la red ferroviaria del IGN,
   que también tiene metro, tranvía y funicular. Revisado con todos los vehículos del mapa:
