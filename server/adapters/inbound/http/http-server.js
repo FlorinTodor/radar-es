@@ -82,6 +82,12 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
   // el mismo vehículo antes de TRAIN_TTL_MS recibe la copia, sin gastar nada.
   const memoTrains = createJsonMemo({ max: TRAIN_MEMO_MAX, maxBytes: TRAIN_MEMO_BYTES, now });
   const trainBudget = createBudget({ perSecond: TRAIN_BUDGET.perSecond, burst: TRAIN_BUDGET.burst, now });
+  // Las paradas de cada viaje (/api/stops/<id>) son una búsqueda y una lista corta, no un cálculo por la
+  // vía: memo y presupuesto aparte, para que ni gasten el de los recorridos ni echen sus copias del memo.
+  const stopsTrains = {
+    memo: createJsonMemo({ max: TRAIN_MEMO_MAX, maxBytes: STOPS_MEMO_BYTES, now }),
+    budget: createBudget({ perSecond: STOPS_BUDGET.perSecond, burst: STOPS_BUDGET.burst, now }),
+  };
   // Cada mensaje MCP es un POST, que Cloudflare no guarda: todos llegan al servidor y algunas
   // herramientas recorren todos los vehículos. Presupuesto propio, para que no le quiten sitio al mapa;
   // sólo lo gasta lo que hay que calcular (el adaptador MCP guarda unos segundos cada respuesta).
@@ -134,6 +140,12 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
         const id = decodeOrNull(url.pathname.slice('/api/ahead/'.length));
         if (id === null || id.length > MAX_VEHICLE_ID) return send(res, 400, { error: 'Ruta inválida' });
         return sendTrain(req, res, `ahead:${id}`, () => query.ahead(id) ?? null, 'Sin recorrido previsto');
+      }
+      // Paradas del viaje de un vehículo (de dónde viene, por dónde pasa y adónde va).
+      if (url.pathname.startsWith('/api/stops/')) {
+        const id = decodeOrNull(url.pathname.slice('/api/stops/'.length));
+        if (id === null || id.length > MAX_VEHICLE_ID) return send(res, 400, { error: 'Ruta inválida' });
+        return sendTrain(req, res, id, () => query.stops?.(id) ?? null, 'Paradas desconocidas', stopsTrains);
       }
       if (url.pathname.startsWith('/api/tracks/')) {
         const id = decodeOrNull(url.pathname.slice('/api/tracks/'.length));
@@ -195,17 +207,18 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
   }
 
   /**
-   * Recorrido o lo que le queda de un vehículo, desde su memo (ver memoTrains). Si hay que calcularlo y
-   * se ha gastado el presupuesto, 503 con Retry-After: el mapa vuelve a pedirlo solo. Sin datos, 404.
+   * Recorrido, lo que le queda o las paradas de un vehículo, desde su memo (ver memoTrains; las paradas,
+   * con el suyo). Si hay que calcularlo y se ha gastado el presupuesto, 503 con Retry-After: el mapa
+   * vuelve a pedirlo solo. Sin datos, 404.
    */
-  function sendTrain(req, res, key, compute, missing) {
+  function sendTrain(req, res, key, compute, missing, { memo = memoTrains, budget = trainBudget } = {}) {
     let entry;
     try {
-      entry = memoTrains(key, TRAIN_TTL_MS, () => {
-        if (!trainBudget.take()) throw new Busy();
+      entry = memo(key, TRAIN_TTL_MS, () => {
+        if (!budget.take()) throw new Busy();
         const body = compute();
         // Un id que no es de ningún vehículo no cuesta nada: pedir ids inventados no gasta el presupuesto.
-        if (body === null) trainBudget.refund();
+        if (body === null) budget.refund();
         return body;
       }, { isEmpty: (body) => body === null });
     } catch (err) {
@@ -331,6 +344,9 @@ const TRAIN_MEMO_MAX = 2_000; // más que todos los vehículos que puede haber a
 const TRAIN_MEMO_BYTES = 32 * 1024 * 1024;
 const PARAMS_MEMO_BYTES = 48 * 1024 * 1024;
 const TRAIN_BUDGET = { perSecond: 4, burst: 20 };
+// Paradas: cada una cuesta microsegundos; el tope sólo frena a quien recorra todos los vehículos.
+const STOPS_BUDGET = { perSecond: 25, burst: 100 };
+const STOPS_MEMO_BYTES = 8 * 1024 * 1024;
 // Cálculos de herramientas MCP (las respuestas guardadas no cuentan): un asistente hace una o dos por pregunta.
 const MCP_BUDGET = { perSecond: 5, burst: 30 };
 // Por cliente: una pregunta a un asistente son una o dos llamadas; unas cuantas seguidas, sin esperar.

@@ -2,6 +2,7 @@
 // Portal de datos abiertos de FGC (Opendatasoft), sin clave.
 import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
 import { madridLocalToMs } from './parse.js';
+import { tripStopList } from '../../../domain/trip-stops.js';
 
 const BASE = 'https://dadesobertes.fgc.cat/api/explore/v2.1/catalog/datasets/posicionament-dels-trens/records?limit=100';
 // Horario GTFS de FGC en el Punto de Acceso Nacional: el mismo fichero del que salen los trazados de
@@ -22,6 +23,24 @@ export function fgcStations(stopsTxt) {
     stations.set(s.stop_id, { name: s.stop_name.trim(), at: at.every(Number.isFinite) ? at : null });
   }
   return stations;
+}
+
+/**
+ * Códigos de las paradas de un tren de FGC: su origen y la última estación en la que ha estado (ya
+ * pasadas) y las que le quedan, que FGC da en `properes_parades` («{"parada": "SG"};{"parada": "GR"}»),
+ * acabando en su destino. FGC no da las que hay entre el origen y la última en la que ha estado: en
+ * cuanto sale del origen, la lista es parcial. En el origen todavía (estacionado en él), está en la
+ * primera y ninguna está pasada.
+ * @returns {{ codes: string[], from: number, partial: boolean, here: boolean } | null}
+ */
+export function fgcTripCodes(r) {
+  const ahead = [...String(r.properes_parades ?? '').matchAll(/"parada":\s*"([^"]+)"/g)].map((m) => m[1]);
+  if (r.desti && ahead.at(-1) !== r.desti) ahead.push(r.desti);
+  const atOrigin = r.estacionat_a && r.estacionat_a === r.origen;
+  const passed = [r.origen, r.estacionat_a].filter((c, i, all) => c && all.indexOf(c) === i && !ahead.includes(c));
+  const codes = [...passed, ...ahead];
+  if (codes.length < 2) return null;
+  return atOrigin ? { codes, from: 0, partial: false, here: true } : { codes, from: passed.length, partial: passed.length > 0, here: false };
 }
 
 /**
@@ -47,6 +66,8 @@ export function createFgcSource({ http, nap, log }) {
     }
   }
   const name = (code) => (code ? stations?.get(code)?.name ?? code : null);
+  // Paradas de cada tren de la última lectura (fgcTripCodes): para su ficha (tripStops).
+  let trips = new Map();
 
   return {
     id: 'fgc',
@@ -56,9 +77,16 @@ export function createFgcSource({ http, nap, log }) {
     url: BASE,
     license: 'Ferrocarrils de la Generalitat de Catalunya (CC BY 4.0). Formato adaptado. Nombres de estación y trazados de su '
       + 'horario GTFS del Punto de Acceso Nacional: Powered by MITRAMS (dato explotado)',
+    /** Paradas de su viaje que se saben, sin hora (FGC no la da). null si no se saben; undefined si no es de FGC. */
+    tripStops(vehicleId) {
+      const trip = trips.get(vehicleId);
+      if (!trip) return vehicleId.startsWith('fgc:') ? null : undefined;
+      return tripStopList(trip.codes.map((code) => ({ name: name(code), at: stations?.get(code)?.at ?? null })), trip.from, { partial: trip.partial, here: trip.here });
+    },
     async fetch() {
       await loadNames();
       const vehicles = [];
+      const next = new Map();
       // La API pagina de 100 en 100; FGC rara vez pasa de 100 trenes, pero por si acaso.
       for (let offset = 0; offset < 500; offset += 100) {
         const d = await http.json(`${BASE}&offset=${offset}`);
@@ -69,6 +97,9 @@ export function createFgcSource({ http, nap, log }) {
           // las columnas descolocadas (la línea en ocupacio_mi_tram, el origen en ocupacio_ri_tram…). No se
           // recoloca a ojo: se descarta, y todos los así acabarían con el mismo id «fgc:undefined».
           if (!(r.ut || r.id) || !r.lin) continue;
+          const trip = fgcTripCodes(r);
+          // FGC da a veces dos registros de la misma unidad: valen las paradas del primero, el de su ficha.
+          if (trip && !next.has(`fgc:${r.ut || r.id}`)) next.set(`fgc:${r.ut || r.id}`, trip);
           vehicles.push({
             id: `fgc:${r.ut || r.id}`,
             // L6, L7, L8, L12: servicio urbano tipo metro. S/R: suburbano.
@@ -88,10 +119,12 @@ export function createFgcSource({ http, nap, log }) {
             rollingStock: r.tipus_unitat ? `Serie ${r.tipus_unitat}` : null,
             // Donde acaba su viaje: el mapa dibuja lo que le queda por el trazado de su línea.
             end: stations?.get(r.desti)?.at ?? null,
+            ...(trip ? { stops: true } : {}), // sus paradas: /api/stops
           });
         }
         if ((d.results?.length ?? 0) < 100) break;
       }
+      trips = next;
       return { vehicles, ...(stations && gtfsUpdated ? { datasetUpdated: gtfsUpdated } : {}) };
     },
   };

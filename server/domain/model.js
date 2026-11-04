@@ -34,6 +34,8 @@
  * @property {boolean} [estimated]    Posición calculada a partir del horario, no GPS. No cuenta para alertas ni KPIs.
  * @property {boolean} [ahead]        Lo que le queda hasta su final lo calcula el servidor (/api/ahead/<id>): posiciones
  *   estimadas (con su horario), Cercanías (por las paradas que le quedan) y AV/LD/MD (por la vía de Adif).
+ * @property {boolean} [stops]        Se saben las paradas de su viaje (/api/stops/<id>): de dónde viene, por dónde pasa y
+ *   adónde va, con su hora si la hay (ver domain/trip-stops.js).
  */
 
 /**

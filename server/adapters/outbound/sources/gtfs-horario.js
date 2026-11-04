@@ -10,6 +10,7 @@ import {
 } from '../../../domain/schedule.js';
 import { refineToRail } from '../../../domain/rail-match.js';
 import { estimatePosition } from '../../../domain/estimated-position.js';
+import { nextStopIndex, tripStopList } from '../../../domain/trip-stops.js';
 import { round5 } from '../../../domain/geo.js';
 import { madridDate, madridLocalToMs } from './parse.js';
 import { napDatasetPage } from '../nap/nap-client.js';
@@ -130,6 +131,9 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
   // dónde llega su viaje: id → { shape, from, to, end } (distancias en metros), o null si se queda
   // en la última parada.
   let paths = new Map();
+  // Paradas del viaje de cada vehículo de la última lectura y su hora en el horario entonces: id →
+  // { stops, tt, offset, delaySec }. Las paradas son las que el viaje ya guarda mientras circula.
+  let running = new Map();
   // Los que no son autobuses pueden ir por las vías del IGN (ver tripShape): su licencia pide citarlas.
   const viaCredit = mode !== 'bus' && railGeometry?.credit ? ` · trazado por la vía: ${railGeometry.credit}` : '';
   const estimatedLicense = (credit) => `Powered by MITRAMS (Punto de Acceso Nacional) · ${credit} · `
@@ -215,7 +219,7 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
     return trip.onShape;
   }
 
-  function vehicle(fi, schedule, trip, day, t, delaySec, offset = 0, nextPaths = paths) {
+  function vehicle(fi, schedule, trip, day, t, delaySec, offset = 0, nextPaths = paths, nextRunning = running) {
     const tt = t - offset;
     if (tt < trip.first || tt > trip.last) { // descarte barato antes de crear objetos
       if (tt > trip.last) trip.stopObjects = undefined; // ya ha acabado: no hace falta guardarlas
@@ -229,6 +233,8 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
     const instance = offset ? `:${offset}` : '';
     const vid = `${id}:${feeds.length > 1 ? `${fi}:` : ''}${trip.id}:${day.ymd}${instance}`;
     if (est.path !== undefined) nextPaths.set(vid, est.path);
+    // Sus paradas, para su ficha (tripStops): las del viaje, que ya se guardan mientras circula.
+    nextRunning.set(vid, { stops, tt, offset, delaySec });
     const { operator } = feeds[fi];
     return {
       id: vid,
@@ -242,6 +248,7 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
       delay: delaySec === null ? null : Math.round(delaySec / 60),
       estimated: true,
       ...(est.ahead ? { ahead: true } : {}),
+      stops: true, // sus paradas, con su hora: /api/stops
       ...(est.heading !== null ? { heading: est.heading } : {}),
       atLastStop: est.atLastStop,
       origin: stops[0].name,
@@ -326,6 +333,19 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
       if (p?.stops) return [p.at, ...p.stops].map(([lon, lat]) => [round5(lon), round5(lat)]);
       return p ? stretch(p.shape, p.to, p.end) : p;
     },
+    /**
+     * Paradas de su viaje según el horario, con su hora (la de salida en la primera) y, con el retraso
+     * real (Euskotren, AMB), la prevista; las que ya ha pasado, a la hora de la última lectura. null si
+     * el vehículo ya no circula; undefined si no es de esta fuente.
+     */
+    tripStops(vehicleId) {
+      const r = running.get(vehicleId);
+      if (!r) return vehicleId.startsWith(`${id}:`) ? null : undefined;
+      const { stops, tt, offset, delaySec } = r;
+      const next = nextStopIndex(stops, tt);
+      return tripStopList(stops.map((s, i) => ({ name: s.name, at: [s.lon, s.lat], time: (i === 0 ? s.dep : s.arr) + offset })),
+        next, { delaySec, here: tt >= (stops[next]?.arr ?? Infinity) });
+    },
     async fetch() {
       refineBudget = REFINE_PER_READ;
       // Se recarga cada día (sólo se guardan los viajes de hoy y los de ayer que pasan de medianoche).
@@ -338,6 +358,7 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
       const now = Date.now();
       const vehicles = [];
       const nextPaths = new Map();
+      const nextRunning = new Map();
       // Un tren que salió antes de medianoche pertenece al día de servicio anterior.
       const serviceDays = [madridServiceDay(now, 0), madridServiceDay(now, -1)];
       for (const [fi, { schedule }] of loaded) {
@@ -347,20 +368,20 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
             if (rt) {
               const live = rt.get(trip.id);
               if (!live || (live.ymd && live.ymd !== day.ymd)) continue;
-              const v = vehicle(fi, schedule, trip, day, t - live.delay, live.delay, 0, nextPaths);
+              const v = vehicle(fi, schedule, trip, day, t - live.delay, live.delay, 0, nextPaths, nextRunning);
               if (v) vehicles.push(v);
               continue;
             }
             if (!serviceRuns(schedule.calendar.get(trip.serviceId), schedule.exceptions.get(trip.serviceId), day.ymd, day.weekday)) continue;
             if (!trip.freqs.length) {
-              const v = vehicle(fi, schedule, trip, day, t, null, 0, nextPaths);
+              const v = vehicle(fi, schedule, trip, day, t, null, 0, nextPaths, nextRunning);
               if (v) vehicles.push(v);
               continue;
             }
             const duration = trip.last - trip.first;
             for (const fr of trip.freqs) {
               for (const off of activeFrequencyOffsets(fr, trip.first, duration, t)) {
-                const v = vehicle(fi, schedule, trip, day, t, null, off, nextPaths);
+                const v = vehicle(fi, schedule, trip, day, t, null, off, nextPaths, nextRunning);
                 if (v) vehicles.push(v);
               }
             }
@@ -368,6 +389,7 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
         }
       }
       paths = nextPaths;
+      running = nextRunning;
       // En los grupos, la fecha del horario más reciente, la del más antiguo y la de cada operador.
       const dates = [...loaded.values()].map((l) => l.updatedAt).filter(Boolean);
       const byOperator = {};

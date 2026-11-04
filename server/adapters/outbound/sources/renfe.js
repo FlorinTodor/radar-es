@@ -7,6 +7,8 @@ import { createPacer, csvColumns, csvColumnsStreamed, csvRows, openGtfs, own, zi
 import { RENFE_FILES } from '../stations/renfe-station-catalog.js';
 import { madridDateTime, madridToday, num } from './parse.js';
 import { distanceKm } from '../../../domain/geo.js';
+import { gtfsTimeToSeconds } from '../../../domain/schedule.js';
+import { tripStopList } from '../../../domain/trip-stops.js';
 
 const GTFSRT = 'https://gtfsrt.renfe.com';
 // Una estación con andenes largos no pasa de unos cientos de metros: «parado» más lejos que esto de
@@ -43,9 +45,10 @@ const madridIso = (epochSec) => madridDateTime(epochSec * 1000);
 
 /** Horarios oficiales de Renfe, cargados una vez al día y compartidos por las dos fuentes. */
 export function createTimetables({ cache, stations, log }) {
-  let ld = new Map();   // trip_id → { service, mode, gauge, origin, destination, stops }
+  let ld = new Map();   // trip_id → { service, mode, gauge, origin, destination, stops, times }
   let ldByNumber = new Map(); // número de tren → lo mismo, del periodo vigente
   let cerc = new Map(); // trip_id → { line, origin, destination, shape, end, stops }
+  let cercStops = new Map(); // stop_id → { name, at: [lon, lat] }, del stops.txt de Cercanías
   const loadedAt = { ld: 0, cerc: 0 };
   // Las dos fuentes de Renfe piden los horarios a la vez al arrancar: mientras una carga está en
   // marcha, las demás llamadas esperan a esa misma en vez de leer otra vez el GTFS en paralelo.
@@ -77,16 +80,17 @@ export function createTimetables({ cache, stations, log }) {
     try {
       const f = await openGtfs(await cache.bytes(RENFE_FILES.largaDistancia, 'renfe-google_transit.zip', maxAgeMs), ['routes.txt', 'trips.txt', 'stop_times.txt']);
       const routes = new Map([...csvRows(f['routes.txt'])].map((r) => [r.route_id, r.route_short_name]));
-      const ends = new Map(); // trip_id → [primera parada, última parada, todas las paradas]
+      const ends = new Map(); // trip_id → [primera parada, última parada, todas las paradas con su hora]
       const pace = createPacer();
-      for (const [tripId, stopId, stopSequence] of csvColumns(f['stop_times.txt'], ['trip_id', 'stop_id', 'stop_sequence'])) {
+      const columns = ['trip_id', 'stop_id', 'stop_sequence', 'arrival_time', 'departure_time'];
+      for (const [tripId, stopId, stopSequence, arrival, departure] of csvColumns(f['stop_times.txt'], columns)) {
         if (pace.due()) await pace.pause();
         const seq = +stopSequence;
         let e = ends.get(tripId);
         if (!e) ends.set(own(tripId), (e = [[Infinity], [-Infinity], []]));
         if (seq < e[0][0]) e[0] = [seq, own(stopId)];
         if (seq > e[1][0]) e[1] = [seq, own(stopId)];
-        e[2].push([seq, stopId]);
+        e[2].push([seq, stopId, gtfsTimeToSeconds(arrival), gtfsTimeToSeconds(departure)]);
       }
       const stopsOf = tripStopsPatterns();
       const next = new Map();
@@ -100,7 +104,8 @@ export function createTimetables({ cache, stations, log }) {
         if (pace.due()) await pace.pause();
         const [service, mode, gauge = null] = product(routes.get(t.route_id));
         const e = ends.get(t.trip_id);
-        const trip = { service, mode, gauge, origin: e ? stations.name(e[0][1]) : null, destination: e ? stations.name(e[1][1]) : null, stops: e ? stopsOf(e[2]) : null };
+        const stops = e ? stopsOf(e[2]) : null; // ordena las filas
+        const trip = { service, mode, gauge, origin: e ? stations.name(e[0][1]) : null, destination: e ? stations.name(e[1][1]) : null, stops, times: e ? stopTimes(e[2]) : null };
         next.set(t.trip_id, trip);
         const number = t.trip_short_name || t.trip_id.slice(0, 5);
         const from = /\d{4}-\d{2}-\d{2}$/.exec(t.trip_id)?.[0] ?? '';
@@ -124,6 +129,7 @@ export function createTimetables({ cache, stations, log }) {
       // route_type 3: autobuses de Renfe por carretera (la C2 de Murcia a Águilas, Caudiel-Puçol…), no trenes.
       for (const r of csvRows(f['routes.txt'])) routes.set(r.route_id, { line: r.route_short_name || null, bus: r.route_type === '3', ...routeEnds(r.route_long_name) });
       const gtfsStops = new Map([...csvRows(f['stops.txt'])].map((s) => [s.stop_id, { name: s.stop_name, at: [+s.stop_lon, +s.stop_lat] }]));
+      cercStops = gtfsStops; // un millar de paradas: sus nombres y dónde están, para las paradas de cada viaje
       const nameOf = (id) => stations.get(id)?.name ?? gtfsStops.get(id)?.name ?? null;
       const pace = createPacer();
       let stopsOf = new Map();
@@ -173,6 +179,7 @@ export function createTimetables({ cache, stations, log }) {
     ld: (id, number) => ld.get(id) ?? ldByNumber.get(number),
     ldExact: (id) => ld.has(id),
     cercanias: (id) => cerc.get(id),
+    cercaniasStop: (id) => cercStops.get(id),
   };
 }
 
@@ -226,6 +233,16 @@ function tripStopsPatterns() {
     if (!patterns.has(key)) patterns.set(own(key), ids.map(own));
     return patterns.get(key);
   };
+}
+
+/**
+ * Hora de cada parada de un viaje de AV/LD/MD en el horario (segundos del día de servicio; la de salida
+ * en la primera, la de llegada en las demás), de sus filas ya ordenadas [stop_sequence, stop_id, llegada,
+ * salida]; -1 donde no la trae. null si el horario no trae horas.
+ */
+function stopTimes(rows) {
+  const times = Int32Array.from(rows, (r, i) => (i === 0 ? r[3] ?? r[2] : r[2] ?? r[3]) ?? -1);
+  return times.some((t) => t >= 0) ? times : null;
 }
 
 /**
@@ -304,12 +321,46 @@ function tripUpdates(feed) {
 }
 
 /**
+ * Primera parada del viaje por la que no ha pasado un tren de Cercanías (índice; -1 si stopId no está en
+ * su viaje). Como en stopsLeft: en camino (IN_TRANSIT_TO), stopId es la última que ha dejado; parado, en
+ * la que está (aún no la ha pasado); llegando (INCOMING_AT), a la que llega.
+ */
+export function cercaniasFrom(status, stopId, stops) {
+  const i = stops?.indexOf(stopId) ?? -1;
+  if (i < 0) return -1;
+  return status === 'IN_TRANSIT_TO' ? i + 1 : i;
+}
+
+/**
  * @param {{ http: import('../http/http-client.js').HttpClient, cache: ReturnType<typeof import('../http/file-cache.js').createFileCache>,
  *           stations: import('../../../application/ports.js').StationCatalogPort, log: import('../../../application/ports.js').LoggerPort }} deps
  * @returns {import('../../../application/ports.js').DataSourcePort[]}
  */
 export function createRenfeSources({ http, cache, stations, log }) {
   const timetables = createTimetables({ cache, stations, log });
+
+  /**
+   * Paradas del viaje de un tren (ver domain/trip-stops.js) a partir de sus códigos de estación: nombre
+   * y posición del catálogo de estaciones de Renfe (o, en Cercanías, de su GTFS), la hora del horario si
+   * se sabe y la prevista que da el tiempo real (sólo si es futura) o, si no, la del horario más su retraso.
+   * @param {{ codes: string[], times?: Int32Array|null, from: number, here?: boolean, arrivals?: Map<string, number>|null, delay?: number|null }} trip
+   *   here: está parado en la parada `from`
+   * @param {(code: string) => { name: string, at: number[] } | undefined} [fallback]
+   */
+  function renfeTripStops({ codes, times = null, from, here = false, arrivals = null, delay = null }, fallback) {
+    const soon = Date.now() - 60_000;
+    return tripStopList(codes.map((code, i) => {
+      const st = stations.get(code);
+      const other = st ? null : fallback?.(code);
+      const eta = arrivals?.get(code);
+      return {
+        name: st?.name ?? other?.name ?? stations.name(code),
+        at: st ? [st.lon, st.lat] : other?.at ?? null,
+        time: times && times[i] >= 0 ? times[i] : null,
+        eta: eta && eta * 1000 > soon ? madridIso(eta).slice(11, 16) : null,
+      };
+    }), from, { delaySec: delay, here });
+  }
 
   /** Campos comunes a partir de la posición GTFS-RT y su trip update. `nextId`: la próxima parada, si
    * no es la de stopId (Cercanías en camino: stopId es entonces la última estación, la que acaba de dejar). */
@@ -348,6 +399,9 @@ export function createRenfeSources({ http, cache, stations, log }) {
   // Paradas que le quedan a cada tren de Cercanías (códigos, en orden), de la última lectura: con ellas
   // se dibuja lo que le queda sin salirse de su viaje (ver domain/route-ahead.js).
   let remaining = new Map();
+  // Paradas del viaje de cada tren de Cercanías (las de su horario), desde cuál le quedan y los retrasos
+  // de su trip update, de la última lectura: para su ficha (tripStops).
+  let cercTrips = new Map();
 
   const cercanias = {
     id: 'renfe-cercanias',
@@ -361,6 +415,13 @@ export function createRenfeSources({ http, cache, stations, log }) {
     cleanPositions: true,
     // Red de /api/lines cuyos trazados (shape_id) usan sus viajes.
     shapeNetwork: 'Cercanías Renfe',
+    /** Paradas de su viaje, sin hora (el horario de Cercanías no se guarda: son 140.000 viajes) salvo
+     * la prevista que dé su trip update. null si no se saben; undefined si no es de esta fuente. */
+    tripStops(vehicleId) {
+      const trip = cercTrips.get(vehicleId);
+      if (!trip) return vehicleId.startsWith('renfe-c:') ? null : undefined;
+      return renfeTripStops(trip, timetables.cercaniasStop);
+    },
     /** Coordenadas ([lon, lat]) de las paradas que le quedan a un tren, en orden; null si no se saben. */
     stopsAhead(vehicleId) {
       const codes = remaining.get(vehicleId);
@@ -375,6 +436,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
       const delays = tripUpdates(updates.status === 'fulfilled' ? updates.value : null);
       const vehicles = [];
       const left = new Map();
+      const trips = new Map();
       for (const e of positions.value.entity ?? []) {
         const v = e.vehicle;
         if (!hasPosition(v)) continue;
@@ -385,6 +447,12 @@ export function createRenfeSources({ http, cache, stations, log }) {
         const route = timetables.cercanias(tripId);
         const ahead = stopsLeft(v.currentStatus, v.stopId, route?.stops);
         if (ahead && route?.shape && !route.bus) left.set(`renfe-c:${tripId}`, ahead);
+        if (route?.stops?.length > 1) {
+          const update = delays.get(tripId);
+          trips.set(`renfe-c:${tripId}`, {
+            codes: route.stops, from: cercaniasFrom(v.currentStatus, v.stopId, route.stops), here: v.currentStatus === 'STOPPED_AT', arrivals: update?.arrivals ?? null,
+          });
+        }
         vehicles.push({
           id: `renfe-c:${tripId}`,
           // Un autobús de Renfe no es un tren: va con los autobuses y no cuenta en los retrasos ni en las alertas de tren.
@@ -401,10 +469,12 @@ export function createRenfeSources({ http, cache, stations, log }) {
           end: route?.end ?? null,
           // Lo que le queda lo calcula el servidor con sus paradas (/api/ahead/<id>).
           ...(left.has(`renfe-c:${tripId}`) ? { ahead: true } : {}),
+          ...(trips.has(`renfe-c:${tripId}`) ? { stops: true } : {}), // sus paradas: /api/stops
           ...base(v, delays.get(tripId), cercaniasNext(v.currentStatus, v.stopId, route?.stops)),
         });
       }
       remaining = left;
+      cercTrips = trips;
       return { vehicles, sourceTime: freshest(positions.value, updates.status === 'fulfilled' ? updates.value : null) };
     },
   };
@@ -439,7 +509,10 @@ export function createRenfeSources({ http, cache, stations, log }) {
     return { reading: moving, nextId: v.stopId, from: k };
   }
 
-  let railTrips = new Map(); // id del tren → { gauge, left: códigos de las paradas que le quedan } (última lectura)
+  // id del tren → { gauge, left: códigos de las paradas que le quedan, y para su ficha: codes (todas las de
+  // su viaje), times (su hora en el horario), from (desde cuál le quedan), arrivals y delay (su trip update) }
+  // (última lectura)
+  let railTrips = new Map();
   const largaDistancia = {
     id: 'renfe-ld',
     name: 'Renfe Alta Velocidad, Larga y Media Distancia (GTFS-RT)',
@@ -461,6 +534,13 @@ export function createRenfeSources({ http, cache, stations, log }) {
       const stops = trip.left?.map((code) => stations.get(code)).filter(Boolean).map((st) => [st.lon, st.lat]) ?? null;
       return { gauge: trip.gauge, stops };
     },
+    /** Paradas de su viaje con la hora del horario y la prevista. null si no se sabe su viaje; undefined
+     * si no es de esta fuente. */
+    tripStops(vehicleId) {
+      const trip = railTrips.get(vehicleId);
+      if (!trip) return vehicleId.startsWith('renfe-ld:') ? null : undefined;
+      return trip.codes?.length > 1 ? renfeTripStops(trip) : null;
+    },
     async fetch() {
       await timetables.loadLd();
       const [positions, updates] = await Promise.allSettled([http.json(this.url), http.json(`${GTFSRT}/trip_updates_LD.json`)]);
@@ -481,7 +561,13 @@ export function createRenfeSources({ http, cache, stations, log }) {
         const trip = timetables.ld(tripId, number);
         const { reading, nextId, from } = ldReading(v, trip?.stops);
         const rest = from >= 0 ? trip.stops.slice(from) : [];
-        if (trip) trips.set(`renfe-ld:${number}`, { gauge: trip.gauge, left: rest.length ? rest : null });
+        const update = delays.get(tripId);
+        if (trip) {
+          trips.set(`renfe-ld:${number}`, {
+            gauge: trip.gauge, left: rest.length ? rest : null,
+            codes: trip.stops, times: trip.times, from, here: reading.currentStatus === 'STOPPED_AT', arrivals: update?.arrivals ?? null, delay: update?.delay ?? null,
+          });
+        }
         vehicles.push({
           id: `renfe-ld:${number}`,
           mode: trip?.mode ?? 'ld',
@@ -492,7 +578,8 @@ export function createRenfeSources({ http, cache, stations, log }) {
           origin: trip?.origin ?? null,
           destination: trip?.destination ?? null,
           ...(rest.length ? { ahead: true } : {}), // lo que le queda, por la vía: /api/ahead
-          ...base(reading, delays.get(tripId), nextId),
+          ...(trip?.stops?.length > 1 ? { stops: true } : {}), // sus paradas, con su hora: /api/stops
+          ...base(reading, update, nextId),
         });
       }
       railTrips = trips;
