@@ -720,7 +720,7 @@ Ninguna por ahora.
 
 Se agradecen avisos de fallos, fuentes de datos con licencia de reutilización y mejoras del código.
 Cómo hacerlo (issues, fuentes nuevas, ramas, tests, commits y pull requests) y qué pasa con lo que
-aportas, en [CONTRIBUTING.md](CONTRIBUTING.md). Los fallos de seguridad, por correo y no en una
+aportas, en [CONTRIBUTING.md](CONTRIBUTING.md) (en inglés, [CONTRIBUTING.en.md](CONTRIBUTING.en.md)). Los fallos de seguridad, por correo y no en una
 issue pública.
 
 ## Licencia

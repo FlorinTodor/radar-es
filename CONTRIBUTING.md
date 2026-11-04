@@ -1,5 +1,7 @@
 # Cómo contribuir a Radar España
 
+*Read this in English: [CONTRIBUTING.en.md](CONTRIBUTING.en.md).*
+
 Gracias por querer mejorar [radarespaña.es](https://radarespaña.es). Se agradecen sobre todo:
 
 - **avisos de fallos**: un tren en un sitio imposible, una fuente que no carga, un aviso que no
@@ -62,7 +64,7 @@ condiciones antes de programar nada. Cómo se añade una fuente al código está
 3. **Comprueba que todo pasa:** `npm test` tiene que acabar sin fallos.
 4. **Abre el pull request contra `dev`**, nunca contra `produccion`.
 
-Sólo el autor fusiona en `dev`, y sólo él sube `dev` a producción, después de pasar por el entorno de
+Sólo el autor fusiona en `dev` y sube `dev` a producción, después de pasar por el entorno de
 pruebas (ver [Ramas](README.md#ramas)).
 
 ### Arquitectura
@@ -121,11 +123,3 @@ Las ideas pendientes están en el README:
 - [Pendiente y conocido](README.md#pendiente-y-conocido), con los datos que todavía no publica nadie.
 
 Si quieres ponerte con una, abre antes una issue para hablarlo y no repetir trabajo.
-
----
-
-**In English:** contributions are welcome through issues and pull requests against `dev`. The code
-is all rights reserved: this guide only allows you to fork and modify it to propose changes to this
-project. By opening a pull request you confirm the contribution is your own and grant the copyright
-holder a free, perpetual, worldwide, irrevocable license to use, modify, publish and sublicense it as
-part of Radar España. Report security issues privately to radarespana@proton.me.
