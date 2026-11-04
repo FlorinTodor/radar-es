@@ -23,18 +23,26 @@ const DOC = {
 };
 
 test('IGN: los terremotos de su capa de los últimos 10 días, desde magnitud 1,5, con su localización legible', async () => {
-  let asked = null;
-  const http = { json: async (url) => { asked = url; return DOC; } };
-  const source = createIgnSismosSource({ http });
+  const asked = [];
+  let t = Date.parse('2026-11-04T19:12:00Z'); // al empezar unos 3 min
+  const http = { json: async (url) => { asked.push(url); return DOC; } };
+  const source = createIgnSismosSource({ http, now: () => t });
   const { events } = await source.fetch();
 
-  const q = new URL(asked);
+  const q = new URL(asked[0]);
   assert.equal(q.origin + q.pathname, 'https://www.ign.es/wms-inspire/geofisica', 'el servicio oficial de visualización INSPIRE');
   assert.equal(q.searchParams.get('LAYERS'), 'Ultimos10dias');
   assert.equal(q.searchParams.get('FORMAT'), 'application/json;type=geojson');
   const [south, west, north, east] = q.searchParams.get('BBOX').split(',').map(Number);
   assert.ok(south < 28 && north > 43 && west < -18 && east > 4, 'en WMS 1.3.0 y EPSG:4326, latitud antes que longitud');
-  assert.equal(source.url, asked);
+  // CloudFront guarda la respuesta 20 min o más: cada lectura (cada 3 min) pide otra dirección.
+  assert.equal(asked[0], `${source.url}&LECTURA=${Math.floor(t / 180_000)}`);
+  t += 60_000;
+  await source.fetch();
+  assert.equal(asked[1], asked[0], 'en los mismos 3 min, la misma dirección (dos servidores comparten la copia)');
+  t += 180_000;
+  await source.fetch();
+  assert.notEqual(asked[2], asked[0], 'en la lectura siguiente, otra');
 
   assert.deepEqual(events.map((e) => e.id), ['ign:es2026uxomc', 'ign:es2026vqfby', 'ign:es2026vokig', 'ign:es2026vpzza', 'ign:es2026uysqc']);
   const [cadiz, berja, villablanca, gojar, sanVicente] = events;

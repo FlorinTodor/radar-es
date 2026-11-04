@@ -14,23 +14,28 @@ const URL = 'https://www.ign.es/wms-inspire/geofisica?SERVICE=WMS&VERSION=1.3.0&
   + `&LAYERS=Ultimos10dias&STYLES=&CRS=EPSG:4326&BBOX=${SOUTH},${WEST},${NORTH},${EAST}&WIDTH=1000&HEIGHT=1000`
   + `&FORMAT=${encodeURIComponent('application/json;type=geojson')}`;
 const PAGE = 'https://www.ign.es/web/ign/portal/ultimos-terremotos';
+// CloudFront guarda las respuestas del WMS (que no traen Cache-Control) 20 min o más: medido el
+// 4-nov-2026, un terremoto de las 18:43 UTC seguía sin salir a las 19:14. El RSS del IGN, en cambio, pide
+// que se guarde 2 min (s-maxage=120). Con un parámetro que cambia en cada lectura (GeoServer ignora los
+// que no conoce) se lee la capa como está; dos servidores en los mismos 3 min comparten la copia.
+const READ_MS = 180_000;
 const DETAILS = 'https://www.ign.es/web/ign/portal/ultimos-terremotos/-/ultimos-terremotos/getDetails?evid=';
 
 // «04/11/2026 17:34:26», en UTC (contrastado con el EMSC: la misma hora, al segundo).
 const DATE = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})$/;
 
-/** @param {{ http: import('../http/http-client.js').HttpClient }} deps */
-export function createIgnSismosSource({ http }) {
+/** @param {{ http: import('../http/http-client.js').HttpClient, now?: () => number }} deps */
+export function createIgnSismosSource({ http, now = Date.now }) {
   return {
     id: 'ign-sismos',
     name: 'IGN terremotos (magnitud 1,5 o más, últimos 10 días)',
     kind: 'events',
-    interval: 180_000,
+    interval: READ_MS,
     url: URL,
     page: PAGE,
     license: 'Obra derivada de Catálogo de terremotos IGN · CC-BY 4.0 ign.es · Instituto Geográfico Nacional (IGN). Catálogo de terremotos. https://doi.org/10.7419/162.03.2022',
     async fetch() {
-      const doc = await http.json(URL, { timeout: 30_000 });
+      const doc = await http.json(`${URL}&LECTURA=${Math.floor(now() / READ_MS)}`, { timeout: 30_000 });
       const events = [];
       for (const f of Array.isArray(doc?.features) ? doc.features : []) {
         const p = f?.properties ?? {};
