@@ -1,5 +1,5 @@
 // Fuentes en pausa (`paused` en DataSourcePort): se citan en /legal y salen en el estado de las fuentes,
-// pero no se leen. Hoy no hay ninguna: los avisos oficiales de las siete comunidades se leen todos.
+// pero no se leen. Hoy sólo la Comunidad de Madrid: su web no responde a nuestro servidor.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSources } from '../../server/adapters/outbound/sources/index.js';
@@ -15,11 +15,13 @@ const deps = {
   pool: { run: async () => null },
 };
 
-test('avisos oficiales de las siete comunidades y e·sios, activos (ninguno en pausa)', () => {
+test('avisos oficiales y e·sios, activos; Madrid en pausa con su motivo', () => {
   const byId = Object.fromEntries(createSources(deps).map((s) => [s.id, s]));
   for (const id of ['emergencias-canarias', 'emergencias-cataluna', 'emergencias-andalucia', 'emergencias-castilla-la-mancha', 'emergencias-la-rioja',
-    'emergencias-castilla-y-leon', 'emergencias-illes-balears', 'esios-sistemas-aislados']) {
+    'emergencias-castilla-y-leon', 'emergencias-illes-balears', 'emergencias-murcia', 'emergencias-cantabria', 'emergencias-galicia',
+    'emergencias-pais-vasco', 'esios-sistemas-aislados']) {
     assert.ok(byId[id], id);
     assert.equal(byId[id].paused, undefined, id);
   }
+  assert.match(byId['emergencias-madrid'].paused, /no responda a nuestro servidor/);
 });

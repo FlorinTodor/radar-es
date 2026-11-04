@@ -12,6 +12,7 @@ corchetes, revisa el texto y preséntalos por la vía indicada en cada uno.
 | 5 | Ouigo España, S.A.U. | Datos en tiempo real (GTFS-RT o SIRI) en el NAP | Formulario de contacto corporativo o correo a su departamento legal |
 | 6 | Comunidades sin canal de avisos de emergencias (Extremadura, Aragón, Asturias, Navarra, Comunitat Valenciana, el 112 de Galicia, Ceuta y Melilla) | Que publiquen en abierto, con licencia, los planes activados y los cortes de luz, o que autoricen reutilizarlos | Correo o registro de cada organismo (tabla del borrador) |
 | 7 | e-distribución (Endesa) | Autorización para reutilizar sus incidencias del suministro (los cortes por barrio) | Canal de contacto de su aviso legal o formulario corporativo |
+| 8 | Comunidad de Madrid (portal comunidad.madrid) | Que su web deje leer el RSS «Últimas noticias» desde el servidor de Radar España, que hoy recibe un error en cualquier página | Formulario de contacto del portal o el 012 (atención a la ciudadanía) |
 
 ## Antes de enviar
 
