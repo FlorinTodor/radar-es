@@ -27,7 +27,7 @@ function severityPill(sev) {
 }
 
 /**
- * Barra de selección común a Alertas, Incidencias y Trenes.
+ * Barra de selección común a Alertas, Incidencias y Vehículos.
  * @param {{ ids: Set<string>, total: number, multi: boolean }} sel  total = elementos marcados en todas las listas
  */
 function selectionBar(sel, what) {
@@ -204,7 +204,7 @@ export function renderVehicles(el, vehicles, total, sel = NO_SELECTION) {
     </button>`;
   }).join('');
   const more = vehicles.length > MAX_ROWS ? `<div class="empty">Mostrando ${MAX_ROWS} de ${fmtNum(vehicles.length)}. Usa el buscador para afinar.</div>` : '';
-  el.innerHTML = `${selectionBar(sel, { one: 'un tren', plural: 'los trenes' })}<div class="section-title">${fmtNum(vehicles.length)} trenes · ordenados por retraso</div>${rows}${more}`;
+  el.innerHTML = `${selectionBar(sel, { one: 'un vehículo', plural: 'los vehículos' })}<div class="section-title">${fmtNum(vehicles.length)} ${vehicles.length === 1 ? 'vehículo' : 'vehículos'} · ordenados por retraso</div>${rows}${more}`;
 }
 
 /**
@@ -290,7 +290,7 @@ export function renderLayers(el, prefs, countsByMode) {
   // por lo que es cada capa, porque en el móvil no hay ratón para ver el title de las pastillas.
   const help = GROUP_ITEMS.filter(([, label, title]) => label !== title)
     .map(([, label, title]) => `<dt>${esc(label)}</dt><dd>${esc(title)}</dd>`).join('');
-  el.innerHTML = `${head('Trenes', 'mode')}<div class="chips">${modes}</div>${head('Mapa y avisos', 'group')}${sections}
+  el.innerHTML = `${head('Vehículos', 'mode')}<div class="chips">${modes}</div>${head('Mapa y avisos', 'group')}${sections}
     <p class="layers-note">Las estaciones y el tráfico leve aparecen al acercar el mapa.</p>
     <details class="legend-box"><summary>Qué es cada capa y qué significa cada símbolo</summary>
     <h4>Capas</h4><dl class="layer-help">${help}</dl>

@@ -487,7 +487,7 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - FGC con nombres de estación en el recorrido, la parada y la próxima, en vez de sus códigos, y con
   lo que le queda a cada tren hasta su destino, por el trazado de su línea (también los refuerzos,
   como el R5R, y la cremallera de Montserrat).
-- Lista y buscador con todos los trenes.
+- Lista y buscador con todos los vehículos (pestaña «Vehículos»).
 
 **Estaciones**
 - Pestaña «Estaciones» con buscador y una ficha para cada estación: los trenes parados en ella y los
@@ -553,6 +553,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - La barra de arriba dice quién lo ha creado: la foto y el nombre llevan a su portafolio, y un icono,
   al código en GitHub. En el móvil solo salen la foto y el icono. La foto se sirve desde la propia
   web, sin pedir nada a otros sitios.
+- La pestaña y el grupo de capas de la lista se llaman «Vehículos», no «Trenes»: también incluyen
+  autobuses, metros y tranvías.
 
 **Rendimiento y fiabilidad**
 - Directo servido desde caché, preparado para picos de muchas visitas a la vez.
