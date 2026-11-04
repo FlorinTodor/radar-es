@@ -46,6 +46,32 @@ test('EMSC: los terremotos pequeños de los últimos 10 días, en español y mar
   assert.match(otra.description, /Localizado por XYZ/);
 });
 
+test('EMSC: el municipio lo pone CartoCiudad, unos pocos nuevos en cada lectura; si no responde, la región', async () => {
+  const asked = [];
+  const geocoder = {
+    placeAt: async (lat, lon) => {
+      asked.push([lat, lon]);
+      if (lat > 40) throw new Error('HTTP 503 en www.cartociudad.es');
+      return lat === 37.08 ? { muni: 'Granada', province: 'Granada' } : lat > 37 ? { muni: 'Dílar', province: 'Granada' } : null;
+    },
+  };
+  const source = createEmscSismosSource({ http: { json: async () => DOC }, now: () => NOW, geocoder });
+  const first = await source.fetch();
+  const title = (r, id) => r.events.find((e) => e.id === id).title;
+  assert.equal(title(first, 'emsc:20261104_0000133'), 'Terremoto M1.6 · Dílar (Granada)');
+  assert.match(first.events[0].description, /profundidad cerca de Dílar \(Granada\), el /);
+  assert.equal(title(first, 'emsc:20261104_0000035'), 'Terremoto M2.5 · Granada', 'capital: sin repetir la provincia');
+  assert.equal(title(first, 'emsc:20261103_0000200'), 'Terremoto M3.1 · Canarias', 'en el mar no hay municipio: la región');
+  assert.equal(title(first, 'emsc:20261102_0000003'), 'Terremoto M1.9 · Some New Region', 'CartoCiudad falla: la región');
+  assert.equal(asked.length, 4);
+
+  // En la siguiente lectura no se vuelve a preguntar lo ya sabido (tampoco que en el mar no hay municipio);
+  // el que falló, sí.
+  await source.fetch();
+  assert.equal(asked.length, 5);
+  assert.deepEqual(asked[4], [41, 2]);
+});
+
 test('EMSC: una respuesta sin terremotos o rara no rompe la lectura', async () => {
   for (const doc of [{}, { features: null }, { features: [null, 1, 'x'] }, null]) {
     const { events } = await createEmscSismosSource({ http: { json: async () => doc }, now: () => NOW }).fetch();

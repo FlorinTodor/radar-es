@@ -81,3 +81,32 @@ test('descarta coordenadas fuera de España o el 0,0 con el que a veces responde
   });
   assert.equal(await createCartoCiudadGeocoder({ http }).locate('Rara'), null);
 });
+
+test('placeAt: el municipio y la provincia de un punto (respuesta real de Dílar); en el mar, null; cada punto una vez', async () => {
+  const calls = [];
+  const replies = {
+    '37.07670': JSON.stringify({ id: '01.18.MUN_180680080753', province: 'Granada', muni: 'Dílar', type: 'portal', address: 'ALEGRE', poblacion: 'Dílar' }),
+    '36.40000': '', // en el mar CartoCiudad responde vacío
+  };
+  let fail = false;
+  const http = {
+    text: async (url) => {
+      calls.push(url);
+      if (fail) throw new Error('HTTP 503 en www.cartociudad.es');
+      return replies[new URL(url).searchParams.get('lat')] ?? '{"muni": 7}';
+    },
+  };
+  const geo = createCartoCiudadGeocoder({ http });
+  assert.deepEqual(await geo.placeAt(37.0767, -3.6033), { muni: 'Dílar', province: 'Granada' });
+  assert.match(calls[0], /\/reverseGeocode\?lat=37\.07670&lon=-3\.60330$/);
+  assert.equal(await geo.placeAt(36.4, -7.9), null);
+  assert.equal(await geo.placeAt(38.5, -1.2), null, 'sin un municipio de texto, null');
+  assert.equal(await geo.placeAt(0, 0), null, 'fuera de España ni se pregunta');
+  assert.equal(await geo.placeAt(Number.NaN, 2), null);
+  assert.equal(calls.length, 3);
+  await geo.placeAt(37.07671, -3.60331); // el mismo sitio, a unos metros
+  await geo.placeAt(36.4, -7.9);
+  assert.equal(calls.length, 3, 'lo ya preguntado no se repite, tampoco que en el mar no hay municipio');
+  fail = true;
+  await assert.rejects(geo.placeAt(39.47, -0.38), /503/);
+});

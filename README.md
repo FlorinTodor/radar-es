@@ -255,7 +255,7 @@ Todas son públicas. Las marcadas con 🔑 necesitan una clave gratuita: casi to
 | Gobierno de Cantabria (RSS de notas de prensa, CC BY 3.0 ES) | planes de emergencia con nombre (PLATERCANT…) y cortes de luz; solo el día, sin hora | 15 min |
 | Xunta de Galicia (RSS de notas de prensa: Emergencias y todas) | PLATERGA, alertas por nivel por provincia y cortes de luz | 10 min |
 | Gobierno Vasco (RSS de noticias de Seguridad en Irekia, Open Data Euskadi, CC BY 4.0) | planes de emergencia con nombre (LABI, ITSASERTZA…) por territorio histórico y cortes de luz | 15 min |
-| CartoCiudad (IGN-CNIG, CC BY 4.0) | ubicación de los pueblos que citan esos avisos | al leerlos |
+| CartoCiudad (IGN-CNIG, CC BY 4.0) | ubicación de los pueblos que citan esos avisos y municipio de los terremotos del EMSC | al leerlos |
 
 El mapa base es de OpenFreeMap (datos de OpenStreetMap), sin clave.
 
@@ -421,8 +421,9 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   meteorológicos, focos de calor por satélite, áreas quemadas con su ficha, terremotos, alertas
   de catástrofes y demanda eléctrica.
 - Terremotos pequeños, desde magnitud 1,5, como los enjambres sísmicos: el RSS del IGN sólo trae los
-  de 2,6 o más, y los demás llegan del EMSC (la mayoría localizados por el propio IGN). Un terremoto
-  que publican los dos sale una vez, el del IGN.
+  de 2,6 o más, y los demás llegan del EMSC (la mayoría localizados por el propio IGN), con el
+  municipio más cercano según CartoCiudad («Terremoto M2.5 · Dílar (Granada)»). Un terremoto que
+  publican los dos sale una vez, el del IGN.
 - Avisos oficiales de emergencias: planes de protección civil activados y cortes de luz que publican
   Canarias, Baleares, Cataluña, Andalucía, Castilla-La Mancha, La Rioja y Castilla y León, y los de las
   notas de prensa de los gobiernos de Madrid, Murcia, Cantabria, Galicia y el País Vasco. Su texto se
