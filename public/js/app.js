@@ -288,12 +288,12 @@ function selectEvent(id) {
   map.flyTo(e.lon, e.lat, e.category === 'sismo' || e.category === 'meteo' ? 7 : 10);
 }
 
-// ---------- Selección (Alertas, Incidencias y Trenes) ----------
+// ---------- Selección (Alertas, Incidencias y Vehículos) ----------
 // Clic en un elemento de cualquier lista: el mapa muestra sólo eso y enciende (y marca en Capas)
 // las capas que necesita; clic en otro lo sustituye y en el mismo vuelve a tus capas. Lo que se
 // cambie en Capas mientras tanto se aplica sin perder la selección y se guarda. Con "Varias a la
 // vez" cada clic suma o quita, y se pueden mezclar alertas, incidencias y trenes. Todo con clics.
-const KIND_LABEL = { alert: ['alerta', 'alertas'], event: ['incidencia', 'incidencias'], vehicle: ['tren', 'trenes'], bus: ['autobús', 'autobuses'] };
+const KIND_LABEL = { alert: ['alerta', 'alertas'], event: ['incidencia', 'incidencias'], vehicle: ['vehículo', 'vehículos'], bus: ['autobús', 'autobuses'] };
 
 function selection(kind) {
   const ids = new Set([...state.selected.values()].filter((x) => x.kind === kind).map((x) => x.id));
@@ -546,7 +546,7 @@ filtersEl.addEventListener('click', (ev) => {
 
 const layersBody = document.getElementById('layers-body');
 P.renderLayers(layersBody, prefs, {});
-// Lo marcado en Alertas, Incidencias o Trenes se mantiene: la casilla decide si se ve su capa,
+// Lo marcado en Alertas, Incidencias o Vehículos se mantiene: la casilla decide si se ve su capa,
 // y pasa a ser una preferencia del usuario (ya no se apaga al quitar la selección).
 function layersChanged(inputs) {
   for (const input of inputs) {
