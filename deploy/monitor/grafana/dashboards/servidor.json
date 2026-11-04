@@ -859,8 +859,8 @@
     },
     {
       "type": "timeseries",
-      "title": "Espacio de métricas y registros",
-      "description": "",
+      "title": "Espacio de las métricas en disco",
+      "description": "Bloques cerrados, más el registro de escritura y los trozos en curso.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -871,9 +871,9 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "prometheus_tsdb_storage_blocks_bytes{job=\"monitor\"} + prometheus_tsdb_head_chunks_storage_size_bytes{job=\"monitor\"}",
+          "expr": "sum(prometheus_tsdb_storage_blocks_bytes{job=\"monitor\"} + prometheus_tsdb_wal_storage_size_bytes{job=\"monitor\"} + prometheus_tsdb_head_chunks_storage_size_bytes{job=\"monitor\"})",
           "refId": "I",
-          "legendFormat": "Prometheus"
+          "legendFormat": "Prometheus (tope 4 GB)"
         }
       ],
       "fieldConfig": {
