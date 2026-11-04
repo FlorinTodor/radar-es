@@ -416,8 +416,9 @@ error de la herramienta, explicado, para que el asistente lo corrija.
 
 Los POST no los guarda Cloudflare, así que cada herramienta guarda su respuesta unos segundos según sus
 argumentos (5 s los vehículos, las alertas y el resumen; 15 s las incidencias y las fuentes; 10 s una
-estación; 10 min la búsqueda de estaciones), el texto de búsqueda de cada vehículo y aviso se prepara
-una vez cada 5 s, y sólo lo que hay que calcular gasta presupuesto: 1 por segundo y ráfagas de 10 por
+estación; 10 min la búsqueda de estaciones), las búsquedas recorren una foto del directo con sus textos
+ya preparados que se rehace como mucho cada 5 s (pedir los 7.500 vehículos en cada búsqueda costaba
+unos 40 ms en el servidor), y sólo lo que hay que calcular gasta presupuesto: 1 por segundo y ráfagas de 10 por
 cliente, y 5 por segundo y ráfagas de 30 entre todos (429 al pasarse). Además, como pide el protocolo,
 una cabecera `Origin` de otra web recibe 403, y en la 2026-07-28 las cabeceras `MCP-Protocol-Version`,
 `Mcp-Method` y `Mcp-Name` tienen que coincidir con el cuerpo (400 si no).

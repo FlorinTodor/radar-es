@@ -108,29 +108,28 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
     }
     return p;
   };
-  // Y el texto de búsqueda de cada vehículo o aviso se guarda por su id durante SEARCH_INDEX_MS (lo que
-  // dura la respuesta de buscar_trenes): así una búsqueda con otras palabras sólo recorre los textos.
-  const searchIndex = () => {
+  // Foto del directo para buscar, rehecha como mucho cada SEARCH_INDEX_MS (lo que dura la respuesta de
+  // buscar_trenes). Pedir los vehículos a query los copia todos: en el servidor, unos 40 ms con 7.500, y
+  // preparar sus textos otro tanto. Con la foto, una búsqueda con otras palabras sólo recorre los textos
+  // ya preparados (unos 4 ms en el servidor). El texto de cada elemento se prepara la primera vez que
+  // se busca en él.
+  const snapshot = (read, raw) => {
     let at = -Infinity;
-    let texts = new Map();
-    return (item, raw) => {
+    let current = null;
+    return () => {
       const t = now();
-      if (t - at >= SEARCH_INDEX_MS) {
+      if (!current || t - at >= SEARCH_INDEX_MS) {
         at = t;
-        texts = new Map();
+        const list = read();
+        const texts = new Array(list.length);
+        current = { list, textAt: (i) => (texts[i] ??= plainCached(raw(list[i]))) };
       }
-      let text = texts.get(item.id);
-      if (text === undefined) {
-        text = plainCached(raw(item));
-        if (item.id !== undefined) texts.set(item.id, text);
-      }
-      return text;
+      return current;
     };
   };
-  const vehicleText = searchIndex();
-  const eventText = searchIndex();
-  const vehicleRaw = (v) => [v.label, v.line, v.service, v.operator, v.origin, v.destination, v.current, v.next].join(' ');
-  const eventRaw = (e) => `${e.title} ${e.description ?? ''} ${e.area ?? ''}`;
+  const liveVehicles = snapshot(() => query.vehicles(),
+    (v) => [v.label, v.line, v.service, v.operator, v.origin, v.destination, v.current, v.next].join(' '));
+  const liveEvents = snapshot(() => query.events(), (e) => `${e.title} ${e.description ?? ''} ${e.area ?? ''}`);
   const matches = (text, words) => words.every((w) => text.includes(w));
 
   // Atribución de las fuentes de lo que se devuelve: la que pide su licencia (la de cada operador, si
@@ -201,10 +200,16 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
       },
       run({ text, mode, minDelay, limit: max }) {
         const words = plain(text).split(' ').filter(Boolean);
-        const found = query.vehicles({ mode, minDelay })
-          .filter((v) => !words.length || matches(vehicleText(v, vehicleRaw), words))
-          // Primero los de más retraso: es lo que suele preguntarse.
-          .sort((a, b) => (b.delay ?? -1) - (a.delay ?? -1));
+        const { list, textAt } = liveVehicles();
+        const found = [];
+        // Los mismos filtros que query.vehicles({ mode, minDelay }), sobre la foto.
+        for (let i = 0; i < list.length; i++) {
+          const v = list[i];
+          if ((mode && v.mode !== mode) || (minDelay !== undefined && (v.delay ?? -1) < minDelay)) continue;
+          if (!words.length || matches(textAt(i), words)) found.push(v);
+        }
+        // Primero los de más retraso: es lo que suele preguntarse.
+        found.sort((a, b) => (b.delay ?? -1) - (a.delay ?? -1));
         const shown = found.slice(0, limitOf(max));
         return envelope({ total: found.length, vehicles: shown.map(vehicleOut) }, shown);
       },
@@ -258,8 +263,8 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
         const station = isStationCode(code) ? query.station(code) : null;
         if (!station) throw new ToolError(`No hay ninguna estación con el código «${code}». Búscala con buscar_estaciones.`);
         const board = stationBoard(station, {
-          vehicles: aroundStation(station, query.vehicles()),
-          events: aroundStation(station, query.events({ category: 'ferroviario' })),
+          vehicles: aroundStation(station, liveVehicles().list),
+          events: aroundStation(station, liveEvents().list).filter((e) => e.category === 'ferroviario'),
           lines: [],
         });
         return envelope({
@@ -294,11 +299,16 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
       run({ category, text, minSeverity, roadWorks = false, limit: max }) {
         const words = plain(text).split(' ').filter(Boolean);
         const min = SEVERITY_RANK[minSeverity] ?? 0;
-        const found = query.events({ category })
-          .filter((e) => roadWorks || e.type !== 'roadMaintenance')
-          .filter((e) => (SEVERITY_RANK[e.severity] ?? 0) >= min)
-          .filter((e) => !words.length || matches(eventText(e, eventRaw), words))
-          .sort((a, b) => (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0) || (b.start ?? 0) - (a.start ?? 0));
+        const { list, textAt } = liveEvents();
+        const found = [];
+        // El filtro de categoría es el de query.events({ category }), sobre la foto.
+        for (let i = 0; i < list.length; i++) {
+          const e = list[i];
+          if ((category && e.category !== category) || (!roadWorks && e.type === 'roadMaintenance')) continue;
+          if ((SEVERITY_RANK[e.severity] ?? 0) < min) continue;
+          if (!words.length || matches(textAt(i), words)) found.push(e);
+        }
+        found.sort((a, b) => (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0) || (b.start ?? 0) - (a.start ?? 0));
         const shown = found.slice(0, limitOf(max));
         return envelope({ total: found.length, events: shown.map(eventOut) }, shown);
       },

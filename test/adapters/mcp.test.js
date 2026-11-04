@@ -230,13 +230,26 @@ test('las respuestas se guardan el ttl de su herramienta; el texto sin tildes ni
   const cached = createMcpHandler({ query: counted, now: () => t });
   const ask = (args) => cached({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'buscar_trenes', arguments: args } }).result;
   const first = ask({ text: 'Valencia', limit: 5 });
-  assert.deepEqual(ask({ limit: 5, text: 'valéncia' }), first);
+  assert.equal(ask({ limit: 5, text: 'valéncia' }), first, 'la misma respuesta guardada');
   assert.equal(reads, 1);
-  ask({ text: 'Valencia', limit: 6 });
+  const other = ask({ text: 'Valencia', limit: 6 });
+  assert.notEqual(other, first, 'otra variante se calcula…');
+  assert.equal(reads, 1, '…sobre la misma foto del directo, sin volver a pedir los vehículos');
+  t += 5_000; // ttl de buscar_trenes y de la foto
+  assert.notEqual(ask({ text: 'Valencia', limit: 5 }), first);
   assert.equal(reads, 2);
-  t += 5_000; // ttl de buscar_trenes
-  ask({ text: 'Valencia', limit: 5 });
-  assert.equal(reads, 3);
+});
+
+test('la foto del directo se rehace a los 5 s: un tren nuevo sale en la siguiente búsqueda', () => {
+  let t = T;
+  const live = [...vehicles];
+  const fresh = createMcpHandler({ query: { ...query, vehicles: () => [...live] }, now: () => t });
+  const count = (text) => fresh({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'buscar_trenes', arguments: { text } } }).result.structuredContent.total;
+  assert.equal(count('Zaragoza'), 0);
+  live.push({ ...vehicles[0], id: 'renfe-ld:09999', label: '9999', destination: 'Zaragoza-Delicias' });
+  assert.equal(count('Delicias'), 0, 'dentro de los 5 s, la misma foto');
+  t += 5_000;
+  assert.equal(count('Zaragoza delicias'), 1);
 });
 
 test('presupuesto: sólo lo gasta lo que hay que calcular; sin fichas, McpBusy; un error de la herramienta lo devuelve', () => {
