@@ -855,12 +855,21 @@ Ninguna por ahora.
   aplicación de MobilityLabs (ver
   *Pendiente y conocido*).
 - Estadísticas de puntualidad por línea y franja horaria.
+- Patrones con el histórico: retrasos o pérdidas de velocidad que se repiten en el mismo tramo, día
+  tras día. No prueban un fallo, pero son señales para revisar. Hace falta:
+  - guardar las posiciones y los retrasos de cada tren (hoy el histórico solo guarda alertas y KPIs);
+  - situarlos en su tramo de vía, con la red del IGN que ya se usa para los recorridos;
+  - con una posición cada 20 s se miden bien el retraso y la velocidad media de cada tramo, no una
+    frenada concreta.
 - Pasos a nivel en el mapa.
 - Servidor más fluido al leer los autobuses por horario: en cada lectura guarda el historial de
   posiciones de miles de vehículos a la vez y crea mucha memoria que luego hay que limpiar, y mientras
   tanto tarda más en responder (alguna vez 1–3 s). Para los vehículos con posición estimada bastaría
   con el recorrido que ya sale de su horario, o con repartir ese trabajo entre lecturas.
-- Estado oficial de la red de Adif, si llega a publicarse con licencia de reutilización.
+- Qué le pasa a la red, no solo dónde está cada tren:
+  - incidencias de Adif por tramo, si llegan a publicarse con licencia de reutilización (hoy su web
+    responde 403; ver *Pendiente y conocido*);
+  - posiciones reales de Iryo, si las publica (hoy no publica nada).
 - Terremotos: leer el RSS del IGN (los de magnitud 2,6 o más) como repuesto si un día falla la capa de
   su servicio de visualización. Y poner la isla a los de Baleares y La Gomera: en un año no ha salido
   ninguno con su sufijo, y no se sabe cómo lo escribe el IGN.
