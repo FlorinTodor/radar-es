@@ -2,6 +2,9 @@
 // que no digan nada de quién pregunta, y el puerto aparte donde se leen.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createPrometheusMetrics } from '../../server/adapters/outbound/metrics/prometheus-metrics.js';
 import { withLogCounts } from '../../server/adapters/outbound/logging/counting-logger.js';
 import { createMetricsServer } from '../../server/adapters/inbound/http/metrics-server.js';
@@ -96,6 +99,28 @@ test('etiquetas escapadas y, si un fallo metiera valores sin fin, como mucho 2.0
     assert.equal(value(text, 'radar_metrics_dropped_total{metric="radar_http_requests_total"}'), 100);
   } finally {
     m.close();
+  }
+});
+
+test('memoria del contenedor según su cgroup; fuera de un contenedor con límite, nada', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cgroup-'));
+  try {
+    writeFileSync(join(dir, 'memory.current'), '734003200\n');
+    writeFileSync(join(dir, 'memory.max'), '1073741824\n');
+    writeFileSync(join(dir, 'memory.peak'), '808452096\n');
+    writeFileSync(join(dir, 'memory.stat'), 'file 200000000\nanon 488636416\nkernel 1000\n');
+    const m = createPrometheusMetrics({ now: () => T, cgroupDir: dir });
+    const text = m.render({ now: T });
+    m.close();
+    assert.equal(value(text, 'radar_container_memory_bytes'), 734003200);
+    assert.equal(value(text, 'radar_container_memory_anon_bytes'), 488636416);
+    assert.equal(value(text, 'radar_container_memory_peak_bytes'), 808452096);
+    assert.equal(value(text, 'radar_container_memory_limit_bytes'), 1073741824);
+    const none = createPrometheusMetrics({ now: () => T, cgroupDir: join(dir, 'no-existe') });
+    assert.doesNotMatch(none.render({ now: T }), /radar_container_memory/);
+    none.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

@@ -5,6 +5,7 @@
 // Nada de quién pregunta: las etiquetas son rutas sin parámetros, métodos, códigos y nombres de
 // fuentes o herramientas, todos de una lista corta. Aun así, cada métrica admite como mucho
 // MAX_SERIES combinaciones: si un fallo metiera valores sin fin, se descartan (y se cuentan).
+import { readFileSync } from 'node:fs';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { getHeapStatistics } from 'node:v8';
 
@@ -27,13 +28,14 @@ const DEFINITIONS = {
 };
 
 /**
- * @param {{ version?: string, now?: () => number, startedAt?: number }} [options]
+ * @param {{ version?: string, now?: () => number, startedAt?: number, cgroupDir?: string }} [options]
+ *   cgroupDir: carpeta del cgroup del contenedor, de donde sale su memoria (la que cuenta para su límite).
  * @returns {import('../../../application/ports.js').MetricsPort & {
  *   render(snapshot?: { sources?: object[], now?: number }): string, close(): void }}
  *   render: el texto para /metrics, con el estado de las fuentes (`sources`, lo que da /api/health)
  *   y del proceso en este momento. close: deja de medir el retraso del bucle de eventos.
  */
-export function createPrometheusMetrics({ version = '0.0.0', now = Date.now, startedAt = now() } = {}) {
+export function createPrometheusMetrics({ version = '0.0.0', now = Date.now, startedAt = now(), cgroupDir = '/sys/fs/cgroup' } = {}) {
   /** @type {Map<string, Map<string, { labels: object, value?: number, counts?: number[], sum?: number, count?: number }>>} */
   const series = new Map(Object.keys(DEFINITIONS).map((name) => [name, new Map()]));
   const loopDelay = monitorEventLoopDelay({ resolution: 20 });
@@ -93,6 +95,7 @@ export function createPrometheusMetrics({ version = '0.0.0', now = Date.now, sta
       };
       gauge('radar_info', 'Versión del servidor.', [[{ version }, 1]]);
       processMetrics(out, { startedAt, loopDelay });
+      containerMemory(out, cgroupDir);
 
       const enabled = sources.filter((s) => s.enabled);
       gauge('radar_source_enabled', 'Fuente activa (1) o desactivada o en pausa (0).',
@@ -149,6 +152,35 @@ function processMetrics(out, { startedAt, loopDelay }) {
     out.push(`nodejs_eventloop_delay_seconds${labelText({ quantile })} ${num(value)}`);
   }
   loopDelay.reset();
+}
+
+/**
+ * Memoria del contenedor según su cgroup (v2): la que cuenta para su límite (mem_limit de compose.yaml),
+ * la parte anónima (lo que no se puede soltar: si llega al límite, el kernel mata el proceso) y el pico.
+ * Fuera de un contenedor con límite (en local) no hay memory.max: no se escribe nada.
+ */
+function containerMemory(out, dir) {
+  const read = (file) => {
+    try {
+      return readFileSync(`${dir}/${file}`, 'utf8').trim();
+    } catch {
+      return null;
+    }
+  };
+  const max = read('memory.max');
+  const current = read('memory.current');
+  if (max === null || current === null) return;
+  const anon = /^anon (\d+)$/m.exec(read('memory.stat') ?? '')?.[1];
+  const rows = [
+    ['radar_container_memory_bytes', 'Memoria del contenedor (cgroup), caché de ficheros incluida.', Number(current)],
+    ['radar_container_memory_anon_bytes', 'Memoria anónima del contenedor: la que no se puede soltar.', anon === undefined ? null : Number(anon)],
+    ['radar_container_memory_peak_bytes', 'Pico de memoria del contenedor desde que arrancó.', read('memory.peak') === null ? null : Number(read('memory.peak'))],
+    ['radar_container_memory_limit_bytes', 'Límite de memoria del contenedor (0: sin límite).', max === 'max' ? 0 : Number(max)],
+  ];
+  for (const [name, help, value] of rows) {
+    if (value === null || !Number.isFinite(value)) continue;
+    out.push(`# HELP ${name} ${help}`, `# TYPE ${name} gauge`, `${name} ${num(value)}`);
+  }
 }
 
 const escape = (v) => String(v).replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/"/g, '\\"');
