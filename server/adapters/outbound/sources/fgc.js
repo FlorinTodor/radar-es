@@ -29,8 +29,9 @@ export function fgcStations(stopsTxt) {
  * Códigos de las paradas de un tren de FGC: su origen y la última estación en la que ha estado (ya
  * pasadas) y las que le quedan, que FGC da en `properes_parades` («{"parada": "SG"};{"parada": "GR"}»),
  * acabando en su destino. FGC no da las que hay entre el origen y la última en la que ha estado: en
- * cuanto sale del origen, la lista es parcial. En el origen todavía, ninguna está pasada.
- * @returns {{ codes: string[], from: number, partial: boolean } | null}
+ * cuanto sale del origen, la lista es parcial. En el origen todavía (estacionado en él), está en la
+ * primera y ninguna está pasada.
+ * @returns {{ codes: string[], from: number, partial: boolean, here: boolean } | null}
  */
 export function fgcTripCodes(r) {
   const ahead = [...String(r.properes_parades ?? '').matchAll(/"parada":\s*"([^"]+)"/g)].map((m) => m[1]);
@@ -39,7 +40,7 @@ export function fgcTripCodes(r) {
   const passed = [r.origen, r.estacionat_a].filter((c, i, all) => c && all.indexOf(c) === i && !ahead.includes(c));
   const codes = [...passed, ...ahead];
   if (codes.length < 2) return null;
-  return atOrigin ? { codes, from: 0, partial: false } : { codes, from: passed.length, partial: passed.length > 0 };
+  return atOrigin ? { codes, from: 0, partial: false, here: true } : { codes, from: passed.length, partial: passed.length > 0, here: false };
 }
 
 /**
@@ -80,7 +81,7 @@ export function createFgcSource({ http, nap, log }) {
     tripStops(vehicleId) {
       const trip = trips.get(vehicleId);
       if (!trip) return vehicleId.startsWith('fgc:') ? null : undefined;
-      return tripStopList(trip.codes.map((code) => ({ name: name(code), at: stations?.get(code)?.at ?? null })), trip.from, { partial: trip.partial });
+      return tripStopList(trip.codes.map((code) => ({ name: name(code), at: stations?.get(code)?.at ?? null })), trip.from, { partial: trip.partial, here: trip.here });
     },
     async fetch() {
       await loadNames();

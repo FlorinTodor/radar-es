@@ -78,9 +78,9 @@ test('Cercanías: las paradas de su viaje con el nombre del catálogo o del GTFS
 
 test('FGC: el origen y la última en la que ha estado, pasadas; las que le quedan, hasta su destino', () => {
   assert.deepEqual(fgcTripCodes({ origen: 'NA', desti: 'PC', estacionat_a: 'MN', properes_parades: '{"parada": "SG"};{"parada": "GR"};{"parada": "PC"}' }),
-    { codes: ['NA', 'MN', 'SG', 'GR', 'PC'], from: 2, partial: true });
+    { codes: ['NA', 'MN', 'SG', 'GR', 'PC'], from: 2, partial: true, here: false });
   assert.deepEqual(fgcTripCodes({ origen: 'PC', desti: 'NA', estacionat_a: 'PC', properes_parades: '{"parada": "PR"}' }),
-    { codes: ['PC', 'PR', 'NA'], from: 0, partial: false }, 'aún en el origen: ninguna pasada y el destino al final');
+    { codes: ['PC', 'PR', 'NA'], from: 0, partial: false, here: true }, 'aún en el origen: está en él, ninguna pasada y el destino al final');
   assert.equal(fgcTripCodes({ origen: 'PC', desti: 'PC', properes_parades: '' }), null);
 });
 
