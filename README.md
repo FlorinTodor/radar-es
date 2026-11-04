@@ -244,8 +244,8 @@ Todas son públicas. Las marcadas con 🔑 necesitan una clave gratuita: casi to
 | Tráfico Euskadi (API Trafikoa) | incidencias de carreteras vascas | 5 min |
 | AEMET avisos (RSS + CAP) | avisos amarillo, naranja y rojo **con polígono** | 10 min |
 | NASA FIRMS (VIIRS NOAA-20, CSV público) | focos de calor por satélite (España, Portugal, Canarias) | 1 h |
-| IGN sismología (GeoRSS) | terremotos de los últimos 10 días (magnitud 2,6 o más) | 3 min |
-| EMSC-CSEM SeismicPortal (servicio FDSN, CC BY 4.0) | terremotos de magnitud 1,5 o más de los últimos 10 días en España y alrededores, la mayoría localizados por el IGN; si el IGN publica el mismo, se queda el suyo | 5 min |
+| IGN sismología (servicio de visualización INSPIRE de geofísica, capa «Terremotos últimos 10 días», CC BY 4.0) | terremotos de magnitud 1,5 o más de los últimos 10 días en España y alrededores, con la localización del IGN | 3 min |
+| EMSC-CSEM SeismicPortal (servicio FDSN, CC BY 4.0) | terremotos de magnitud 1,5 o más de los últimos 10 días alrededor de España que no localiza el IGN (sobre todo de Francia, Portugal y Marruecos); si el IGN publica el mismo, se queda el suyo | 5 min |
 | GDACS (ONU / Comisión Europea) | alertas de catástrofes en la zona (verde, naranja, roja) | 15 min |
 | Copernicus EFFIS (WMS, servido por `/tiles` con copia de 3 h) | capa de áreas quemadas en los últimos 30 días y su ficha | — |
 | Red Eléctrica REData | demanda real frente a prevista | 5 min |
@@ -276,8 +276,8 @@ fuente se leyó su licencia o aviso legal y su robots.txt. Solo se usan las que 
 datos. Ninguna sustituye a los avisos oficiales: ante una emergencia, llama al **112**.
 
 **En toda España**
-- Avisos meteorológicos de AEMET (amarillo, naranja y rojo, con su zona), terremotos del IGN (y del
-  EMSC los pequeños, desde magnitud 1,5), focos de calor de la NASA, áreas quemadas de Copernicus y alertas de catástrofes de GDACS.
+- Avisos meteorológicos de AEMET (amarillo, naranja y rojo, con su zona), terremotos del IGN desde
+  magnitud 1,5 (y del EMSC los que no localiza el IGN), focos de calor de la NASA, áreas quemadas de Copernicus y alertas de catástrofes de GDACS.
 - Apagón general de la península: alerta si la demanda eléctrica de Red Eléctrica (REData) cae muy
   por debajo de la prevista, como el 28-4-2025. Un corte local o de una comunidad no se nota ahí.
 - Lo que **no publica nadie** como datos abiertos:
@@ -573,10 +573,13 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Contexto y emergencias: incidencias de tráfico y obras en carretera (capas separadas), avisos
   meteorológicos, focos de calor por satélite, áreas quemadas con su ficha, terremotos, alertas
   de catástrofes y demanda eléctrica.
-- Terremotos pequeños, desde magnitud 1,5, como los enjambres sísmicos: el RSS del IGN sólo trae los
-  de 2,6 o más, y los demás llegan del EMSC (la mayoría localizados por el propio IGN), con el
-  municipio más cercano según CartoCiudad («Terremoto M2.5 · Dílar (Granada)»). Un terremoto que
-  publican los dos sale una vez, el del IGN.
+- Terremotos desde magnitud 1,5, también los pequeños como los enjambres sísmicos, del servicio
+  oficial del IGN y con el sitio que les pone el IGN, en texto legible («Terremoto M2.5 · al noreste de
+  Gójar (Granada)», «Terremoto M2.7 · Golfo de Cádiz»); antes llegaban del EMSC con su región, tan amplia
+  que uno del golfo de Cádiz salía como «Estrecho de Gibraltar» y uno de Huelva como «Portugal». Del EMSC
+  quedan los que no localiza el IGN (sobre todo de Francia, Portugal y Marruecos), y ya no salen los que
+  el IGN quita al revisarlos. Un terremoto que publican los dos sale una vez, el del IGN. La hora de los
+  de Canarias, en hora canaria, y si se sintió, con qué intensidad.
 - Avisos oficiales de emergencias: planes de protección civil activados y cortes de luz que publican
   Canarias, Baleares, Cataluña, Andalucía, Castilla-La Mancha, La Rioja y Castilla y León, y los de las
   notas de prensa de los gobiernos de Madrid, Murcia, Cantabria, Galicia y el País Vasco. Su texto se

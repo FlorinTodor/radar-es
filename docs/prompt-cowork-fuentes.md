@@ -41,10 +41,10 @@ tiempo real, que pueda conectar al proyecto.
 | Metro Bilbao, posiciones | https://opendata.euskadi.eus/transport/moveuskadi/metro_bilbao/gtfsrt_metro_bilbao_vehicle_positions.pb | GTFS-RT pb | no |
 | Tranvía de Tenerife, posiciones | https://tranviaonline.metrotenerife.com/api/infoStops/vehicleLocation | JSON (no documentado) | no |
 | DGT, incidencias de tráfico | https://nap.dgt.es/datex2/v3/dgt/SituationPublication/datex2_v37.xml | DATEX II v3.7 | no |
-| IGN, terremotos | https://www.ign.es/ign/RssTools/sismologia.xml | GeoRSS | no |
+| IGN, terremotos | https://www.ign.es/wms-inspire/geofisica (capa Ultimos10dias, GetMap en GeoJSON) | WMS INSPIRE, GeoJSON | no |
 | AEMET, avisos (vía MeteoAlarm) | https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-spain | Atom + CAP | no |
 | Red Eléctrica, demanda | https://apidatos.ree.es/es/datos/demanda/demanda-tiempo-real | JSON (REData) | no |
-| EMSC, terremotos (respaldo) | https://www.seismicportal.eu/fdsnws/event/1/query | FDSN JSON | no |
+| EMSC, terremotos que no localiza el IGN | https://www.seismicportal.eu/fdsnws/event/1/query | FDSN JSON | no |
 | OpenSky, aviones | https://opensky-network.org/api/states/all | JSON | no (con límites) |
 
 ## Fuentes encontradas y probadas, pendientes de integrar
