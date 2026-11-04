@@ -175,3 +175,15 @@ test('un plan activado por un apagón se muestra como plan, no como corte de luz
   assert.deepEqual(query.events().map((e) => [e.type, e.power]), [['plan', false]]);
   assert.deepEqual(query.liveEvents().events.map((e) => e.type), ['plan'], 'también en el mapa');
 });
+
+test('las paradas de un vehículo las da la fuente que lo conoce; si ninguna, null', () => {
+  const list = { partial: false, stops: [{ name: 'A' }, { name: 'B' }] };
+  const sources = [
+    { id: 'otra', tripStops: (id) => (id.startsWith('otra:') ? null : undefined) },
+    { id: 'renfe-ld', tripStops: (id) => (id === 'renfe-ld:1' ? list : id.startsWith('renfe-ld:') ? null : undefined) },
+  ];
+  const query = makeQuerySituation({ situation: fakeSituation(), stations: {}, network: {}, clock: { now: () => T0 }, sources });
+  assert.equal(query.stops('renfe-ld:1'), list);
+  assert.equal(query.stops('otra:9'), null, 'la fuente lo conoce pero no sabe sus paradas');
+  assert.equal(query.stops('nadie:1'), null);
+});

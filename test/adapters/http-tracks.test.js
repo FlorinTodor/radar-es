@@ -10,6 +10,7 @@ before(async () => {
   const query = {
     track: (id) => (id === 'Renfe 7/123' ? [{ lat: 40, lon: -3.7 }] : null),
     ahead: (id) => (id === 'euskotren:TG2:1' ? [[-2.67, 42.85], [-2.66, 42.85]] : null),
+    stops: (id) => (id === 'renfe-ld:18000' ? { partial: false, stops: [{ name: 'A', passed: true }, { name: 'B', passed: false }] } : null),
   };
   server = createHttpServer({
     query, log: { error: (msg) => errors.push(msg), info() {}, warn() {} }, publicDir: '/nonexistent', vendorDirs: {},
@@ -41,4 +42,15 @@ test('/api/ahead/<id>: lo que le queda a un vehículo estimado; si no se sabe, 4
   assert.equal(ok.status, 200);
   assert.deepEqual(await ok.json(), [[-2.67, 42.85], [-2.66, 42.85]]);
   assert.equal((await fetch(`${base}/api/ahead/otro`)).status, 404);
+});
+
+test('/api/stops/<id>: las paradas del viaje; si no se saben, 404; un id mal codificado, 400', async () => {
+  const ok = await fetch(`${base}/api/stops/${encodeURIComponent('renfe-ld:18000')}`);
+  assert.equal(ok.status, 200);
+  assert.match(ok.headers.get('cache-control'), /^public, .*s-maxage=/);
+  assert.equal((await ok.json()).stops.length, 2);
+  const missing = await fetch(`${base}/api/stops/otro`);
+  assert.equal(missing.status, 404);
+  assert.deepEqual(await missing.json(), { error: 'Paradas desconocidas' });
+  assert.equal((await fetch(`${base}/api/stops/%E0%A4%A`)).status, 400);
 });

@@ -265,6 +265,39 @@ button { font: inherit; color: inherit; }
 .est-tag { margin-left: 4px; padding: 0 5px; border: 1px dashed currentColor; border-radius: 3px; color: var(--muted);
   font-size: 10.5px; font-weight: 600; vertical-align: 1px; }
 .pop a { color: var(--accent); }
+/* Paradas del viaje en la ficha del vehículo: las pasadas atenuadas y la próxima resaltada, con la
+   misma línea que lo que le queda en el mapa (azul) y sus puntos (blancos los que le quedan). */
+.trip-stops { margin-top: 10px; }
+.trip-stops summary { cursor: pointer; color: var(--ink-2); font-weight: 600; }
+/* Sin desplazamiento propio: la ficha se repinta con cada lectura y uno interior volvería arriba; el de la ficha se mantiene. */
+.trip-stops ol { position: relative; margin: 6px 0 0; padding: 0 0 0 16px; list-style: none; }
+/* Si el nombre y la hora no caben en una línea, la hora pasa debajo (a la derecha) sin partir el nombre. */
+.trip-stops li { position: relative; display: flex; flex-wrap: wrap; column-gap: 8px; padding: 2px 0; line-height: 1.35; }
+.ts-name { flex: 1 1 auto; }
+.trip-stops li::before {
+  content: ""; position: absolute; left: -13px; top: 7px; width: 7px; height: 7px; border-radius: 50%;
+  background: #fff; box-shadow: 0 0 0 2px var(--accent);
+}
+.trip-stops li::after { content: ""; position: absolute; left: -10px; top: 13px; bottom: -7px; border-left: 2px solid var(--accent); }
+.trip-stops li:last-child::after { display: none; }
+.trip-stops li.passed { color: var(--muted); }
+.trip-stops li.passed::before { background: #8d929a; box-shadow: 0 0 0 2px #4b5058; }
+.trip-stops li.passed::after { border-left-color: #4b5058; }
+.trip-stops li.end .ts-name { font-weight: 600; }
+.trip-stops li.next, .trip-stops li.here { color: var(--ink); font-weight: 600; }
+.trip-stops li.next::before, .trip-stops li.here::before { width: 9px; height: 9px; left: -14px; top: 6px; }
+.trip-stops li.here::before { background: var(--accent); box-shadow: 0 0 0 2px #fff; }
+.trip-stops li.gap { color: var(--muted); }
+.trip-stops li.gap::before { display: none; }
+.ts-time { margin-left: auto; white-space: nowrap; color: var(--ink-2); font-variant-numeric: tabular-nums; font-weight: 400; }
+.trip-stops li.passed .ts-time { color: var(--muted); }
+/* Nombre y hora de una parada al pasar el ratón o tocarla en el mapa. */
+.stop-tip .maplibregl-popup-content { padding: 6px 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: 12.5px; line-height: 1.35; }
+.stop-tip .maplibregl-popup-content span { color: var(--ink-2); font-size: 11.5px; }
+.stop-tip.maplibregl-popup-anchor-top .maplibregl-popup-tip { border-bottom-color: var(--surface); }
+.stop-tip.maplibregl-popup-anchor-bottom .maplibregl-popup-tip { border-top-color: var(--surface); }
+.stop-tip.maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--surface); }
+.stop-tip.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--surface); }
 /* Ficha de estación */
 .pop h4 { margin: 10px 0 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .st-meta { margin: -2px 0 6px; color: var(--ink-2); font-size: 12px; }

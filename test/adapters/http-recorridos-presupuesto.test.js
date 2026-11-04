@@ -15,6 +15,7 @@ before(async () => {
   const query = {
     track: (id) => { count(`track:${id}`); return id.startsWith('tren-') ? [{ lon: -3.7, lat: 40, t: 1 }] : null; },
     ahead: (id) => { count(`ahead:${id}`); return id.startsWith('tren-') ? [[-3.7, 40], [-3.6, 40]] : null; },
+    stops: (id) => (id.startsWith('tren-') ? { partial: false, stops: [{ name: 'A' }, { name: 'B' }] } : null),
   };
   server = createHttpServer({ query, log: { error() {}, info() {}, warn() {} }, publicDir: '/nonexistent', vendorDirs: {}, now: () => clock });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -71,4 +72,10 @@ test('un id más largo que cualquier vehículo es una ruta inválida (no llena e
   const real = 'tren-bus-grupo-ruiz:3:1_8__350_C__-8__350_C___3_11:30:00_1_sdf__1_8__350_C__:20261102';
   clock += 3_600_000;
   assert.equal((await fetch(`${base}/api/tracks/${encodeURIComponent(real)}`)).status, 200);
+});
+
+test('las paradas tienen su propio presupuesto: pedir las de muchos vehículos no deja sin recorridos', async () => {
+  clock += 3_600_000;
+  for (let i = 0; i < 60; i++) assert.equal((await fetch(`${base}/api/stops/tren-p${i}`)).status, 200);
+  assert.equal((await fetch(`${base}/api/ahead/tren-tras-paradas`)).status, 200, 'el de los recorridos sigue entero');
 });

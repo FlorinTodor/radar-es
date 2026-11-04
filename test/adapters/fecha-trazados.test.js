@@ -89,5 +89,5 @@ test('la pestaña Fuentes enseña la fecha de cada trazado', () => {
   renderSources(el, [], [{ name: 'Metro Bilbao', credit: 'Powered by MITRAMS (Punto de Acceso Nacional) · Metro Bilbao', updated: Date.UTC(2026, 10, 1, 7, 34) }], NOW);
   assert.match(el.innerHTML, /Trazados de las líneas/);
   assert.match(el.innerHTML, /Metro Bilbao/);
-  assert.match(el.innerHTML, /horario actualizado el 0?1\/11,? 08:34/);
+  assert.match(el.innerHTML, /horario actualizado el 0?1\/11\/2026,? 08:34/, 'con el año aunque sea de este año');
 });
