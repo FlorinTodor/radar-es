@@ -87,7 +87,7 @@ abajo, detrás de un puerto:
 ```mermaid
 flowchart TB
   nav(["navegador"])
-  ia(["asistente de IA"])
+  ia(["asistente<br/>de IA"])
   reloj(["reloj"])
 
   subgraph IN["entrada · adapters/inbound"]
@@ -156,22 +156,22 @@ conexiones abiertas con cada visita, y Cloudflare reparte las mismas respuestas 
 ```mermaid
 flowchart TB
   subgraph DIR["el directo · cada fuente a su ritmo"]
-    F[("fuente pública")] -->|"sondeo"| I["ingest-source<br/>normaliza y descarta<br/>lo imposible"]
+    F[("fuente pública")] -->|"sondeo"| I["ingest-source<br/>normaliza y<br/>descarta lo<br/>imposible"]
     I --> R[("estado")]
     R --> A["detect-alerts"]
     A -->|"alertas"| R
     A --> H[("histórico")]
   end
   subgraph CAT["los catálogos · al arrancar y cada hora"]
-    G[("GTFS, Adif, IGN,<br/>Wikidata…")] --> RC["refresh-catalogs"]
+    G[("GTFS, Adif,<br/>IGN, Wikidata…")] --> RC["refresh-catalogs"]
     RC --> E["estaciones<br/>y trazados"]
-    E --> L["lines-on-rail<br/>lo recto, por la vía"]
+    E --> L["lines-on-rail<br/>lo recto,<br/>por la vía"]
   end
   R --> Q["query-situation"]
   L --> Q
-  Q -->|"/api/live, /api/lines…"| C["Cloudflare<br/>caché"]
+  Q -->|"/api/live…"| C["Cloudflare<br/>caché"]
   C --> N(["mapa"])
-  Q -->|"POST /mcp<br/>sin caché de Cloudflare"| IA(["asistente de IA"])
+  Q -->|"POST /mcp<br/>sin caché"| IA(["asistente<br/>de IA"])
 ```
 
 Los puertos están en `server/application/ports.js`:
@@ -446,8 +446,8 @@ con su nombre.
 flowchart LR
   pr["PR 1<br/>de Edgar"] --> rev["revisión<br/>línea a línea"]
   rev --> fm["feature/mcp<br/>junto con dev<br/>y mejorado"]
-  fm --> t["pruebas en local,<br/>en GitHub<br/>y en el VPS"]
-  t --> ces["cesión de derechos<br/>en la PR"]
+  fm --> t["pruebas:<br/>local, GitHub<br/>y VPS"]
+  t --> ces["cesión de<br/>derechos<br/>en la PR"]
   ces -->|"merge"| d["dev"]
 ```
 
@@ -458,11 +458,11 @@ mapa, así que el asistente y la web cuentan los mismos trenes.
 
 ```mermaid
 flowchart LR
-  ia(["asistente de IA"]) -->|"POST /mcp"| cf["Cloudflare<br/>un POST no se guarda"]
-  cf --> http["http-server.js<br/>comprobaciones HTTP<br/>y presupuesto"]
-  http --> mcp["mcp/mcp.js<br/>protocolo, herramientas,<br/>caché y foto del directo"]
+  ia(["asistente<br/>de IA"]) -->|"POST /mcp"| cf["Cloudflare<br/>no guarda<br/>los POST"]
+  cf --> http["http-server.js<br/>comprobaciones<br/>y presupuesto"]
+  http --> mcp["mcp/mcp.js<br/>protocolo,<br/>herramientas<br/>y caché"]
   mcp --> q["query-situation"]
-  mcp -.-> sb["station-board.js<br/>la ficha del mapa"]
+  mcp -.-> sb["ficha de<br/>estación<br/>del mapa"]
   q --> r[("estado")]
 ```
 
@@ -471,30 +471,49 @@ respuesta; una notificación, que no lleva respuesta, recibe 202 vacío.
 
 ```mermaid
 flowchart TB
-  a["POST /mcp"] --> b("¿Origin de esta web,<br/>de un navegador local<br/>o ninguno?")
+  a["POST /mcp"] --> b("¿Origin<br/>permitido?")
   b -->|"no"| e403["403"]
-  b -->|"sí"| c("¿versión del<br/>protocolo conocida?")
-  c -->|"no"| e400a["400 · -32022<br/>con las que sí"]
-  c -->|"sí"| d("¿JSON de 64 KB<br/>como mucho?")
-  d -->|"no"| e41x["415 · 413 · 400"]
-  d -->|"sí"| f("2026-07-28: ¿las<br/>cabeceras dicen lo<br/>mismo que el cuerpo?")
-  f -->|"no"| e400b["400 · -32020"]
-  f -->|"sí"| g("¿respuesta<br/>guardada?")
+  b -->|"sí"| c("¿versión<br/>conocida?")
+  c -->|"no"| e400a["400<br/>-32022"]
+  c -->|"sí"| d("¿JSON de<br/>64 KB o<br/>menos?")
+  d -->|"no"| e41x["415, 413<br/>o 400"]
+  d -->|"sí"| f("¿cabeceras<br/>= cuerpo?")
+  f -->|"no"| e400b["400<br/>-32020"]
+  f -->|"sí"| g("¿ya<br/>guardada?")
   g -->|"sí"| ok["200"]
-  g -->|"no"| h("¿presupuesto<br/>del cliente<br/>y de todos?")
+  g -->|"no"| h("¿queda<br/>presupuesto?")
   h -->|"no"| e429["429"]
-  h -->|"sí"| i["la herramienta busca<br/>en la foto del directo"]
+  h -->|"sí"| i["busca en<br/>la foto del<br/>directo"]
   i --> ok
 ```
+
+1. **Origin**: vale el de esta web, el de un navegador en local o ninguno; el de otra web recibe 403.
+2. **Versión**: la de la cabecera `MCP-Protocol-Version`, si la lleva. Una que no se conoce recibe 400
+   con el error -32022 y la lista de las que sí.
+3. **El mensaje**: tiene que ser `application/json` (si no, 415), de 64 KB como mucho (si no, 413,
+   sin leer el resto) y un JSON válido (si no, 400).
+4. **Cabeceras** (sólo en la 2026-07-28): `MCP-Protocol-Version`, `Mcp-Method` y `Mcp-Name` dicen lo
+   mismo que el cuerpo; si no, 400 con el error -32020.
+5. **Caché**: si la misma pregunta se respondió hace unos segundos, se devuelve esa respuesta sin
+   calcular nada.
+6. **Presupuesto**: el del cliente y el de todos; sin él, 429.
+7. **La herramienta** busca en la foto del directo y responde con las fuentes que hay que citar.
 
 **Dos generaciones del protocolo a la vez.** Cada mensaje dice cuál habla:
 
 ```mermaid
 flowchart LR
-  m["mensaje"] --> v("¿lleva su versión<br/>en params._meta?")
-  v -->|"sí: 2026-07-28"| moderno["moderno<br/>sin saludo inicial<br/>server/discover<br/>resultType e identidad<br/>en cada resultado"]
-  v -->|"no"| antiguo["antiguo<br/>initialize elige<br/>2025-11-25, 2025-06-18<br/>o 2025-03-26"]
+  m["mensaje"] --> v("¿versión en<br/>params._meta?")
+  v -->|"sí"| moderno["moderno<br/>2026-07-28"]
+  v -->|"no"| antiguo["antiguo<br/>con initialize"]
 ```
+
+| | Moderno (2026-07-28) | Antiguo (2025-11-25, 2025-06-18 y 2025-03-26) |
+|---|---|---|
+| Cómo empieza | sin saludo: cada petición lleva su versión en `params._meta` | `initialize`, que elige una de las tres versiones |
+| Qué entiende el servidor | `server/discover` lo dice | lo dice la respuesta a `initialize` |
+| Cada resultado lleva | `resultType` y la identidad del servidor | lo de siempre |
+| Un método que no existe | 404 | 200 con el error en el cuerpo |
 
 **Qué se cambió en la revisión y por qué:**
 
