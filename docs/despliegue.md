@@ -126,7 +126,12 @@ flowchart LR
   contenedores y del diario del sistema (despliegues, `cloudflared`, Docker, kernel) y comprueba cada
   minuto, por Cloudflare, la portada, `/api/health`, `/mcp` y que `radarespana.es` redirija con 308.
   También mira `/api/health` desde dentro, para distinguir un fallo del servidor de uno del camino.
-  Los registros se guardan sin IPs. Lee Docker a través de un proxy que sólo deja consultar.
+  Los registros se guardan sin IPs ni claves. Lee Docker a través de un proxy que sólo deja hacer
+  unas pocas consultas, sin red: sólo un socket de fichero que monta Alloy.
+- **Nada abierto ni hacia fuera**: todos los servicios escuchan sólo en `127.0.0.1` (el cortafuegos
+  del VPS sólo deja entrar por ssh) y el único camino desde Internet es el túnel, a Grafana, tras
+  Access. Ninguno manda datos de uso a nadie; Grafana no descarga plugins ni comparte paneles, y sólo
+  habla con Telegram (las alertas) y con Cloudflare (para comprobar la firma de Access).
 - **Grafana** tiene cinco paneles (General, API y MCP, Fuentes, Servidor, Registros) y las alertas:
   web, API o MCP sin responder, la redirección sin ñ, ningún contenedor de producción con métricas,
   una fuente sin datos buenos en tres lecturas, memoria del contenedor, errores 500 o en el registro,

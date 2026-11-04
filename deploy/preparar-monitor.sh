@@ -35,6 +35,10 @@ done
 if ! grep -q '^JOURNAL_GID=.' "$ENV"; then
   printf 'JOURNAL_GID=%s\n' "$(getent group systemd-journal | cut -d: -f3)" >> "$ENV"
 fi
+# El proxy de Docker lee su socket con el grupo docker del VPS.
+if ! grep -q '^DOCKER_GID=.' "$ENV"; then
+  printf 'DOCKER_GID=%s\n' "$(getent group docker | cut -d: -f3)" >> "$ENV"
+fi
 if ! grep -q '^GRAFANA_ADMIN_PASSWORD=.' "$ENV"; then
   # Nadie la usa (Grafana no tiene formulario de acceso), pero así no queda la de serie.
   printf 'GRAFANA_ADMIN_PASSWORD=%s\n' "$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)" >> "$ENV"

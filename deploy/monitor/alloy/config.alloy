@@ -57,9 +57,9 @@ prometheus.scrape "vps" {
 
 // ---------- La web: producción y pruebas ----------
 
-// Los contenedores, a través del proxy de sólo lectura (nunca el socket de Docker).
+// Los contenedores, a través del proxy de sólo consultas (nunca el socket de Docker).
 discovery.docker "contenedores" {
-  host             = "tcp://127.0.0.1:2375"
+  host             = "unix:///var/run/docker-api/docker.sock"
   refresh_interval = "30s"
 }
 
@@ -242,7 +242,7 @@ discovery.relabel "registros" {
 }
 
 loki.source.docker "contenedores" {
-  host       = "tcp://127.0.0.1:2375"
+  host       = "unix:///var/run/docker-api/docker.sock"
   targets    = discovery.relabel.registros.output
   labels     = {"origen" = "docker"}
   forward_to = [loki.process.privacidad.receiver]
@@ -304,6 +304,12 @@ loki.process "privacidad" {
   stage.replace {
     expression = "(\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b)"
     replace    = "x.x.x.x"
+  }
+
+  // Ni claves: el valor de cualquier token, key, secret, password o authorization que aparezca.
+  stage.replace {
+    expression = "(?i)(?:api[_-]?key|app[_-]?key|app[_-]?id|token|secret|password|passwd|authorization)[\"']?\\s*[:=]\\s*[\"']?(?:bearer\\s+)?([^\\s\"'&,;]+)"
+    replace    = "***"
   }
 
   stage.replace {

@@ -46,6 +46,15 @@ services:
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
       GF_NEWS_NEWS_FEED_ENABLED: "false"
+      # Nada hacia terceros: ni instantáneas en servidores de Grafana, ni paneles públicos, ni enlaces
+      # de opinión, ni claves de plugins de grafana.com. Sólo sale lo imprescindible: Telegram (las
+      # alertas) y las claves de Cloudflare Access (para comprobar la firma).
+      GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
+      GF_PUBLIC_DASHBOARDS_ENABLED: "false"
+      GF_ANALYTICS_FEEDBACK_LINKS_ENABLED: "false"
+      GF_PLUGINS_PUBLIC_KEY_RETRIEVAL_DISABLED: "true"
+      GF_SECURITY_CONTENT_SECURITY_POLICY: "true"
+      GF_SECURITY_COOKIE_SAMESITE: strict
       # Sin el instalador de plugins en segundo plano: no descarga nada de internet, y con el disco de
       # sólo lectura, al intentar actualizar los que trae la imagen, los dejaba sin registrar (Prometheus
       # y Loki incluidos). Y sin los plugins de datos que no se usan: menos procesos y menos memoria.
@@ -137,6 +146,8 @@ services:
       - /:/host/root:ro,rslave
       - /var/log/journal:/var/log/journal:ro
       - /etc/machine-id:/etc/machine-id:ro
+      # El socket del proxy de Docker (sólo consultas), no el de Docker.
+      - docker-api:/var/run/docker-api
     depends_on:
       - prometheus
       - loki
@@ -145,27 +156,43 @@ services:
     cpus: 1
     pids_limit: 256
 
-  # El API de Docker, sólo para leer: qué contenedores hay y sus registros. Alloy no toca el socket
-  # (con él se controla todo el VPS); este proxy sólo deja pasar consultas GET de contenedores y redes.
+  # El API de Docker, sólo para leer: qué contenedores hay, sus redes y sus registros. Alloy no toca el
+  # socket de Docker (con él se controla todo el VPS): habla con este proxy, que sólo deja pasar esas
+  # consultas (GET, una lista cerrada) y escucha en un socket de fichero, en un volumen en memoria que
+  # sólo monta Alloy. Sin red, sin root y sin escribir en disco: no hay ningún puerto que atacar.
+  # Corre con el usuario de Alloy (así sólo Alloy puede abrir el socket) y el grupo de Docker del VPS
+  # (para leer el socket de Docker; preparar-monitor.sh pone su número en el .env).
   docker-api:
-    image: tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
-    restart: unless-stopped
-    environment:
-      CONTAINERS: 1
-      NETWORKS: 1
-      POST: 0
-    ports:
-      - "127.0.0.1:2375:2375"
+    <<: *endurecido
+    image: wollomatic/socket-proxy:1.13.1@sha256:3935b709275e4ec35d6ed5a5c4a1f0d01ed31eec5e7234efc3357ecd47689002
+    network_mode: none
+    user: "473:${DOCKER_GID:?falta DOCKER_GID en .env}"
+    command:
+      - -loglevel=warn
+      - -proxysocketendpoint=/socket/docker.sock
+      - -proxysocketendpointfilemode=0600
+      # Lo único que se puede pedir ($$ es un $ para compose: el final de la expresión).
+      - -allowGET=^(/v1\.[0-9]{1,2})?/(_ping|version|containers/json|containers/[a-zA-Z0-9_.-]{1,128}/(json|logs)|networks(/[a-zA-Z0-9_.-]{1,128})?)$$
+      - -allowHEAD=^(/v1\.[0-9]{1,2})?/_ping$$
+      - -watchdoginterval=3600
+      - -stoponwatchdog
+      - -shutdowngracetime=5
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    security_opt:
-      - no-new-privileges:true
-    mem_limit: 64m
+      - docker-api:/socket
+    mem_limit: 32m
     cpus: 0.5
-    pids_limit: 64
+    pids_limit: 32
 
 volumes:
   grafana:
   prometheus:
   loki:
   alloy:
+  # En memoria, sólo para el socket del proxy: del usuario de Alloy y nadie más.
+  docker-api:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=64k,uid=473,gid=473,mode=0700,noexec,nosuid,nodev
