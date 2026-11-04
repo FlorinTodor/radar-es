@@ -1,7 +1,7 @@
 // Paradas del vehículo seleccionado en el mapa y en su ficha (public/js/trip-stops.js).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { stopTipHtml, stopWhen, stopsCollection, stopsListHtml } from '../../public/js/trip-stops.js';
+import { stopTipHtml, stopWhen, stopsCollection, stopsListHtml, tripFramePoints } from '../../public/js/trip-stops.js';
 
 const DATA = {
   partial: false,
@@ -63,4 +63,16 @@ test('parado en una parada: ni pasada ni la próxima (la próxima es la siguient
   assert.match(html, /le queda 1 de 3/);
   assert.match(html, /<li class="here"><span class="ts-name">B<\/span><span class="ts-time">parado aquí · 10:10<\/span>/);
   assert.match(stopTipHtml({ name: 'B', i: 1, here: 1, next: 0, when: '10:10' }, 3), /está parado aquí · 10:10/);
+});
+
+test('al seleccionarlo, el mapa encuadra todo su viaje: las paradas con posición, del origen al destino, y el vehículo', () => {
+  // Un AVE directo Madrid → Zaragoza → Barcelona con el tren cerca de Barcelona: también Madrid y Zaragoza.
+  const ave = { stops: [
+    { name: 'Madrid-Puerta de Atocha', lon: -3.69, lat: 40.406, passed: true },
+    { name: 'Zaragoza-Delicias', lon: -0.911, lat: 41.658, passed: true },
+    { name: 'Barcelona-Sants', lon: 2.14, lat: 41.379, passed: false },
+  ] };
+  assert.deepEqual(tripFramePoints(ave, { lon: 2.0, lat: 41.4 }), [[-3.69, 40.406], [-0.911, 41.658], [2.14, 41.379], [2.0, 41.4]]);
+  assert.deepEqual(tripFramePoints(DATA).length, 3, 'la parada sin posición no cuenta');
+  assert.deepEqual(tripFramePoints(null, { lon: 1, lat: 2 }), [[1, 2]]);
 });

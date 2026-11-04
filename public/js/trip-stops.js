@@ -36,6 +36,18 @@ export function stopsCollection(data) {
   return { type: 'FeatureCollection', features };
 }
 
+/**
+ * Puntos que encuadra el mapa al seleccionar el vehículo: todas las paradas de su viaje con posición, del
+ * origen al destino, y el propio vehículo (puede ir fuera de ellas, p. ej. con la posición sin poner al día).
+ * @param {TripStops|null} data  @param {{ lon: number, lat: number }} [vehicle]
+ * @returns {number[][]} [lon, lat]
+ */
+export function tripFramePoints(data, vehicle) {
+  const points = (data?.stops ?? []).filter((s) => Number.isFinite(s.lon) && Number.isFinite(s.lat)).map((s) => [s.lon, s.lat]);
+  if (Number.isFinite(vehicle?.lon) && Number.isFinite(vehicle?.lat)) points.push([vehicle.lon, vehicle.lat]);
+  return points;
+}
+
 /** «17:05», «17:05 · prevista 17:12» o «prevista 17:12»; '' si no se sabe la hora. */
 export function stopWhen(s) {
   if (s.passed) return s.time ?? '';

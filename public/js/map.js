@@ -2,7 +2,7 @@ import * as maplibregl from '/vendor/maplibre/maplibre-gl.mjs';
 import { DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, STATUS, esc, fmtDataTime, fmtDate, fmtDateTime, fmtDelay, fmtLocalHour, fmtTime, creditHtml, photoTitleOf, safeUrl, timeAgo, vehicleTitle } from './format.js';
 import { PICTOS, pictoFor, vehicleImage } from './icons.js';
 import { headingAlong, matchTrack, pathBetween } from './track-match.js';
-import { stopTipHtml, stopsCollection, stopsListHtml } from './trip-stops.js';
+import { stopTipHtml, stopsCollection, stopsListHtml, tripFramePoints } from './trip-stops.js';
 
 const STYLE = 'https://tiles.openfreemap.org/styles/dark';
 const FONT = ['Noto Sans Regular'];
@@ -123,7 +123,9 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
   let selectedId = null;  // tren seleccionado: lleva anillo y su recorrido reciente
   let selectedVehicle = null; // sus últimos datos, para repintar la ficha al llegar sus paradas
   let tripStops = null;   // paradas de su viaje (/api/stops), si se saben
-  let stopsFramedFor = null; // vehículo cuyo viaje ya se ha encuadrado (una vez por selección)
+  // Vehículo cuyo viaje ya se ha encuadrado en esta selección: se encuadra al llegar sus paradas tras
+  // cada selección (en el mapa, en la lista o desde una alerta), no en las recargas de cada 15 s.
+  let stopsFramedFor = null;
   let selectedStation = null; // código de la estación cuya ficha está abierta
   let clicks = 0;         // contador de clics en el mapa, para descartar respuestas tardías de EFFIS
   let trackFetchedAt = 0;
@@ -652,11 +654,11 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
         .then((data) => {
           if (selectedId !== v.id) return;
           setTripStops(data?.stops?.length > 1 ? data : null);
-          // La primera vez, el mapa encuadra todo su viaje, del origen al destino, con el vehículo.
+          // Tras seleccionarlo, el mapa encuadra todo su viaje, del origen al destino, con el vehículo. Llega
+          // después del vuelo hasta el vehículo de app.js (selectVehicle) y lo sustituye.
           if (tripStops && stopsFramedFor !== v.id) {
             stopsFramedFor = v.id;
-            const points = tripStops.stops.filter((s) => Number.isFinite(s.lon) && Number.isFinite(s.lat)).map((s) => [s.lon, s.lat]);
-            fitPoints([...points, [v.lon, v.lat]], STOP_LABEL_MARGIN);
+            fitPoints(tripFramePoints(tripStops, v), STOP_LABEL_MARGIN);
           }
           if (card.open && selectedVehicle) card.show(vehicleDetail(selectedVehicle, !!lastRoute, tripStops));
         })
@@ -837,6 +839,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     /** Selecciona un tren: anillo, recorrido reciente, sus paradas y ficha. La × de la ficha sólo la cierra. */
     showVehicle(v) {
       setSelected(v.id);
+      stopsFramedFor = null; // también si ya estaba seleccionado: se vuelve a encuadrar su viaje
       selectedVehicle = v;
       const route = drawRoute(v);
       lastRoute = route;
