@@ -63,6 +63,8 @@ export const fmtDateTime = (ms, now = Date.now()) => {
   if (!ms) return '—';
   return (yearFmt.format(ms) === yearFmt.format(now) ? dateTimeFmt : dateTimeYearFmt).format(ms);
 };
+/** «15/04/2026, 11:22», siempre con el año: en la pestaña Fuentes, una fecha sin año no dice si el horario es de este año. */
+export const fmtDateTimeYear = (ms) => (ms ? dateTimeYearFmt.format(ms) : '—');
 const dateFmt = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', year: 'numeric' });
 export const fmtDate = (ms) => (ms ? dateFmt.format(ms) : '—');
 const dayFmt = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Madrid' }); // «2026-11-02»: el día en Madrid

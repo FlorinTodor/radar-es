@@ -712,7 +712,7 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   autobuses, metros y tranvías.
 - La pestaña Fuentes dice hasta cuándo vale el horario de cada red y avisa cuando le quedan dos
   semanas o menos (y el servidor lo apunta en su registro): si el operador no publica uno nuevo, sus
-  vehículos dejan de salir. Las fechas de otro año llevan el año.
+  vehículos dejan de salir. Todas sus fechas llevan el año.
 - La pestaña Fuentes cita la vía del IGN en cada red cuyo trazado se rehace con ella también justo
   después de cada arranque, sin esperar a que caduque la copia guardada.
 - Servidor MCP en `/mcp`: un asistente de IA (Claude, ChatGPT, Cursor…) consulta el directo (trenes,
