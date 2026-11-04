@@ -1,0 +1,42 @@
+# Adónde van las alertas: al bot de Telegram (token y chat, del .env del VPS; nunca en git). Un solo
+# mensaje por tipo de alerta, aunque salten varias a la vez (varias fuentes, por ejemplo), y otro
+# cuando se resuelve. Si sigue sin resolverse, se repite cada 4 horas.
+apiVersion: 1
+
+templates:
+  - orgId: 1
+    name: radar
+    template: |
+      {{ define "radar.mensaje" -}}
+      {{ if gt (len .Alerts.Firing) 0 -}}
+      🔴 Radar España: {{ .CommonLabels.alertname }}
+      {{ range .Alerts.Firing }}• {{ .Annotations.summary }}
+      {{ end }}{{ end -}}
+      {{ if gt (len .Alerts.Resolved) 0 -}}
+      ✅ Resuelto: {{ .CommonLabels.alertname }}
+      {{ range .Alerts.Resolved }}• {{ .Annotations.summary }}
+      {{ end }}{{ end -}}
+      https://monitor.radarespaña.es
+      {{- end }}
+
+contactPoints:
+  - orgId: 1
+    name: Telegram
+    receivers:
+      - uid: telegram
+        type: telegram
+        disableResolveMessage: false
+        settings:
+          bottoken: ${TELEGRAM_BOT_TOKEN}
+          chatid: "${TELEGRAM_CHAT_ID}"
+          message: '{{ template "radar.mensaje" . }}'
+          disable_web_page_preview: true
+
+policies:
+  - orgId: 1
+    receiver: Telegram
+    group_by:
+      - alertname
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h

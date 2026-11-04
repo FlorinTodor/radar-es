@@ -1,0 +1,159 @@
+# Monitorización del VPS (monitor.radarespaña.es, detrás de Cloudflare Access): Grafana para verla y
+# avisar por Telegram, Prometheus para las métricas, Loki para los registros y Alloy, que lo recoge todo.
+# La instala y la actualiza deploy/preparar-monitor.sh en /opt/radar-monitor, con su .env (sólo en el VPS).
+#
+# Nada se publica fuera de 127.0.0.1: desde fuera sólo se llega a Grafana, por el túnel y tras Access.
+# Imágenes fijadas por su huella, como el nginx de compose.yaml. Memoria medida en el VPS: ver docs/despliegue.md.
+name: radar-monitor
+
+x-endurecido: &endurecido
+  restart: unless-stopped
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  grafana:
+    <<: *endurecido
+    image: grafana/grafana:13.2.5@sha256:9f7aa1e1e3246aade5792d35a738049f7f32f89cd51d1956cf426a4e86268a84
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      GF_SERVER_DOMAIN: monitor.xn--radarespaa-19a.es
+      GF_SERVER_ROOT_URL: https://monitor.xn--radarespaa-19a.es/
+      # Se entra sólo con la firma que Cloudflare Access añade a cada petición (tras el código por correo):
+      # sin formulario de usuario y contraseña. Grafana comprueba la firma con las claves de Access, y que
+      # sea de esta aplicación (aud) y de este equipo (iss).
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_BASIC_ENABLED: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_JWT_ENABLED: "true"
+      GF_AUTH_JWT_HEADER_NAME: Cf-Access-Jwt-Assertion
+      GF_AUTH_JWT_EMAIL_CLAIM: email
+      GF_AUTH_JWT_USERNAME_CLAIM: email
+      GF_AUTH_JWT_JWK_SET_URL: https://${CF_ACCESS_TEAM:?falta CF_ACCESS_TEAM en .env}.cloudflareaccess.com/cdn-cgi/access/certs
+      GF_AUTH_JWT_CACHE_TTL: 60m
+      GF_AUTH_JWT_EXPECT_CLAIMS: '{"aud":"${CF_ACCESS_AUD:?falta CF_ACCESS_AUD en .env}","iss":"https://${CF_ACCESS_TEAM}.cloudflareaccess.com"}'
+      GF_AUTH_JWT_AUTO_SIGN_UP: "true"
+      # Access sólo deja pasar los correos de su política: quien llega aquí es administrador.
+      GF_AUTH_JWT_ROLE_ATTRIBUTE_PATH: "'Admin'"
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?falta GRAFANA_ADMIN_PASSWORD en .env}
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_USERS_DEFAULT_LANGUAGE: es-ES
+      GF_DATE_FORMATS_DEFAULT_TIMEZONE: Europe/Madrid
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+      # El bot de Telegram de las alertas (grafana/provisioning/alerting/telegram.yaml las lee de aquí).
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?falta TELEGRAM_BOT_TOKEN en .env}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:?falta TELEGRAM_CHAT_ID en .env}
+    volumes:
+      - grafana:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana-paneles:ro
+    tmpfs:
+      - /tmp:size=64m
+    depends_on:
+      - prometheus
+      - loki
+    mem_limit: 384m
+    cpus: 1
+    pids_limit: 256
+
+  prometheus:
+    <<: *endurecido
+    image: prom/prometheus:v3.15.1@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.size=4GB
+      # Alloy le manda las métricas (no las lee él).
+      - --web.enable-remote-write-receiver
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - prometheus:/prometheus
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    mem_limit: 512m
+    cpus: 1
+    pids_limit: 256
+
+  loki:
+    <<: *endurecido
+    image: grafana/loki:3.7.9@sha256:0db216b630ae1f348a1584c67f3cead8b4c1fc839169a39501db664744158e28
+    command:
+      - -config.file=/etc/loki/loki.yaml
+    ports:
+      - "127.0.0.1:3100:3100"
+    volumes:
+      - loki:/loki
+      - ./loki/loki.yaml:/etc/loki/loki.yaml:ro
+    tmpfs:
+      - /tmp:size=64m
+    mem_limit: 384m
+    cpus: 1
+    pids_limit: 256
+
+  # Alloy recoge:
+  # - las métricas del VPS (CPU, memoria, disco, red), leyendo /proc, /sys y / del propio VPS;
+  # - las de la web (contenedores con la etiqueta es.radarespana.metricas);
+  # - los registros de los contenedores y del diario del sistema (despliegues, cloudflared, kernel);
+  # - comprobaciones desde fuera (portada, /api/health, /mcp, la redirección sin ñ).
+  # Va en la red del VPS para llegar a los contenedores de producción y de pruebas, que están en
+  # redes de Docker distintas, y a Prometheus y Loki por 127.0.0.1. Su interfaz, también sólo en local.
+  alloy:
+    <<: *endurecido
+    image: grafana/alloy:v1.21.1@sha256:4039c971193053a84e53dd9ed3e7d4561c069256b024631cd3498a353ed7ece8
+    network_mode: host
+    command:
+      - run
+      - --server.http.listen-addr=127.0.0.1:12345
+      - --storage.path=/var/lib/alloy
+      - --disable-reporting
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy:/var/lib/alloy
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
+      - /var/log/journal:/var/log/journal:ro
+      - /etc/machine-id:/etc/machine-id:ro
+    depends_on:
+      - prometheus
+      - loki
+      - docker-api
+    mem_limit: 384m
+    cpus: 1
+    pids_limit: 256
+
+  # El API de Docker, sólo para leer: qué contenedores hay y sus registros. Alloy no toca el socket
+  # (con él se controla todo el VPS); este proxy sólo deja pasar consultas GET de contenedores y redes.
+  docker-api:
+    image: tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      NETWORKS: 1
+      POST: 0
+    ports:
+      - "127.0.0.1:2375:2375"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 64m
+    cpus: 0.5
+    pids_limit: 64
+
+volumes:
+  grafana:
+  prometheus:
+  loki:
+  alloy:

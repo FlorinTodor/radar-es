@@ -1,0 +1,297 @@
+// Qué recoge Alloy y adónde lo manda (ver deploy/monitor/compose.yaml). Va en la red del VPS:
+// Prometheus y Loki están en 127.0.0.1, y los contenedores de la web, en sus redes de Docker.
+
+logging {
+  level = "warn"
+}
+
+// ---------- Adónde va todo ----------
+
+prometheus.remote_write "local" {
+  endpoint {
+    url = "http://127.0.0.1:9090/api/v1/write"
+  }
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://127.0.0.1:3100/loki/api/v1/push"
+  }
+}
+
+// ---------- El VPS: CPU, memoria, disco y red ----------
+
+prometheus.exporter.unix "vps" {
+  procfs_path    = "/host/proc"
+  sysfs_path     = "/host/sys"
+  rootfs_path    = "/host/root"
+  set_collectors = ["cpu", "loadavg", "meminfo", "filesystem", "diskstats", "netdev", "pressure", "stat", "uname", "vmstat"]
+
+  filesystem {
+    fs_types_exclude     = "^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|mqueue|nsfs|overlay|proc|pstore|rpc_pipefs|securityfs|squashfs|sysfs|tmpfs|tracefs)$"
+    mount_points_exclude = "^/(dev|proc|run|sys|snap|var/lib/docker/.+)($|/)"
+  }
+
+  // Sin las interfaces de los contenedores: sólo la red del VPS.
+  netdev {
+    device_exclude = "^(lo|docker\\d*|br-.+|veth.+)$"
+  }
+}
+
+prometheus.scrape "vps" {
+  targets         = prometheus.exporter.unix.vps.targets
+  forward_to      = [prometheus.remote_write.local.receiver]
+  job_name        = "vps"
+  scrape_interval = "30s"
+}
+
+// ---------- La web: producción y pruebas ----------
+
+// Los contenedores, a través del proxy de sólo lectura (nunca el socket de Docker).
+discovery.docker "contenedores" {
+  host             = "tcp://127.0.0.1:2375"
+  refresh_interval = "30s"
+}
+
+// Los que dan métricas llevan la etiqueta es.radarespana.metricas con su puerto (compose.yaml).
+discovery.relabel "radar" {
+  targets = discovery.docker.contenedores.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_es_radarespana_metricas"]
+    regex         = "\\d+"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_network_ip", "__meta_docker_container_label_es_radarespana_metricas"]
+    separator     = ":"
+    target_label  = "__address__"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/?(.*)"
+    target_label  = "contenedor"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    regex         = "radar"
+    replacement   = "produccion"
+    target_label  = "entorno"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    regex         = "radar-pruebas"
+    replacement   = "pruebas"
+    target_label  = "entorno"
+  }
+}
+
+prometheus.scrape "radar" {
+  targets         = discovery.relabel.radar.output
+  forward_to      = [prometheus.remote_write.local.receiver]
+  job_name        = "radar"
+  scrape_interval = "30s"
+  scrape_timeout  = "10s"
+}
+
+// ---------- La propia monitorización ----------
+
+prometheus.scrape "monitor" {
+  targets = [
+    {"__address__" = "127.0.0.1:9090", "servicio" = "prometheus"},
+    {"__address__" = "127.0.0.1:3100", "servicio" = "loki"},
+    {"__address__" = "127.0.0.1:3000", "servicio" = "grafana"},
+    {"__address__" = "127.0.0.1:12345", "servicio" = "alloy"},
+  ]
+  forward_to      = [prometheus.remote_write.local.receiver]
+  job_name        = "monitor"
+  scrape_interval = "60s"
+}
+
+// ---------- Comprobaciones desde fuera, cada minuto ----------
+// Por Cloudflare, como cualquier visita; y la web también por dentro (127.0.0.1:8080, nginx), para
+// saber si un fallo es del servidor o del camino (túnel, Cloudflare).
+
+prometheus.exporter.blackbox "web" {
+  config = `
+modules:
+  web:
+    prober: http
+    timeout: 15s
+    http:
+      preferred_ip_protocol: ip4
+      valid_status_codes: [200]
+  salud:
+    prober: http
+    timeout: 15s
+    http:
+      preferred_ip_protocol: ip4
+      valid_status_codes: [200]
+      fail_if_body_not_matches_regexp: ['"id":"renfe-cercanias"']
+  mcp:
+    prober: http
+    timeout: 15s
+    http:
+      method: POST
+      preferred_ip_protocol: ip4
+      headers:
+        Content-Type: application/json
+        MCP-Protocol-Version: "2026-07-28"
+        Mcp-Method: server/discover
+      body: '{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}'
+      valid_status_codes: [200]
+      fail_if_body_not_matches_regexp: ['"resultType":"complete"']
+  redireccion:
+    prober: http
+    timeout: 15s
+    http:
+      method: POST
+      preferred_ip_protocol: ip4
+      no_follow_redirects: true
+      headers:
+        Content-Type: application/json
+      body: '{}'
+      valid_status_codes: [308]
+      fail_if_header_not_matches:
+        - header: Location
+          regexp: '^https://xn--radarespaa-19a\.es/mcp$'
+`
+
+  target {
+    name    = "portada"
+    address = "https://xn--radarespaa-19a.es/"
+    module  = "web"
+    labels  = {"objetivo" = "portada"}
+  }
+
+  target {
+    name    = "salud"
+    address = "https://xn--radarespaa-19a.es/api/health"
+    module  = "salud"
+    labels  = {"objetivo" = "salud"}
+  }
+
+  target {
+    name    = "salud_interna"
+    address = "http://127.0.0.1:8080/api/health"
+    module  = "salud"
+    labels  = {"objetivo" = "salud_interna"}
+  }
+
+  target {
+    name    = "mcp"
+    address = "https://xn--radarespaa-19a.es/mcp"
+    module  = "mcp"
+    labels  = {"objetivo" = "mcp"}
+  }
+
+  // radarespana.es (sin ñ) tiene que llevar a radarespaña.es con 308: con 301, los clientes MCP
+  // repiten el POST como GET y reciben un 405.
+  target {
+    name    = "sin_n"
+    address = "https://radarespana.es/mcp"
+    module  = "redireccion"
+    labels  = {"objetivo" = "sin_n"}
+  }
+}
+
+prometheus.scrape "comprobaciones" {
+  targets         = prometheus.exporter.blackbox.web.targets
+  forward_to      = [prometheus.remote_write.local.receiver]
+  job_name        = "comprobaciones"
+  scrape_interval = "60s"
+  scrape_timeout  = "30s"
+}
+
+// ---------- Registros ----------
+
+// Los de los contenedores de la web y de la monitorización.
+discovery.relabel "registros" {
+  targets = discovery.docker.contenedores.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    regex         = "radar|radar-pruebas|radar-monitor"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/?(.*)"
+    target_label  = "contenedor"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "proyecto"
+  }
+}
+
+loki.source.docker "contenedores" {
+  host       = "tcp://127.0.0.1:2375"
+  targets    = discovery.relabel.registros.output
+  labels     = {"origen" = "docker"}
+  forward_to = [loki.process.privacidad.receiver]
+}
+
+// Los del diario del sistema: despliegues (radar-actualizar, radar-pruebas), cloudflared, Docker y el
+// kernel (si mata un proceso por falta de memoria). El resto (ssh, cron…) no se guarda.
+loki.relabel "diario" {
+  forward_to = []
+
+  rule {
+    source_labels = ["__journal__systemd_unit"]
+    target_label  = "unidad"
+  }
+
+  // Lo que systemd dice de una unidad («Failed with result…») va a esa unidad.
+  rule {
+    source_labels = ["__journal__systemd_unit", "__journal_unit"]
+    separator     = ";"
+    regex         = "init\\.scope;(.+)"
+    target_label  = "unidad"
+  }
+
+  rule {
+    source_labels = ["__journal__transport"]
+    target_label  = "transporte"
+  }
+
+  rule {
+    source_labels = ["__journal_priority_keyword"]
+    target_label  = "nivel"
+  }
+}
+
+loki.source.journal "diario" {
+  path          = "/var/log/journal"
+  max_age       = "12h"
+  relabel_rules = loki.relabel.diario.rules
+  labels        = {"origen" = "diario"}
+  forward_to    = [loki.process.privacidad.receiver]
+}
+
+// Antes de guardar: fuera lo del diario que no interesa, y ninguna IP (las de quien intenta entrar
+// por ssh o las que bloquea el cortafuegos, en el kernel), como dice la página de privacidad.
+loki.process "privacidad" {
+  forward_to = [loki.write.local.receiver]
+
+  stage.match {
+    selector = "{origen=\"diario\", unidad!~\"radar-.+|cloudflared\\\\.service|docker\\\\.service\", transporte!=\"kernel\"}"
+    action   = "drop"
+  }
+
+  stage.replace {
+    expression = "(\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b)"
+    replace    = "x.x.x.x"
+  }
+
+  stage.replace {
+    expression = "(?i)(\\b(?:[0-9a-f]{1,4}:){3,7}[0-9a-f]{1,4}\\b|\\b(?:[0-9a-f]{1,4}:){1,6}:(?:[0-9a-f]{1,4})?\\b)"
+    replace    = "x:x:x:x"
+  }
+}

@@ -1,0 +1,400 @@
+# Alertas de la monitorización (Grafana). Las genera un script a partir de una lista: cada una es una
+# consulta que da 1 cuando algo va mal (0 o nada si va bien) y salta si dura más de «for».
+# Avisan por Telegram (telegram.yaml). Sólo miran producción, salvo las del VPS y los despliegues.
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: radar
+    folder: Radar España
+    interval: 1m
+    rules:
+      - uid: radar-web
+        title: "Web caída"
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: "max by (objetivo) (probe_success{objetivo=~\"portada|salud|salud_interna\"}) == bool 0"
+              instant: true
+              range: false
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        noDataState: OK
+        execErrState: Error
+        for: 3m
+        annotations:
+          summary: "La web no responde: {{ .Labels.objetivo }}"
+          description: "portada y salud se comprueban por Cloudflare; salud_interna, desde el propio VPS (nginx y el contenedor). Si sólo falla por Cloudflare, mira cloudflared."
+        labels:
+          gravedad: alta
+      - uid: radar-mcp
+        title: "MCP caído"
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: "max(probe_success{objetivo=\"mcp\"}) == bool 0"
+              instant: true
+              range: false
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        noDataState: OK
+        execErrState: Error
+        for: 3m
+        annotations:
+          summary: "El servidor MCP no responde a server/discover"
+          description: "POST /mcp por Cloudflare, cada minuto."
+        labels:
+          gravedad: alta
+      - uid: radar-sin-n
+        title: "Redirección sin ñ"
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: "max(probe_success{objetivo=\"sin_n\"}) == bool 0"
+              instant: true
+              range: false
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        annotations:
+          summary: "radarespana.es ya no redirige con 308 a radarespaña.es"
+          description: "Con 301, los clientes MCP repiten el POST como GET y reciben 405. Es una regla de redirección de Cloudflare."
+        labels:
+          gravedad: media
+      - uid: radar-app
+        title: "Web sin contenedor"
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: "(sum(up{job=\"radar\",entorno=\"produccion\"}) or vector(0)) < bool 1"
+              instant: true
+              range: false
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        annotations:
+          summary: "Ningún contenedor de producción (radar ni radar-b) da sus métricas"
+          description: "Alloy no llega a ninguno de los dos: parados o caídos."
+        labels:
+          gravedad: alta
+      - uid: radar-fuente
+        title: "Fuente sin datos"
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: "max by (source) (radar_source_seconds_since_ok{entorno=\"produccion\"} > bool clamp_min(3 * radar_source_interval_seconds{entorno=\"produccion\"}, 600))"
+              instant: true
+              range: false
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "Sin datos buenos de {{ .Labels.source }} en más de tres lecturas seguidas"
+          description: "Mira su error en la pestaña Fuentes o en /api/health. Las fuentes en pausa no avisan."
+        labels:
+          gravedad: media
+      - uid: radar-memoria
+        title: "Memoria de la web"
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: "max by (contenedor) (radar_container_memory_anon_bytes{entorno=\"produccion\"}) > bool 838860800"
+              instant: true
+              range: false
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "Memoria de {{ .Labels.contenedor }} por encima de 800 MB (límite 1 GB)"
+          description: "Memoria anónima del contenedor: si llega al límite, el kernel lo mata."
+        labels:
+          gravedad: alta
+      - uid: radar-500
+        title: "Errores 500"
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: "(sum(rate(radar_http_requests_total{entorno=\"produccion\",status=\"500\"}[5m])) / clamp_min(sum(rate(radar_http_requests_total{entorno=\"produccion\"}[5m])), 0.001)) > bool 0.01"
+              instant: true
+              range: false
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "Más del 1 % de las peticiones acaban en error 500"
+          description: "Errores internos del servidor: el detalle, en el panel Registros."
+        labels:
+          gravedad: alta
+      - uid: radar-errores
+        title: "Errores en el registro"
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: "sum(increase(radar_log_messages_total{entorno=\"produccion\",level=\"error\"}[15m])) > bool 10"
+              instant: true
+              range: false
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: "Más de 10 errores en el registro de la web en 15 minutos"
+          description: "El detalle, en el panel Registros."
+        labels:
+          gravedad: media
+      - uid: radar-bucle
+        title: "Web a tirones"
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: "max(nodejs_eventloop_delay_seconds{entorno=\"produccion\",quantile=\"0.99\"}) > bool 0.5"
+              instant: true
+              range: false
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        annotations:
+          summary: "El servidor tarda más de medio segundo en atender lo que le toca"
+          description: "Retraso del bucle de eventos de Node (p99): algo bloquea el hilo principal."
+        labels:
+          gravedad: media
+      - uid: radar-despliegue
+        title: "Despliegue fallido"
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: loki
+            model:
+              refId: A
+              expr: "sum by (unidad) (count_over_time({origen=\"diario\", unidad=~\"radar-(actualizar|pruebas)\\\\.service\"} |~ \"ERROR:|✗\" [10m]))"
+              queryType: "instant"
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: "Ha fallado {{ .Labels.unidad }}"
+          description: "Sigue funcionando la versión anterior. El detalle: journalctl -u radar-actualizar o radar-pruebas, o el panel Registros."
+        labels:
+          gravedad: alta
+      - uid: radar-oom
+        title: "Proceso matado por memoria"
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: loki
+            model:
+              refId: A
+              expr: "sum(count_over_time({origen=\"diario\", transporte=\"kernel\"} |~ \"(?i)out of memory|oom-kill|killed process\" [10m]))"
+              queryType: "instant"
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: "El kernel ha matado un proceso por falta de memoria"
+          description: "Mira en el panel Registros qué proceso era."
+        labels:
+          gravedad: alta
+      - uid: radar-disco
+        title: "Disco casi lleno"
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: "max(1 - node_filesystem_avail_bytes{job=\"vps\",mountpoint=\"/\"} / node_filesystem_size_bytes{job=\"vps\",mountpoint=\"/\"}) > bool 0.85"
+              instant: true
+              range: false
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        annotations:
+          summary: "El disco del VPS pasa del 85 %"
+          description: "La limpieza semanal de imágenes la hace deploy/actualizar.sh; los datos de la monitorización tienen tope (4 GB de métricas, 14 días de registros)."
+        labels:
+          gravedad: media
+      - uid: radar-ram
+        title: "RAM del VPS"
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: "max(1 - node_memory_MemAvailable_bytes{job=\"vps\"} / node_memory_MemTotal_bytes{job=\"vps\"}) > bool 0.9"
+              instant: true
+              range: false
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        annotations:
+          summary: "La RAM del VPS pasa del 90 %"
+          description: "El VPS no tiene swap: si se llena, el kernel mata procesos."
+        labels:
+          gravedad: media
+      - uid: radar-monitor
+        title: "Monitorización sin datos"
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: "absent_over_time(up{job=\"vps\"}[5m])"
+              instant: true
+              range: false
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "La monitorización no recibe datos del VPS"
+          description: "Alloy está parado o no llega a Prometheus: mientras tanto no salta ninguna otra alerta."
+        labels:
+          gravedad: alta
