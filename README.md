@@ -9,6 +9,8 @@ civil (planes de emergencia activados y cortes de luz). Los vehículos salen en 
 en directo cuando el operador la publica y, si solo publica su horario, en una posición estimada
 marcada como tal. Todo a partir de **datos públicos**: de sus 58 fuentes, 32 no piden nada, 25
 necesitan la clave gratuita del Punto de Acceso Nacional (NAP) y 1 la de e·sios (Red Eléctrica).
+Los asistentes de IA (Claude, ChatGPT, Cursor…) también pueden consultarlo, con su
+[servidor MCP](#servidor-mcp).
 
 Un motor de reglas vigila situaciones que merecen atención humana: trenes detenidos en
 plena vía, varios trenes parados en la misma zona, saltos bruscos de retraso, desapariciones
@@ -169,6 +171,7 @@ flowchart TB
   L --> Q
   Q -->|"/api/live, /api/lines…"| C["Cloudflare<br/>caché"]
   C --> N(["mapa"])
+  Q -->|"POST /mcp<br/>sin caché de Cloudflare"| IA(["asistente de IA"])
 ```
 
 Los puertos están en `server/application/ports.js`:
@@ -382,6 +385,7 @@ Lo que no se puede dibujar por falta de datos públicos:
 | `GET /tiles/<capa>/<z>/<x>/<y>.png` | teselas de la red ferroviaria (IGN) y de las áreas quemadas (EFFIS) |
 | `GET /api/about` | titular y contacto para el aviso legal |
 | `GET /api/lines/sources` | de dónde sale el trazado de cada red: atribución y fecha de actualización |
+| `POST /mcp` | servidor MCP para asistentes de IA (ver [Servidor MCP](#servidor-mcp)) |
 
 Las alertas y los KPIs por minuto se guardan en `data/history/*.jsonl` para analizarlos
 después (con jq, DuckDB o pandas).
@@ -429,6 +433,87 @@ curl -s https://xn--radarespaa-19a.es/mcp -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"buscar_trenes","arguments":{"text":"AVE Valencia"},
        "_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}'
 ```
+
+#### Cómo se construyó
+
+Lo propuso y programó Edgar Milá ([DemboNauta](https://github.com/DemboNauta)) en la
+[PR #1](https://github.com/FlorinTodor/radar-es/pull/1), la primera contribución de fuera del
+proyecto. Se revisó línea a línea, se juntó con `dev` y se mejoró en una rama aparte; con su cesión de
+derechos por escrito en la propia PR, se fusionó el 4 de noviembre de 2026. Sus commits van tal cual,
+con su nombre.
+
+```mermaid
+flowchart LR
+  pr["PR 1<br/>de Edgar"] --> rev["revisión<br/>línea a línea"]
+  rev --> fm["feature/mcp<br/>junto con dev<br/>y mejorado"]
+  fm --> t["pruebas en local,<br/>en GitHub<br/>y en el VPS"]
+  t --> ces["cesión de derechos<br/>en la PR"]
+  ces -->|"merge"| d["dev"]
+```
+
+**El diseño.** Es un adaptador de entrada más, al lado de la API HTTP, que sólo habla con el caso de
+uso de consulta: no añade puertos, fuentes ni dependencias. El protocolo (JSON-RPC 2.0 por HTTP, sin
+sesiones ni SSE) cabe en un fichero, y la ficha de una estación sale de la misma función que usa el
+mapa, así que el asistente y la web cuentan los mismos trenes.
+
+```mermaid
+flowchart LR
+  ia(["asistente de IA"]) -->|"POST /mcp"| cf["Cloudflare<br/>un POST no se guarda"]
+  cf --> http["http-server.js<br/>comprobaciones HTTP<br/>y presupuesto"]
+  http --> mcp["mcp/mcp.js<br/>protocolo, herramientas,<br/>caché y foto del directo"]
+  mcp --> q["query-situation"]
+  mcp -.-> sb["station-board.js<br/>la ficha del mapa"]
+  q --> r[("estado")]
+```
+
+**Qué pasa con cada mensaje.** Las comprobaciones van en este orden y la primera que falla decide la
+respuesta; una notificación, que no lleva respuesta, recibe 202 vacío.
+
+```mermaid
+flowchart TB
+  a["POST /mcp"] --> b{"¿Origin de esta web,<br/>de un navegador local<br/>o ninguno?"}
+  b -->|"no"| e403["403"]
+  b --> c{"¿versión del<br/>protocolo conocida?"}
+  c -->|"no"| e400a["400 · -32022<br/>con las que sí"]
+  c --> d{"¿JSON de 64 KB<br/>como mucho?"}
+  d -->|"no"| e41x["415 · 413 · 400"]
+  d --> f{"2026-07-28: ¿las cabeceras<br/>dicen lo mismo que el cuerpo?"}
+  f -->|"no"| e400b["400 · -32020"]
+  f --> g{"¿respuesta guardada?"}
+  g -->|"sí"| ok["200"]
+  g -->|"no"| h{"¿presupuesto del cliente<br/>y de todos?"}
+  h -->|"no"| e429["429"]
+  h --> i["la herramienta busca<br/>en la foto del directo"]
+  i --> ok
+```
+
+**Dos generaciones del protocolo a la vez.** Cada mensaje dice cuál habla:
+
+```mermaid
+flowchart LR
+  m["mensaje"] --> v{"¿lleva su versión<br/>en params._meta?"}
+  v -->|"sí: 2026-07-28"| moderno["moderno: sin saludo inicial,<br/>server/discover, resultType y la<br/>identidad del servidor en cada resultado"]
+  v -->|"no"| antiguo["antiguo: initialize elige<br/>2025-11-25, 2025-06-18<br/>o 2025-03-26"]
+```
+
+**Qué se cambió en la revisión y por qué:**
+
+| Cambio | Por qué |
+|---|---|
+| Las búsquedas recorren una foto del directo, rehecha como mucho cada 5 s, con los textos ya preparados | Cada búsqueda copiaba los 7.500 vehículos y les quitaba tildes y mayúsculas en el hilo que atiende el mapa. En el VPS, 349 ms por búsqueda; ahora 42 ms en una medida que rehace la foto cada 5 búsquedas (en producción, como mucho una vez cada 5 s) |
+| La ficha de una estación sólo mira lo que hay a menos de 80 km | Lo que está más lejos no puede ir hacia ella |
+| Presupuesto por cliente, además del de todos | Con uno solo, una persona podía dejar sin servicio a las demás |
+| Versión 2026-07-28 del protocolo, además de las anteriores | Es la vigente; sin ella, los clientes nuevos no se habrían podido conectar |
+| Una cabecera `Origin` de otra web recibe 403 | Lo exige el protocolo |
+| Un cuerpo de más de 64 KB se corta en cuanto pasa del tope | Antes se leía entero para tirarlo |
+| `www.` con un POST redirige con 308 | Con 301 el cliente repetía la petición como GET y fallaba |
+| La atribución lleva la fecha en que cada operador actualizó su horario | Es la que piden citar el NAP, TMB o FGV, no la de la descarga |
+| Un argumento que no cumple el esquema es un error de la herramienta, explicado | Así el asistente lo lee y se corrige solo |
+| Anotaciones completas, caché con tope de memoria, descripciones recortadas marcadas e instrucciones para tratar el texto de los avisos como datos | Buenas prácticas del protocolo y defensa ante textos que traigan instrucciones |
+
+**Pruebas.** `test/adapters/mcp.test.js` pasó de 17 a 28 pruebas: las dos generaciones del
+protocolo, las cabeceras, `Origin`, los presupuestos, la redirección, la foto del directo y la
+atribución. Con ellas, las 550 pruebas del proyecto pasaron tres veces en local y tres en el VPS.
 
 ## Pendiente y conocido
 
@@ -769,6 +854,10 @@ Ninguna por ahora.
   Wikimedia Commons: Commons lo permite pero no lo recomienda, y así Wikimedia no recibiría la IP de
   quien abre la ficha.
 - Guía para quien quiera proponer cambios.
+- Servidor MCP:
+  - publicarlo en el registro oficial de servidores MCP, para que los asistentes lo encuentren solos;
+  - el esquema de lo que devuelve cada herramienta (`outputSchema`), para que el cliente lo compruebe;
+  - contar cuántas llamadas recibe cada herramienta, sin guardar quién las hace.
 - Cortes de luz en el resto de España:
   - Baleares: Red Eléctrica sólo publica en tiempo real su demanda programada, no la real, así que su
     apagón no se puede detectar como el de las islas de Canarias, Ceuta o Melilla;
