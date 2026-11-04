@@ -44,7 +44,8 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     // Catálogos: cambian unas pocas veces al día.
     // Vacíos mientras el servidor los carga al arrancar: entonces no se guardan (ver isEmpty).
     '/api/stations': { fn: () => query.stations(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.length },
-    '/api/lines': { fn: () => query.lines(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.features?.length },
+    // Unas líneas provisionales (se están rehaciendo por la vía) se tratan como un catálogo vacío: no se guardan.
+    '/api/lines': { fn: () => query.lines(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.features?.length || b.provisional === true },
     // Tres variantes (15, 30 y 45 min): van al memo general, sin presupuesto, como una ruta sin parámetros.
     '/api/trails': { fn: (p) => query.trails(trailMinutes(p)), key: trailMinutes, few: true, ttl: 15_000, cache: REVALIDATE },
     '/api/snapshot': { fn: () => query.snapshot(), ttl: 5_000, cache: REVALIDATE },

@@ -1,14 +1,15 @@
 // Caso de uso: recargar los catálogos estáticos (estaciones de Renfe y de las demás redes, trazados de
-// las líneas y red ferroviaria general). Lo dispara el arranque y, cada hora, el planificador.
+// las líneas, red ferroviaria general y vías de toda España). Lo dispara el arranque y, cada hora, el planificador.
 // Cada catálogo decide si su copia en disco sigue vigente o hay que descargarlo otra vez.
 
 /**
  * @param {{ stations: import('../ports.js').StationCatalogPort, network: import('../ports.js').NetworkCatalogPort,
  *           log: import('../ports.js').LoggerPort, networkStations?: import('../ports.js').StationCatalogPort,
- *           railNetwork?: import('../ports.js').RailNetworkPort }} deps
+ *           railNetwork?: import('../ports.js').RailNetworkPort, railGeometry?: import('../ports.js').RailNetworkPort }} deps
+ *   railGeometry: vías de toda España con metro y tranvía (para llevar a la vía los trazados que se salen).
  *   networkStations: estaciones de metro, tranvía y otras redes; usan las de Renfe (sus fotos), así que van después.
  */
-export function makeRefreshCatalogs({ stations, networkStations, network, railNetwork, log }) {
+export function makeRefreshCatalogs({ stations, networkStations, network, railNetwork, railGeometry, log }) {
   // Lo que sigue cargando de la vez anterior: el planificador lo pide cada hora, y una carga que
   // tarde más (un trazado que se rehace entero con el NAP lento) no se duplica.
   const running = {};
@@ -27,5 +28,6 @@ export function makeRefreshCatalogs({ stations, networkStations, network, railNe
     await once('networkStations', () => networkStations?.load()).catch((err) => log.warn(`[estaciones de otras redes] ${err.message}`));
     once('network', () => network.load()).catch((err) => log.warn(`[líneas] ${err.message}`));
     once('railNetwork', () => railNetwork?.load()).catch((err) => log.warn(`[red ferroviaria] ${err.message}`));
+    once('railGeometry', () => railGeometry?.load()).catch((err) => log.warn(`[vías del IGN] ${err.message}`));
   };
 }

@@ -68,8 +68,8 @@ test('cada lugar se pregunta una vez (también los que no existen); un fallo de 
   const down = fakeHttp({ fail: true });
   const warnings = [];
   const geo2 = createCartoCiudadGeocoder({ http: down, log: { warn: (m) => warnings.push(m) } });
-  assert.equal(await geo2.locate('Ventrosa', { region: '17' }), null);
-  assert.equal(await geo2.locate('Ventrosa', { region: '17' }), null);
+  await assert.rejects(geo2.locate('Ventrosa', { region: '17' }), /HTTP 503/, 'un fallo de red no es «no existe»');
+  await assert.rejects(geo2.locate('Ventrosa', { region: '17' }), /HTTP 503/);
   assert.equal(down.calls.length, 2, 'no se guarda un fallo de red');
   assert.match(warnings[0], /\[cartociudad\] Ventrosa: HTTP 503/);
 });

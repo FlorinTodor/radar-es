@@ -4,6 +4,10 @@ import { headingOf } from '../../domain/tracking.js';
 import { headingOfPath, pathThroughStops } from '../../domain/route-ahead.js';
 import { gaugeFactors, matchToRail, routeAhead } from '../../domain/rail-match.js';
 import { round5 } from '../../domain/geo.js';
+import { inForce } from '../../domain/model.js';
+import { withCurrentCuts } from '../../domain/emergencias.js';
+import { GRID_METRICS } from '../../domain/alerts/rules.js';
+import { DEFAULT_THRESHOLDS } from '../../domain/alerts/thresholds.js';
 
 // Cálculos por tren que se guardan (recorrido por la vía, ~30 KB cada uno; lo que le queda): el mapa
 // pide los del tren seleccionado cada 15 s, /api/live la flecha de cada Cercanías, y sólo cambian
@@ -46,12 +50,21 @@ function makeTrainMemo(live) {
  * @param {{ situation: import('../ports.js').SituationRepositoryPort, stations: import('../ports.js').StationCatalogPort,
  *           network: import('../ports.js').NetworkCatalogPort, clock: import('../ports.js').ClockPort,
  *           sources?: import('../ports.js').DataSourcePort[], networkStations?: import('../ports.js').StationCatalogPort,
- *           railNetwork?: import('../ports.js').RailNetworkPort }} deps
+ *           railNetwork?: import('../ports.js').RailNetworkPort, thresholds?: typeof DEFAULT_THRESHOLDS }} deps
  *   networkStations: estaciones de metro, tranvía y las demás redes que no son de Renfe.
  *   railNetwork: sin él, los recorridos de todas las fuentes se unen con rectas.
+ *   thresholds: los de las alertas; los avisos de corte de luz usan los de la demanda de las islas.
  */
-export function makeQuerySituation({ situation, stations, networkStations, network, clock, sources = [], railNetwork }) {
+export function makeQuerySituation({ situation, stations, networkStations, network, clock, sources = [], railNetwork, thresholds = DEFAULT_THRESHOLDS }) {
   const withPaths = sources.filter((s) => typeof s.path === 'function');
+  // Los sucesos en vigor: un aviso oficial que ya pasó de su vigencia no se muestra aunque su fuente
+  // esté caída y el repositorio guarde su última lectura; y un corte de luz que ya no lo es (al día, o
+  // en una isla cuya demanda eléctrica ya es normal) se muestra como el plan que es.
+  const currentEvents = () => {
+    const now = clock.now();
+    const grid = situation.metrics()[GRID_METRICS.aislados]?.systems;
+    return withCurrentCuts(situation.events().filter((e) => inForce(e, now)), { now, grid, thresholds });
+  };
   // Fuentes que dicen las paradas que le quedan a cada tren (Cercanías de Renfe): lo que le queda se
   // dibuja por el trazado de su viaje, pero sólo entre esas paradas (ver domain/route-ahead.js).
   const withStops = new Map(sources.filter((s) => typeof s.stopsAhead === 'function').map((s) => [s.id, s]));
@@ -157,7 +170,7 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
         (!mode || v.mode === mode) && (!source || v.source === source) && (minDelay === undefined || (v.delay ?? -1) >= minDelay));
     },
     events({ category } = {}) {
-      return situation.events().filter((e) => !category || e.category === category);
+      return currentEvents().filter((e) => !category || e.category === category);
     },
     alerts,
     resolvedAlerts: () => situation.resolvedAlerts(),
@@ -246,7 +259,7 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
         kpis: situation.kpis(),
       };
     },
-    liveEvents: () => ({ generatedAt: clock.now(), events: situation.events() }),
+    liveEvents: () => ({ generatedAt: clock.now(), events: currentEvents() }),
     liveBuses: () => ({ generatedAt: clock.now(), vehicles: withHeading(situation.vehicles().filter((v) => v.mode === 'bus')) }),
 
     snapshot({ buses = true } = {}) {
@@ -257,7 +270,7 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
         generatedAt: clock.now(),
         vehicles: busFilter(buses)(vehicles),
         counts,
-        events: situation.events(),
+        events: currentEvents(),
         metrics: situation.metrics(),
         alerts: alerts(),
         resolved: situation.resolvedAlerts().slice(0, 30),

@@ -41,23 +41,42 @@ export function findKey(obj, key) {
   return undefined;
 }
 
-const madridFmt = new Intl.DateTimeFormat('en-US', {
+// Todo lo que va en «hora de Madrid» sale de aquí, de un solo formateador: el día de los horarios,
+// el de los ficheros del histórico y las horas de paso se calculaban con cuatro distintos, y uno
+// tomaba el día en UTC (entre las 00:00 y la 01:00 o las 02:00 de Madrid, el día anterior). Por
+// partes, para no depender de cómo escribe la fecha cada idioma.
+const MADRID_PARTS = new Intl.DateTimeFormat('en-US', {
   timeZone: 'Europe/Madrid', hourCycle: 'h23',
   year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
 });
+
+function madridParts(t) {
+  const p = {};
+  for (const { type, value } of MADRID_PARTS.formatToParts(t)) p[type] = value;
+  return p;
+}
+
+/** Fecha y hora de Madrid de un instante (epoch ms), "2026-10-30T19:05:43" (sin zona). */
+export function madridDateTime(t) {
+  const p = madridParts(t);
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;
+}
+
+/** Día de Madrid de un instante (epoch ms), "YYYY-MM-DD". */
+export const madridDate = (t) => madridDateTime(t).slice(0, 10);
+
+/** Fecha de hoy en Madrid, "YYYY-MM-DD". `now`, para los tests. */
+export const madridToday = (now = Date.now()) => madridDate(now);
 
 /** "2026-10-30T19:05:43" en hora local de Madrid (sin zona) → epoch ms. */
 export function madridLocalToMs(s) {
   if (!s) return null;
   const asUtc = Date.parse(`${s}Z`);
   if (Number.isNaN(asUtc)) return null;
-  const p = Object.fromEntries(madridFmt.formatToParts(asUtc).map((x) => [x.type, x.value]));
+  const p = madridParts(asUtc);
   const madridAsUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
   return asUtc - (madridAsUtc - asUtc);
 }
-
-/** Fecha de hoy en Madrid, "YYYY-MM-DD". */
-export const madridToday = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Madrid' }).format(new Date());
 
 // Entidades HTML con nombre que usan los avisos de las webs autonómicas (el resto llegan como &#nnn;).
 const ENTITIES = {
@@ -69,7 +88,7 @@ const ENTITIES = {
 };
 
 /** Decodifica entidades HTML («&oacute;», «&#243;», «&#x27;»); las desconocidas se dejan como están. */
-export function decodeEntities(s) {
+function decodeEntities(s) {
   return String(s ?? '').replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (all, e) => {
     if (e[0] === '#') {
       const code = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);

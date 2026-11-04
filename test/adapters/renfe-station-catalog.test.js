@@ -16,6 +16,9 @@ const CSV = latin1([
   '"05100";"LLANES";"43.4195";"-4.7553";"Avda. La Estación";"33500";"LLANES";"ASTURIAS";"ESPAÑA";"NO";"SI";""',
 ].join('\r\n'));
 const gtfs = (rows) => zipSync({ 'stops.txt': strToU8(['stop_id,stop_name,stop_lat,stop_lon,wheelchair_boarding', ...rows].join('\n')) });
+// Reloj fijo del catálogo: la edad de la copia guardada no depende de cuándo se pasen las pruebas.
+const NOW = Date.parse('2026-11-02T12:00:00Z');
+const now = () => NOW;
 
 test('cada estación lleva dirección, provincia, ancho métrico y accesibilidad', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'estaciones-'));
@@ -29,6 +32,7 @@ test('cada estación lleva dirección, provincia, ancho métrico y accesibilidad
       cache: { bytes: async (url) => files[url] },
       cacheDir: pathToFileURL(`${dir}/`),
       log: { info() {}, warn() {} },
+      now,
     });
     await catalog.load();
     const { source, ...oviedo } = catalog.get('15211');
@@ -37,7 +41,7 @@ test('cada estación lleva dirección, provincia, ancho métrico y accesibilidad
       lat: 43.3663577, lon: -5.854838, cercanias: true, metricGauge: false, accessible: true, accessibleSource: 'Renfe',
     });
     assert.equal(source.credit, 'Origen de los datos: Renfe Operadora', 'la ficha cita a Renfe, como pide su licencia');
-    assert.match(source.downloaded, /^\d{4}-\d{2}-\d{2}T/, 'con el día en que se descargaron sus datos');
+    assert.equal(source.downloaded, '2026-11-02T12:00:00.000Z', 'con el día en que se descargaron sus datos');
     assert.equal(catalog.get('05100').metricGauge, true);
     assert.equal(catalog.get('05100').accessible, null);
     assert.equal(catalog.get('99999').accessible, false);
@@ -75,13 +79,14 @@ test('una caché de hoy hecha con una versión anterior se recalcula detrás; la
   const dir = await mkdtemp(join(tmpdir(), 'estaciones-'));
   try {
     const file = join(dir, 'renfe-stations-v3.json');
-    await writeFile(file, JSON.stringify({ savedAt: Date.now(), stations: [{ code: '15211', name: 'De la caché vieja' }] }));
+    await writeFile(file, JSON.stringify({ savedAt: NOW, stations: [{ code: '15211', name: 'De la caché vieja' }] }));
     let downloads = 0;
     const files = { [RENFE_FILES.stations]: CSV, [RENFE_FILES.cercanias]: gtfs(['15211,Oviedo,43.3663577,-5.8548380,1']), [RENFE_FILES.largaDistancia]: gtfs([]) };
     const make = (log = { info() {}, warn() {} }) => createRenfeStationCatalog({
       cache: { bytes: async (url) => { if (url === RENFE_FILES.stations) downloads++; return files[url]; } },
       cacheDir: pathToFileURL(`${dir}/`),
       log,
+      now,
     });
     const { rebuilt, log } = whenRebuilt();
     const first = make(log);
@@ -111,10 +116,11 @@ test('una caché de hace días también sirve para arrancar mientras se renueva'
       cache: { bytes: async (url) => { await gate; return files[url]; } },
       cacheDir: pathToFileURL(`${dir}/`),
       log,
+      now,
     });
     await make().load(); // sin ninguna copia, sí se espera
     const saved = JSON.parse(await readFile(file, 'utf8'));
-    await writeFile(file, JSON.stringify({ ...saved, savedAt: Date.now() - 3 * 24 * 3600_000, stations: [{ code: '15211', name: 'De hace tres días' }] }));
+    await writeFile(file, JSON.stringify({ ...saved, savedAt: NOW - 3 * 24 * 3600_000, stations: [{ code: '15211', name: 'De hace tres días' }] }));
     gate = new Promise((r) => { release = r; });
     const { rebuilt, log } = whenRebuilt();
     const catalog = make(log);
@@ -132,7 +138,7 @@ test('la estación más cercana nunca está más lejos de lo pedido', async () =
   const dir = await mkdtemp(join(tmpdir(), 'estaciones-'));
   try {
     const files = { [RENFE_FILES.stations]: CSV, [RENFE_FILES.cercanias]: gtfs([]), [RENFE_FILES.largaDistancia]: gtfs([]) };
-    const catalog = createRenfeStationCatalog({ cache: { bytes: async (url) => files[url] }, cacheDir: pathToFileURL(`${dir}/`), log: { info() {}, warn() {} } });
+    const catalog = createRenfeStationCatalog({ cache: { bytes: async (url) => files[url] }, cacheDir: pathToFileURL(`${dir}/`), log: { info() {}, warn() {} }, now });
     await catalog.load();
     // Oviedo está en 43,366 -5,855: a unos 9 km al norte y 9 al este, dentro de la caja de 10 km pero a ~12 km.
     assert.equal(catalog.nearest(43.447, -5.744, 10), null);

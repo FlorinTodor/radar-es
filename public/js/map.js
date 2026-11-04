@@ -52,9 +52,6 @@ export const LAYER_GROUPS = {
 // con los mismos `bounds` y `maxzoom` el mapa no pide otras y, más cerca, amplía la última.
 const TILES_BOUNDS = [-18.5, 27.4, 4.6, 44.0];
 const RAIL_TILES = `${location.origin}/tiles/ign-rail/{z}/{x}/{y}.png`;
-// Al invertir sus colores la capa es obra derivada: fórmula de la licencia del IGN con el producto y
-// año de la tabla de productos del SCNE (scne.es/tablaProductos.php).
-const RAIL_ATTRIBUTION = 'Red ferroviaria: Obra derivada de IGR-RT 2026 CC-BY 4.0 <a href="https://www.scne.es" target="_blank" rel="noopener">scne.es</a>';
 
 // Áreas quemadas de los últimos 30 días (Copernicus EFFIS): sus teselas también salen de /tiles.
 const EFFIS_TILES = `${location.origin}/tiles/effis/{z}/{x}/{y}.png`;
@@ -78,6 +75,10 @@ const ATTRIBUTION = [
   `Obra derivada de Catálogo de terremotos IGN ${today} · CC-BY 4.0 <a href="https://www.ign.es" target="_blank" rel="noopener">ign.es</a>`,
   // Los avisos oficiales que sólo nombran un municipio se sitúan con CartoCiudad (licencia del IGN).
   'Obra derivada de CartoCiudad 2026 CC-BY 4.0 <a href="https://www.scne.es" target="_blank" rel="noopener">scne.es</a>',
+  // Las vías del IGN: la capa «Red ferroviaria» (con sus colores invertidos) y los tramos de las líneas y de
+  // los vehículos según horario que se rehacen por ellas. Siempre a la vista: las líneas se ven sin la capa.
+  // Fórmula de la licencia con el producto y año de la tabla de productos del SCNE (scne.es/tablaProductos.php).
+  'Red ferroviaria y trazados por la vía: Obra derivada de IGR-RT 2026 CC-BY 4.0 <a href="https://www.scne.es" target="_blank" rel="noopener">scne.es</a>',
   '© AEMET',
   'Fuente: DGT',
   '<a href="https://www.gdacs.org" target="_blank" rel="noopener">GDACS</a>',
@@ -203,7 +204,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     // Red ferroviaria del IGN: se ve entera a cualquier zoom (las vías de OpenStreetMap del mapa
     // base sólo aparecen muy de cerca). Viene en gris oscuro: se invierte para que destaque.
     map.addSource('rail-ign', {
-      type: 'raster', tiles: [RAIL_TILES], tileSize: 256, bounds: TILES_BOUNDS, minzoom: 4, maxzoom: 14, attribution: RAIL_ATTRIBUTION,
+      type: 'raster', tiles: [RAIL_TILES], tileSize: 256, bounds: TILES_BOUNDS, minzoom: 4, maxzoom: 14,
     });
     map.addLayer({
       id: 'rail-network', type: 'raster', source: 'rail-ign',
@@ -1086,7 +1087,7 @@ const APPROX_LABEL = {
 function eventDetail(e, others = []) {
   const rows = [
     ['Gravedad', SEVERITY_LABEL[e.severity] ?? e.severity],
-    e.issued && ['Emitido', fmtDateTime(e.issued)],
+    e.issued && ['Emitido', e.issuedDayOnly ? fmtDate(e.issued) : fmtDateTime(e.issued)], // algunas fuentes sólo dan el día
     e.start && ['Inicio', fmtDateTime(e.start)],
     e.end && ['Fin previsto', fmtDateTime(e.end)],
     e.area && ['Lugar', e.area],

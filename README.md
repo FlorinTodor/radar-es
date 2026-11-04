@@ -7,7 +7,7 @@ de trenes, metros, tranvías y autobuses de España, cruzado con incidencias de 
 avisos meteorológicos, incendios, el estado de la red eléctrica y los avisos oficiales de protección
 civil (planes de emergencia activados y cortes de luz). Los vehículos salen en su posición
 en directo cuando el operador la publica y, si solo publica su horario, en una posición estimada
-marcada como tal. Todo a partir de **datos públicos**: de sus 53 fuentes, 27 no piden nada, 25
+marcada como tal. Todo a partir de **datos públicos**: de sus 58 fuentes, 32 no piden nada, 25
 necesitan la clave gratuita del Punto de Acceso Nacional (NAP) y 1 la de e·sios (Red Eléctrica).
 
 Un motor de reglas vigila situaciones que merecen atención humana: trenes detenidos en
@@ -60,6 +60,14 @@ git switch -c feature/mi-mejora     # trabajar y hacer commits
 git switch dev && git merge --no-ff feature/mi-mejora && git push
 ```
 
+```mermaid
+flowchart LR
+  f["feature/…<br/>fix/…"] -->|"merge"| d["dev"]
+  d -->|"push"| t["tests"]
+  t --> p["pruebas<br/>en el VPS"]
+  p -->|"aprobación"| prod["produccion"]
+```
+
 Cada push a `dev` arranca el pipeline de GitHub Actions: tests, pruebas en el VPS y, cuando están
 en verde, una aprobación manual que hace el merge de `dev` en `produccion`. Además de los tests, la
 integración continua comprueba la sintaxis del código de la web (`node --check`) y de los scripts de
@@ -71,42 +79,53 @@ superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`]
 
 ## Arquitectura hexagonal
 
+Quien llama entra por arriba; el núcleo no sabe nada de red ni de disco, y todo lo externo queda
+abajo, detrás de un puerto:
+
+```mermaid
+flowchart TB
+  nav(["navegador"])
+  reloj(["reloj"])
+
+  subgraph IN["entrada · adapters/inbound"]
+    http["API HTTP"]
+    sched["planificador"]
+  end
+
+  subgraph CORE["núcleo · application y domain"]
+    uc["casos de uso"]
+    dom["dominio<br/>reglas puras"]
+    ports{{"puertos"}}
+  end
+
+  subgraph OUT["salida · adapters/outbound: implementan los puertos"]
+    src["fuentes"]
+    cat["estaciones<br/>y trazados"]
+    per["estado e<br/>histórico"]
+    til["teselas y<br/>geocodificador"]
+  end
+
+  ext[("datos públicos")]
+  disk[("data/")]
+
+  nav --> http
+  reloj --> sched
+  http --> uc
+  sched --> uc
+  uc --> dom
+  uc --> ports
+  ports -.-> src & cat & per & til
+  src & cat & til --> ext
+  per --> disk
 ```
-                   ┌───────────────────── adapters/inbound ─────────────────────┐
-  navegador ──────▶│ http/http-server.js  (API REST + teselas + estáticos)      │
-  reloj ──────────▶│ scheduler/polling-scheduler.js (sondeo, alertas, catálogos)│
-                   └──────────────┬─────────────────────────────────────────────┘
-                                  ▼ sólo casos de uso
-                   ┌──────────── application ─────────────┐
-                   │ use-cases/ingest-source.js           │
-                   │ use-cases/detect-alerts.js           │
-                   │ use-cases/query-situation.js         │──▶ ports.js (contratos)
-                   │ use-cases/serve-tiles.js             │
-                   │ use-cases/refresh-catalogs.js        │
-                   └──────────────┬───────────────────────┘
-                                  ▼
-                   ┌──────────────── domain ──────────────┐
-                   │ model.js · geo.js · tracking.js      │  puro: sin red, sin disco,
-                   │ kpis.js · tiles.js · rail-match.js   │  sin dependencias externas
-                   │ schedule.js · route-ahead.js         │
-                   │ estimated-position.js                │
-                   │ emergencias.js · lugares.js          │
-                   │ alerts/{rules,lifecycle,thresholds}  │
-                   └──────────────────────────────────────┘
-                                  ▲ implementan los puertos
-                   ┌──────────── adapters/outbound ─────────────────────────────┐
-                   │ sources/*        Renfe, FGC, Ouigo, DGT, SCT, AEMET, FIRMS…│
-                   │ stations/        estaciones de Renfe y de otras 15 redes,  │
-                   │                  con datos de Wikidata y fotos de Commons  │
-                   │ network/, gtfs/, nap/   trazados de líneas desde el NAP    │
-                   │                         y red ferroviaria de Adif          │
-                   │ persistence/     estado en memoria + histórico JSONL       │
-                   │ tiles/           teselas de IGN y EFFIS con copia en disco │
-                   │ geo/             sitúa pueblos por su nombre (CartoCiudad) │
-                   │ workers/         hilos para leer GTFS y XML (CPU)          │
-                   │ http/, logging/                                            │
-                   └────────────────────────────────────────────────────────────┘
-```
+
+| Capa | Carpeta | Qué hay |
+|---|---|---|
+| Entrada | `adapters/inbound/` | `http/http-server.js` (API, teselas y web) y `scheduler/polling-scheduler.js` (sondeo, alertas y catálogos) |
+| Casos de uso | `application/use-cases/` | `ingest-source`, `detect-alerts`, `query-situation`, `serve-tiles`, `refresh-catalogs` y `lines-on-rail` |
+| Puertos | `application/ports.js` | los contratos que piden los casos de uso (tabla de abajo) |
+| Dominio | `domain/` | `model`, `geo`, `tracking`, `kpis`, `tiles`, `schedule`, `estimated-position`, `route-ahead`, `rail-match`, `alerts/` (`rules`, `lifecycle`, `thresholds`), `emergencias`, `lugares` y `red-aislada` |
+| Salida | `adapters/outbound/` | `sources/` (una por fuente), `stations/` (estaciones, Wikidata y Commons), `network/`, `gtfs/` y `nap/` (trazados y redes de Adif e IGN), `persistence/` (estado en memoria e histórico JSONL), `tiles/` (teselas de IGN y EFFIS), `geo/` (CartoCiudad), `workers/` (hilos de CPU), `http/` y `logging/` |
 
 - **`server/domain/`**: modelo y reglas puras. Se prueba sin red (`test/domain`).
 - **`server/application/`**: casos de uso y **puertos**, los contratos que necesitan del exterior.
@@ -122,18 +141,44 @@ superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`]
 - **`server/main.js`**: raíz de composición; el único sitio donde se eligen las implementaciones.
   Al arrancar comprueba con `assertPort` que cada adaptador tiene todo lo que pide su puerto.
 
+### Del dato al mapa
+
+Cada fuente se lee a su ritmo y lo que llega se guarda en el estado; los catálogos (estaciones,
+trazados y redes de vías) se recargan al arrancar y cada hora. La web sólo pregunta: no hay
+conexiones abiertas con cada visita, y Cloudflare reparte las mismas respuestas a todas.
+
+```mermaid
+flowchart TB
+  subgraph DIR["el directo · cada fuente a su ritmo"]
+    F[("fuente pública")] -->|"sondeo"| I["ingest-source<br/>normaliza y descarta<br/>lo imposible"]
+    I --> R[("estado")]
+    R --> A["detect-alerts"]
+    A -->|"alertas"| R
+    A --> H[("histórico")]
+  end
+  subgraph CAT["los catálogos · al arrancar y cada hora"]
+    G[("GTFS, Adif, IGN,<br/>Wikidata…")] --> RC["refresh-catalogs"]
+    RC --> E["estaciones<br/>y trazados"]
+    E --> L["lines-on-rail<br/>lo recto, por la vía"]
+  end
+  R --> Q["query-situation"]
+  L --> Q
+  Q -->|"/api/live, /api/lines…"| C["Cloudflare<br/>caché"]
+  C --> N(["mapa"])
+```
+
 Los puertos están en `server/application/ports.js`:
 
 | Puerto | Adaptador | Para qué |
 |---|---|---|
 | `DataSource` | `sources/*` (uno por fuente) | leer cada fuente: vehículos, incidencias o métricas |
 | `StationCatalog` | `stations/renfe-station-catalog.js`, `stations/network-station-catalog.js` | estaciones de Renfe y de las demás redes |
-| `NetworkCatalog` | `network/gtfs-network-catalog.js` | trazados de las líneas |
-| `RailNetwork` | `network/adif-rail-network.js` | red ferroviaria de Adif, para dibujar por la vía |
+| `NetworkCatalog` | `network/gtfs-network-catalog.js`, a través del caso de uso `lines-on-rail` | trazados de las líneas; los tramos que van en recta entre estaciones se rehacen por la vía |
+| `RailNetwork` | `network/adif-rail-network.js`, `network/ign-rail-network.js` | red de Adif, para dibujar por la vía AVE, Larga y Media Distancia; red del IGN (también metro, tranvía y funicular), para rehacer por la vía los trazados en recta y los de Ouigo |
 | `SituationRepository` | `persistence/in-memory-situation.js` | estado actual: último dato de cada fuente, recorridos, alertas, KPIs |
 | `History` | `persistence/jsonl-history.js` | histórico de alertas y KPIs |
 | `TileProvider` | `tiles/wms-tiles.js` | teselas de IGN y EFFIS con copia en disco |
-| `Geocoder` | `geo/cartociudad-geocoder.js` | situar el municipio que cita un aviso del 112 (no traen coordenadas) |
+| `Geocoder` | `geo/cartociudad-geocoder.js` | situar el municipio que cita un aviso del 112 (no traen coordenadas). Lo usan las fuentes de avisos, no los casos de uso: su contrato está en el propio adaptador |
 
 `Clock` (la hora, para poder simularla en los tests) y `Logger` (el registro) también son puertos.
 
@@ -163,8 +208,8 @@ publica con licencia CC BY en el portal del Cabildo. La licencia y la atribució
 en `/legal`.
 
 Todas son públicas. Las marcadas con 🔑 necesitan una clave gratuita: casi todas, la del NAP
-(`NAP_API_KEY`); la de e·sios, la de Red Eléctrica (`ESIOS_TOKEN`). En total son 53 fuentes (34 de vehículos, 17 de incidencias y 2 de métricas):
-27 sin clave, 25 con la del NAP y 1 con la de e·sios.
+(`NAP_API_KEY`); la de e·sios, la de Red Eléctrica (`ESIOS_TOKEN`). En total son 58 fuentes (34 de vehículos, 22 de incidencias y 2 de métricas):
+32 sin clave, 25 con la del NAP y 1 con la de e·sios.
 
 | Fuente | Qué aporta | Refresco |
 |---|---|---|
@@ -186,6 +231,7 @@ Todas son públicas. Las marcadas con 🔑 necesitan una clave gratuita: casi to
 | EMT Madrid (GTFS-RT, listado en el NAP; con las claves gratuitas de MobilityLabs si están) | avisos de servicio | 5 min |
 | 🔑 GTFS de 16 redes en el NAP + líneas del tranvía de Tenerife (Cabildo de Tenerife) | trazados de Cercanías, metros, tranvías, FGC y Euskotren | 24 h |
 | Adif, «Tramos en servicio» ([datos abiertos de Adif en ArcGIS](https://www.arcgis.com/home/item.html?id=4ec7c0fb3cab42b0b488d65e65eeb7aa)) | vías en servicio, para dibujar por la vía el recorrido de AVE, Larga y Media Distancia y lo que les queda | 30 días |
+| IGN-CNIG, red ferroviaria de la IGR-RT (WFS INSPIRE de transportes `servicios.idee.es`, CC BY 4.0) | vías de toda España, también de metro, tranvía y funicular, para rehacer por la vía los trazados que van en recta entre estaciones y los que no se publican (Ouigo) | 30 días |
 | DGT DATEX II v3.7 (`nap.dgt.es`) | ~1.000 incidencias de tráfico | 5 min |
 | Servei Català de Trànsit (GML) | incidencias de carreteras catalanas | 5 min |
 | Tráfico Euskadi (API Trafikoa) | incidencias de carreteras vascas | 5 min |
@@ -203,6 +249,11 @@ Todas son públicas. Las marcadas con 🔑 necesitan una clave gratuita: casi to
 | SOS Rioja 112 (RSS) | averías del suministro eléctrico por pueblo y cuándo vuelve la luz | 10 min |
 | 112 Castilla y León (RSS de última hora) | cortes de luz por localidad | 3 min |
 | Govern de les Illes Balears (RSS de la sala de prensa, CC BY) | alertas y emergencias por isla y su fin, cortes de luz | 15 min |
+| Comunidad de Madrid (RSS «Últimas noticias», aviso legal del portal) | planes de emergencia con nombre (PLATERCAM…) y cortes de luz de sus notas de prensa | 15 min |
+| Región de Murcia (noticias de la CARM, datos abiertos) | planes de emergencia con nombre (PLATEMUR…) y cortes de luz de sus noticias | 15 min |
+| Gobierno de Cantabria (RSS de notas de prensa, CC BY 3.0 ES) | planes de emergencia con nombre (PLATERCANT…) y cortes de luz; solo el día, sin hora | 15 min |
+| Xunta de Galicia (RSS de notas de prensa: Emergencias y todas) | PLATERGA, alertas por nivel por provincia y cortes de luz | 10 min |
+| Gobierno Vasco (RSS de noticias de Seguridad en Irekia, Open Data Euskadi, CC BY 4.0) | planes de emergencia con nombre (LABI, ITSASERTZA…) por territorio histórico y cortes de luz | 15 min |
 | CartoCiudad (IGN-CNIG, CC BY 4.0) | ubicación de los pueblos que citan esos avisos | al leerlos |
 
 El mapa base es de OpenFreeMap (datos de OpenStreetMap), sin clave.
@@ -237,20 +288,20 @@ oficial.
 |---|---|---|---|
 | Andalucía | ✅ Planes activados y cortes de luz en los pueblos que citan | Solo el general de la península | Noticias de Emergencias 112 de la Junta (CC BY 4.0) |
 | Aragón | ❌ | Solo el general de la península | Licencia contradictoria (el pie de la web dice CC BY 4.0 y el aviso legal, «uso personal», sin fines comerciales ni modificación) y ningún conjunto de emergencias |
-| Asturias | ❌ | Solo el general de la península | El 112 no tiene RSS y su licencia es no comercial; las noticias del Principado (CC BY 4.0) no tienen RSS |
-| Illes Balears | ✅ Alertas y emergencias por isla, su fin y cortes de luz | ❌ | Sala de prensa del Govern (CC BY, conjunto de su catálogo de datos abiertos). Su robots.txt prohíbe esa ruta, en contra de su propio catálogo: se usa la URL del catálogo cada 15 minutos y se pide confirmación al Govern; si no lo aceptan, se retira. Red Eléctrica no publica en tiempo real la demanda real de Baleares, solo la programada |
+| Asturias | ❌ | Solo el general de la península | Ni el 112 (SEPA) ni las noticias del Principado tienen RSS, solo páginas web. La licencia no comercial es la de la app del 112, no la de su web; asturias.es publica con CC BY 4.0 |
+| Illes Balears | ✅ Alertas y emergencias por isla, su fin y cortes de luz | ❌ | Sala de prensa del Govern, en catalán (CC BY, conjunto de su catálogo de datos abiertos). Su robots.txt prohíbe esa ruta, en contra de su propio catálogo: se usa la URL exacta que publica el catálogo cada 15 minutos y se pide confirmación al Govern; si no lo aceptan, se retira. Red Eléctrica no publica en tiempo real la demanda real de Baleares, solo la programada |
 | Canarias | ✅ Declaraciones del PLATECA por isla (prealerta, alerta, emergencia y su fin), ceros energéticos incluidos | ✅ Cada isla o grupo de islas | Gobierno de Canarias (CC BY 4.0) y e·sios |
-| Cantabria | ❌ (por ahora) | Solo el general de la península | Su RSS del 112 tiene licencia válida (CC BY 3.0 ES), pero solo trae avisos meteorológicos y del PLATERCANT y nunca ha publicado un corte de luz. Se puede añadir para los planes |
+| Cantabria | ✅ Planes con nombre (PLATERCANT, INFOCANT…) y cortes de luz de las notas de prensa del Gobierno | Solo el general de la península | RSS de notas de prensa de www.cantabria.es (CC BY 3.0 ES). Solo da el día, sin hora: una nota cuenta desde el mediodía. El RSS del 112 publica poco y va con semanas de retraso |
 | Castilla-La Mancha | ✅ Planes activados por provincia (PLATECAM, METEOCAM…) | Solo el general de la península | RSS del 112 Castilla-La Mancha (aviso legal: reutilización citando la fuente) |
 | Castilla y León | ✅ Cortes de luz por localidad | Solo el general de la península | RSS «Última hora» del 112 (condiciones de reutilización de la Junta) |
 | Cataluña | ✅ Planes activados (fase y comunicado del CECAT), sin comarcas | Solo el general de la península | Conjunto «Plans de protecció civil activats» (Llicència oberta de Catalunya) |
-| Comunitat Valenciana | ❌ | Solo el general de la península | No hay ningún canal: el 112 no tiene RSS, la app usa una API interna y su robots.txt bloquea los programas automáticos |
+| Comunitat Valenciana | ❌ | Solo el general de la península | No se ha encontrado ningún canal: el 112 no tiene RSS conocido, la app usa una API interna y el catálogo de dades obertes no tiene avisos. Su robots.txt solo cierra el paso a una lista de robots con nombre (los de IA entre ellos), no a cualquier programa: falta mirar a mano si la sala de prensa (comunica.gva.es) tiene RSS y qué dice su aviso legal |
 | Extremadura | ❌ | Solo el general de la península | Su aviso legal prohíbe reproducir los contenidos sin autorización expresa y no tiene RSS |
-| Galicia | ❌ | Solo el general de la península | El 112 (AXEGA) exige autorización por escrito. Las notas de la Xunta tienen licencia válida, pero solo cuentan los grandes eventos |
-| Madrid | ❌ (por ahora) | Solo el general de la península | Solo hay RSS generales de noticias (licencia válida), con poca información de emergencias |
-| Región de Murcia | ❌ (por ahora) | Solo el general de la península | Noticias de la CARM en datos abiertos (licencia válida), sin ubicación y con pocas emergencias |
-| Navarra | ❌ | Solo el general de la península | Sin RSS y sin licencia de reutilización en su web |
-| País Vasco | ❌ (por ahora) | Solo el general de la península | Las incidencias de Open Data Euskadi no traen cortes de luz; Irekia (CC BY 4.0) solo cuenta los grandes eventos |
+| Galicia | ✅ PLATERGA y alertas por nivel por provincia, y cortes de luz, de las notas de prensa de la Xunta | Solo el general de la península | RSS de notas de prensa de la Xunta (aviso legal del portal: reutilización citando la fuente). Solo cuentan los grandes sucesos. El 112 (AXEGA) exige autorización por escrito y no se usa |
+| Madrid | ✅ Planes con nombre (PLATERCAM…) y cortes de luz de las notas de prensa | Solo el general de la península | RSS «Últimas noticias» de comunidad.madrid (aviso legal: sin alterar, con la fuente y la fecha de extracción). La ASEM 112 no tiene canal propio. Solo cuentan los grandes sucesos |
+| Región de Murcia | ✅ Planes con nombre (PLATEMUR, INUNMUR…) y cortes de luz de las noticias de la CARM | Solo el general de la península | Conjunto «Noticias de la CARM en los últimos 7 días» de datos abiertos. Sin ubicación: los planes van al centro de la región. La web del 112 y carm.es bloquean los programas automáticos, así que no se usan |
+| Navarra | ❌ | Solo el general de la península | Su ley permite reutilizar sin autorización (Ley Foral 5/2018, art. 16.4), pero no hay ningún canal: ni RSS ni conjunto de datos abiertos de SOS Navarra o de protección civil |
+| País Vasco | ✅ Planes con nombre (LABI, ITSASERTZA…) por territorio histórico y cortes de luz de las noticias de Seguridad | Solo el general de la península | RSS del Departamento de Seguridad en Irekia (conjunto de Open Data Euskadi, CC BY 4.0). Solo cuentan los grandes sucesos; SOS Deiak 112 no publica sus avisos en abierto |
 | La Rioja | ✅ Cortes de luz por pueblo y cuándo vuelve la luz | Solo el general de la península | RSS de SOS Rioja 112 (aviso legal: reproducción citando la fuente) |
 | Ceuta | ❌ | ✅ | Su aviso legal prohíbe la reproducción sin autorización; demanda de e·sios |
 | Melilla | ❌ | ✅ | Su web no tiene RSS ni condiciones de reutilización; demanda de e·sios |
@@ -279,17 +330,26 @@ completas: depende de lo que publica cada operador, y donde no hay datos públic
 | AVE, Larga y Media Distancia | sus posiciones, por la vía (tramos de Adif) | por la vía hasta su destino, pasando por las paradas de su horario |
 | FGC | sus posiciones, por el trazado de su línea | por el trazado de su línea |
 | Metro Bilbao | sus posiciones tal y como llegan: Open Data Euskadi pide no alterar el contenido | por el trazado de su viaje |
-| Euskotren, metros y tranvías con posición estimada | la posición estimada, por su trazado | por su trazado, según su horario |
-| Ouigo | la posición estimada, en línea recta entre estaciones | no se dibuja |
+| Euskotren, metros y tranvías con posición estimada | la posición estimada, por su trazado (por la vía donde el del operador va en recta) | por su trazado, según su horario |
+| Ouigo | la posición estimada, por la vía entre sus estaciones (red del IGN) | por la vía hasta su destino, según su horario |
+
+Hay operadores que publican el trazado de sus líneas casi solo con las estaciones (Metrovalencia,
+Metro de Sevilla, TRAM d'Alacant, partes de FGC, Euskotren y Cercanías) y otros que no lo publican
+(Ouigo). Ahí, las líneas del mapa y los vehículos con posición estimada van por la vía de la red
+ferroviaria del IGN, que también tiene metro, tranvía y funicular. Solo se rehacen los tramos que se
+salen de la vía; lo demás queda como lo publica cada operador. Si el trazado de un viaje no pasa por
+sus paradas, el vehículo va por la vía entre ellas.
 
 Lo que no se puede dibujar por falta de datos públicos:
 
-- **Ouigo** solo publica su horario, sin trazado: ni lo que le queda ni el recorrido por la vía.
 - **Iryo y los trenes de mercancías** no publican nada: no salen en el mapa.
 - **Adif** no publica las circulaciones ni el estado de la red (ver «Pendiente y conocido»).
 - **Trenes que no están en el horario publicado** (servicios especiales, números que Renfe no
   incluye): sin paradas no se sabe lo que les queda.
 - **AVE internacionales mientras van por Francia**: la red de Adif solo cubre España.
+- **Vías que la red del IGN aún no tiene** (la ampliación del tranvía de Sevilla, la variante de
+  Durango de Euskotren) **y las de Francia** (Euskotren hasta Hendaia): ahí se queda el trazado del
+  operador, aunque vaya en recta.
 - **Cercanías cuyo trazado publicado no coincide con su viaje** (algún C5 de Sevilla, Rodalies a
   Reus, Bilbao la Concordia–Karrantza): el trazado que publica Renfe no pasa por el tren o por sus
   paradas, y el dibujo se corta donde se aparta en vez de ir por donde no pasa el tren.
@@ -324,9 +384,6 @@ después (con jq, DuckDB o pandas).
 
 ## Pendiente y conocido
 
-- **Avisos oficiales de Cataluña, Andalucía, Castilla-La Mancha, La Rioja, Castilla y León y Baleares**:
-  en pausa mientras se revisa cómo se leen sus avisos (frases que no son un corte de luz, notas que no
-  son emergencias). Siguen citados en `/legal`; los de Canarias y el apagón por isla (e·sios), activos.
 - **Adif (estado de la red, incidencias, circulaciones)**: su web responde 403 a cualquier
   cliente automatizado y no publica nada en el NAP. No se esquiva el bloqueo; se pide acceso
   formalmente.
@@ -360,15 +417,24 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   meteorológicos, focos de calor por satélite, áreas quemadas con su ficha, terremotos, alertas
   de catástrofes y demanda eléctrica.
 - Avisos oficiales de emergencias: planes de protección civil activados y cortes de luz que publican
-  Canarias, Baleares, Cataluña, Andalucía, Castilla-La Mancha, La Rioja y Castilla y León. Su texto se
+  Canarias, Baleares, Cataluña, Andalucía, Castilla-La Mancha, La Rioja y Castilla y León, y los de las
+  notas de prensa de los gobiernos de Madrid, Murcia, Cantabria, Galicia y el País Vasco. Su texto se
   cita tal cual, con la atribución de cada administración; se sitúan en el centro de su isla, pueblo,
   provincia o comunidad, y dejan de verse cuando se publica su fin. Los cortes de luz y los planes en
   alerta o emergencia dan alerta, y a igual gravedad los cortes de luz salen los primeros de la lista.
   Qué hay de cada comunidad y por qué falta lo que falta, en *Emergencias y cortes de luz: qué hay de
-  cada comunidad*.
+  cada comunidad*. La página de incidencias y la leyenda del mapa explican cuándo sale un corte de luz
+  y cuándo no.
+- Un aviso nuevo que dice ser de todo el archipiélago o de toda la comunidad («pasando a prealerta por
+  lluvias en toda Canarias», «METEOCAM. Castilla-La Mancha», «en toda Galicia») sustituye a los
+  anteriores de su riesgo en cada isla o provincia: el mapa ya no sigue mostrando una alerta que se ha
+  rebajado. Uno que no se ha podido situar no tapa a los demás.
 - Apagón total de una isla de Canarias, de Ceuta o de Melilla: alerta a los pocos minutos cuando su
-  demanda real cae muy por debajo de la esperada (datos de Red Eléctrica). Con los datos del
-  2-11-2026 habría avisado del apagón de La Palma a los 3 minutos, una hora antes que el aviso oficial.
+  demanda real cae muy por debajo de la esperada en dos datos seguidos (uno suelto puede estar mal
+  medido), con datos de Red Eléctrica. Con los del 2-11-2026 avisa del apagón de La Palma con el dato
+  de las 06:45 (el corte fue a las 06:42), en cuanto e·sios lo publica, y la alerta sigue hasta que
+  la isla recupera más de la mitad de lo esperado, sin cerrarse por el camino. En tres días normales,
+  ninguna alerta.
 - Red ferroviaria, líneas de metro, tranvía y Cercanías, y estaciones.
 - Nombres del mapa base en español.
 - Se descartan los retrasos imposibles que a veces llegan en los datos.
@@ -394,6 +460,11 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   Larga y Media Distancia por la red de Adif; en Metro Bilbao con el trazado de su viaje, en FGC con
   el de su línea y en metros y tranvías estimados con su horario. Comprobado con todos los viajes de
   sus horarios.
+- Todos los trenes, metros y tranvías van por su vía, también donde el operador publica su trazado
+  casi solo con las estaciones o no lo publica: esos tramos se rehacen con la red ferroviaria del IGN,
+  que también tiene metro, tranvía y funicular. Revisado con todos los vehículos del mapa:
+  Metrovalencia, Metro de Sevilla, TRAM d'Alacant, FGC y Ouigo ya no cortan en recta por calles y
+  campos, y Ouigo dibuja también lo que le queda hasta su destino.
 - Flecha de hacia dónde va cada vehículo al acercar el mapa, por su vía cuando se conoce su
   recorrido.
 - En Cercanías, el origen, el destino y la próxima parada salen de las paradas de cada viaje: ni el
@@ -450,13 +521,25 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   - caídas de la demanda eléctrica peninsular y fuentes de datos caídas;
   - posible apagón total de una isla de Canarias, de Ceuta o de Melilla (demanda de e·sios), a los
     pocos minutos;
-  - cortes de luz y planes de emergencia en alerta o emergencia que publican protección civil y los
-    112 de siete comunidades, con su fuente y su fecha.
+  - cortes de luz y planes de emergencia en alerta o emergencia que publican protección civil, los
+    112 y los gobiernos de doce comunidades, con su fuente y su fecha.
 - Al pulsar una alerta, el mapa muestra sólo lo suyo; se pueden combinar varias.
 - Las capas que enciende una alerta se marcan como temporales y se pueden apagar sin perder la
   selección.
 - Un Cercanías que Renfe da parado en una estación lejana (su posición no está al día) ya no da un
   aviso falso de tren detenido en plena vía.
+- Avisos oficiales más fiables:
+  - no cuentan como corte de luz las frases que lo niegan («no se han registrado cortes»), lo prevén
+    («ante posibles cortes»), son de un simulacro, hablan de otro apagón con su fecha o de un solo
+    edificio;
+  - Andalucía sólo muestra un corte si la noticia dice dónde, y una luz que vuelve en un sitio que no
+    se sabe situar no cierra los cortes del resto;
+  - una sequía o una alerta sanitaria o alimentaria no es un plan de protección civil, y un aviso que
+    no dice su riesgo ni su nivel no sustituye ni cierra los de los demás;
+  - cada aviso deja el mapa y las alertas a su hora aunque su fuente deje de responder;
+  - un plan activado por un apagón deja de mostrarse como «corte de luz» al día, o antes si es en una
+    isla y su demanda eléctrica pasa de la mitad de lo que consumía: el 2-11-2026, La Palma a las 09:45;
+  - la demanda de las islas no toma un dato vacío por 0 MW.
 
 **Interfaz**
 - Vista para el móvil, con el mapa a pantalla completa y un panel que sube desde abajo.
@@ -499,6 +582,10 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - El recorrido y lo que le queda de cada tren se calculan como mucho una vez cada pocos segundos, se
   comparten entre todas las visitas (también en Cloudflare) y tienen su propio tope de cálculos: si
   muchas visitas abren trenes distintos a la vez, el mapa vuelve a pedirlos solo un momento después.
+- Las líneas se rehacen por la vía en segundo plano, una a una y sin dejar de atender al mapa;
+  mientras tanto se sirven las del operador sin guardarlas en caché, para que nadie se quede con
+  ellas. La red del IGN se descarga una vez al mes y se guarda en disco ya reducida; la nueva se monta
+  en el siguiente arranque, no con el servidor en marcha.
 - La búsqueda del camino por la vía de AVE, Larga y Media Distancia sólo mira las vías del ancho del
   tren y no busca en la red métrica, a la que no puede llegar; los regionales de la antigua Feve van
   por la suya.
@@ -511,6 +598,9 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   lectura de los horarios y la evaluación de alertas repiten menos trabajo.
 - Las respuestas guardadas de la API caducan y tienen un tope de memoria, aunque se pidan muchas
   variantes distintas.
+- Las fuentes de avisos oficiales descargan con un tope de tamaño, la de Baleares sólo lee sus notas
+  recientes y la búsqueda de pueblos en CartoCiudad tiene un máximo por lectura y se detiene si el
+  servicio no responde.
 
 **Despliegue y seguridad**
 - La aplicación funciona aislada, en un contenedor con recursos limitados y cabeceras de
@@ -524,12 +614,18 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   cuando ya ha cargado los datos. Si algún día el servidor no respondiera, se ve un aviso de que se
   está actualizando en vez de un error.
 - Las subidas se detectan en unos segundos y el pipeline avanza en cuanto cada paso termina.
+- Un fallo pasajero de GitHub mientras el pipeline espera a las pruebas ya no lo para: vuelve a
+  preguntar al momento.
 - Pruebas automáticas que no dependen de la velocidad de la máquina: dan lo mismo en el servidor,
   más lento y ocupado, que en un ordenador rápido.
 - Limpieza automática del servidor, también de las teselas del mapa que ya nadie mira.
 - El repositorio público ya no detalla cómo se prepara ni se protege el servidor: esas notas se
   guardan fuera de él.
+- Diagramas de la arquitectura, del camino de cada dato hasta el mapa, de las ramas y del despliegue,
+  en el README y en `docs/despliegue.md`, que GitHub dibuja solos.
 - Estadísticas de visitas sin cookies.
+- Guía para contribuir ([CONTRIBUTING.md](CONTRIBUTING.md)): cómo avisar de fallos, proponer fuentes y
+  enviar cambios, y qué pasa con lo que se aporta, ya que el código no es libre.
 
 **Licencias**
 - Sólo datos públicos cuya licencia permite reutilizarlos, con las atribuciones que exige cada
@@ -544,6 +640,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   dice que todos los datos se muestran sin alterar: cada fuente indica qué se hace con ella.
 - Atribuciones al día de lo que se dibuja con la red de Adif y con los horarios del Punto de Acceso
   Nacional de FGC y Metro Bilbao (dato explotado y fecha de actualización).
+- Lo que se rehace por la vía con la red del IGN lo dice en el mapa, en la ficha de cada vehículo, en
+  la pestaña Fuentes y en el aviso legal («Obra derivada de IGR-RT 2026 CC-BY 4.0 scne.es»).
 - Cercanías y Metro Bilbao citan también el trazado del Punto de Acceso Nacional con el que se
   dibuja lo que le queda a cada tren, y cada red de trazados muestra su fecha de actualización en el
   aviso legal y en la pestaña Fuentes.
@@ -569,10 +667,10 @@ Ninguna por ahora.
   tanto tarda más en responder (alguna vez 1–3 s). Para los vehículos con posición estimada bastaría
   con el recorrido que ya sale de su horario, o con repartir ese trabajo entre lecturas.
 - Estado oficial de la red de Adif, si llega a publicarse con licencia de reutilización.
-- Ouigo por la vía: su recorrido y lo que le queda por la red de Adif, pasando por las paradas de su
-  horario, como ya se hace con AVE, Larga y Media Distancia (ahora va en línea recta entre estaciones).
 - Renfe AV/LD/MD: algunos números de tren salen dos veces en el tiempo real con posiciones a decenas
   de kilómetros (tres regionales la mañana del 2-nov); quedarse con la que sigue al tren.
+- Las vías que aún no tiene la red del IGN (la ampliación del tranvía de Sevilla, la variante de
+  Durango de Euskotren), con otra fuente con licencia abierta cuando la haya.
 - Capa discreta con las vías subterráneas de FGC y de los metros: el mapa base oscuro no dibuja las
   vías en túnel, y el recorrido parece pasar por encima de los edificios.
 - Obras en carretera con su fecha de fin y su última actualización. Ahora solo se muestra cuándo
@@ -610,14 +708,19 @@ Ninguna por ahora.
 - Cortes de luz en el resto de España:
   - Baleares: Red Eléctrica sólo publica en tiempo real su demanda programada, no la real, así que su
     apagón no se puede detectar como el de las islas de Canarias, Ceuta o Melilla;
-  - avisos de las comunidades que no tienen un canal que se pueda leer con su licencia (Galicia,
-    Comunitat Valenciana, Aragón, Extremadura, Asturias, Navarra, Ceuta y Melilla): pedirles permiso o
-    que lo publiquen como datos abiertos;
-  - noticias oficiales de Murcia, País Vasco, Galicia y Madrid, que sólo cuentan los grandes apagones, y
-    los planes que publica el 112 de Cantabria (ver *Emergencias y cortes de luz: qué hay de cada
-    comunidad*);
+  - avisos de las comunidades que no tienen un canal que se pueda leer con su licencia (Comunitat
+    Valenciana, Aragón, Extremadura, Asturias, Navarra, Ceuta y Melilla), y los del 112 de Galicia
+    (AXEGA): pedirles permiso o que lo publiquen como datos abiertos (borradores en
+    [docs/solicitudes](docs/solicitudes/README.md));
   - los cortes por barrio o por calle sólo los tienen las distribuidoras eléctricas, que no los
-    publican con licencia de reutilización.
+    publican con licencia de reutilización: pedir permiso a e-distribución, i-DE y UFD.
+
+## Contribuir
+
+Se agradecen avisos de fallos, fuentes de datos con licencia de reutilización y mejoras del código.
+Cómo hacerlo (issues, fuentes nuevas, ramas, tests, commits y pull requests) y qué pasa con lo que
+aportas, en [CONTRIBUTING.md](CONTRIBUTING.md) (en inglés, [CONTRIBUTING.en.md](CONTRIBUTING.en.md)). Los fallos de seguridad, por correo y no en una
+issue pública.
 
 ## Licencia
 
