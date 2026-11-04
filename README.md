@@ -373,7 +373,7 @@ Lo que no se puede dibujar por falta de datos públicos:
 | `GET /api/stations/:código` | ficha de una estación (trenes, avisos, líneas, conexiones, datos y foto) |
 | `GET /api/lines` | trazados de las líneas (GeoJSON) |
 | `GET /api/trails?min=15` | estela de cada tren en los últimos 15, 30 o 45 minutos (GeoJSON) |
-| `GET /api/health`, `/api/kpis`, `/api/metrics`, `/api/stations` | salud de fuentes (con su licencia y su fecha de actualización), KPIs, métricas y estaciones |
+| `GET /api/health`, `/api/kpis`, `/api/metrics`, `/api/stations` | salud de fuentes (con su licencia, su fecha de actualización y hasta cuándo vale su horario), KPIs, métricas y estaciones |
 | `GET /api/burnt-areas?bbox=…` | ficha de las áreas quemadas (EFFIS) bajo un punto del mapa |
 | `GET /tiles/<capa>/<z>/<x>/<y>.png` | teselas de la red ferroviaria (IGN) y de las áreas quemadas (EFFIS) |
 | `GET /api/about` | titular y contacto para el aviso legal |
@@ -558,6 +558,9 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   web, sin pedir nada a otros sitios.
 - La pestaña y el grupo de capas de la lista se llaman «Vehículos», no «Trenes»: también incluyen
   autobuses, metros y tranvías.
+- La pestaña Fuentes dice hasta cuándo vale el horario de cada red y avisa cuando le quedan dos
+  semanas o menos (y el servidor lo apunta en su registro): si el operador no publica uno nuevo, sus
+  vehículos dejan de salir. Las fechas de otro año llevan el año.
 
 **Rendimiento y fiabilidad**
 - Directo servido desde caché, preparado para picos de muchas visitas a la vez.
