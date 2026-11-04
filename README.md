@@ -396,8 +396,8 @@ después (con jq, DuckDB o pandas).
 
 `POST /mcp` es un servidor [MCP](https://modelcontextprotocol.io) (Model Context Protocol): un
 asistente de IA (Claude, ChatGPT, Cursor…) se conecta con la dirección `https://radarespaña.es/mcp`
-(si no admite la ñ, `https://xn--radarespaa-19a.es/mcp`) y consulta el directo con herramientas de
-sólo lectura. Sin la ñ o con `www.` hay una redirección, y algunos clientes no la siguen con un POST.
+(si no admite la ñ, `https://radarespana.es/mcp` o `https://xn--radarespaa-19a.es/mcp`) y consulta el
+directo con herramientas de sólo lectura. Sin la ñ y con `www.` redirigen con un 308, que conserva el POST.
 HTTP «streamable» sin sesiones ni SSE: cada POST es un mensaje JSON-RPC completo
 (`server/adapters/inbound/mcp/mcp.js`).
 
@@ -527,7 +527,7 @@ flowchart LR
 | Versión 2026-07-28 del protocolo, además de las anteriores | Es la vigente; sin ella, los clientes nuevos no se habrían podido conectar |
 | Una cabecera `Origin` de otra web recibe 403 | Lo exige el protocolo |
 | Un cuerpo de más de 64 KB se corta en cuanto pasa del tope | Antes se leía entero para tirarlo |
-| `www.` con un POST redirige con 308 | Con 301 el cliente repetía la petición como GET y fallaba |
+| `www.` con un POST redirige con 308, y la dirección sin ñ también (regla de Cloudflare, desde el 4-11-2026) | Con 301 el cliente repetía la petición como GET y fallaba: Claude no llegaba a conectar por `radarespana.es/mcp` |
 | La atribución lleva la fecha en que cada operador actualizó su horario | Es la que piden citar el NAP, TMB o FGV, no la de la descarga |
 | Un argumento que no cumple el esquema es un error de la herramienta, explicado | Así el asistente lo lee y se corrige solo |
 | Anotaciones completas, caché con tope de memoria, descripciones recortadas marcadas e instrucciones para tratar el texto de los avisos como datos | Buenas prácticas del protocolo y defensa ante textos que traigan instrucciones |
