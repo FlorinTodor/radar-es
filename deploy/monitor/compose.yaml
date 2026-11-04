@@ -62,6 +62,7 @@ services:
       GF_PLUGINS_PREINSTALL_AUTO_UPDATE: "false"
       GF_PLUGINS_DISABLE_PLUGINS: tempo,jaeger,zipkin,elasticsearch,opentsdb,mssql,mysql,grafana-postgresql-datasource,influxdb,graphite,parca,grafana-pyroscope-datasource,cloudwatch,stackdriver,grafana-azure-monitor-datasource
       GF_LOG_LEVEL: warn
+      GOMEMLIMIT: 700MiB
       GF_USERS_DEFAULT_LANGUAGE: es-ES
       GF_DATE_FORMATS_DEFAULT_TIMEZONE: Europe/Madrid
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
@@ -77,7 +78,9 @@ services:
     depends_on:
       - prometheus
       - loki
-    mem_limit: 512m
+    # Con varios paneles abiertos, Grafana y sus procesos de Prometheus y Loki pasaron de 512 MB y el
+    # kernel lo mató (4-nov, 489 MB propios): 1 GB, y Go libera memoria antes de acercarse al tope.
+    mem_limit: 1g
     cpus: 1
     pids_limit: 256
 
