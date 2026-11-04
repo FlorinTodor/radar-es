@@ -127,11 +127,11 @@ flowchart TB
 
 | Capa | Carpeta | Qué hay |
 |---|---|---|
-| Entrada | `adapters/inbound/` | `http/http-server.js` (API, teselas y web), `mcp/mcp.js` (servidor MCP en `POST /mcp`) y `scheduler/polling-scheduler.js` (sondeo, alertas y catálogos) |
+| Entrada | `adapters/inbound/` | `http/http-server.js` (API, teselas y web), `http/metrics-server.js` (métricas para la monitorización, en un puerto interno), `mcp/mcp.js` (servidor MCP en `POST /mcp`) y `scheduler/polling-scheduler.js` (sondeo, alertas y catálogos) |
 | Casos de uso | `application/use-cases/` | `ingest-source`, `detect-alerts`, `query-situation`, `serve-tiles`, `refresh-catalogs` y `lines-on-rail` |
 | Puertos | `application/ports.js` | los contratos que piden los casos de uso (tabla de abajo) |
 | Dominio | `domain/` | `model`, `geo`, `tracking`, `kpis`, `tiles`, `schedule`, `estimated-position`, `route-ahead`, `rail-match`, `alerts/` (`rules`, `lifecycle`, `thresholds`), `emergencias`, `lugares` y `red-aislada` |
-| Salida | `adapters/outbound/` | `sources/` (una por fuente), `stations/` (estaciones, Wikidata y Commons), `network/`, `gtfs/` y `nap/` (trazados y redes de Adif e IGN), `persistence/` (estado en memoria e histórico JSONL), `tiles/` (teselas de IGN y EFFIS), `geo/` (CartoCiudad), `workers/` (hilos de CPU), `http/` y `logging/` |
+| Salida | `adapters/outbound/` | `sources/` (una por fuente), `stations/` (estaciones, Wikidata y Commons), `network/`, `gtfs/` y `nap/` (trazados y redes de Adif e IGN), `persistence/` (estado en memoria e histórico JSONL), `tiles/` (teselas de IGN y EFFIS), `geo/` (CartoCiudad), `workers/` (hilos de CPU), `http/`, `logging/` y `metrics/` (formato de Prometheus) |
 
 - **`server/domain/`**: modelo y reglas puras. Se prueba sin red (`test/domain`).
 - **`server/application/`**: casos de uso y **puertos**, los contratos que necesitan del exterior.
@@ -185,6 +185,7 @@ Los puertos están en `server/application/ports.js`:
 | `SituationRepository` | `persistence/in-memory-situation.js` | estado actual: último dato de cada fuente, recorridos, alertas, KPIs |
 | `History` | `persistence/jsonl-history.js` | histórico de alertas y KPIs |
 | `TileProvider` | `tiles/wms-tiles.js` | teselas de IGN y EFFIS con copia en disco |
+| `Metrics` | `metrics/prometheus-metrics.js` | cuentas y tiempos para la monitorización: peticiones por ruta, mensajes MCP, lecturas de cada fuente y avisos del registro. Sin datos de quién pregunta: las rutas van sin lo que se ha pedido (`/api/stations/:code`) |
 | `Geocoder` | `geo/cartociudad-geocoder.js` | situar el municipio que cita un aviso del 112 (no traen coordenadas) y poner el municipio a los terremotos del EMSC en España. Lo usan esas fuentes, no los casos de uso: su contrato está en el propio adaptador |
 
 `Clock` (la hora, para poder simularla en los tests) y `Logger` (el registro) también son puertos.
@@ -334,7 +335,7 @@ completas: depende de lo que publica cada operador, y donde no hay datos públic
 
 | Red | Recorrido reciente (discontinua) | Lo que le queda (continua) |
 |---|---|---|
-| Cercanías / Rodalies de Renfe | sus posiciones, por el trazado de su línea | por el trazado de su viaje, pasando por las paradas que le quedan |
+| Cercanías / Rodalies de Renfe | sus posiciones, por el trazado de su línea | por el trazado de su viaje, pasando por las paradas que le quedan; si ese trazado no llega a su destino, lo que falta, por la vía (tramos de Adif) |
 | AVE, Larga y Media Distancia | sus posiciones, por la vía (tramos de Adif) | por la vía hasta su destino, pasando por las paradas de su horario |
 | FGC | sus posiciones, por el trazado de su línea | por el trazado de su línea |
 | Metro Bilbao | sus posiciones tal y como llegan: Open Data Euskadi pide no alterar el contenido | por el trazado de su viaje |
@@ -628,6 +629,21 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   Larga y Media Distancia por la red de Adif; en Metro Bilbao con el trazado de su viaje, en FGC con
   el de su línea y en metros y tranvías estimados con su horario. Comprobado con todos los viajes de
   sus horarios.
+- Lo que le queda a cada Cercanías, revisado tren a tren con todos los del mapa (4-nov-2026: de 56 con
+  fallo, quedan los que no tienen vía conocida hasta su destino):
+  - un tren parado en su estación de origen ya no se queda sin línea porque el GPS lo ponga unos
+    metros por delante o por detrás de ella (C1 de Bilbao en Santurtzi, C3 en Abando, R1 en Calella,
+    R7 en Montcada, C1 en Irun, C5 en Santa Justa);
+  - el C4 de Sevilla, circular, se dibuja con el tren en Santa Justa y, al volver a ella, no empieza
+    otra vez la vuelta;
+  - la vía de montaña y las llegadas con curva ya no cortan la línea antes de tiempo (la rampa de
+    Pesquera en el C1 Santander–Reinosa, la llegada a Alicante-Terminal y a Estació de França);
+  - si el trazado que da Renfe no llega a su destino (un C6 a Vinaròs con el que acaba en Castelló,
+    un C5 a Dos Hermanas con el que va a Jardines de Hércules), lo que falta va por la red de Adif;
+  - y la flecha de cada tren sale de esa línea, no de sus últimas posiciones.
+- La próxima parada de un Avant ya no se queda en una parada del horario que está en el mismo sitio
+  que una estación por la que ya ha pasado (el A Coruña → Ourense salía «hacia Santiago-Turístico» a
+  59 km de Santiago).
 - Al seleccionar un vehículo, el mapa encuadra su viaje y salen todas sus paradas con su nombre: el
   origen, el destino y la próxima destacados, blancas las que le quedan y grises las que ya ha pasado
   (si los nombres no caben, se ocultan los que chocan, nunca esos tres). En la ficha, la lista
@@ -743,6 +759,9 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   ([DemboNauta](https://github.com/DemboNauta)) en la PR #1.
 
 **Rendimiento y fiabilidad**
+- Monitorización privada del servidor, con avisos por Telegram si algo falla: si la web, la API y el
+  servidor MCP responden, el tráfico y los errores por ruta, el uso de cada herramienta MCP, el estado
+  de cada fuente, la memoria y los registros. Sólo cuenta, sin guardar quién pregunta.
 - Directo servido desde caché, preparado para picos de muchas visitas a la vez.
 - Respuestas de la API calculadas una sola vez y compartidas entre todas las visitas.
 - Arranque sin bloquear el servidor mientras carga los horarios de más de cien redes, y menos
@@ -855,12 +874,25 @@ Ninguna por ahora.
   aplicación de MobilityLabs (ver
   *Pendiente y conocido*).
 - Estadísticas de puntualidad por línea y franja horaria.
+- Patrones con el histórico: retrasos o pérdidas de velocidad que se repiten en el mismo tramo, día
+  tras día. No prueban un fallo, pero son señales para revisar. Hace falta:
+  - guardar las posiciones y los retrasos de cada tren (hoy el histórico solo guarda alertas y KPIs);
+  - situarlos en su tramo de vía, con la red del IGN que ya se usa para los recorridos;
+  - con una posición cada 20 s se miden bien el retraso y la velocidad media de cada tramo, no una
+    frenada concreta.
 - Pasos a nivel en el mapa.
 - Servidor más fluido al leer los autobuses por horario: en cada lectura guarda el historial de
   posiciones de miles de vehículos a la vez y crea mucha memoria que luego hay que limpiar, y mientras
   tanto tarda más en responder (alguna vez 1–3 s). Para los vehículos con posición estimada bastaría
   con el recorrido que ya sale de su horario, o con repartir ese trabajo entre lecturas.
-- Estado oficial de la red de Adif, si llega a publicarse con licencia de reutilización.
+- Qué le pasa a la red, no solo dónde está cada tren:
+  - incidencias de Adif por tramo, si llegan a publicarse con licencia de reutilización (hoy su web
+    responde 403; ver *Pendiente y conocido*);
+  - posiciones reales de Iryo, si las publica (hoy no publica nada).
+- Que la línea discontinua de cada tren (por dónde ha pasado en los últimos 45 minutos) no empiece de
+  cero con cada versión nueva: el historial de posiciones está en memoria y se pierde al cambiar de
+  contenedor (el 4-nov-2026, todas empezaban a la hora del despliegue). Guardar una copia cada poco y
+  recuperarla al arrancar.
 - Terremotos: leer el RSS del IGN (los de magnitud 2,6 o más) como repuesto si un día falla la capa de
   su servicio de visualización. Y poner la isla a los de Baleares y La Gomera: en un año no ha salido
   ninguno con su sufijo, y no se sabe cómo lo escribe el IGN.
@@ -898,8 +930,7 @@ Ninguna por ahora.
 - Guía para quien quiera proponer cambios.
 - Servidor MCP:
   - publicarlo en el registro oficial de servidores MCP, para que los asistentes lo encuentren solos;
-  - el esquema de lo que devuelve cada herramienta (`outputSchema`), para que el cliente lo compruebe;
-  - contar cuántas llamadas recibe cada herramienta, sin guardar quién las hace.
+  - el esquema de lo que devuelve cada herramienta (`outputSchema`), para que el cliente lo compruebe.
 - Cortes de luz en el resto de España:
   - Baleares: Red Eléctrica sólo publica en tiempo real su demanda programada, no la real, así que su
     apagón no se puede detectar como el de las islas de Canarias, Ceuta o Melilla;

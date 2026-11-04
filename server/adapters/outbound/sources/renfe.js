@@ -16,10 +16,14 @@ const GTFSRT = 'https://gtfsrt.renfe.com';
 // (2,2 km en un C1 de Madrid con la posición de T4 y «parado en Valdebebas»); en AV/LD/MD, el tren ya
 // va de camino (un Media Distancia «parado en Ferrol» a 9,4 km, saliendo de Pontedeume): ver ldReading.
 const FAR_FROM_STOP_KM = 1.5;
+// Dos paradas del viaje a menos de esto son el mismo sitio (Santiago y Santiago-Turístico, 0 m).
+const SAME_PLACE_KM = 0.5;
 const ATTRIBUTION = 'Origen de los datos: Renfe Operadora (CC BY 4.0; datos modificados: normalizados, depurados y combinados con sus horarios)';
 // Cercanías: lo que le queda se dibuja con el trazado de su viaje del horario de Renfe en el Punto de
-// Acceso Nacional (ver domain/route-ahead.js).
-const ATTRIBUTION_CERCANIAS = `${ATTRIBUTION} · trazado: Powered by MITRAMS (dato explotado)`;
+// Acceso Nacional (ver domain/route-ahead.js) y, si ese trazado no llega a su destino, sobre la red de
+// Adif (ver application/use-cases/query-situation.js).
+const ATTRIBUTION_CERCANIAS = `${ATTRIBUTION} · trazado: Powered by MITRAMS (dato explotado)`
+  + '; donde no llega a su destino, sobre la red de Adif, © Administrador de infraestructuras ferroviarias';
 // AV/LD/MD: además, el recorrido y lo que le queda se dibujan sobre la red de Adif (ver domain/rail-match.js).
 const ATTRIBUTION_LD = 'Origen de los datos: Renfe Operadora (CC BY 4.0; datos modificados: normalizados, depurados, '
   + 'combinados con sus horarios y dibujados sobre la red de Adif, © Administrador de infraestructuras ferroviarias)';
@@ -284,13 +288,25 @@ async function tripStops(zip, pace) {
 }
 
 /**
+ * Posición de stopId en las paradas del viaje: la primera desde `after` (por la que iba en la lectura
+ * anterior). Una línea circular repite su estación de origen al final (Santa Justa en el C4 de Sevilla) y
+ * Renfe no da por qué parada del viaje va (sin currentStopSequence): sin recordarlo, al volver a ella el
+ * tren estaría otra vez al principio. -1 si no está.
+ */
+export function stopIndex(stops, stopId, after = 0) {
+  if (!stops) return -1;
+  const i = stops.indexOf(stopId, after);
+  return i >= 0 ? i : stops.indexOf(stopId);
+}
+
+/**
  * Próxima parada de un tren de Cercanías. En el GTFS-RT de Cercanías, IN_TRANSIT_TO no trae la
  * estación a la que va, sino la que acaba de dejar (medido: 29 de 29 por detrás del tren); con
  * INCOMING_AT sí es a la que llega. La siguiente sale de las paradas del viaje (null si no se sabe).
  */
-export function cercaniasNext(status, stopId, stops) {
+export function cercaniasNext(status, stopId, stops, after = 0) {
   if (status !== 'IN_TRANSIT_TO') return stopId ?? null;
-  const i = stops?.indexOf(stopId) ?? -1;
+  const i = stopIndex(stops, stopId, after);
   return i >= 0 ? stops[i + 1] ?? null : null;
 }
 
@@ -299,8 +315,8 @@ export function cercaniasNext(status, stopId, stops) {
  * la última que ha dejado; parado, en la que está; llegando (INCOMING_AT), a la que llega, que le queda.
  * null si stopId no está en su viaje o ya no le queda ninguna.
  */
-export function stopsLeft(status, stopId, stops) {
-  const i = stops?.indexOf(stopId) ?? -1;
+export function stopsLeft(status, stopId, stops, after = 0) {
+  const i = stopIndex(stops, stopId, after);
   if (i < 0) return null;
   const rest = stops.slice(status === 'IN_TRANSIT_TO' || status === 'STOPPED_AT' ? i + 1 : i);
   return rest.length ? rest : null;
@@ -325,8 +341,8 @@ function tripUpdates(feed) {
  * su viaje). Como en stopsLeft: en camino (IN_TRANSIT_TO), stopId es la última que ha dejado; parado, en
  * la que está (aún no la ha pasado); llegando (INCOMING_AT), a la que llega.
  */
-export function cercaniasFrom(status, stopId, stops) {
-  const i = stops?.indexOf(stopId) ?? -1;
+export function cercaniasFrom(status, stopId, stops, after = 0) {
+  const i = stopIndex(stops, stopId, after);
   if (i < 0) return -1;
   return status === 'IN_TRANSIT_TO' ? i + 1 : i;
 }
@@ -402,6 +418,8 @@ export function createRenfeSources({ http, cache, stations, log }) {
   // Paradas del viaje de cada tren de Cercanías (las de su horario), desde cuál le quedan y los retrasos
   // de su trip update, de la última lectura: para su ficha (tripStops).
   let cercTrips = new Map();
+  // viaje → posición en sus paradas de la última stopId leída (ver stopIndex), de los de la última lectura
+  let cercProgress = new Map();
 
   const cercanias = {
     id: 'renfe-cercanias',
@@ -437,6 +455,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
       const vehicles = [];
       const left = new Map();
       const trips = new Map();
+      const progress = new Map();
       for (const e of positions.value.entity ?? []) {
         const v = e.vehicle;
         if (!hasPosition(v)) continue;
@@ -445,12 +464,15 @@ export function createRenfeSources({ http, cache, stations, log }) {
         // (en la que está parado o a la que llega). Renfe no publica por qué vía va en el trayecto.
         const [, line, number, platform] = /^([A-Za-z]+\d*[a-z]?)-(\d+)(?:-PLATF\.\((\w+)\))?/.exec(v.vehicle?.label ?? '') ?? [];
         const route = timetables.cercanias(tripId);
-        const ahead = stopsLeft(v.currentStatus, v.stopId, route?.stops);
+        const after = cercProgress.get(tripId) ?? 0;
+        const at = stopIndex(route?.stops, v.stopId, after);
+        if (at >= 0) progress.set(tripId, at);
+        const ahead = stopsLeft(v.currentStatus, v.stopId, route?.stops, after);
         if (ahead && route?.shape && !route.bus) left.set(`renfe-c:${tripId}`, ahead);
         if (route?.stops?.length > 1) {
           const update = delays.get(tripId);
           trips.set(`renfe-c:${tripId}`, {
-            codes: route.stops, from: cercaniasFrom(v.currentStatus, v.stopId, route.stops), here: v.currentStatus === 'STOPPED_AT', arrivals: update?.arrivals ?? null,
+            codes: route.stops, from: cercaniasFrom(v.currentStatus, v.stopId, route.stops, after), here: v.currentStatus === 'STOPPED_AT', arrivals: update?.arrivals ?? null,
           });
         }
         vehicles.push({
@@ -470,11 +492,12 @@ export function createRenfeSources({ http, cache, stations, log }) {
           // Lo que le queda lo calcula el servidor con sus paradas (/api/ahead/<id>).
           ...(left.has(`renfe-c:${tripId}`) ? { ahead: true } : {}),
           ...(trips.has(`renfe-c:${tripId}`) ? { stops: true } : {}), // sus paradas: /api/stops
-          ...base(v, delays.get(tripId), cercaniasNext(v.currentStatus, v.stopId, route?.stops)),
+          ...base(v, delays.get(tripId), cercaniasNext(v.currentStatus, v.stopId, route?.stops, after)),
         });
       }
       remaining = left;
       cercTrips = trips;
+      cercProgress = progress;
       return { vehicles, sourceTime: freshest(positions.value, updates.status === 'fulfilled' ? updates.value : null) };
     },
   };
@@ -485,18 +508,28 @@ export function createRenfeSources({ http, cache, stations, log }) {
    * 2-nov: un tercio de sus lecturas). Lejos de la estación, el tren va de camino: hacia ella si está
    * entre la parada anterior y ella; si ya la ha dejado atrás (entre ella y la siguiente), es la última
    * estación y la próxima es la siguiente. La posición sí es buena: cae sobre la vía y se mueve.
+   * «IN_TRANSIT_TO» es hacia la parada que da (67 de 68 trenes medidos el 4-nov), salvo cuando es una de
+   * las paradas ficticias del horario en el mismo sitio que una estación: el Avant A Coruña → Ourense iba
+   * «hacia Santiago-Turístico» (la misma posición que Santiago) a 59 km pasado Santiago. Igual que con
+   * «parado en»: si está claramente entre ella y la siguiente, ya la ha dejado atrás. Las paradas en el
+   * mismo sitio que ella cuentan como ella.
    * @returns {{ reading: object, nextId: string, from: number }} la lectura como «en camino» si hace
    *   falta, la próxima parada y desde qué parada del viaje (índice) le queda el recorrido (-1: no se sabe)
    */
   function ldReading(v, stops) {
     const k = stops?.indexOf(v.stopId) ?? -1;
-    const stop = v.currentStatus === 'STOPPED_AT' ? stations.get(v.stopId) : null;
+    const stop = v.currentStatus === 'STOPPED_AT' || v.currentStatus === 'IN_TRANSIT_TO' ? stations.get(v.stopId) : null;
     const { latitude: lat, longitude: lon } = v.position;
     if (!stop || distanceKm(lat, lon, stop.lat, stop.lon) <= FAR_FROM_STOP_KM) return { reading: v, nextId: v.stopId, from: k };
     const moving = { ...v, currentStatus: 'IN_TRANSIT_TO' };
-    // La parada con coordenadas más cercana en el viaje, hacia atrás (-1) o hacia delante (+1).
+    const samePlace = (st) => st && distanceKm(st.lat, st.lon, stop.lat, stop.lon) <= SAME_PLACE_KM;
+    // La parada con coordenadas más cercana en el viaje, hacia atrás (-1) o hacia delante (+1), que no
+    // esté en el mismo sitio que esta.
     const near = (i, step) => {
-      for (; i >= 0 && i < stops.length; i += step) if (stations.get(stops[i])) return { i, st: stations.get(stops[i]) };
+      for (; i >= 0 && i < stops.length; i += step) {
+        const st = stations.get(stops[i]);
+        if (st && !samePlace(st)) return { i, st };
+      }
       return null;
     };
     const onLeg = (a, b) => a && b && distanceKm(a.st.lat, a.st.lon, lat, lon) + distanceKm(lat, lon, b.st.lat, b.st.lon)
@@ -504,7 +537,14 @@ export function createRenfeSources({ http, cache, stations, log }) {
     if (k >= 0) {
       const here = { i: k, st: stop };
       const after = near(k + 1, 1);
-      if (!onLeg(near(k - 1, -1), here) && onLeg(here, after)) return { reading: moving, nextId: stops[k + 1], from: k + 1 };
+      // Y ya más cerca de la siguiente que ella: sin eso, en un tramo largo, el tren que aún llega a ella
+      // también parecería entre ella y la siguiente.
+      const past = after && distanceKm(lat, lon, after.st.lat, after.st.lon) < distanceKm(stop.lat, stop.lon, after.st.lat, after.st.lon);
+      if (!onLeg(near(k - 1, -1), here) && onLeg(here, after) && past) {
+        let next = k + 1; // las del mismo sitio también han quedado atrás
+        while (next < after.i && samePlace(stations.get(stops[next]))) next++;
+        return { reading: moving, nextId: stops[next], from: next };
+      }
     }
     return { reading: moving, nextId: v.stopId, from: k };
   }

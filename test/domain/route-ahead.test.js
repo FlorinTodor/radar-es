@@ -59,3 +59,33 @@ test('la flecha sale del camino: hacia donde va por su vía', () => {
   assert.equal(headingOfPath(pathThroughStops(U, W, [[-3.70, 40.43], NE, E])), 0);
   assert.equal(headingOfPath([W]), null);
 });
+
+test('trazado cerrado (el C4 de Sevilla): el tren en su estación de origen está en los dos extremos; vale el que lleva a sus paradas', () => {
+  const ring = [W, NW, NE, E, W];
+  // A unos metros de W, más cerca del final del trazado (el tramo E → W) que del principio: antes no se
+  // dibujaba nada.
+  const at = [W[0] + 0.00002, W[1] + 0.000005];
+  const p = pathThroughStops(ring, at, [NW, NE, E, W]);
+  assert.ok(p && near(p.at(-1), W), 'da la vuelta entera hasta W');
+  assert.ok(p.some((q) => near(q, NE)) && p.some((q) => near(q, E)));
+});
+
+test('el tren parado en su estación de origen, unos metros por delante o por detrás de ella: no decide el sentido', () => {
+  // Trazado de B a A y el viaje de A a B (como el C1 de Bilbao en Santurtzi, a 2 m «por delante» de su estación).
+  const A = [-3.70, 40.40];
+  const B = [-3.60, 40.40];
+  const mid = [-3.65, 40.40];
+  for (const dx of [0.00003, -0.00003]) {
+    const p = pathThroughStops([B, mid, A], [A[0] + dx, A[1]], [A, mid, B]);
+    assert.ok(p && near(p.at(-1), B), `con el tren ${dx > 0 ? 'por delante' : 'por detrás'} de A, llega a B`);
+  }
+});
+
+test('vía de montaña: entre dos paradas el trazado da un rodeo largo, y si la parada sólo está cerca de una pasada, es la vía', () => {
+  // De X a Y hay 1,7 km en recta y 6 km por el trazado (como la rampa de Pesquera entre Bárcena y Pujayo).
+  const X = [-3.70, 40.40];
+  const Y = [-3.68, 40.40];
+  const loop = [X, [-3.70, 40.42], [-3.68, 40.42], Y];
+  const p = pathThroughStops(loop, X, [Y]);
+  assert.ok(p && near(p.at(-1), Y), 'antes se cortaba por ser mucho más largo que la recta');
+});

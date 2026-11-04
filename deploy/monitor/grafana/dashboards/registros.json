@@ -1,0 +1,211 @@
+{
+  "uid": "radar-registros",
+  "title": "Radar · Registros",
+  "description": "Registros de la web, de los despliegues y del sistema (sin IPs).",
+  "tags": [
+    "radar"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "refresh": "1m",
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Avisos y errores por minuto",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum by (contenedor) (count_over_time({origen=\"docker\", proyecto=\"radar\"} |~ \"✖|⚠\" [1m]))",
+          "refId": "J",
+          "legendFormat": "{{contenedor}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 7
+      },
+      "id": 1
+    },
+    {
+      "type": "logs",
+      "title": "Errores y avisos de la web (producción)",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{origen=\"docker\", proyecto=\"radar\"} |~ \"✖|⚠\"",
+          "refId": "K"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 24,
+        "h": 12
+      },
+      "id": 2
+    },
+    {
+      "type": "logs",
+      "title": "Despliegues (radar-actualizar y radar-pruebas)",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{origen=\"diario\", unidad=~\"radar-.+\"}",
+          "refId": "L"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 12,
+        "h": 12
+      },
+      "id": 3
+    },
+    {
+      "type": "logs",
+      "title": "Sistema (cloudflared, Docker, kernel)",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{origen=\"diario\", unidad!~\"radar-.+\"}",
+          "refId": "M"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 19,
+        "w": 12,
+        "h": 12
+      },
+      "id": 4
+    },
+    {
+      "type": "logs",
+      "title": "Todo lo de la web (producción)",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{origen=\"docker\", proyecto=\"radar\"}",
+          "refId": "N"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 24,
+        "h": 14
+      },
+      "id": 5
+    }
+  ],
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "radar"
+      ],
+      "asDropdown": false,
+      "title": "Paneles",
+      "includeVars": true,
+      "keepTime": true
+    }
+  ]
+}
