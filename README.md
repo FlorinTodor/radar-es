@@ -127,11 +127,11 @@ flowchart TB
 
 | Capa | Carpeta | Qué hay |
 |---|---|---|
-| Entrada | `adapters/inbound/` | `http/http-server.js` (API, teselas y web), `mcp/mcp.js` (servidor MCP en `POST /mcp`) y `scheduler/polling-scheduler.js` (sondeo, alertas y catálogos) |
+| Entrada | `adapters/inbound/` | `http/http-server.js` (API, teselas y web), `http/metrics-server.js` (métricas para la monitorización, en un puerto interno), `mcp/mcp.js` (servidor MCP en `POST /mcp`) y `scheduler/polling-scheduler.js` (sondeo, alertas y catálogos) |
 | Casos de uso | `application/use-cases/` | `ingest-source`, `detect-alerts`, `query-situation`, `serve-tiles`, `refresh-catalogs` y `lines-on-rail` |
 | Puertos | `application/ports.js` | los contratos que piden los casos de uso (tabla de abajo) |
 | Dominio | `domain/` | `model`, `geo`, `tracking`, `kpis`, `tiles`, `schedule`, `estimated-position`, `route-ahead`, `rail-match`, `alerts/` (`rules`, `lifecycle`, `thresholds`), `emergencias`, `lugares` y `red-aislada` |
-| Salida | `adapters/outbound/` | `sources/` (una por fuente), `stations/` (estaciones, Wikidata y Commons), `network/`, `gtfs/` y `nap/` (trazados y redes de Adif e IGN), `persistence/` (estado en memoria e histórico JSONL), `tiles/` (teselas de IGN y EFFIS), `geo/` (CartoCiudad), `workers/` (hilos de CPU), `http/` y `logging/` |
+| Salida | `adapters/outbound/` | `sources/` (una por fuente), `stations/` (estaciones, Wikidata y Commons), `network/`, `gtfs/` y `nap/` (trazados y redes de Adif e IGN), `persistence/` (estado en memoria e histórico JSONL), `tiles/` (teselas de IGN y EFFIS), `geo/` (CartoCiudad), `workers/` (hilos de CPU), `http/`, `logging/` y `metrics/` (formato de Prometheus) |
 
 - **`server/domain/`**: modelo y reglas puras. Se prueba sin red (`test/domain`).
 - **`server/application/`**: casos de uso y **puertos**, los contratos que necesitan del exterior.
@@ -185,6 +185,7 @@ Los puertos están en `server/application/ports.js`:
 | `SituationRepository` | `persistence/in-memory-situation.js` | estado actual: último dato de cada fuente, recorridos, alertas, KPIs |
 | `History` | `persistence/jsonl-history.js` | histórico de alertas y KPIs |
 | `TileProvider` | `tiles/wms-tiles.js` | teselas de IGN y EFFIS con copia en disco |
+| `Metrics` | `metrics/prometheus-metrics.js` | cuentas y tiempos para la monitorización: peticiones por ruta, mensajes MCP, lecturas de cada fuente y avisos del registro. Sin datos de quién pregunta: las rutas van sin lo que se ha pedido (`/api/stations/:code`) |
 | `Geocoder` | `geo/cartociudad-geocoder.js` | situar el municipio que cita un aviso del 112 (no traen coordenadas) y poner el municipio a los terremotos del EMSC en España. Lo usan esas fuentes, no los casos de uso: su contrato está en el propio adaptador |
 
 `Clock` (la hora, para poder simularla en los tests) y `Logger` (el registro) también son puertos.
@@ -743,6 +744,9 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   ([DemboNauta](https://github.com/DemboNauta)) en la PR #1.
 
 **Rendimiento y fiabilidad**
+- Monitorización privada del servidor, con avisos por Telegram si algo falla: si la web, la API y el
+  servidor MCP responden, el tráfico y los errores por ruta, el uso de cada herramienta MCP, el estado
+  de cada fuente, la memoria y los registros. Sólo cuenta, sin guardar quién pregunta.
 - Directo servido desde caché, preparado para picos de muchas visitas a la vez.
 - Respuestas de la API calculadas una sola vez y compartidas entre todas las visitas.
 - Arranque sin bloquear el servidor mientras carga los horarios de más de cien redes, y menos
@@ -907,8 +911,7 @@ Ninguna por ahora.
 - Guía para quien quiera proponer cambios.
 - Servidor MCP:
   - publicarlo en el registro oficial de servidores MCP, para que los asistentes lo encuentren solos;
-  - el esquema de lo que devuelve cada herramienta (`outputSchema`), para que el cliente lo compruebe;
-  - contar cuántas llamadas recibe cada herramienta, sin guardar quién las hace.
+  - el esquema de lo que devuelve cada herramienta (`outputSchema`), para que el cliente lo compruebe.
 - Cortes de luz en el resto de España:
   - Baleares: Red Eléctrica sólo publica en tiempo real su demanda programada, no la real, así que su
     apagón no se puede detectar como el de las islas de Canarias, Ceuta o Melilla;

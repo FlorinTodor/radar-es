@@ -99,6 +99,50 @@ El resultado de pruebas está en su `.estado`, y los registros de los dos tempor
 desplegado. `deploy/actualizar.sh --forzar` despliega aunque no haya pasado pruebas: sólo para
 urgencias.
 
+## Monitorización
+
+`monitor.radarespaña.es` es la monitorización del VPS. Sólo puede entrar el administrador: va detrás
+de Cloudflare Access (código por correo), y Grafana sólo acepta la firma que Access añade a cada
+petición, sin usuario ni contraseña propios. Avisa por Telegram cuando algo falla y cuando se resuelve.
+
+```mermaid
+flowchart LR
+  web["radar y<br/>radar-b"] -->|"/metrics"| alloy["Alloy"]
+  vps["VPS y<br/>diario"] --> alloy
+  fuera["comprobar<br/>desde fuera"] --> alloy
+  alloy --> prom[("Prometheus<br/>30 días")]
+  alloy --> loki[("Loki<br/>14 días")]
+  prom --> graf["Grafana"]
+  loki --> graf
+  graf -->|"alertas"| tg(["Telegram"])
+```
+
+- **La web** da sus métricas en `/metrics` de otro puerto (`METRICS_PORT`), dentro de la red de
+  Docker y sin publicar: ni nginx ni el túnel llegan a él. Cuenta las peticiones por ruta (sin lo que
+  se ha pedido: `/api/stations/:code`), los mensajes del servidor MCP por método, herramienta y
+  resultado, las lecturas de cada fuente, los avisos del registro, y la memoria del contenedor y del
+  proceso. Nada de quién pregunta.
+- **Alloy** recoge eso, las métricas del VPS (CPU, memoria, disco, red), los registros de los
+  contenedores y del diario del sistema (despliegues, `cloudflared`, Docker, kernel) y comprueba cada
+  minuto, por Cloudflare, la portada, `/api/health`, `/mcp` y que `radarespana.es` redirija con 308.
+  También mira `/api/health` desde dentro, para distinguir un fallo del servidor de uno del camino.
+  Los registros se guardan sin IPs. Lee Docker a través de un proxy que sólo deja consultar.
+- **Grafana** tiene cinco paneles (General, API y MCP, Fuentes, Servidor, Registros) y las alertas:
+  web, API o MCP sin responder, la redirección sin ñ, ningún contenedor de producción con métricas,
+  una fuente sin datos buenos en tres lecturas, memoria del contenedor, errores 500 o en el registro,
+  el servidor a tirones, un despliegue fallido, un proceso matado por memoria, disco o RAM del VPS, y
+  la propia monitorización sin datos.
+
+Todo está en [`deploy/monitor/`](../deploy/monitor/): el compose, la configuración, los paneles y
+las alertas, que se generan con un script y se guardan aquí (lo que se cambie a mano en Grafana no
+se guarda). Los secretos (el bot de Telegram) y los datos de Access van en `/opt/radar-monitor/.env`,
+sólo en el VPS ([`.env.ejemplo`](../deploy/monitor/.env.ejemplo)).
+
+Se instala y se actualiza con `deploy/preparar-monitor.sh` desde la copia de producción
+(`bash /opt/radar/deploy/preparar-monitor.sh`). La primera vez, con `--tunel`, añade
+`monitor.radarespaña.es` al túnel y crea su DNS; antes tiene que existir la aplicación de Access.
+Un monitor externo (UptimeRobot) sigue avisando si se cae el VPS entero, con la monitorización dentro.
+
 ## Entorno de pruebas, secretos y servidor
 
 - **Pruebas** se monta con `deploy/preparar-pruebas.sh` y no está abierto al público.
