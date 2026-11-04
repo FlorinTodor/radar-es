@@ -1,5 +1,6 @@
 // DGT: incidencias de tráfico activas en carreteras (DATEX II v3.7, Punto de Acceso
 // Nacional de Tráfico). ~1.000 situaciones y ~4 MB de XML: se lee cada 5 minutos.
+import { roadExpires } from '../../../domain/carreteras.js';
 import { arr, findKey, lookup, num, text, xmlParser } from './parse.js';
 
 const URL_DGT = 'https://nap.dgt.es/datex2/v3/dgt/SituationPublication/datex2_v37.xml';
@@ -33,13 +34,18 @@ function locate(record) {
   };
 }
 
+const time = (value) => Date.parse(text(value)) || null;
+
 /**
  * Incidencias de un documento DATEX II de la DGT. Analizar sus ~4 MB de XML bloquea el hilo medio
  * segundo: es una función pura para poder hacerlo en un hilo de cálculo (workers/tasks.js).
+ * La mayoría de las obras traen su fin previsto: la que lo ha pasado deja de mostrarse aunque la DGT
+ * la siga publicando (el 4-nov, seis; dos de la N-332 acabaron 44 días antes).
  * @param {string} xml
+ * @param {number} seen  Epoch ms de la lectura (ver domain/carreteras.js).
  * @returns {import('../../../domain/model.js').SourceResult}
  */
-export function parseDgt(xml) {
+export function parseDgt(xml, seen) {
   const doc = xmlParser.parse(xml).payload ?? {};
   const events = [];
   for (const sit of arr(doc.situation)) {
@@ -53,6 +59,7 @@ export function parseDgt(xml) {
       const km = num(text(findKey(loc?.tpegLinearLocation?.from ?? loc, 'kilometerPoint')));
       const place = [text(findKey(loc, 'municipality')), text(findKey(loc, 'province'))].filter(Boolean).join(', ');
       const closed = text(r.roadOrCarriagewayOrLaneManagementType) === 'roadClosed';
+      const end = time(findKey(r.validity, 'overallEndTime'));
       events.push({
         id: `dgt:${r['@_id'] ?? sit['@_id']}`,
         category: 'carretera',
@@ -66,7 +73,10 @@ export function parseDgt(xml) {
         lon: from.lon,
         lat2: to?.lat ?? null,
         lon2: to?.lon ?? null,
-        start: Date.parse(text(findKey(r.validity, 'overallStartTime'))) || null,
+        start: time(findKey(r.validity, 'overallStartTime')),
+        end,
+        updated: time(r.situationRecordVersionTime),
+        expires: roadExpires(end, seen),
       });
     }
   }
@@ -75,10 +85,10 @@ export function parseDgt(xml) {
 }
 
 /**
- * @param {{ http: import('../http/http-client.js').HttpClient, pool?: import('../workers/cpu-pool.js').CpuPool }} deps
+ * @param {{ http: import('../http/http-client.js').HttpClient, pool?: import('../workers/cpu-pool.js').CpuPool, now?: () => number }} deps
  *   pool: hilos de cálculo para analizar el XML; sin él, en el hilo principal.
  */
-export function createDgtSource({ http, pool }) {
+export function createDgtSource({ http, pool, now = Date.now }) {
   return {
     id: 'dgt',
     name: 'DGT incidencias de tráfico (DATEX II)',
@@ -88,7 +98,7 @@ export function createDgtSource({ http, pool }) {
     license: 'Fuente: DGT (Punto de Acceso Nacional de Tráfico y Movilidad, nap.dgt.es) · Creative Commons Attribution',
     async fetch() {
       const xml = await http.text(URL_DGT, { timeout: 60_000 });
-      return pool ? pool.run('dgt', [xml]) : parseDgt(xml);
+      return pool ? pool.run('dgt', [xml, now()]) : parseDgt(xml, now());
     },
   };
 }

@@ -1,16 +1,15 @@
-// EMSC-CSEM SeismicPortal (servicio FDSN event): terremotos de magnitud 1,5 o más de los últimos 10
+// EMSC-CSEM SeismicPortal (servicio FDSN event): terremotos de magnitud 1,5 o más de los dos últimos
 // días en España y sus alrededores. El RSS del IGN sólo trae los de magnitud 2,6 o más; los pequeños
 // (como un enjambre sísmico en Granada) llegan por aquí, la mayoría localizados por el propio IGN.
 // Son de respaldo: si el IGN publica el mismo terremoto, se queda el del IGN (domain/sismos.js).
 // El EMSC sólo dice la región («SPAIN»): el municipio lo pone CartoCiudad (como los del IGN, «Dílar»).
 // Licencia CC BY 4.0 (seismicportal.eu/terms.html), con el crédito «EMSC-CSEM SeismicPortal».
 import { SPAIN_BOUNDS, inBounds, widenBounds } from '../../../domain/geo.js';
-import { quakeSeverity } from '../../../domain/sismos.js';
+import { QUAKE_SHOWN_HOURS, quakeExpires, quakeSeverity } from '../../../domain/sismos.js';
 import { lookup, num } from './parse.js';
 
 const BASE = 'https://www.seismicportal.eu/fdsnws/event/1/query';
 const PAGE = 'https://www.seismicportal.eu';
-const DAYS = 10; // los mismos que el RSS del IGN
 const MIN_MAGNITUDE = 1.5; // la misma que la lista de últimos terremotos de la web del IGN
 const [WEST, SOUTH, EAST, NORTH] = widenBounds(SPAIN_BOUNDS, 1);
 
@@ -80,14 +79,15 @@ export function createEmscSismosSource({ http, now = Date.now, geocoder }) {
 
   return {
     id: 'emsc-sismos',
-    name: 'EMSC: terremotos pequeños (magnitud 1,5 o más, últimos 10 días)',
+    name: 'EMSC: terremotos pequeños (magnitud 1,5 o más, últimos 2 días)',
     kind: 'events',
     interval: 300_000,
     url: BASE,
     page: PAGE,
     license: 'Credit: EMSC-CSEM SeismicPortal, https://www.seismicportal.eu · CC BY 4.0 · La mayoría, localizados por el Instituto Geográfico Nacional (IGN). Datos preliminares',
     async fetch() {
-      const start = new Date(now() - DAYS * 86_400_000).toISOString().slice(0, 19);
+      // Sólo los que se muestran (domain/sismos.js).
+      const start = new Date(now() - QUAKE_SHOWN_HOURS * 3600_000).toISOString().slice(0, 19);
       const url = `${BASE}?format=json&starttime=${start}&minmag=${MIN_MAGNITUDE}`
         + `&minlat=${SOUTH}&maxlat=${NORTH}&minlon=${WEST}&maxlon=${EAST}&limit=1000`;
       const doc = await http.json(url, { timeout: 30_000 });
@@ -122,6 +122,7 @@ export function createEmscSismosSource({ http, now = Date.now, geocoder }) {
           lat,
           lon,
           start,
+          expires: quakeExpires(start),
           url: `${PAGE}/eventdetails.html?unid=${unid}`,
           backup: true,
         };

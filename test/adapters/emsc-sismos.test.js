@@ -19,13 +19,13 @@ const DOC = {
   ],
 };
 
-test('EMSC: los terremotos pequeños de los últimos 10 días, en español y marcados de respaldo; sin voladuras ni datos rotos', async () => {
+test('EMSC: los terremotos pequeños de los dos últimos días, en español y marcados de respaldo; sin voladuras ni datos rotos', async () => {
   let asked = null;
   const http = { json: async (url) => { asked = url; return DOC; } };
   const { events } = await createEmscSismosSource({ http, now: () => NOW }).fetch();
 
   const q = new URL(asked);
-  assert.equal(q.searchParams.get('starttime'), '2026-10-25T12:00:00', 'los mismos 10 días que el RSS del IGN');
+  assert.equal(q.searchParams.get('starttime'), '2026-11-02T12:00:00', 'los dos días que se muestran');
   assert.equal(q.searchParams.get('minmag'), '1.5');
   assert.equal(q.searchParams.get('format'), 'json');
 

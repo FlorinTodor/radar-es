@@ -1,5 +1,6 @@
-// Instituto Geográfico Nacional: terremotos de los últimos 10 días (GeoRSS). Sin clave.
-import { quakeSeverity } from '../../../domain/sismos.js';
+// Instituto Geográfico Nacional: terremotos (GeoRSS de los últimos 10 días; se muestran los de los dos
+// últimos, ver domain/sismos.js). Sin clave.
+import { quakeExpires, quakeSeverity } from '../../../domain/sismos.js';
 import { arr, num, text, xmlParser } from './parse.js';
 
 // "Se ha producido un terremoto de magnitud 2.6 en NE SIDI SLIMANE.MAC en la fecha 30/10/2026 1:26:27 en la siguiente localización: ..."
@@ -9,7 +10,7 @@ const DESCRIPTION = /magnitud\s+([\d.]+)\s+en\s+(.+?)\s+en la fecha\s+(\d+)\/(\d
 export function createIgnSismosSource({ http }) {
   return {
     id: 'ign-sismos',
-    name: 'IGN terremotos (últimos 10 días)',
+    name: 'IGN terremotos (últimos 2 días)',
     kind: 'events',
     interval: 180_000,
     url: 'https://www.ign.es/ign/RssTools/sismologia.xml',
@@ -38,6 +39,7 @@ export function createIgnSismosSource({ http }) {
           lat,
           lon,
           start: time,
+          expires: quakeExpires(time),
           url: text(it.link),
         });
       }
