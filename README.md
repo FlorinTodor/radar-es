@@ -85,10 +85,12 @@ abajo, detrás de un puerto:
 ```mermaid
 flowchart TB
   nav(["navegador"])
+  ia(["asistente de IA"])
   reloj(["reloj"])
 
   subgraph IN["entrada · adapters/inbound"]
     http["API HTTP"]
+    mcp["servidor MCP"]
     sched["planificador"]
   end
 
@@ -109,8 +111,10 @@ flowchart TB
   disk[("data/")]
 
   nav --> http
+  ia --> mcp
   reloj --> sched
   http --> uc
+  mcp --> uc
   sched --> uc
   uc --> dom
   uc --> ports
@@ -121,7 +125,7 @@ flowchart TB
 
 | Capa | Carpeta | Qué hay |
 |---|---|---|
-| Entrada | `adapters/inbound/` | `http/http-server.js` (API, teselas y web) y `scheduler/polling-scheduler.js` (sondeo, alertas y catálogos) |
+| Entrada | `adapters/inbound/` | `http/http-server.js` (API, teselas y web), `mcp/mcp.js` (servidor MCP en `POST /mcp`) y `scheduler/polling-scheduler.js` (sondeo, alertas y catálogos) |
 | Casos de uso | `application/use-cases/` | `ingest-source`, `detect-alerts`, `query-situation`, `serve-tiles`, `refresh-catalogs` y `lines-on-rail` |
 | Puertos | `application/ports.js` | los contratos que piden los casos de uso (tabla de abajo) |
 | Dominio | `domain/` | `model`, `geo`, `tracking`, `kpis`, `tiles`, `schedule`, `estimated-position`, `route-ahead`, `rail-match`, `alerts/` (`rules`, `lifecycle`, `thresholds`), `emergencias`, `lugares` y `red-aislada` |
@@ -381,6 +385,34 @@ Lo que no se puede dibujar por falta de datos públicos:
 
 Las alertas y los KPIs por minuto se guardan en `data/history/*.jsonl` para analizarlos
 después (con jq, DuckDB o pandas).
+
+### Servidor MCP
+
+`POST /mcp` es un servidor [MCP](https://modelcontextprotocol.io) (Model Context Protocol): un
+asistente de IA (Claude, ChatGPT, Cursor…) se conecta con la dirección `https://radarespaña.es/mcp` y
+consulta el directo con herramientas de sólo lectura. HTTP «streamable» sin sesiones ni SSE: cada POST
+es un mensaje JSON-RPC completo (`server/adapters/inbound/mcp/mcp.js`).
+
+| Herramienta | Qué devuelve |
+|---|---|
+| `buscar_trenes` | vehículos por texto (número, línea, estación, ciudad, operador), tipo y retraso mínimo |
+| `buscar_estaciones` | estaciones por nombre, población o provincia, con su código |
+| `estacion` | ficha de una estación: trenes parados, los que van hacia ella y avisos de Renfe |
+| `incidencias` | incidencias por categoría, texto y gravedad (las obras en carretera, sólo si se piden) |
+| `alertas` | alertas activas |
+| `resumen` | vehículos por tipo, retrasos, alertas, fuentes funcionando y demanda eléctrica |
+| `estado_fuentes` | estado, licencia y atribución de cada fuente |
+
+Cada resultado lleva la atribución de las fuentes de lo que devuelve (`sources`), la hora de los datos
+y el aviso de que la web no es oficial. Los POST no los guarda Cloudflare, así que cada herramienta
+guarda su respuesta unos segundos según sus argumentos (5 s los vehículos, las alertas y el resumen;
+15 s las incidencias y las fuentes; 10 s una estación; 10 min la búsqueda de estaciones) y sólo lo que
+hay que calcular gasta su presupuesto propio (5 por segundo de media, ráfagas de 30, 429 al pasarse).
+
+```bash
+curl -s https://radarespaña.es/mcp -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"buscar_trenes","arguments":{"text":"AVE Valencia"}}}'
+```
 
 ## Pendiente y conocido
 

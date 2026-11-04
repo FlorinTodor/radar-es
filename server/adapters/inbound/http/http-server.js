@@ -9,6 +9,7 @@ import { extname, join, resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { isStationCode } from '../../../domain/model.js';
+import { McpBusy, PROTOCOL_VERSIONS } from '../mcp/mcp.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -22,11 +23,13 @@ const MIME = {
  * @param {{ query: ReturnType<typeof import('../../../application/use-cases/query-situation.js').makeQuerySituation>,
  *           serveTiles?: ReturnType<typeof import('../../../application/use-cases/serve-tiles.js').makeServeTiles>,
  *           log: import('../../../application/ports.js').LoggerPort,
- *           publicDir: string, vendorDirs: Record<string, string>, about?: object, now?: () => number }} deps
+ *           publicDir: string, vendorDirs: Record<string, string>, about?: object, now?: () => number,
+ *           mcp?: ReturnType<typeof import('../mcp/mcp.js').createMcpHandler> }} deps
  *   now: reloj de los memos y de los presupuestos de cálculo (los tests lo fijan: no pueden depender de
  *   lo rápida que sea la máquina).
+ *   mcp: quien atiende los mensajes del servidor MCP en POST /mcp; sin él, /mcp no existe.
  */
-export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs, about = {}, now = Date.now }) {
+export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs, about = {}, now = Date.now, mcp }) {
   // Todas las respuestas JSON se calculan, comprimen y firman (ETag) como mucho una vez cada `ttl`,
   // así que pedirlas mil veces cuesta lo mismo que pedirlas una. Sin esto, /api/lines (1 MB)
   // saturaba un núcleo con unas 20 peticiones por segundo. `key` separa las variantes por parámetros.
@@ -79,6 +82,10 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
   // el mismo vehículo antes de TRAIN_TTL_MS recibe la copia, sin gastar nada.
   const memoTrains = createJsonMemo({ max: TRAIN_MEMO_MAX, maxBytes: TRAIN_MEMO_BYTES, now });
   const trainBudget = createBudget({ perSecond: TRAIN_BUDGET.perSecond, burst: TRAIN_BUDGET.burst, now });
+  // Cada mensaje MCP es un POST, que Cloudflare no guarda: todos llegan al servidor y algunas
+  // herramientas recorren todos los vehículos. Presupuesto propio, para que no le quiten sitio al mapa;
+  // sólo lo gasta lo que hay que calcular (el adaptador MCP guarda unos segundos cada respuesta).
+  const mcpBudget = createBudget({ perSecond: MCP_BUDGET.perSecond, burst: MCP_BUDGET.burst, now });
 
   const security = Object.entries(securityHeaders(about));
   // El aviso legal lleva el titular y el contacto (de .env) en el propio HTML: la LSSI pide que estén
@@ -94,6 +101,8 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
       if (canonical && req.headers.host?.toLowerCase() === `www.${canonical.host}`) {
         return redirect(res, `${canonical.origin}${url.pathname}${url.search}`);
       }
+      // El servidor MCP es lo único que acepta POST.
+      if (url.pathname === '/mcp' && mcp) return await sendMcp(req, res);
       if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'Método no permitido' });
       // La API y las teselas no son páginas: fuera de los resultados de búsqueda.
       if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/tiles/')) res.setHeader('X-Robots-Tag', 'noindex');
@@ -204,6 +213,47 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     res.end(req.method === 'HEAD' ? undefined : zipped ? entry.gz : entry.json);
   }
 
+  /**
+   * POST /mcp: un mensaje JSON-RPC del protocolo MCP, por HTTP «streamable» sin sesiones ni SSE (el
+   * servidor no manda nada por su cuenta, así que GET y DELETE no tienen uso: 405). Una notificación
+   * no lleva respuesta: 202 vacío. Los datos son públicos y no hay cookies ni cuentas que proteger: no
+   * se filtra por Origin, y sin cabeceras CORS una web ajena tampoco puede leer la respuesta.
+   */
+  async function sendMcp(req, res) {
+    res.setHeader('X-Robots-Tag', 'noindex');
+    res.setHeader('Cache-Control', 'no-store');
+    if (req.method !== 'POST') {
+      res.setHeader('Allow', 'POST');
+      return send(res, 405, { error: 'El servidor MCP sólo acepta POST' });
+    }
+    const version = req.headers['mcp-protocol-version'];
+    if (version !== undefined && !PROTOCOL_VERSIONS.includes(version)) {
+      return send(res, 400, rpcFailure(-32600, `Versión del protocolo MCP no admitida: ${version}`));
+    }
+    if (!/^application\/json\b/i.test(req.headers['content-type'] ?? '')) return send(res, 415, rpcFailure(-32700, 'Se espera application/json'));
+    const body = await readBody(req, MCP_MAX_BODY);
+    if (body === null) return send(res, 413, rpcFailure(-32600, 'Mensaje demasiado grande'));
+    let message;
+    try {
+      message = JSON.parse(body);
+    } catch {
+      return send(res, 400, rpcFailure(-32700, 'JSON no válido'));
+    }
+    let reply;
+    try {
+      reply = mcp(message, { budget: mcpBudget });
+    } catch (err) {
+      if (!(err instanceof McpBusy)) throw err;
+      res.setHeader('Retry-After', '2');
+      return send(res, 429, { jsonrpc: '2.0', id: message?.id ?? null, error: { code: -32000, message: 'Demasiadas consultas a la vez; prueba dentro de un momento' } });
+    }
+    if (reply === null) {
+      res.writeHead(202);
+      return res.end();
+    }
+    return sendJson(req, res, 200, reply);
+  }
+
   /** /tiles/<capa>/<z>/<x>/<y>.png → tesela de IGN o EFFIS (con copia en disco). */
   async function sendTile(res, path) {
     const m = /^\/tiles\/([a-z-]+)\/(\d{1,2})\/(\d{1,7})\/(\d{1,7})\.png$/.exec(path);
@@ -253,6 +303,9 @@ const TRAIN_MEMO_MAX = 2_000; // más que todos los vehículos que puede haber a
 const TRAIN_MEMO_BYTES = 32 * 1024 * 1024;
 const PARAMS_MEMO_BYTES = 48 * 1024 * 1024;
 const TRAIN_BUDGET = { perSecond: 4, burst: 20 };
+// Cálculos de herramientas MCP (las respuestas guardadas no cuentan): un asistente hace una o dos por pregunta.
+const MCP_BUDGET = { perSecond: 5, burst: 30 };
+const MCP_MAX_BODY = 64 * 1024; // los mensajes de un cliente MCP ocupan pocos cientos de bytes
 // Los ids de vehículo llevan el trip_id de su operador (los más largos, unos 80 caracteres). Más de esto
 // no es un vehículo: así nadie llena el memo con claves enormes.
 const MAX_VEHICLE_ID = 256;
@@ -379,6 +432,24 @@ function decodeOrNull(text) {
   }
 }
 
+/**
+ * Cuerpo de la petición como texto; null si pasa de `max` bytes. Lo que sobra se lee y se tira, sin
+ * guardarlo, para poder contestar 413 por la misma conexión.
+ */
+function readBody(req, max) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size <= max) chunks.push(chunk);
+    });
+    req.on('end', () => resolve(size > max ? null : Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+/** Error JSON-RPC sin petición a la que responder (el mensaje no se pudo leer). */
+const rpcFailure = (code, message) => ({ jsonrpc: '2.0', id: null, error: { code, message } });
 function send(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(body));
