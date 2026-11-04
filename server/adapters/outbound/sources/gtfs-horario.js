@@ -5,7 +5,9 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { decodeFeed } from './gtfs-rt.js';
-import { activeFrequencyOffsets, buildShape, pointAlong, serviceRuns, stopsAlongShape } from '../../../domain/schedule.js';
+import {
+  SCHEDULE_ENDING_DAYS, activeFrequencyOffsets, buildShape, daysLeft, isoDay, pointAlong, serviceRuns, stopsAlongShape,
+} from '../../../domain/schedule.js';
 import { refineToRail } from '../../../domain/rail-match.js';
 import { estimatePosition } from '../../../domain/estimated-position.js';
 import { round5 } from '../../../domain/geo.js';
@@ -116,7 +118,7 @@ function stretch(shape, from, to) {
  * @typedef {{ ficheroId: number, dataset: number, operator: string, credit?: string, excludeAgency?: RegExp, excludeRoute?: RegExp }} Feed
  * @returns {import('../../../application/ports.js').DataSourcePort}
  */
-export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlinePool, railGeometry = null }, options) {
+export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlinePool, railGeometry = null, now: clock = () => Date.now() }, options) {
   const { id, name, mode, tripUpdatesUrl, interval = 30_000 } = options;
   const feeds = options.feeds ?? [{ ficheroId: options.ficheroId, dataset: options.dataset, operator: options.operator }];
   const loaded = new Map(); // índice del fichero → { schedule, updatedAt }
@@ -134,6 +136,31 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
     + `Posición estimada a partir del horario (dato explotado, no GPS)${viaCredit}`;
   const feedCredit = (f) => f.credit ?? f.operator;
   let refineBudget = REFINE_PER_READ; // trazados que aún se pueden rehacer en esta lectura
+  const warnedEnding = new Set(); // 'fichero|último día' de los horarios que ya se ha avisado de que se acaban
+
+  /**
+   * Hasta cuándo vale el horario (en un grupo, el primero que se acaba y de qué operador). Si le quedan
+   * SCHEDULE_ENDING_DAYS días o menos, se avisa una vez en el registro: cuando caduca, sus vehículos dejan
+   * de salir sin que nada falle (le pasó a Metro de Madrid en mayo de 2026).
+   */
+  function validity() {
+    const today = madridServiceDay(clock(), 0).ymd;
+    let until = null;
+    let of = null;
+    for (const [fi, { schedule }] of loaded) {
+      const v = schedule.validUntil;
+      if (!v) continue;
+      if (!until || v < until) { until = v; of = feeds[fi].operator; }
+      const left = daysLeft(v, today);
+      if (left <= SCHEDULE_ENDING_DAYS && !warnedEnding.has(`${fi}|${v}`)) {
+        warnedEnding.add(`${fi}|${v}`);
+        const when = left < 0 ? 'ya ha caducado' : left === 0 ? 'hoy es su último día' : `quedan ${left} días`;
+        log?.warn(`[${id}] ${feeds[fi].operator}: su horario vale hasta el ${v.slice(6, 8)}/${v.slice(4, 6)}/${v.slice(0, 4)} (${when}); `
+          + 'si el NAP no publica otro, sus vehículos dejarán de salir');
+      }
+    }
+    return { until, of };
+  }
 
   /**
    * Trazado del viaje y distancia de cada parada sobre él (se calcula una vez por viaje, sólo para los que
@@ -350,8 +377,11 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
           if (updatedAt && updatedAt > (byOperator[op] ?? 0)) byOperator[op] = updatedAt;
         }
       }
+      const valid = validity();
       return {
         vehicles,
+        datasetValidUntil: isoDay(valid.until),
+        ...(feeds.length > 1 && valid.of ? { datasetValidUntilOf: valid.of } : {}),
         datasetUpdated: dates.length ? Math.max(...dates) : null,
         datasetUpdatedFrom: dates.length > 1 ? Math.min(...dates) : null,
         ...(feeds.length > 1 ? { datasetUpdatedBy: byOperator } : {}),

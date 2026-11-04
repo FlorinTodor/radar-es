@@ -52,11 +52,39 @@ export function timeAgo(ms, now = Date.now()) {
 
 const timeFmt = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit' });
 const dateTimeFmt = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+const dateTimeYearFmt = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const yearFmt = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', year: 'numeric' });
 export const fmtTime = (ms) => (ms ? timeFmt.format(ms) : '—');
-export const fmtDateTime = (ms) => (ms ? dateTimeFmt.format(ms) : '—');
+/**
+ * «03/11, 09:22» o, si no es de este año, «22/12/2025, 08:20»: sin el año, una fecha del año pasado
+ * parece de dentro de unas semanas (los horarios del NAP se publican a veces una vez al año).
+ */
+export const fmtDateTime = (ms, now = Date.now()) => {
+  if (!ms) return '—';
+  return (yearFmt.format(ms) === yearFmt.format(now) ? dateTimeFmt : dateTimeYearFmt).format(ms);
+};
 const dateFmt = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', year: 'numeric' });
 export const fmtDate = (ms) => (ms ? dateFmt.format(ms) : '—');
 const dayFmt = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Madrid' }); // «2026-11-02»: el día en Madrid
+
+// Con cuántos días de antelación se resalta que un horario se acaba (la misma que el aviso del servidor).
+const ENDING_DAYS = 14;
+
+/**
+ * Hasta cuándo vale un horario ('YYYY-MM-DD', el último día con servicio): el texto y, si le quedan
+ * ENDING_DAYS días o menos o ya ha caducado, el aviso. Desde el día siguiente sus vehículos dejan de salir.
+ * @returns {{ text: string, warn: string|null, expired: boolean } | null}
+ */
+export function scheduleValidity(validUntil, now = Date.now()) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(validUntil ?? '');
+  if (!m) return null;
+  const [y, mo, d] = dayFmt.format(now).split('-').map(Number);
+  const left = Math.round((Date.UTC(+m[1], +m[2] - 1, +m[3]) - Date.UTC(y, mo - 1, d)) / 86_400_000);
+  const text = `válido hasta el ${m[3]}/${m[2]}/${m[1]}`;
+  if (left < 0) return { text, warn: 'horario caducado', expired: true };
+  if (left > ENDING_DAYS) return { text, warn: null, expired: false };
+  return { text, warn: left === 0 ? 'hoy es su último día' : left === 1 ? 'caduca mañana' : `caduca en ${left} días`, expired: false };
+}
 
 /**
  * Cuándo es un dato: «de las 14:12» si es de hoy (en Madrid) y «del 01/11/2026 a las 14:12» si no.

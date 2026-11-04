@@ -249,7 +249,7 @@ Todas son públicas. Las marcadas con 🔑 necesitan una clave gratuita: casi to
 | SOS Rioja 112 (RSS) | averías del suministro eléctrico por pueblo y cuándo vuelve la luz | 10 min |
 | 112 Castilla y León (RSS de última hora) | cortes de luz por localidad | 3 min |
 | Govern de les Illes Balears (RSS de la sala de prensa, CC BY) | alertas y emergencias por isla y su fin, cortes de luz | 15 min |
-| Comunidad de Madrid (RSS «Últimas noticias», aviso legal del portal) | planes de emergencia con nombre (PLATERCAM…) y cortes de luz de sus notas de prensa | 15 min |
+| Comunidad de Madrid (RSS «Últimas noticias», aviso legal del portal) | **en pausa**: su web no responde a nuestro servidor (ver *Pendiente y conocido*); sus planes con nombre (PLATERCAM…) y cortes de luz | 15 min |
 | Región de Murcia (noticias de la CARM, datos abiertos) | planes de emergencia con nombre (PLATEMUR…) y cortes de luz de sus noticias | 15 min |
 | Gobierno de Cantabria (RSS de notas de prensa, CC BY 3.0 ES) | planes de emergencia con nombre (PLATERCANT…) y cortes de luz; solo el día, sin hora | 15 min |
 | Xunta de Galicia (RSS de notas de prensa: Emergencias y todas) | PLATERGA, alertas por nivel por provincia y cortes de luz | 10 min |
@@ -298,7 +298,7 @@ oficial.
 | Comunitat Valenciana | ❌ | Solo el general de la península | No se ha encontrado ningún canal: el 112 no tiene RSS conocido, la app usa una API interna y el catálogo de dades obertes no tiene avisos. Su robots.txt solo cierra el paso a una lista de robots con nombre (los de IA entre ellos), no a cualquier programa: falta mirar a mano si la sala de prensa (comunica.gva.es) tiene RSS y qué dice su aviso legal |
 | Extremadura | ❌ | Solo el general de la península | Su aviso legal prohíbe reproducir los contenidos sin autorización expresa y no tiene RSS |
 | Galicia | ✅ PLATERGA y alertas por nivel por provincia, y cortes de luz, de las notas de prensa de la Xunta | Solo el general de la península | RSS de notas de prensa de la Xunta (aviso legal del portal: reutilización citando la fuente). Solo cuentan los grandes sucesos. El 112 (AXEGA) exige autorización por escrito y no se usa |
-| Madrid | ✅ Planes con nombre (PLATERCAM…) y cortes de luz de las notas de prensa | Solo el general de la península | RSS «Últimas noticias» de comunidad.madrid (aviso legal: sin alterar, con la fuente y la fecha de extracción). La ASEM 112 no tiene canal propio. Solo cuentan los grandes sucesos |
+| Madrid | ⏸ En pausa: la web de la Comunidad de Madrid responde con un error a todo lo que se le pide desde nuestro servidor (desde otras redes funciona). Se le pide acceso; mientras tanto no se muestran sus planes ni sus cortes de luz | Solo el general de la península | RSS «Últimas noticias» de comunidad.madrid (aviso legal: sin alterar, con la fuente y la fecha de extracción). La ASEM 112 no tiene canal propio. Solo cuentan los grandes sucesos |
 | Región de Murcia | ✅ Planes con nombre (PLATEMUR, INUNMUR…) y cortes de luz de las noticias de la CARM | Solo el general de la península | Conjunto «Noticias de la CARM en los últimos 7 días» de datos abiertos. Sin ubicación: los planes van al centro de la región. La web del 112 y carm.es bloquean los programas automáticos, así que no se usan |
 | Navarra | ❌ | Solo el general de la península | Su ley permite reutilizar sin autorización (Ley Foral 5/2018, art. 16.4), pero no hay ningún canal: ni RSS ni conjunto de datos abiertos de SOS Navarra o de protección civil |
 | País Vasco | ✅ Planes con nombre (LABI, ITSASERTZA…) por territorio histórico y cortes de luz de las noticias de Seguridad | Solo el general de la península | RSS del Departamento de Seguridad en Irekia (conjunto de Open Data Euskadi, CC BY 4.0). Solo cuentan los grandes sucesos; SOS Deiak 112 no publica sus avisos en abierto |
@@ -373,7 +373,7 @@ Lo que no se puede dibujar por falta de datos públicos:
 | `GET /api/stations/:código` | ficha de una estación (trenes, avisos, líneas, conexiones, datos y foto) |
 | `GET /api/lines` | trazados de las líneas (GeoJSON) |
 | `GET /api/trails?min=15` | estela de cada tren en los últimos 15, 30 o 45 minutos (GeoJSON) |
-| `GET /api/health`, `/api/kpis`, `/api/metrics`, `/api/stations` | salud de fuentes (con su licencia y su fecha de actualización), KPIs, métricas y estaciones |
+| `GET /api/health`, `/api/kpis`, `/api/metrics`, `/api/stations` | salud de fuentes (con su licencia, su fecha de actualización y hasta cuándo vale su horario), KPIs, métricas y estaciones |
 | `GET /api/burnt-areas?bbox=…` | ficha de las áreas quemadas (EFFIS) bajo un punto del mapa |
 | `GET /tiles/<capa>/<z>/<x>/<y>.png` | teselas de la red ferroviaria (IGN) y de las áreas quemadas (EFFIS) |
 | `GET /api/about` | titular y contacto para el aviso legal |
@@ -396,6 +396,9 @@ después (con jq, DuckDB o pandas).
   posiciones de los autobuses de EMT Madrid: el NAP no las publica y su horario va por frecuencias
   (estimarlas con él da cifras irreales). Su API sí las da, con nuestra aplicación de MobilityLabs,
   cuando EMT la apruebe (está pendiente de moderación).
+- **Comunidad de Madrid (avisos de emergencia)**: su web responde con un error (404) a todo lo que se le
+  pide desde la red de nuestro servidor, también a la portada, aunque desde otras redes funciona. No se
+  esquiva el bloqueo: la fuente está en pausa y se pide acceso ([`docs/solicitudes/`](docs/solicitudes/)).
 - **Metro de Madrid**: solo publica tiempos de llegada, y su horario del NAP caducó en mayo de 2026;
   sin un horario vigente no se pueden estimar sus posiciones. Metro Ligero, Metrovalencia, Granada
   y Zaragoza ya salen con posición estimada.
@@ -487,7 +490,7 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - FGC con nombres de estación en el recorrido, la parada y la próxima, en vez de sus códigos, y con
   lo que le queda a cada tren hasta su destino, por el trazado de su línea (también los refuerzos,
   como el R5R, y la cremallera de Montserrat).
-- Lista y buscador con todos los trenes.
+- Lista y buscador con todos los vehículos (pestaña «Vehículos»).
 
 **Estaciones**
 - Pestaña «Estaciones» con buscador y una ficha para cada estación: los trenes parados en ella y los
@@ -553,6 +556,11 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - La barra de arriba dice quién lo ha creado: la foto y el nombre llevan a su portafolio, y un icono,
   al código en GitHub. En el móvil solo salen la foto y el icono. La foto se sirve desde la propia
   web, sin pedir nada a otros sitios.
+- La pestaña y el grupo de capas de la lista se llaman «Vehículos», no «Trenes»: también incluyen
+  autobuses, metros y tranvías.
+- La pestaña Fuentes dice hasta cuándo vale el horario de cada red y avisa cuando le quedan dos
+  semanas o menos (y el servidor lo apunta en su registro): si el operador no publica uno nuevo, sus
+  vehículos dejan de salir. Las fechas de otro año llevan el año.
 
 **Rendimiento y fiabilidad**
 - Directo servido desde caché, preparado para picos de muchas visitas a la vez.
@@ -616,6 +624,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Las subidas se detectan en unos segundos y el pipeline avanza en cuanto cada paso termina.
 - Un fallo pasajero de GitHub mientras el pipeline espera a las pruebas ya no lo para: vuelve a
   preguntar al momento.
+- Una fuente nueva que no responde desde el servidor para la verificación de pruebas: ya no llega a
+  producción sin funcionar.
 - Pruebas automáticas que no dependen de la velocidad de la máquina: dan lo mismo en el servidor,
   más lento y ocupado, que en un ordenador rápido.
 - Limpieza automática del servidor, también de las teselas del mapa que ya nadie mira.

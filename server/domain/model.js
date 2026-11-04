@@ -90,6 +90,8 @@
  * @property {number|null} datasetUpdated
  * @property {number|null} datasetUpdatedFrom
  * @property {Record<string, number>|null} datasetUpdatedBy
+ * @property {string|null} datasetValidUntil   Último día con servicio de su horario, 'YYYY-MM-DD' (ver SourceResult).
+ * @property {string|null} datasetValidUntilOf  En los grupos, el operador del horario que antes se acaba.
  * @property {number|null} ms                  Lo que tardó la última lectura.
  */
 
@@ -105,6 +107,9 @@
  * @property {number|null} [datasetUpdatedFrom]  Si la fuente agrupa varios horarios: la fecha del más antiguo
  *   (datasetUpdated es entonces la del más reciente).
  * @property {Record<string, number>} [datasetUpdatedBy]  Si agrupa varios horarios: la fecha de cada operador.
+ * @property {string|null} [datasetValidUntil]  Último día con servicio de su horario GTFS, 'YYYY-MM-DD'; en los
+ *   grupos, el del que antes se acaba. Desde el día siguiente la fuente no tiene nada que mostrar.
+ * @property {string} [datasetValidUntilOf]  En los grupos, de qué operador es ese horario.
  */
 
 /**

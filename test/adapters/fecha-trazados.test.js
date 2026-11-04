@@ -86,7 +86,7 @@ test('/api/lines/sources sirve el origen de los trazados con la caché de los ca
 
 test('la pestaña Fuentes enseña la fecha de cada trazado', () => {
   const el = { innerHTML: '' };
-  renderSources(el, [], [{ name: 'Metro Bilbao', credit: 'Powered by MITRAMS (Punto de Acceso Nacional) · Metro Bilbao', updated: Date.UTC(2026, 10, 1, 7, 34) }]);
+  renderSources(el, [], [{ name: 'Metro Bilbao', credit: 'Powered by MITRAMS (Punto de Acceso Nacional) · Metro Bilbao', updated: Date.UTC(2026, 10, 1, 7, 34) }], NOW);
   assert.match(el.innerHTML, /Trazados de las líneas/);
   assert.match(el.innerHTML, /Metro Bilbao/);
   assert.match(el.innerHTML, /horario actualizado el 0?1\/11,? 08:34/);

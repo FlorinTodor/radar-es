@@ -1,7 +1,7 @@
 // Render de los paneles laterales y la barra de KPIs. Funciones puras de estado → HTML;
 // los clics se gestionan por delegación en app.js mediante data-id / data-kind.
 import {
-  DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, SEVERITY_RANK, creditHtml, esc, fmtDataTime, fmtDateTime, fmtDelay, fmtNum, fmtTime, safeUrl, sevClass, timeAgo, vehicleTitle,
+  DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, SEVERITY_RANK, creditHtml, esc, fmtDataTime, fmtDateTime, scheduleValidity, fmtDelay, fmtNum, fmtTime, safeUrl, sevClass, timeAgo, vehicleTitle,
 } from './format.js';
 import { pictoFor, vehicleIconUrl } from './icons.js';
 
@@ -27,7 +27,7 @@ function severityPill(sev) {
 }
 
 /**
- * Barra de selección común a Alertas, Incidencias y Trenes.
+ * Barra de selección común a Alertas, Incidencias y Vehículos.
  * @param {{ ids: Set<string>, total: number, multi: boolean }} sel  total = elementos marcados en todas las listas
  */
 function selectionBar(sel, what) {
@@ -204,7 +204,7 @@ export function renderVehicles(el, vehicles, total, sel = NO_SELECTION) {
     </button>`;
   }).join('');
   const more = vehicles.length > MAX_ROWS ? `<div class="empty">Mostrando ${MAX_ROWS} de ${fmtNum(vehicles.length)}. Usa el buscador para afinar.</div>` : '';
-  el.innerHTML = `${selectionBar(sel, { one: 'un tren', plural: 'los trenes' })}<div class="section-title">${fmtNum(vehicles.length)} trenes · ordenados por retraso</div>${rows}${more}`;
+  el.innerHTML = `${selectionBar(sel, { one: 'un vehículo', plural: 'los vehículos' })}<div class="section-title">${fmtNum(vehicles.length)} ${vehicles.length === 1 ? 'vehículo' : 'vehículos'} · ordenados por retraso</div>${rows}${more}`;
 }
 
 /**
@@ -212,12 +212,18 @@ export function renderVehicles(el, vehicles, total, sel = NO_SELECTION) {
  * @param {Array<{ name: string, credit: string, updated: number|null }>} [lineSources]  de dónde sale el
  *   trazado de cada red, con su fecha de actualización (/api/lines/sources)
  */
-export function renderSources(el, health, lineSources = []) {
-  const now = Date.now();
+export function renderSources(el, health, lineSources = [], now = Date.now()) {
+  // Hasta cuándo vale el horario de la fuente; en los grupos, el primero que se acaba y de quién es.
+  const validity = (s) => {
+    const v = scheduleValidity(s.datasetValidUntil, now);
+    if (!v) return '';
+    const text = s.datasetValidUntilOf ? `el primer horario que se acaba (${esc(s.datasetValidUntilOf)}) es ${v.text}` : `horario ${v.text}`;
+    return `<span>${text}</span>${v.warn ? `<span class="status ${v.expired ? 'ko' : 'warn'}">${v.warn}</span>` : ''}`;
+  };
   const lines = lineSources.length ? `<div class="section-title">Trazados de las líneas</div>${lineSources.map((l) => `
     <div class="src">
       <div class="row"><span class="name">${esc(l.name)}</span></div>
-      <div class="stat">${l.updated ? `<span>horario actualizado el ${fmtDateTime(l.updated)}</span>` : ''}<span>${esc(l.credit)}</span></div>
+      <div class="stat">${l.updated ? `<span>horario actualizado el ${fmtDateTime(l.updated, now)}</span>` : ''}<span>${esc(l.credit)}</span></div>
     </div>`).join('')}` : '';
   el.innerHTML = health.map((s) => {
     const [cls, label] = !s.enabled ? ['off', 'Desactivada'] : s.ok === null ? ['wait', 'Pendiente'] : s.ok ? ['ok', 'Operativa'] : ['ko', 'Con errores'];
@@ -229,8 +235,9 @@ export function renderSources(el, health, lineSources = []) {
         ${s.count !== null && s.count !== undefined ? `<span>${fmtNum(s.count)} elementos</span>` : ''}
         ${s.lastOk ? `<span>leída ${timeAgo(s.lastOk, now)}</span>` : ''}
         ${s.sourceTime ? `<span>dato ${fmtDataTime(s.sourceTime, now)}</span>` : ''}
-        ${s.datasetUpdatedFrom ? `<span>horarios actualizados entre el ${fmtDateTime(s.datasetUpdatedFrom)} y el ${fmtDateTime(s.datasetUpdated)}</span>`
-          : s.datasetUpdated ? `<span>horario actualizado el ${fmtDateTime(s.datasetUpdated)}</span>` : ''}
+        ${s.datasetUpdatedFrom ? `<span>horarios actualizados entre el ${fmtDateTime(s.datasetUpdatedFrom, now)} y el ${fmtDateTime(s.datasetUpdated, now)}</span>`
+          : s.datasetUpdated ? `<span>horario actualizado el ${fmtDateTime(s.datasetUpdated, now)}</span>` : ''}
+        ${validity(s)}
         ${s.ms ? `<span>${fmtNum(s.ms)} ms</span>` : ''}
         <span>cada ${Math.round(s.interval / 1000)} s</span>
       </div>
@@ -290,7 +297,7 @@ export function renderLayers(el, prefs, countsByMode) {
   // por lo que es cada capa, porque en el móvil no hay ratón para ver el title de las pastillas.
   const help = GROUP_ITEMS.filter(([, label, title]) => label !== title)
     .map(([, label, title]) => `<dt>${esc(label)}</dt><dd>${esc(title)}</dd>`).join('');
-  el.innerHTML = `${head('Trenes', 'mode')}<div class="chips">${modes}</div>${head('Mapa y avisos', 'group')}${sections}
+  el.innerHTML = `${head('Vehículos', 'mode')}<div class="chips">${modes}</div>${head('Mapa y avisos', 'group')}${sections}
     <p class="layers-note">Las estaciones y el tráfico leve aparecen al acercar el mapa.</p>
     <details class="legend-box"><summary>Qué es cada capa y qué significa cada símbolo</summary>
     <h4>Capas</h4><dl class="layer-help">${help}</dl>
