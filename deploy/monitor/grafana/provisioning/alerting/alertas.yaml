@@ -296,7 +296,7 @@ groups:
             datasourceUid: loki
             model:
               refId: A
-              expr: "sum(count_over_time({origen=\"diario\", transporte=\"kernel\"} |~ \"(?i)out of memory|oom-kill|killed process\" [10m]))"
+              expr: "sum by (proceso) (count_over_time({origen=\"diario\", transporte=\"kernel\"} |~ \"(?i)out of memory|oom-kill|killed process\" | regexp \"(?i)killed process [0-9]+ \\\\((?P<proceso>[^)]+)\\\\)\" | proceso != \"\" [10m]))"
               queryType: "instant"
           - refId: B
             datasourceUid: __expr__
@@ -310,8 +310,8 @@ groups:
         execErrState: Error
         for: 0s
         annotations:
-          summary: "El kernel ha matado un proceso por falta de memoria"
-          description: "Mira en el panel Registros qué proceso era."
+          summary: "El kernel ha matado {{ .Labels.proceso }} por falta de memoria"
+          description: "Si es la web (node), mira su memoria en el panel Servidor; el detalle, en el panel Registros."
         labels:
           severity: critical
       - uid: radar-disco

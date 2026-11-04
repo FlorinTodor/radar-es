@@ -79,6 +79,59 @@ En producción corre con Docker en un VPS detrás de un túnel de Cloudflare. Ca
 pasa antes por un entorno de pruebas en el mismo VPS, y producción sólo despliega lo que ya ha
 superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`](docs/despliegue.md).
 
+## Monitorización
+
+El servidor se vigila solo. `monitor.radarespaña.es` enseña cómo va todo y avisa por Telegram cuando
+algo falla y cuando se resuelve. Es privado: sólo entra el administrador, con el código por correo de
+Cloudflare Access.
+
+```mermaid
+flowchart LR
+  web["web, API<br/>y MCP"] -->|"/metrics"| alloy["Alloy"]
+  vps["VPS y<br/>registros"] --> alloy
+  fuera["comprobar<br/>desde fuera"] --> alloy
+  alloy --> prom[("métricas<br/>30 días")]
+  alloy --> loki[("registros<br/>14 días")]
+  prom --> graf["Grafana"]
+  loki --> graf
+  graf -->|"alertas"| tg(["Telegram"])
+  admin(["administrador"]) -->|"Access"| graf
+```
+
+- **Lo que cuenta la web:** las peticiones por ruta, los mensajes del servidor MCP (método,
+  herramienta y resultado), las lecturas de cada fuente, los avisos del registro y la memoria. Nada de
+  quién pregunta: las rutas van sin lo que se ha pedido y no hay IPs.
+- **Lo que mira además:** el VPS (CPU, memoria, disco y red), los registros de la web y de los
+  despliegues (sin IPs ni claves) y, cada minuto y desde fuera, que respondan la web, la API, el MCP y
+  la redirección de `radarespana.es`.
+- **Cinco paneles** (General, API y MCP, Fuentes, Servidor y Registros) y **14 alertas**:
+  - la web, la API o el MCP sin responder;
+  - una fuente sin datos;
+  - memoria, errores o tirones del servidor;
+  - un despliegue fallido o un proceso matado por falta de memoria (con su nombre);
+  - el disco o la RAM del VPS;
+  - la propia monitorización sin datos.
+- **Cerrada:**
+  - nada escucha fuera del VPS, y el único camino desde Internet es el túnel, tras Access;
+  - Grafana comprueba además la firma de Access en cada petición;
+  - no manda datos de uso a nadie: sólo habla con Telegram y con Cloudflare.
+
+#### Cómo se hizo
+
+Grafana, Prometheus, Loki y Alloy, en contenedores sin root, con el disco de sólo lectura y un tope
+de memoria cada uno. Probada cuatro veces en el VPS con copias temporales antes de instalarla, que es
+donde salió lo que en local no se ve:
+
+| Problema | Solución |
+|---|---|
+| Alloy no podía escribir en su carpeta | correr con su propio usuario, con el grupo justo para leer el diario del sistema |
+| Grafana 13 perdía sus plugins de Prometheus y Loki con el disco de sólo lectura | sin su instalador automático, que además descargaba plugins de Internet |
+| Leer Docker exige su socket, que controla todo el VPS | un proxy sin red que sólo deja hacer unas pocas consultas |
+| Con dos paneles abiertos, Grafana pasó de su tope de memoria y el kernel lo mató | tope de 1 GB; la propia alerta avisó por Telegram |
+
+El detalle, cómo se instala y lo medido están en
+[`docs/despliegue.md`](docs/despliegue.md#monitorización).
+
 ## Arquitectura hexagonal
 
 Quien llama entra por arriba; el núcleo no sabe nada de red ni de disco, y todo lo externo queda
