@@ -464,8 +464,9 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   Larga y Media Distancia por la red de Adif; en Metro Bilbao con el trazado de su viaje, en FGC con
   el de su línea y en metros y tranvías estimados con su horario. Comprobado con todos los viajes de
   sus horarios.
-- Al seleccionar un vehículo salen en el mapa sus paradas: el origen y el destino con su nombre, las
-  intermedias por las que va a pasar (blancas) y las que ya ha pasado (grises). En la ficha, la lista
+- Al seleccionar un vehículo, el mapa encuadra su viaje y salen todas sus paradas con su nombre: el
+  origen, el destino y la próxima destacados, blancas las que le quedan y grises las que ya ha pasado
+  (si los nombres no caben, se ocultan los que chocan, nunca esos tres). En la ficha, la lista
   con la hora de su horario y la prevista con su retraso (en Cercanías, sólo la prevista que publica
   Renfe; FGC no da horas). En Alta Velocidad, Larga y Media Distancia, Cercanías, FGC, metros, tranvías
   y autobuses con horario.

@@ -30,6 +30,9 @@ const ICON_SIZE = ['interpolate', ['linear'], ['zoom'],
 // Anillos (alerta, selección) un poco más grandes que la placa.
 const RING_RADIUS = ['interpolate', ['linear'], ['zoom'], 5, 10, 8, 14, 12, 18, 15, 21];
 const UNKNOWN_DELAY_RING = '#c3c2b7';
+// Al encuadrar el viaje del vehículo seleccionado, margen de más para que quepan los nombres de las
+// paradas de los extremos: van centrados debajo de su punto (a los lados, la mitad de un nombre largo).
+const STOP_LABEL_MARGIN = { left: 80, right: 80, top: 20, bottom: 30 };
 
 // Capas del mapa agrupadas por interruptor del panel "Capas".
 export const LAYER_GROUPS = {
@@ -120,6 +123,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
   let selectedId = null;  // tren seleccionado: lleva anillo y su recorrido reciente
   let selectedVehicle = null; // sus últimos datos, para repintar la ficha al llegar sus paradas
   let tripStops = null;   // paradas de su viaje (/api/stops), si se saben
+  let stopsFramedFor = null; // vehículo cuyo viaje ya se ha encuadrado (una vez por selección)
   let selectedStation = null; // código de la estación cuya ficha está abierta
   let clicks = 0;         // contador de clics en el mapa, para descartar respuestas tardías de EFFIS
   let trackFetchedAt = 0;
@@ -391,38 +395,39 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
         'icon-allow-overlap': true, 'icon-ignore-placement': true,
       },
     });
-    // Paradas del viaje del vehículo seleccionado, sobre lo que le queda: blancas con borde azul las que
-    // le quedan, grises las que ya ha pasado; el origen y el destino, más grandes y siempre con su nombre.
-    // Debajo de los vehículos, para no tapar ninguno.
+    // Paradas del viaje del vehículo seleccionado, todas, de la primera a la última y con su nombre: blancas
+    // con borde azul las que le quedan, grises las que ya ha pasado; el origen, el destino y la próxima (o
+    // en la que está parado), más grandes. Debajo de los vehículos, para no tapar ninguno.
     const END = ['==', ['get', 'end'], 1];
     const PASSED = ['==', ['get', 'passed'], 1];
     const NOW = ['any', ['==', ['get', 'next'], 1], ['==', ['get', 'here'], 1]]; // la próxima o en la que está
+    const KEY = ['any', END, NOW];
     map.addLayer({
       id: 'stops-dot', type: 'circle', source: 'stops',
       paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, ['case', END, 4.5, 2.5], 10, ['case', END, 6, 4], 14, ['case', END, 7.5, 5.5]],
-        'circle-color': ['case', PASSED, '#8d929a', '#ffffff'],
-        'circle-stroke-color': ['case', PASSED, '#4b5058', NOW, '#ffffff', '#6ea8fe'],
-        'circle-stroke-width': ['case', END, 3, NOW, 3, 2],
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, ['case', KEY, 5.5, 4], 8, ['case', KEY, 7, 5], 12, ['case', KEY, 8.5, 6.5]],
+        'circle-color': ['case', PASSED, '#b4b8be', '#ffffff'],
+        'circle-stroke-color': ['case', PASSED, '#3a3e45', '#3d7fe0'],
+        'circle-stroke-width': ['case', KEY, 3.5, 2.5],
       },
     });
-    const stopLabelPaint = { 'text-color': ['case', PASSED, '#a3a7ad', '#ffffff'], 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.6 };
+    // Nombres con borde oscuro: se leen sobre el mapa, las líneas y las placas. Por debajo de la placa y su
+    // anillo: si el vehículo está en la parada, su nombre no lo tapa.
+    const stopLabelPaint = { 'text-color': ['case', PASSED, '#c3c6cb', '#ffffff'], 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.8 };
+    const stopLabel = (size, maxWidth) => ({
+      'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': size, 'text-max-width': maxWidth,
+      'text-anchor': 'top', 'text-offset': [0, 1.6],
+    });
+    // Origen, destino y la próxima (o en la que está parado): siempre, aunque pisen otras etiquetas.
     map.addLayer({
-      id: 'stops-label-ends', type: 'symbol', source: 'stops', filter: END,
-      layout: {
-        // Por debajo de la placa y su anillo: si el vehículo está en la parada, su nombre no lo tapa.
-        'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': 12.5, 'text-anchor': 'top', 'text-offset': [0, 1.6],
-        'text-allow-overlap': true, 'text-max-width': 12,
-      },
+      id: 'stops-label-key', type: 'symbol', source: 'stops', filter: KEY,
+      layout: { ...stopLabel(12.5, 12), 'text-allow-overlap': true },
       paint: stopLabelPaint,
     });
-    // Las intermedias, al acercarse y sólo las que caben: primero la próxima, luego las que le quedan.
+    // Las demás, a cualquier escala: MapLibre oculta las que chocan con otras. Antes las que le quedan.
     map.addLayer({
-      id: 'stops-label', type: 'symbol', source: 'stops', minzoom: 9, filter: ['!', END],
-      layout: {
-        'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': 11, 'text-anchor': 'top', 'text-offset': [0, 1.6],
-        'text-max-width': 10, 'symbol-sort-key': ['get', 'rank'],
-      },
+      id: 'stops-label', type: 'symbol', source: 'stops', filter: ['!', KEY],
+      layout: { ...stopLabel(11.5, 10), 'symbol-sort-key': ['get', 'rank'] },
       paint: stopLabelPaint,
     });
     map.addLayer({
@@ -566,6 +571,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     if (id !== selectedId) { // otro vehículo o ninguno: las paradas del anterior se quitan
       setTripStops(null);
       selectedVehicle = null;
+      stopsFramedFor = null;
     }
     selectedId = id;
     if (id) setStation(null);
@@ -646,6 +652,12 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
         .then((data) => {
           if (selectedId !== v.id) return;
           setTripStops(data?.stops?.length > 1 ? data : null);
+          // La primera vez, el mapa encuadra todo su viaje, del origen al destino, con el vehículo.
+          if (tripStops && stopsFramedFor !== v.id) {
+            stopsFramedFor = v.id;
+            const points = tripStops.stops.filter((s) => Number.isFinite(s.lon) && Number.isFinite(s.lat)).map((s) => [s.lon, s.lat]);
+            fitPoints([...points, [v.lon, v.lat]], STOP_LABEL_MARGIN);
+          }
           if (card.open && selectedVehicle) card.show(vehicleDetail(selectedVehicle, !!lastRoute, tripStops));
         })
         .catch(() => {});
@@ -692,6 +704,21 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     const p = sidePadding();
     return [(p.left - p.right) / 2, (p.top - p.bottom) / 2];
   };
+
+  /**
+   * Encuadra una lista de puntos [lon, lat], dejando libre el hueco de la ficha y del panel de capas y, con
+   * `margin`, unos píxeles más por cada lado (el nombre de las paradas de los extremos).
+   * @param {number[][]} points  @param {{ left: number, right: number, top: number, bottom: number }} [margin]
+   */
+  function fitPoints(points, margin = null) {
+    if (!points.length) return;
+    if (points.length === 1) return map.flyTo({ center: points[0], zoom: Math.max(map.getZoom(), 10), speed: 1.6, offset: centerOffset() });
+    const lons = points.map((p) => p[0]);
+    const lats = points.map((p) => p[1]);
+    const pad = sidePadding();
+    const padding = margin ? Object.fromEntries(Object.entries(pad).map(([k, v]) => [k, v + (margin[k] ?? 0)])) : pad;
+    map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding, maxZoom: 11, duration: 900 });
+  }
 
   return {
     ready,
@@ -790,13 +817,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     },
 
     /** Encuadra una lista de puntos [lon, lat]. */
-    fitTo(points) {
-      if (!points.length) return;
-      if (points.length === 1) return map.flyTo({ center: points[0], zoom: Math.max(map.getZoom(), 10), speed: 1.6, offset: centerOffset() });
-      const lons = points.map((p) => p[0]);
-      const lats = points.map((p) => p[1]);
-      map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: sidePadding(), maxZoom: 11, duration: 900 });
-    },
+    fitTo: (points) => fitPoints(points),
 
     setObras(on) {
       showObras = on;
