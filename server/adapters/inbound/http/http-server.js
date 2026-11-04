@@ -9,6 +9,7 @@ import { extname, join, resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { isStationCode } from '../../../domain/model.js';
+import { McpBusy, PROTOCOL_VERSIONS, RPC, idOf, isModernVersion, versionOf } from '../mcp/mcp.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -22,11 +23,13 @@ const MIME = {
  * @param {{ query: ReturnType<typeof import('../../../application/use-cases/query-situation.js').makeQuerySituation>,
  *           serveTiles?: ReturnType<typeof import('../../../application/use-cases/serve-tiles.js').makeServeTiles>,
  *           log: import('../../../application/ports.js').LoggerPort,
- *           publicDir: string, vendorDirs: Record<string, string>, about?: object, now?: () => number }} deps
+ *           publicDir: string, vendorDirs: Record<string, string>, about?: object, now?: () => number,
+ *           mcp?: ReturnType<typeof import('../mcp/mcp.js').createMcpHandler> }} deps
  *   now: reloj de los memos y de los presupuestos de cálculo (los tests lo fijan: no pueden depender de
  *   lo rápida que sea la máquina).
+ *   mcp: quien atiende los mensajes del servidor MCP en POST /mcp; sin él, /mcp no existe.
  */
-export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs, about = {}, now = Date.now }) {
+export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs, about = {}, now = Date.now, mcp }) {
   // Todas las respuestas JSON se calculan, comprimen y firman (ETag) como mucho una vez cada `ttl`,
   // así que pedirlas mil veces cuesta lo mismo que pedirlas una. Sin esto, /api/lines (1 MB)
   // saturaba un núcleo con unas 20 peticiones por segundo. `key` separa las variantes por parámetros.
@@ -85,6 +88,20 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     memo: createJsonMemo({ max: TRAIN_MEMO_MAX, maxBytes: STOPS_MEMO_BYTES, now }),
     budget: createBudget({ perSecond: STOPS_BUDGET.perSecond, burst: STOPS_BUDGET.burst, now }),
   };
+  // Cada mensaje MCP es un POST, que Cloudflare no guarda: todos llegan al servidor y algunas
+  // herramientas recorren todos los vehículos. Presupuesto propio, para que no le quiten sitio al mapa;
+  // sólo lo gasta lo que hay que calcular (el adaptador MCP guarda unos segundos cada respuesta).
+  const mcpBudget = createBudget({ perSecond: MCP_BUDGET.perSecond, burst: MCP_BUDGET.burst, now });
+  // Y otro por cliente, para que uno solo no gaste el de todos. Se guardan los de los últimos
+  // MCP_CLIENTS_MAX clientes: si alguien llena la lista con direcciones nuevas, sigue el de todos.
+  const mcpClients = new Map();
+  const clientBudget = (ip) => {
+    const budget = mcpClients.get(ip) ?? createBudget({ perSecond: MCP_CLIENT_BUDGET.perSecond, burst: MCP_CLIENT_BUDGET.burst, now });
+    mcpClients.delete(ip);
+    mcpClients.set(ip, budget);
+    if (mcpClients.size > MCP_CLIENTS_MAX) mcpClients.delete(mcpClients.keys().next().value);
+    return budget;
+  };
 
   const security = Object.entries(securityHeaders(about));
   // El aviso legal lleva el titular y el contacto (de .env) en el propio HTML: la LSSI pide que estén
@@ -98,8 +115,12 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     try {
       const url = new URL(req.url, 'http://localhost');
       if (canonical && req.headers.host?.toLowerCase() === `www.${canonical.host}`) {
-        return redirect(res, `${canonical.origin}${url.pathname}${url.search}`);
+        // Un POST (el servidor MCP) con 301 se repetiría como GET: 308 conserva el método y el cuerpo.
+        const keepsMethod = req.method !== 'GET' && req.method !== 'HEAD';
+        return redirect(res, `${canonical.origin}${url.pathname}${url.search}`, keepsMethod ? 308 : 301);
       }
+      // El servidor MCP es lo único que acepta POST.
+      if (url.pathname === '/mcp' && mcp) return await sendMcp(req, res);
       if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'Método no permitido' });
       // La API y las teselas no son páginas: fuera de los resultados de búsqueda.
       if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/tiles/')) res.setHeader('X-Robots-Tag', 'noindex');
@@ -217,6 +238,63 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     res.end(req.method === 'HEAD' ? undefined : zipped ? entry.gz : entry.json);
   }
 
+  /**
+   * POST /mcp: un mensaje JSON-RPC del protocolo MCP, por HTTP «streamable» sin sesiones ni SSE (el
+   * servidor no manda nada por su cuenta, así que GET y DELETE no tienen uso: 405). Una notificación
+   * no lleva respuesta: 202 vacío.
+   *
+   * Como pide el protocolo:
+   * - una cabecera Origin que no es la de esta web (ni la de un navegador en local) recibe 403, para
+   *   que una web ajena no use el navegador de quien la visita contra el servidor;
+   * - en la versión 2026-07-28, las cabeceras MCP-Protocol-Version, Mcp-Method y Mcp-Name tienen que
+   *   decir lo mismo que el cuerpo (400 y -32020 si no), y un método que no existe da 404;
+   * - una versión que no se conoce da 400 con las que sí (-32022).
+   * Cada cliente tiene su presupuesto además del de todos: uno solo no deja sin servicio a los demás.
+   */
+  async function sendMcp(req, res) {
+    res.setHeader('X-Robots-Tag', 'noindex');
+    res.setHeader('Cache-Control', 'no-store');
+    if (req.method !== 'POST') {
+      res.setHeader('Allow', 'POST');
+      return send(res, 405, { error: 'El servidor MCP sólo acepta POST' });
+    }
+    const origin = req.headers.origin;
+    if (origin !== undefined && origin !== canonical?.origin && !LOOPBACK_ORIGIN.test(origin)) {
+      return send(res, 403, rpcFailure(RPC.invalidRequest, 'Origen no permitido'));
+    }
+    const headerVersion = req.headers['mcp-protocol-version'];
+    if (headerVersion !== undefined && !PROTOCOL_VERSIONS.includes(headerVersion)) {
+      return send(res, 400, rpcFailure(RPC.unsupportedVersion, 'Versión del protocolo MCP no admitida',
+        { supported: PROTOCOL_VERSIONS, requested: headerVersion.slice(0, 40) }));
+    }
+    if (!/^application\/json\b/i.test(req.headers['content-type'] ?? '')) return send(res, 415, rpcFailure(RPC.parse, 'Se espera application/json'));
+    // Lo que dice ser grande ni se lee; lo que no lo dice, se corta en cuanto pasa del tope.
+    if (Number(req.headers['content-length']) > MCP_MAX_BODY) return tooLarge(res);
+    const body = await readBody(req, MCP_MAX_BODY);
+    if (body === null) return tooLarge(res);
+    let message;
+    try {
+      message = JSON.parse(body);
+    } catch {
+      return send(res, 400, rpcFailure(RPC.parse, 'JSON no válido'));
+    }
+    const mismatch = mcpHeaderMismatch(req.headers, message);
+    if (mismatch) return send(res, 400, { jsonrpc: '2.0', id: idOf(message), error: { code: RPC.headerMismatch, message: mismatch } });
+    let reply;
+    try {
+      reply = mcp(message, { budget: bothBudgets(clientBudget(clientAddress(req)), mcpBudget) });
+    } catch (err) {
+      if (!(err instanceof McpBusy)) throw err;
+      res.setHeader('Retry-After', '2');
+      return send(res, 429, { jsonrpc: '2.0', id: idOf(message), error: { code: -32000, message: 'Demasiadas consultas a la vez; prueba dentro de un momento' } });
+    }
+    if (reply === null) {
+      res.writeHead(202);
+      return res.end();
+    }
+    return sendJson(req, res, mcpStatus(reply, isModernVersion(versionOf(message))), reply);
+  }
+
   /** /tiles/<capa>/<z>/<x>/<y>.png → tesela de IGN o EFFIS (con copia en disco). */
   async function sendTile(res, path) {
     const m = /^\/tiles\/([a-z-]+)\/(\d{1,2})\/(\d{1,7})\/(\d{1,7})\.png$/.exec(path);
@@ -269,6 +347,16 @@ const TRAIN_BUDGET = { perSecond: 4, burst: 20 };
 // Paradas: cada una cuesta microsegundos; el tope sólo frena a quien recorra todos los vehículos.
 const STOPS_BUDGET = { perSecond: 25, burst: 100 };
 const STOPS_MEMO_BYTES = 8 * 1024 * 1024;
+// Cálculos de herramientas MCP (las respuestas guardadas no cuentan): un asistente hace una o dos por pregunta.
+const MCP_BUDGET = { perSecond: 5, burst: 30 };
+// Por cliente: una pregunta a un asistente son una o dos llamadas; unas cuantas seguidas, sin esperar.
+const MCP_CLIENT_BUDGET = { perSecond: 1, burst: 10 };
+const MCP_CLIENTS_MAX = 10_000;
+const MCP_MAX_BODY = 64 * 1024; // los mensajes de un cliente MCP ocupan pocos cientos de bytes
+// Métodos cuyo `params.name` (o `params.uri`) va también en la cabecera Mcp-Name (versión 2026-07-28).
+const MCP_NAMED = new Set(['tools/call', 'resources/read', 'prompts/get']);
+// Un asistente en el navegador de quien lo prueba en local (el inspector de MCP, por ejemplo).
+const LOOPBACK_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?$/;
 // Los ids de vehículo llevan el trip_id de su operador (los más largos, unos 80 caracteres). Más de esto
 // no es un vehículo: así nadie llena el memo con claves enormes.
 const MAX_VEHICLE_ID = 256;
@@ -365,8 +453,8 @@ export function createJsonMemo({ max = 200, maxBytes = Infinity, now = Date.now,
 }
 
 /** Redirección permanente (301). Se guarda un día: la dirección canónica no cambia. */
-function redirect(res, location) {
-  res.writeHead(301, { Location: location, 'Cache-Control': 'public, max-age=86400' });
+function redirect(res, location, status = 301) {
+  res.writeHead(status, { Location: location, 'Cache-Control': 'public, max-age=86400' });
   res.end();
 }
 
@@ -395,6 +483,90 @@ function decodeOrNull(text) {
   }
 }
 
+/**
+ * Cuerpo de la petición como texto; null en cuanto pasa de `max` bytes. Entonces deja de leer: el resto
+ * no se baja (tooLarge cierra la conexión), así nadie hace que el servidor reciba megas para tirarlos.
+ */
+function readBody(req, max) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    const onData = (chunk) => {
+      size += chunk.length;
+      if (size <= max) return void chunks.push(chunk);
+      req.off('data', onData);
+      req.pause();
+      resolve(null);
+    };
+    req.on('data', onData);
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+/** 413 y se cierra la conexión: lo que quede del cuerpo no se lee. */
+function tooLarge(res) {
+  res.setHeader('Connection', 'close');
+  return send(res, 413, rpcFailure(RPC.invalidRequest, 'Mensaje demasiado grande'));
+}
+/** Error JSON-RPC sin petición a la que responder (el mensaje no se pudo leer o no se aceptó). */
+const rpcFailure = (code, message, data) => ({ jsonrpc: '2.0', id: null, error: { code, message, ...(data ? { data } : {}) } });
+
+/**
+ * Cliente de un mensaje MCP, para su presupuesto. El servidor sólo escucha en 127.0.0.1, detrás del
+ * túnel de Cloudflare, que pone la IP real en CF-Connecting-IP y no deja que la cambie quien llama.
+ */
+const clientAddress = (req) => req.headers['cf-connecting-ip'] ?? req.socket.remoteAddress ?? '';
+
+/** Los dos presupuestos a la vez: si el segundo no tiene fichas, se devuelve la del primero. */
+const bothBudgets = (a, b) => ({
+  take() {
+    if (!a.take()) return false;
+    if (b.take()) return true;
+    a.refund();
+    return false;
+  },
+  refund() {
+    a.refund();
+    b.refund();
+  },
+});
+
+/** Estado HTTP de una respuesta MCP: los errores de versión y de cabeceras, 400; en la versión moderna, un método que no existe, 404. */
+function mcpStatus(reply, modern) {
+  const code = reply.error?.code;
+  if (code === RPC.unsupportedVersion || code === RPC.headerMismatch) return 400;
+  if (code === RPC.methodNotFound && modern) return 404;
+  return 200;
+}
+
+/** Valor de una cabecera Mcp-Name o Mcp-Param-*: tal cual o, si va como «=?base64?…?=», descodificado. */
+function mcpHeaderValue(value) {
+  const m = typeof value === 'string' ? /^=\?base64\?([A-Za-z0-9+/]*={0,2})\?=$/.exec(value) : null;
+  return m ? Buffer.from(m[1], 'base64').toString('utf8') : value;
+}
+
+/**
+ * En la versión 2026-07-28 las cabeceras repiten lo que dice el cuerpo, para que un proxy pueda
+ * decidir sin leerlo: si no coinciden, cada uno podría ver una petición distinta. Devuelve qué no
+ * cuadra, o null. Las versiones anteriores no llevan Mcp-Method ni Mcp-Name, ni la versión en `_meta`.
+ */
+function mcpHeaderMismatch(headers, message) {
+  const isRequest = typeof message?.method === 'string' && idOf(message) !== null;
+  if (!isRequest) return null;
+  const header = headers['mcp-protocol-version'];
+  const body = versionOf(message);
+  if (body === null) {
+    return isModernVersion(header) ? `MCP-Protocol-Version dice ${header}, pero la petición no lleva su versión en params._meta` : null;
+  }
+  if (header !== body) return `MCP-Protocol-Version (${header ?? 'ninguna'}) no coincide con la versión de params._meta`;
+  if (!isModernVersion(body)) return null;
+  if (headers['mcp-method'] !== message.method) return 'La cabecera Mcp-Method falta o no coincide con el método';
+  if (MCP_NAMED.has(message.method)) {
+    const name = message.params?.name ?? message.params?.uri;
+    if (mcpHeaderValue(headers['mcp-name']) !== name) return 'La cabecera Mcp-Name falta o no coincide con params.name';
+  }
+  return null;
+}
 function send(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(body));
