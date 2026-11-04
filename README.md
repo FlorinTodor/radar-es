@@ -85,10 +85,12 @@ abajo, detrás de un puerto:
 ```mermaid
 flowchart TB
   nav(["navegador"])
+  ia(["asistente de IA"])
   reloj(["reloj"])
 
   subgraph IN["entrada · adapters/inbound"]
     http["API HTTP"]
+    mcp["servidor MCP"]
     sched["planificador"]
   end
 
@@ -109,8 +111,10 @@ flowchart TB
   disk[("data/")]
 
   nav --> http
+  ia --> mcp
   reloj --> sched
   http --> uc
+  mcp --> uc
   sched --> uc
   uc --> dom
   uc --> ports
@@ -121,7 +125,7 @@ flowchart TB
 
 | Capa | Carpeta | Qué hay |
 |---|---|---|
-| Entrada | `adapters/inbound/` | `http/http-server.js` (API, teselas y web) y `scheduler/polling-scheduler.js` (sondeo, alertas y catálogos) |
+| Entrada | `adapters/inbound/` | `http/http-server.js` (API, teselas y web), `mcp/mcp.js` (servidor MCP en `POST /mcp`) y `scheduler/polling-scheduler.js` (sondeo, alertas y catálogos) |
 | Casos de uso | `application/use-cases/` | `ingest-source`, `detect-alerts`, `query-situation`, `serve-tiles`, `refresh-catalogs` y `lines-on-rail` |
 | Puertos | `application/ports.js` | los contratos que piden los casos de uso (tabla de abajo) |
 | Dominio | `domain/` | `model`, `geo`, `tracking`, `kpis`, `tiles`, `schedule`, `estimated-position`, `route-ahead`, `rail-match`, `alerts/` (`rules`, `lifecycle`, `thresholds`), `emergencias`, `lugares` y `red-aislada` |
@@ -382,6 +386,50 @@ Lo que no se puede dibujar por falta de datos públicos:
 Las alertas y los KPIs por minuto se guardan en `data/history/*.jsonl` para analizarlos
 después (con jq, DuckDB o pandas).
 
+### Servidor MCP
+
+`POST /mcp` es un servidor [MCP](https://modelcontextprotocol.io) (Model Context Protocol): un
+asistente de IA (Claude, ChatGPT, Cursor…) se conecta con la dirección `https://radarespaña.es/mcp`
+(si no admite la ñ, `https://xn--radarespaa-19a.es/mcp`) y consulta el directo con herramientas de
+sólo lectura. Sin la ñ o con `www.` hay una redirección, y algunos clientes no la siguen con un POST.
+HTTP «streamable» sin sesiones ni SSE: cada POST es un mensaje JSON-RPC completo
+(`server/adapters/inbound/mcp/mcp.js`).
+
+Habla la versión **2026-07-28** del protocolo (sin saludo inicial: cada petición lleva su versión en
+`params._meta`, y `server/discover` dice qué entiende el servidor) y, para los clientes que aún no la
+usan, la 2025-11-25, la 2025-06-18 y la 2025-03-26 (con `initialize`).
+
+| Herramienta | Qué devuelve |
+|---|---|
+| `buscar_trenes` | vehículos por texto (número, línea, estación, ciudad, operador), tipo y retraso mínimo |
+| `buscar_estaciones` | estaciones por nombre, población o provincia, con su código |
+| `estacion` | ficha de una estación: trenes parados, los que van hacia ella y avisos de Renfe |
+| `incidencias` | incidencias por categoría, texto y gravedad (las obras en carretera, sólo si se piden) |
+| `alertas` | alertas activas |
+| `resumen` | vehículos por tipo, retrasos, alertas, fuentes funcionando y demanda eléctrica |
+| `estado_fuentes` | estado, licencia y atribución de cada fuente |
+
+Cada resultado lleva la atribución de las fuentes de lo que devuelve (`sources`), la hora de los datos,
+la fecha en que cada operador actualizó su horario (`datasetUpdated`, la que piden citar el NAP, TMB o
+FGV) y el aviso de que la web no es oficial. Un argumento que no cumple el esquema se devuelve como
+error de la herramienta, explicado, para que el asistente lo corrija.
+
+Los POST no los guarda Cloudflare, así que cada herramienta guarda su respuesta unos segundos según sus
+argumentos (5 s los vehículos, las alertas y el resumen; 15 s las incidencias y las fuentes; 10 s una
+estación; 10 min la búsqueda de estaciones), las búsquedas recorren una foto del directo con sus textos
+ya preparados que se rehace como mucho cada 5 s (pedir los 7.500 vehículos en cada búsqueda costaba
+unos 40 ms en el servidor), y sólo lo que hay que calcular gasta presupuesto: 1 por segundo y ráfagas de 10 por
+cliente, y 5 por segundo y ráfagas de 30 entre todos (429 al pasarse). Además, como pide el protocolo,
+una cabecera `Origin` de otra web recibe 403, y en la 2026-07-28 las cabeceras `MCP-Protocol-Version`,
+`Mcp-Method` y `Mcp-Name` tienen que coincidir con el cuerpo (400 si no).
+
+```bash
+curl -s https://xn--radarespaa-19a.es/mcp -H 'Content-Type: application/json' \
+  -H 'MCP-Protocol-Version: 2026-07-28' -H 'Mcp-Method: tools/call' -H 'Mcp-Name: buscar_trenes' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"buscar_trenes","arguments":{"text":"AVE Valencia"},
+       "_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}'
+```
+
 ## Pendiente y conocido
 
 - **Adif (estado de la red, incidencias, circulaciones)**: su web responde 403 a cualquier
@@ -563,6 +611,10 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   vehículos dejan de salir. Las fechas de otro año llevan el año.
 - La pestaña Fuentes cita la vía del IGN en cada red cuyo trazado se rehace con ella también justo
   después de cada arranque, sin esperar a que caduque la copia guardada.
+- Servidor MCP en `/mcp`: un asistente de IA (Claude, ChatGPT, Cursor…) consulta el directo (trenes,
+  estaciones, incidencias, alertas, resumen y fuentes) con herramientas de sólo lectura, citando las
+  fuentes. Habla la versión 2026-07-28 del protocolo y las anteriores. Lo propuso y escribió Edgar Milá
+  ([DemboNauta](https://github.com/DemboNauta)) en la PR #1.
 
 **Rendimiento y fiabilidad**
 - Directo servido desde caché, preparado para picos de muchas visitas a la vez.
