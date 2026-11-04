@@ -62,10 +62,10 @@ git switch dev && git merge --no-ff feature/mi-mejora && git push
 
 ```mermaid
 flowchart LR
-  f["feature/… o fix/…<br/>una rama por cambio"] -->|"merge --no-ff"| d["dev"]
-  d -->|"push"| t["GitHub Actions<br/>tests y sintaxis"]
-  t --> p["pruebas en el VPS<br/>fuentes, directo, páginas,<br/>memoria y reinicios"]
-  p -->|"aprobación manual"| prod["produccion<br/>con la imagen ya probada"]
+  f["feature/…<br/>fix/…"] -->|"merge"| d["dev"]
+  d -->|"push"| t["tests"]
+  t --> p["pruebas<br/>en el VPS"]
+  p -->|"aprobación"| prod["produccion"]
 ```
 
 Cada push a `dev` arranca el pipeline de GitHub Actions: tests, pruebas en el VPS y, cuando están
@@ -79,52 +79,53 @@ superado allí la comprobación, con la misma imagen: ver [`docs/despliegue.md`]
 
 ## Arquitectura hexagonal
 
-Quien llama entra por la izquierda, el núcleo no sabe nada de red ni de disco, y todo lo externo
-queda a la derecha, detrás de un puerto:
+Quien llama entra por arriba; el núcleo no sabe nada de red ni de disco, y todo lo externo queda
+abajo, detrás de un puerto:
 
 ```mermaid
-flowchart LR
-  nav(["Navegador<br/>el mapa"])
-  reloj(["Reloj<br/>cada fuente a su ritmo"])
+flowchart TB
+  nav(["navegador"])
+  reloj(["reloj"])
 
-  subgraph IN["adapters/inbound"]
-    httpIn["http/http-server.js<br/>API, teselas y web"]
-    schedIn["scheduler/polling-scheduler.js<br/>sondeo, alertas y catálogos"]
+  subgraph IN["entrada · adapters/inbound"]
+    http["API HTTP"]
+    sched["planificador"]
   end
 
-  subgraph CORE["núcleo"]
-    subgraph APP["application"]
-      uc["casos de uso<br/>ingest-source<br/>detect-alerts<br/>query-situation<br/>serve-tiles<br/>refresh-catalogs<br/>lines-on-rail"]
-      ports{{"ports.js<br/>los contratos"}}
-    end
-    subgraph DOM["domain: puro, sin red ni disco"]
-      dom["model · geo · tracking<br/>kpis · tiles · schedule<br/>estimated-position<br/>route-ahead · rail-match<br/>alerts/: rules, lifecycle,<br/>thresholds<br/>emergencias · lugares<br/>red-aislada"]
-    end
+  subgraph CORE["núcleo · application y domain"]
+    uc["casos de uso"]
+    dom["dominio<br/>reglas puras"]
+    ports{{"puertos"}}
   end
 
-  subgraph OUT["adapters/outbound"]
-    direction LR
-    o1["sources/*<br/>una por fuente"]
-    o2["stations/<br/>estaciones, Wikidata y Commons"]
-    o3["network/ · gtfs/ · nap/<br/>trazados y redes de Adif e IGN"]
-    o4["persistence/<br/>estado en memoria e histórico JSONL"]
-    o5["tiles/ · geo/<br/>teselas de IGN y EFFIS · CartoCiudad"]
-    o6["workers/ · http/ · logging/<br/>hilos de CPU, red y registro"]
+  subgraph OUT["salida · adapters/outbound: implementan los puertos"]
+    src["fuentes"]
+    cat["estaciones<br/>y trazados"]
+    per["estado e<br/>histórico"]
+    til["teselas y<br/>geocodificador"]
   end
 
-  ext[("Fuentes públicas<br/>Renfe, NAP, DGT,<br/>AEMET, IGN, REE…")]
-  disco[("data/<br/>copias en disco<br/>e histórico")]
+  ext[("datos públicos")]
+  disk[("data/")]
 
-  nav --> httpIn
-  reloj --> schedIn
-  httpIn -->|"sólo casos de uso"| uc
-  schedIn --> uc
+  nav --> http
+  reloj --> sched
+  http --> uc
+  sched --> uc
   uc --> dom
   uc --> ports
-  ports -. "los implementan" .-> OUT
-  OUT --> ext
-  OUT --> disco
+  ports -.-> src & cat & per & til
+  src & cat & til --> ext
+  per --> disk
 ```
+
+| Capa | Carpeta | Qué hay |
+|---|---|---|
+| Entrada | `adapters/inbound/` | `http/http-server.js` (API, teselas y web) y `scheduler/polling-scheduler.js` (sondeo, alertas y catálogos) |
+| Casos de uso | `application/use-cases/` | `ingest-source`, `detect-alerts`, `query-situation`, `serve-tiles`, `refresh-catalogs` y `lines-on-rail` |
+| Puertos | `application/ports.js` | los contratos que piden los casos de uso (tabla de abajo) |
+| Dominio | `domain/` | `model`, `geo`, `tracking`, `kpis`, `tiles`, `schedule`, `estimated-position`, `route-ahead`, `rail-match`, `alerts/` (`rules`, `lifecycle`, `thresholds`), `emergencias`, `lugares` y `red-aislada` |
+| Salida | `adapters/outbound/` | `sources/` (una por fuente), `stations/` (estaciones, Wikidata y Commons), `network/`, `gtfs/` y `nap/` (trazados y redes de Adif e IGN), `persistence/` (estado en memoria e histórico JSONL), `tiles/` (teselas de IGN y EFFIS), `geo/` (CartoCiudad), `workers/` (hilos de CPU), `http/` y `logging/` |
 
 - **`server/domain/`**: modelo y reglas puras. Se prueba sin red (`test/domain`).
 - **`server/application/`**: casos de uso y **puertos**, los contratos que necesitan del exterior.
@@ -147,25 +148,23 @@ trazados y redes de vías) se recargan al arrancar y cada hora. La web sólo pre
 conexiones abiertas con cada visita, y Cloudflare reparte las mismas respuestas a todas.
 
 ```mermaid
-flowchart LR
-  subgraph DIR["el directo: cada fuente a su ritmo"]
-    direction LR
-    F[("fuente pública<br/>GTFS-RT, XML, RSS…")] -->|"sondeo"| I["ingest-source<br/>normaliza y descarta<br/>datos imposibles"]
-    I --> R[("estado<br/>último dato, recorridos<br/>y KPIs")]
-    R --> A["detect-alerts<br/>reglas del dominio"]
+flowchart TB
+  subgraph DIR["el directo · cada fuente a su ritmo"]
+    F[("fuente pública")] -->|"sondeo"| I["ingest-source<br/>normaliza y descarta<br/>lo imposible"]
+    I --> R[("estado")]
+    R --> A["detect-alerts"]
     A -->|"alertas"| R
-    A --> H[("histórico<br/>alertas y KPIs")]
+    A --> H[("histórico")]
   end
-  subgraph CAT["los catálogos: al arrancar y cada hora"]
-    direction LR
-    G[("GTFS del NAP, Adif,<br/>IGN, Wikidata…")] --> RC["refresh-catalogs"]
-    RC --> E["estaciones y<br/>trazados de líneas"]
-    E --> LR["lines-on-rail<br/>los tramos en recta,<br/>por la vía del IGN"]
+  subgraph CAT["los catálogos · al arrancar y cada hora"]
+    G[("GTFS, Adif, IGN,<br/>Wikidata…")] --> RC["refresh-catalogs"]
+    RC --> E["estaciones<br/>y trazados"]
+    E --> L["lines-on-rail<br/>lo recto, por la vía"]
   end
-  R --> Q["query-situation<br/>posiciones, lo que le queda<br/>a cada tren, fichas"]
-  LR --> Q
-  Q -->|"/api/live, /api/ahead,<br/>/api/lines…"| C["Cloudflare<br/>caché"]
-  C --> N(["mapa en el navegador"])
+  R --> Q["query-situation"]
+  L --> Q
+  Q -->|"/api/live, /api/lines…"| C["Cloudflare<br/>caché"]
+  C --> N(["mapa"])
 ```
 
 Los puertos están en `server/application/ports.js`:
