@@ -143,6 +143,11 @@ las alertas, que se generan con un script y se guardan aquí (lo que se cambie a
 se guarda). Los secretos (el bot de Telegram) y los datos de Access van en `/opt/radar-monitor/.env`,
 sólo en el VPS ([`.env.ejemplo`](../deploy/monitor/.env.ejemplo)).
 
+Medido en el VPS: unos 400 MB entre todo (Grafana 170, Alloy 95, Loki 87, Prometheus 46, el proxy 7),
+con un tope de memoria por servicio. Comprobado también: desde fuera sólo responde ssh, el proxy de
+Docker rechaza lo que no sea consultar (imágenes, información del sistema, crear o borrar
+contenedores) y Grafana responde 401 sin la firma de Access o con una inventada.
+
 Se instala y se actualiza con `deploy/preparar-monitor.sh` desde la copia de producción
 (`bash /opt/radar/deploy/preparar-monitor.sh`). La primera vez, con `--tunel`, añade
 `monitor.radarespaña.es` al túnel sin cortar la web (una réplica temporal de `cloudflared` atiende

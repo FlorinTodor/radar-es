@@ -146,6 +146,7 @@ services:
       - /:/host/root:ro,rslave
       - /var/log/journal:/var/log/journal:ro
       - /etc/machine-id:/etc/machine-id:ro
+      - /run/udev/data:/run/udev/data:ro
       # El socket del proxy de Docker (sólo consultas), no el de Docker.
       - docker-api:/var/run/docker-api
     depends_on:
