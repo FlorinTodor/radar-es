@@ -187,3 +187,17 @@ test('las paradas de un vehículo las da la fuente que lo conoce; si ninguna, nu
   assert.equal(query.stops('otra:9'), null, 'la fuente lo conoce pero no sabe sus paradas');
   assert.equal(query.stops('nadie:1'), null);
 });
+
+test('Cercanías cuyo trazado no llega a su destino: lo que falta va por la vía; sin red, hasta donde llega el trazado', () => {
+  // El trazado de Renfe acaba en ESQUINA (como el de un C6 a Vinaròs, que acaba en Castelló) y la vía sigue al norte.
+  const end = [-5.80, 43.378];
+  const network = { lines: () => ({ type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: [[-5.825, 43.36], ESQUINA] }, properties: { network: 'Cercanías Renfe', shapes: ['40_C6'] } }] }) };
+  const source = { id: 'renfe-cercanias', shapeNetwork: 'Cercanías Renfe', stopsAhead: () => [ESQUINA, end] };
+  const v = { id: 'renfe-c:A', source: 'renfe-cercanias', mode: 'cercanias', shape: '40_C6', ahead: true, lon: -5.82, lat: 43.36 };
+  const make = (railNetwork) => makeQuerySituation({ situation: fakeSituation({ vehicles: [v] }), stations: {}, network, clock: { now: () => T0 }, sources: [source], railNetwork });
+  const km = (a, b) => Math.hypot((a[0] - b[0]) * 81, (a[1] - b[1]) * 111);
+  const byRail = make({ network: () => railNet }).ahead('renfe-c:A');
+  assert.ok(km(byRail.at(-1), end) < 0.05, 'llega a su destino por la vía');
+  const byShape = make(undefined).ahead('renfe-c:A');
+  assert.ok(km(byShape.at(-1), ESQUINA) < 0.05, 'sin red, se corta donde acaba el trazado');
+});

@@ -334,7 +334,7 @@ completas: depende de lo que publica cada operador, y donde no hay datos públic
 
 | Red | Recorrido reciente (discontinua) | Lo que le queda (continua) |
 |---|---|---|
-| Cercanías / Rodalies de Renfe | sus posiciones, por el trazado de su línea | por el trazado de su viaje, pasando por las paradas que le quedan |
+| Cercanías / Rodalies de Renfe | sus posiciones, por el trazado de su línea | por el trazado de su viaje, pasando por las paradas que le quedan; si ese trazado no llega a su destino, lo que falta, por la vía (tramos de Adif) |
 | AVE, Larga y Media Distancia | sus posiciones, por la vía (tramos de Adif) | por la vía hasta su destino, pasando por las paradas de su horario |
 | FGC | sus posiciones, por el trazado de su línea | por el trazado de su línea |
 | Metro Bilbao | sus posiciones tal y como llegan: Open Data Euskadi pide no alterar el contenido | por el trazado de su viaje |
@@ -628,6 +628,21 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   Larga y Media Distancia por la red de Adif; en Metro Bilbao con el trazado de su viaje, en FGC con
   el de su línea y en metros y tranvías estimados con su horario. Comprobado con todos los viajes de
   sus horarios.
+- Lo que le queda a cada Cercanías, revisado tren a tren con todos los del mapa (4-nov-2026: de 56 con
+  fallo, quedan los que no tienen vía conocida hasta su destino):
+  - un tren parado en su estación de origen ya no se queda sin línea porque el GPS lo ponga unos
+    metros por delante o por detrás de ella (C1 de Bilbao en Santurtzi, C3 en Abando, R1 en Calella,
+    R7 en Montcada, C1 en Irun, C5 en Santa Justa);
+  - el C4 de Sevilla, circular, se dibuja con el tren en Santa Justa y, al volver a ella, no empieza
+    otra vez la vuelta;
+  - la vía de montaña y las llegadas con curva ya no cortan la línea antes de tiempo (la rampa de
+    Pesquera en el C1 Santander–Reinosa, la llegada a Alicante-Terminal y a Estació de França);
+  - si el trazado que da Renfe no llega a su destino (un C6 a Vinaròs con el que acaba en Castelló,
+    un C5 a Dos Hermanas con el que va a Jardines de Hércules), lo que falta va por la red de Adif;
+  - y la flecha de cada tren sale de esa línea, no de sus últimas posiciones.
+- La próxima parada de un Avant ya no se queda en una parada del horario que está en el mismo sitio
+  que una estación por la que ya ha pasado (el A Coruña → Ourense salía «hacia Santiago-Turístico» a
+  59 km de Santiago).
 - Al seleccionar un vehículo, el mapa encuadra su viaje y salen todas sus paradas con su nombre: el
   origen, el destino y la próxima destacados, blancas las que le quedan y grises las que ya ha pasado
   (si los nombres no caben, se ocultan los que chocan, nunca esos tres). En la ficha, la lista
@@ -861,6 +876,10 @@ Ninguna por ahora.
   tanto tarda más en responder (alguna vez 1–3 s). Para los vehículos con posición estimada bastaría
   con el recorrido que ya sale de su horario, o con repartir ese trabajo entre lecturas.
 - Estado oficial de la red de Adif, si llega a publicarse con licencia de reutilización.
+- Que la línea discontinua de cada tren (por dónde ha pasado en los últimos 45 minutos) no empiece de
+  cero con cada versión nueva: el historial de posiciones está en memoria y se pierde al cambiar de
+  contenedor (el 4-nov-2026, todas empezaban a la hora del despliegue). Guardar una copia cada poco y
+  recuperarla al arrancar.
 - Terremotos: leer el RSS del IGN (los de magnitud 2,6 o más) como repuesto si un día falla la capa de
   su servicio de visualización. Y poner la isla a los de Baleares y La Gomera: en un año no ha salido
   ninguno con su sufijo, y no se sabe cómo lo escribe el IGN.

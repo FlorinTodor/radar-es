@@ -12,6 +12,10 @@ const STATIONS = {
   21004: { name: 'Pontedeume', place: 'Pontedeume', lat: 43.4065, lon: -8.1717 },
   21002: { name: 'Betanzos-Infesta', place: 'Betanzos', lat: 43.2857, lon: -8.2154 },
   98305: { name: 'Valdebebas', place: 'Madrid', lat: 40.48191, lon: -3.61629 },
+  31412: { name: 'A Coruña', place: 'A Coruña', lat: 43.34969, lon: -8.41556 },
+  31400: { name: 'Santiago de Compostela-Daniel Castelao', place: 'Santiago de Compostela', lat: 42.87084, lon: -8.5447 },
+  99159: { name: 'Santiago-Turístico', place: 'Santiago de Compostela', lat: 42.87084, lon: -8.5447 },
+  22100: { name: 'Ourense', place: 'Ourense', lat: 42.35039, lon: -7.87278 },
 };
 const stations = { get: (code) => STATIONS[code], name: (code) => STATIONS[code]?.name ?? null };
 const log = { warn: () => {}, info: () => {} };
@@ -76,4 +80,24 @@ test('AV/LD/MD «parado» en una estación que ya ha dejado atrás: es la últim
   assert.equal(by['12696'].current, null);
   assert.equal(by['12696'].next, 'Pontedeume');
   assert.deepEqual(largaDistancia.railTrip('renfe-ld:12696').stops, [[-8.1717, 43.4065], [-8.2253, 43.4894]]);
+});
+
+test('AV/LD/MD «en camino hacia» una parada ficticia del mismo sitio que una estación ya dejada atrás: va a la siguiente', async () => {
+  // El Avant A Coruña → Ourense del 4-nov-2026: «hacia Santiago-Turístico» a 59 km pasado Santiago.
+  const zip = zipSync({
+    'routes.txt': strToU8('route_id,route_short_name\nR1,Avant\n'),
+    'trips.txt': strToU8('route_id,service_id,trip_id,trip_short_name\nR1,A,0920112026-11-03,09201\nR1,A,0920312026-11-03,09203\n'),
+    'stop_times.txt': strToU8('trip_id,stop_id,stop_sequence\n'
+      + '0920112026-11-03,31412,1\n0920112026-11-03,31400,3\n0920112026-11-03,99159,4\n0920112026-11-03,22100,5\n'
+      + '0920312026-11-03,31412,1\n0920312026-11-03,31400,3\n0920312026-11-03,99159,4\n0920312026-11-03,22100,5\n'),
+  });
+  const [, largaDistancia] = sources({ 'vehicle_positions_LD.json': { entity: [
+    ld('09201', '99159', 'IN_TRANSIT_TO', 42.47431, -8.087117, '2026-11-03'),
+    // Entre A Coruña y Santiago, de camino a Santiago-Turístico: no la ha dejado atrás.
+    ld('09203', '99159', 'IN_TRANSIT_TO', 43.10, -8.48, '2026-11-03'),
+  ] } }, { bytes: async () => zip });
+  const by = byLabel((await largaDistancia.fetch()).vehicles);
+  assert.equal(by['09201'].next, 'Ourense');
+  assert.deepEqual(largaDistancia.railTrip('renfe-ld:09201').stops, [[-7.87278, 42.35039]]);
+  assert.equal(by['09203'].next, 'Santiago-Turístico');
 });

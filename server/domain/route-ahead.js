@@ -8,10 +8,18 @@ import { M_PER_DEG_LAT, mPerDegLon, roundBearing5 } from './geo.js';
 
 // Más lejos que esto del trazado, el tren o la parada no están sobre él.
 const NEAR_M = 500;
-// Entre dos paradas, el trazado no puede ser mucho más largo que la recta (la vía de montaña lo es
-// algo; el doble, no: es la otra pasada de una línea circular o un trazado que da la vuelta).
+// Entre dos paradas, el trazado no puede ser mucho más largo que la recta: si la parada está cerca de
+// dos pasadas del trazado, la lejana es la otra pasada de una línea circular o de un trazado que da la
+// vuelta. Si sólo está cerca de una, no hay con qué confundirla, y el trazado largo es la vía: la rampa
+// de Pesquera (C1 Santander–Reinosa) da 8,5 km de vía para 2,6 en recta entre Bárcena y Pujayo, y la
+// llegada a Alicante-Terminal o a Estació de França da una curva (4-nov-2026).
 const DETOUR = 1.8;
 const DETOUR_EXTRA_M = 1500;
+// Una parada a menos de esto del tren, a lo largo del trazado, es en la que está o la que acaba de
+// dejar: no dice hacia dónde va. Con el tren parado en su estación de origen, el GPS lo pone a unos
+// metros por delante o por detrás de ella (C1 de Bilbao en Santurtzi, 4-nov-2026: a 2 m «por delante»),
+// y si de ahí se sacaba el sentido, la parada siguiente quedaba detrás y no se dibujaba nada.
+const AT_STOP_M = 150;
 
 /**
  * @param {Array<[number, number]>} coords  trazado ([lon, lat]), en cualquier sentido
@@ -23,11 +31,25 @@ export function pathThroughStops(coords, at, stops) {
   if (!coords || coords.length < 2 || !at || !stops?.length) return null;
   const { kx, ky, xy, cum } = prepared(coords);
 
-  const start = project(xy, cum, at, kx, ky);
-  if (start.d > NEAR_M) return null;
+  // Donde puede estar el tren sobre el trazado: cada pasada a menos de NEAR_M. Casi siempre es una; en
+  // una línea circular, el tren en su estación de origen y destino está a la vez al principio y al final
+  // del trazado (Santa Justa en el C4 de Sevilla, a 38 y a 37 m), y en una que vuelve sobre sí, en las dos
+  // pasadas. Vale la pasada desde la que se llega a más paradas; a igualdad, la más cercana.
+  const starts = passesOf(xy, cum, at, kx, ky).sort((a, b) => a.d - b.d);
+  let best = null;
+  for (const start of starts) {
+    const walked = walk(coords, cum, kx, ky, xy, start, at, stops);
+    if (!best || walked.reached > best.reached) best = walked;
+  }
+  return best && best.path.length > 1 ? best.path : null;
+}
+
+/** Desde `start` (pasada del tren), por el trazado hasta cada parada mientras encajen. */
+function walk(coords, cum, kx, ky, xy, start, at, stops) {
   const path = [coordAt(coords, cum, start.m)];
   let prev = { m: start.m, p: at };
   let dir = 0; // sentido del viaje sobre el trazado (+1 / -1): lo fija la primera parada
+  let reached = 0;
   for (const stop of stops) {
     // En una línea circular o que vuelve sobre sí, la parada está cerca de dos pasadas del trazado:
     // vale la que queda por delante, en el sentido del viaje, a menos distancia.
@@ -35,14 +57,20 @@ export function pathThroughStops(coords, at, stops) {
     if (hit.d > NEAR_M) break;
     const along = hit.m - prev.m;
     const straight = Math.hypot((stop[0] - prev.p[0]) * kx, (stop[1] - prev.p[1]) * ky);
-    if (Math.abs(along) < 1) { prev = { m: hit.m, p: stop }; continue; } // en la misma parada
     const sense = Math.sign(along);
-    if ((dir && sense !== dir) || Math.abs(along) > DETOUR * straight + DETOUR_EXTRA_M) break;
+    if (Math.abs(along) < AT_STOP_M) { // en la misma parada: no fija el sentido
+      if (dir && sense === dir) path.push(...slice(coords, cum, prev.m, hit.m).slice(1));
+      prev = { m: hit.m, p: stop };
+      reached++;
+      continue;
+    }
+    if ((dir && sense !== dir) || (hit.passes > 1 && Math.abs(along) > DETOUR * straight + DETOUR_EXTRA_M)) break;
     dir = sense;
     path.push(...slice(coords, cum, prev.m, hit.m).slice(1));
     prev = { m: hit.m, p: stop };
+    reached++;
   }
-  return path.length > 1 ? path : null;
+  return { path, reached };
 }
 
 // El trazado en metros (x, y) y la distancia acumulada en cada vértice, guardados por trazado: sólo
@@ -86,7 +114,20 @@ export function headingOfPath(path) {
  * más cercano, y vale la pasada más próxima a lo largo del trazado desde `fromM` (y, si se conoce el
  * sentido `dir`, por delante; si sólo las hay por detrás, la más cercana, y quien llama la descarta).
  */
-function project(xy, cum, [lon, lat], kx, ky, fromM = null, dir = 0) {
+function project(xy, cum, p, kx, ky, fromM = null, dir = 0) {
+  const { nearest, passes } = scan(xy, cum, p, kx, ky);
+  if (fromM === null || !passes.length) return { ...nearest, passes: passes.length };
+  const ahead = (q) => !dir || Math.sign(q.m - fromM) !== -dir || Math.abs(q.m - fromM) <= 1;
+  const pool = passes.filter(ahead);
+  const pick = pool.length ? pool.reduce((a, b) => (Math.abs(b.m - fromM) < Math.abs(a.m - fromM) ? b : a))
+    : passes.reduce((a, b) => (b.d < a.d ? b : a));
+  return { ...pick, passes: passes.length };
+}
+
+/** Cada pasada del trazado a menos de NEAR_M de `p` (tramos seguidos), con su punto más cercano. */
+const passesOf = (xy, cum, p, kx, ky) => scan(xy, cum, p, kx, ky).passes;
+
+function scan(xy, cum, [lon, lat], kx, ky) {
   const x = lon * kx;
   const y = lat * ky;
   let nearest = { d: Infinity, m: 0 };
@@ -106,11 +147,7 @@ function project(xy, cum, [lon, lat], kx, ky, fromM = null, dir = 0) {
       else if (d < run.d) Object.assign(run, { d, m });
     } else run = null;
   }
-  if (fromM === null || !passes.length) return nearest;
-  const ahead = (q) => !dir || Math.sign(q.m - fromM) !== -dir || Math.abs(q.m - fromM) <= 1;
-  const pool = passes.filter(ahead);
-  if (!pool.length) return passes.reduce((a, b) => (b.d < a.d ? b : a));
-  return pool.reduce((a, b) => (Math.abs(b.m - fromM) < Math.abs(a.m - fromM) ? b : a));
+  return { nearest, passes };
 }
 
 function coordAt(coords, cum, m) {
