@@ -624,8 +624,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   cuando ya ha cargado los datos. Si algún día el servidor no respondiera, se ve un aviso de que se
   está actualizando en vez de un error.
 - Las subidas se detectan en unos segundos y el pipeline avanza en cuanto cada paso termina.
-- Un fallo pasajero de GitHub mientras el pipeline espera a las pruebas ya no lo para: vuelve a
-  preguntar al momento.
+- Un fallo pasajero de GitHub mientras el pipeline espera a las pruebas o al despliegue en
+  producción ya no lo para: vuelve a preguntar al momento.
 - Una fuente nueva que no responde desde el servidor para la verificación de pruebas: ya no llega a
   producción sin funcionar.
 - Pruebas automáticas que no dependen de la velocidad de la máquina: dan lo mismo en el servidor,
