@@ -1,5 +1,7 @@
 // Tráfico de las comunidades con competencias propias, que la DGT no cubre del todo:
-// Cataluña (Servei Català de Trànsit, GML) y Euskadi (Trafikoa, API JSON). Sin clave.
+// Cataluña (Servei Català de Trànsit, GML) y Euskadi (Trafikoa, API JSON). Sin clave. Ninguna da el fin
+// previsto: cada incidencia se muestra mientras su fuente la publique (ver domain/carreteras.js).
+import { roadExpires } from '../../../domain/carreteras.js';
 import { arr, lookup, madridLocalToMs, madridToday, num, text, xmlParser } from './parse.js';
 
 // ---------- Cataluña ----------
@@ -7,8 +9,8 @@ const SCT_URL = 'https://www.gencat.cat/transit/opendata/incidenciesGML.xml';
 const SCT_TYPES = { Obres: ['roadMaintenance', 'Obras'], 'Retenció': ['abnormalTraffic', 'Retención'], Accident: ['accident', 'Accidente'] };
 const SCT_LEVEL = { 1: 'baja', 2: 'media', 3: 'alta', 4: 'alta', 5: 'muy alta' };
 
-/** @param {{ http: import('../http/http-client.js').HttpClient }} deps */
-export function createSctSource({ http }) {
+/** @param {{ http: import('../http/http-client.js').HttpClient, now?: () => number }} deps */
+export function createSctSource({ http, now = Date.now }) {
   return {
     id: 'sct',
     name: 'Servei Català de Trànsit: incidencias',
@@ -20,6 +22,7 @@ export function createSctSource({ http }) {
       // El fichero no lleva su fecha dentro: la de actualización es la de su cabecera Last-Modified.
       const info = {};
       const doc = xmlParser.parse(await http.text(SCT_URL, { info }));
+      const expires = roadExpires(null, now());
       const events = [];
       for (const member of arr(doc.FeatureCollection?.featureMember)) {
         const f = member.mct2_v_afectacions_data;
@@ -42,6 +45,7 @@ export function createSctSource({ http }) {
           lat,
           lon,
           start: Date.parse(text(f.data)) || null,
+          expires,
         });
       }
       return { events, sourceTime: info.lastModified ?? null };
@@ -57,8 +61,8 @@ const MAX_PAGES = 25;
 // averías) se descartan pasadas unas horas para no mostrar como activos los ya resueltos.
 const TRANSIENT_MAX_AGE_MS = 6 * 3600_000;
 
-/** @param {{ http: import('../http/http-client.js').HttpClient }} deps */
-export function createTraficoEuskadiSource({ http }) {
+/** @param {{ http: import('../http/http-client.js').HttpClient, now?: () => number }} deps */
+export function createTraficoEuskadiSource({ http, now = Date.now }) {
   return {
     id: 'trafico-euskadi',
     name: 'Tráfico Euskadi: incidencias del día',
@@ -67,8 +71,9 @@ export function createTraficoEuskadiSource({ http }) {
     url: EUSKADI_URL,
     license: 'Open Data Euskadi (CC BY 4.0) · Gobierno Vasco y ayuntamientos de Bilbao, Vitoria-Gasteiz y Donostia',
     async fetch() {
-      const [y, m, d] = madridToday().split('-');
-      const now = Date.now();
+      const read = now();
+      const [y, m, d] = madridToday(read).split('-');
+      const expires = roadExpires(null, read);
       const events = [];
       for (let page = 1; page <= MAX_PAGES; page++) {
         const data = await http.json(`${EUSKADI_URL}/${y}/${m}/${d}?_page=${page}`);
@@ -78,7 +83,7 @@ export function createTraficoEuskadiSource({ http }) {
           if (lat === null || lon === null) continue;
           const isWork = /^obra/i.test(i.incidenceType ?? '');
           const start = madridLocalToMs(i.startDate);
-          if (!isWork && start && now - start > TRANSIENT_MAX_AGE_MS) continue;
+          if (!isWork && start && read - start > TRANSIENT_MAX_AGE_MS) continue;
           const km = num(i.pkStart);
           events.push({
             id: `euskadi:${i.incidenceId}`,
@@ -91,6 +96,7 @@ export function createTraficoEuskadiSource({ http }) {
             lat,
             lon,
             start,
+            expires,
           });
         }
         if (page >= (data.totalPages ?? 1)) break;

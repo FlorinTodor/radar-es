@@ -24,7 +24,8 @@ tiempo real, que pueda conectar al proyecto.
 > **Aviso (2026-11-01): algunas fuentes de este documento ya NO se usan.** Por licencia se retiraron el visor de Renfe
 > (`flota.json`, `flotaLD.json`, `estaciones.geojson`, `trenesConEstacionesLD.json`), la API del
 > tranvía de Tenerife (`tranviaonline`), la API de la app de Rodalies (`serveisgrs`), adsb.lol e IODA.
-> MeteoAlarm, EMSC y OpenSky no llegaron a integrarse: los avisos de AEMET se leen de su RSS.
+> MeteoAlarm y OpenSky no llegaron a integrarse: los avisos de AEMET se leen de su RSS. El EMSC sí, desde el
+> 4-11-2026, sólo para los terremotos que no localiza el IGN; los del IGN se leen de su WMS INSPIRE, no del RSS.
 > Este documento recoge la exploración inicial; las fuentes vigentes y sus licencias están en
 > [radarespaña.es/legal](https://radarespaña.es/legal).
 
@@ -41,10 +42,10 @@ tiempo real, que pueda conectar al proyecto.
 | Metro Bilbao, posiciones | https://opendata.euskadi.eus/transport/moveuskadi/metro_bilbao/gtfsrt_metro_bilbao_vehicle_positions.pb | GTFS-RT pb | no |
 | Tranvía de Tenerife, posiciones | https://tranviaonline.metrotenerife.com/api/infoStops/vehicleLocation | JSON (no documentado) | no |
 | DGT, incidencias de tráfico | https://nap.dgt.es/datex2/v3/dgt/SituationPublication/datex2_v37.xml | DATEX II v3.7 | no |
-| IGN, terremotos | https://www.ign.es/ign/RssTools/sismologia.xml | GeoRSS | no |
+| IGN, terremotos | https://www.ign.es/wms-inspire/geofisica (capa Ultimos10dias, GetMap en GeoJSON) | WMS INSPIRE, GeoJSON | no |
 | AEMET, avisos (vía MeteoAlarm) | https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-spain | Atom + CAP | no |
 | Red Eléctrica, demanda | https://apidatos.ree.es/es/datos/demanda/demanda-tiempo-real | JSON (REData) | no |
-| EMSC, terremotos (respaldo) | https://www.seismicportal.eu/fdsnws/event/1/query | FDSN JSON | no |
+| EMSC, terremotos que no localiza el IGN | https://www.seismicportal.eu/fdsnws/event/1/query | FDSN JSON | no |
 | OpenSky, aviones | https://opensky-network.org/api/states/all | JSON | no (con límites) |
 
 ## Fuentes encontradas y probadas, pendientes de integrar

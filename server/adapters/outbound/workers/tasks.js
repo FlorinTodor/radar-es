@@ -12,6 +12,6 @@ export const TASKS = {
   schedule: { run: parseSchedule, pack: packSchedule, unpack: unpackSchedule },
   /** (zip, nombre de la red) → trazados de sus líneas (GeoJSON). */
   network: { run: buildNetwork },
-  /** (XML DATEX II) → incidencias de la DGT. */
+  /** (XML DATEX II, hora de la lectura) → incidencias de la DGT. */
   dgt: { run: parseDgt },
 };

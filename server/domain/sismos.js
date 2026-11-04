@@ -5,6 +5,22 @@ import { distanceKm } from './geo.js';
 export const quakeSeverity = (magnitude) =>
   magnitude >= 5 ? 'muy alta' : magnitude >= 4 ? 'alta' : magnitude >= 3 ? 'media' : 'baja';
 
+/** Magnitud mínima de los terremotos del mapa, de todas las fuentes. Los más pequeños no se sienten. */
+export const MIN_QUAKE_MAGNITUDE = 1.5;
+
+const PENINSULA = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', dateStyle: 'short', timeStyle: 'short' });
+const CANARIAS = new Intl.DateTimeFormat('es-ES', { timeZone: 'Atlantic/Canary', dateStyle: 'short', timeStyle: 'short' });
+const inCanarias = (lat, lon) => lat >= 26.5 && lat <= 30.5 && lon >= -19.5 && lon <= -12.5;
+
+/** La fecha y hora de un terremoto para su descripción: la de Canarias si es allí, y si no la peninsular. */
+export const quakeWhen = (start, lat, lon) =>
+  (inCanarias(lat, lon) ? `${CANARIAS.format(start)} (hora de Canarias)` : PENINSULA.format(start));
+
+// Cuánto se muestra un terremoto: dos días. Las fuentes traen los de diez y el mapa se llenaba de los de
+// la semana pasada. Con `expires` sale también del mapa aunque su fuente deje de responder.
+export const QUAKE_SHOWN_HOURS = 48;
+export const quakeExpires = (start) => start + QUAKE_SHOWN_HOURS * 3600_000;
+
 // El mismo terremoto en dos fuentes: la hora de origen difiere en segundos y el epicentro, en unos
 // kilómetros (cada centro lo calcula con sus estaciones). Dos terremotos distintos tan juntos en el
 // tiempo y en el espacio son, a efectos del mapa, el mismo.

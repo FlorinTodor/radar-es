@@ -266,11 +266,11 @@ export const GROUP_ITEMS = [
   ['meteo', 'Meteo (AEMET)', 'Avisos meteorológicos de AEMET', 'Emergencias'],
   ['incendios', 'Focos de calor', 'Focos de calor detectados por satélite', 'Emergencias'],
   ['effis', 'Áreas quemadas', 'Áreas quemadas en los últimos 30 días (EFFIS)', 'Emergencias'],
-  ['sismos', 'Terremotos', 'Terremotos', 'Emergencias'],
+  ['sismos', 'Terremotos', 'Terremotos de los dos últimos días', 'Emergencias'],
   ['gdacs', 'Catástrofes', 'Alertas de catástrofes (GDACS)', 'Emergencias'],
   ['emergencias', 'Avisos oficiales', 'Cortes de luz y planes de emergencia activados que publican protección civil, los 112 y los gobiernos de Andalucía, Baleares, Canarias, Cantabria, Castilla-La Mancha, Castilla y León, Cataluña, Galicia, La Rioja, Madrid, Murcia y País Vasco. Sólo los que publican ellos: los cortes de barrio no salen', 'Emergencias'],
   ['dgt', 'Tráfico', 'Incidencias de tráfico (las leves aparecen al acercar el mapa)', 'Carreteras'],
-  ['obras', 'Obras', 'Obras en carretera', 'Carreteras'],
+  ['obras', 'Obras', 'Obras en carretera, hasta su fin previsto', 'Carreteras'],
 ];
 
 export function renderLayers(el, prefs, countsByMode) {

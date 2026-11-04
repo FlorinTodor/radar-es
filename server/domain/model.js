@@ -51,7 +51,8 @@
  * @property {number|null} lat
  * @property {number|null} lon
  * @property {number|null} [start]
- * @property {number|null} [end]
+ * @property {number|null} [end]     Fin previsto, si la fuente lo da (obras de la DGT, avisos de AEMET).
+ * @property {number|null} [updated] Última revisión de la incidencia en su fuente (DGT).
  * @property {number|null} [issued]  Epoch ms en que se emitió el aviso (AEMET pide mostrarlo; avisos oficiales).
  * @property {boolean} [issuedDayOnly]  La fuente sólo da el día de emisión, sin hora (notas de prensa de Cantabria).
  * @property {string|null} [url]     Página del aviso o del suceso en su fuente (el mapa la enlaza con safeLink).
@@ -68,7 +69,8 @@
  * @property {string} [group]    Mismo aviso publicado para varios lugares (un evento por lugar).
  * @property {string} [credit]   Atribución que pide la licencia de su fuente, para mostrarla junto al dato.
  * @property {number} [expires]  Epoch ms a partir del cual deja de estar en vigor aunque su fuente no
- *   vuelva a responder (avisos oficiales: lo que dura uno sin noticias de su fin, ver domain/emergencias.js).
+ *   vuelva a responder (avisos oficiales: lo que dura uno sin noticias de su fin, ver domain/emergencias.js;
+ *   terremotos: dos días, domain/sismos.js; tráfico: su fin o una hora sin leerlo, domain/carreteras.js).
  */
 
 /**
