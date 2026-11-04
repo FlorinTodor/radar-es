@@ -12,6 +12,8 @@ import { makeLinesOnRail } from './application/use-cases/lines-on-rail.js';
 import { createHttpClient } from './adapters/outbound/http/http-client.js';
 import { createFileCache } from './adapters/outbound/http/file-cache.js';
 import { createConsoleLogger } from './adapters/outbound/logging/console-logger.js';
+import { withLogCounts } from './adapters/outbound/logging/counting-logger.js';
+import { createPrometheusMetrics } from './adapters/outbound/metrics/prometheus-metrics.js';
 import { createRenfeStationCatalog } from './adapters/outbound/stations/renfe-station-catalog.js';
 import { createNetworkStationCatalog } from './adapters/outbound/stations/network-station-catalog.js';
 import { createNapClient } from './adapters/outbound/nap/nap-client.js';
@@ -23,6 +25,7 @@ import { createJsonlHistory } from './adapters/outbound/persistence/jsonl-histor
 import { createSources } from './adapters/outbound/sources/index.js';
 import { startPolling } from './adapters/inbound/scheduler/polling-scheduler.js';
 import { createHttpServer } from './adapters/inbound/http/http-server.js';
+import { createMetricsServer } from './adapters/inbound/http/metrics-server.js';
 import { createMcpHandler } from './adapters/inbound/mcp/mcp.js';
 import pkg from '../package.json' with { type: 'json' };
 import { createWmsTiles } from './adapters/outbound/tiles/wms-tiles.js';
@@ -30,8 +33,10 @@ import { createCartoCiudadGeocoder, GEOCODER_MEMBERS } from './adapters/outbound
 import { createCpuPool, parseThreads } from './adapters/outbound/workers/cpu-pool.js';
 
 const config = loadConfig();
-const log = assertPort('Logger', createConsoleLogger(), PORT_MEMBERS.Logger);
 const clock = assertPort('Clock', { now: () => Date.now() }, PORT_MEMBERS.Clock);
+// Métricas para la monitorización: peticiones, mensajes MCP, lecturas de fuentes y avisos del registro.
+const metrics = assertPort('Metrics', createPrometheusMetrics({ version: pkg.version, now: clock.now }), PORT_MEMBERS.Metrics);
+const log = assertPort('Logger', withLogCounts(createConsoleLogger(), metrics), PORT_MEMBERS.Logger);
 const http = createHttpClient({ userAgent: config.userAgent });
 
 // --- Adaptadores de salida -------------------------------------------------
@@ -75,7 +80,7 @@ for (const s of sources) {
 }
 
 // --- Casos de uso ----------------------------------------------------------
-const ingestSource = makeIngestSource({ sources: enabledSources, situation, clock, log });
+const ingestSource = makeIngestSource({ sources: enabledSources, situation, clock, log, metrics });
 const detectAlerts = makeDetectAlerts({ situation, stations, history, clock });
 const query = makeQuerySituation({ situation, stations, networkStations, network, clock, sources, railNetwork });
 const serveTiles = makeServeTiles({ tiles });
@@ -94,6 +99,7 @@ const server = createHttpServer({
   serveTiles,
   // Servidor MCP en POST /mcp: los asistentes de IA consultan el directo con herramientas.
   mcp: createMcpHandler({ query, about: config.about, version: pkg.version, now: clock.now }),
+  metrics,
   publicDir: fileURLToPath(new URL('../public/', import.meta.url)).replace(/\/$/, ''),
   vendorDirs: { '/vendor/maplibre/': fileURLToPath(new URL('../node_modules/maplibre-gl/dist/', import.meta.url)).replace(/\/$/, '') },
 });
@@ -103,9 +109,19 @@ server.listen(config.port, config.host, () => {
     + ` · ${pool.threads() || 'sin'} hilo(s) de cálculo`);
 });
 
+// Métricas en un puerto aparte, que no pasa por nginx ni por el túnel (sólo si METRICS_PORT lo dice).
+const metricsServer = config.metricsPort
+  ? createMetricsServer({ render: () => metrics.render({ sources: query.health(), now: clock.now() }), log })
+  : null;
+metricsServer?.listen(config.metricsPort, config.metricsHost, () => {
+  log.info(`Métricas en http://${config.metricsHost}:${config.metricsPort}/metrics`);
+});
+
 function shutdown() {
   log.info('Cerrando…');
   scheduler.stop();
+  metricsServer?.close();
+  metrics.close();
   pool.close();
   if (xmlPool !== pool) xmlPool.close();
   server.close(() => process.exit(0));

@@ -4,6 +4,10 @@ export function loadConfig(env = process.env) {
     port: Number(env.PORT) || 8080,
     // Por defecto sólo escucha en local; HOST=0.0.0.0 para exponerlo en la red.
     host: env.HOST || '127.0.0.1',
+    // Métricas para la monitorización (GET /metrics), en otro puerto: sin METRICS_PORT no se abre.
+    // compose.yaml lo abre dentro de la red de Docker, sin publicarlo (ver deploy/monitor/).
+    metricsPort: Number(env.METRICS_PORT) || null,
+    metricsHost: env.METRICS_HOST || '127.0.0.1',
     dataDir: new URL('../data/', import.meta.url),
     // Identificarse con la web y un contacto permite a un operador avisarnos antes de bloquearnos.
     userAgent: `RadarES/0.2 (+${env.PUBLIC_URL || 'https://xn--radarespaa-19a.es'}${env.CONTACT_EMAIL ? `; ${env.CONTACT_EMAIL}` : ''})`,

@@ -452,7 +452,7 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
    * @param {object} message
    * @param {{ budget?: { take(): boolean, refund(): void } }} [options]
    */
-  return function handle(message, options = {}) {
+  function handle(message, options = {}) {
     if (!message || typeof message !== 'object' || Array.isArray(message) || message.jsonrpc !== '2.0') {
       return rpcError(idOf(message), RPC.invalidRequest, 'Petición JSON-RPC 2.0 no válida');
     }
@@ -476,7 +476,10 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
       if (err instanceof RpcError) return rpcError(message.id, err.code, err.message);
       throw err;
     }
-  };
+  }
+  // Los métodos y las herramientas que existen: las métricas cuentan por su nombre y meten en «otro»
+  // lo que no es ninguno, para que nadie llene la monitorización con nombres inventados.
+  return Object.assign(handle, { methodNames: Object.keys(methods), toolNames: Object.keys(tools) });
 }
 
 const limitOf = (n) => (Number.isInteger(n) ? Math.max(1, Math.min(n, MAX_LIMIT)) : DEFAULT_LIMIT);

@@ -1,6 +1,7 @@
 // Puertos: los contratos que la aplicación necesita del exterior. Los adaptadores
 // (adapters/outbound) los implementan y main.js los inyecta en los casos de uso. Los adaptadores
-// de entrada (HTTP, planificador) sólo hablan con casos de uso; de los puertos, sólo usan el registro.
+// de entrada (HTTP, planificador) sólo hablan con casos de uso; de los puertos, sólo usan el registro
+// y las métricas.
 // JavaScript no tiene interfaces, así que se documentan con JSDoc y se comprueban
 // en el arranque con `assertPort`.
 
@@ -151,6 +152,18 @@
  * @property {(msg: string) => void} error
  */
 
+/**
+ * Métricas de funcionamiento, para la monitorización: sólo cuentas y tiempos agregados, nunca quién
+ * pregunta (ni IPs ni rutas con lo que se ha pedido: `/api/stations/:code`, no el código).
+ * @typedef {object} MetricsPort
+ * @property {(r: { route: string, method: string, status: number, seconds: number }) => void} request
+ *   Una petición HTTP atendida (o cortada por el cliente: status 499).
+ * @property {(m: { method: string, tool?: string, era: 'moderna'|'antigua', result: string, seconds?: number }) => void} mcp
+ *   Un mensaje al servidor MCP y cómo acabó (`ok`, `error_herramienta`, `ocupado`, `origen`…).
+ * @property {(s: { source: string, ok: boolean, seconds: number }) => void} sourceRead  Una lectura de una fuente.
+ * @property {(level: 'warn'|'error') => void} logged  Un aviso o un error en el registro.
+ */
+
 /** Comprueba en el arranque que un adaptador cumple el puerto. */
 export function assertPort(name, impl, members) {
   const missing = members.filter((m) => impl?.[m] === undefined);
@@ -170,4 +183,5 @@ export const PORT_MEMBERS = {
   TileProvider: ['layers', 'cacheControl', 'tile', 'burntAreas'],
   Clock: ['now'],
   Logger: ['info', 'warn', 'error'],
+  Metrics: ['request', 'mcp', 'sourceRead', 'logged'],
 };
