@@ -2,7 +2,9 @@
 // La lanza deploy/actualizar.sh --pruebas con el node de la propia imagen y red del host:
 //   docker run --rm -i --network host <imagen> node --input-type=module - < deploy/comprobar.mjs
 // Compara con producción en el mismo momento: una fuente que falla en los dos sitios es un fallo
-// de la fuente, no de la versión nueva, y no la para. Sale con 0 si todo va bien y con 1 si no.
+// de la fuente, no de la versión nueva, y no la para. Una fuente nueva (producción no la tiene) que
+// no ha leído nunca bien sí la para: desde el servidor puede no responder aunque desde otra red sí
+// (la Comunidad de Madrid, el 4-11-2026, llegó así a producción). Sale con 0 si todo va bien y con 1 si no.
 //
 // Variables: PRUEBAS y PRODUCCION (URL base), ESPERA (segundos para cargar todas las fuentes).
 
@@ -25,9 +27,11 @@ async function json(base, path) {
 }
 
 // Producción puede estar caída o arrancando: entonces no hay con qué comparar y se exige todo.
-async function okEnProduccion() {
+// Las que funcionan allí (`ok`) y todas las que tiene (`todas`), para saber cuáles son nuevas.
+async function enProduccion() {
   try {
-    return new Set((await json(PRODUCCION, '/api/health')).filter((s) => s.ok).map((s) => s.id));
+    const salud = await json(PRODUCCION, '/api/health');
+    return { ok: new Set(salud.filter((s) => s.ok).map((s) => s.id)), todas: new Set(salud.map((s) => s.id)) };
   } catch {
     return null;
   }
@@ -40,12 +44,14 @@ async function fuentes() {
   while (Date.now() < fin) {
     try {
       const pruebas = (await json(PRUEBAS, '/api/health')).filter((s) => s.enabled);
-      const prod = await okEnProduccion();
+      const prod = await enProduccion();
       const pendientes = pruebas.filter((s) => !s.ok && !s.error && s.lastOk === null);
-      const caidas = pruebas.filter((s) => !s.ok && !pendientes.includes(s) && (!prod || prod.has(s.id)));
+      const nueva = (s) => prod && !prod.todas.has(s.id) && s.lastOk === null;
+      const caidas = pruebas.filter((s) => !s.ok && !pendientes.includes(s) && (!prod || prod.ok.has(s.id) || nueva(s)));
+      const porque = (s) => (!prod ? '' : nueva(s) ? ' (fuente nueva: no ha leído nunca desde el servidor)' : ' (en producción funciona)');
       problemas = [
         ...pendientes.map((s) => `${s.id}: sin cargar todavía`),
-        ...caidas.map((s) => `${s.id}: ${s.error ?? 'falla'}${prod ? ' (en producción funciona)' : ''}`),
+        ...caidas.map((s) => `${s.id}: ${s.error ?? 'falla'}${porque(s)}`),
       ];
       const ok = pruebas.filter((s) => s.ok).length;
       console.log(`fuentes: ${ok}/${pruebas.length} ok, ${pendientes.length} sin cargar, ${caidas.length} con error`);

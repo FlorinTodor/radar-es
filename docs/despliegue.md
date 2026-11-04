@@ -58,7 +58,8 @@ imagen, la arranca y pasa `deploy/comprobar.mjs`, que compara con producción en
 momento:
 
 - todas las fuentes cargadas (hasta 25 min); una que falla también en producción es un fallo de
-  la fuente y no para la versión;
+  la fuente y no para la versión, pero una fuente nueva que no ha leído nunca desde el servidor sí
+  la para (puede bloquear la red del VPS aunque desde otras funcione);
 - `/api/live` con vehículos (al menos la mitad que en producción) y el resto del directo;
 - todas las páginas del sitemap y los ficheros del mapa;
 - pico de memoria por debajo de 900 MB (el límite es 1 GB) y ningún reinicio.

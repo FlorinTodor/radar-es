@@ -169,7 +169,10 @@ export function createSources(deps) {
     createCyl112Source(deps),
     createBalearsPremsaSource(deps),
     // Sin 112 con licencia: las notas de prensa de su gobierno (sólo planes con nombre y cortes de luz).
-    createMadridNewsSource(deps),
+    // La web de la Comunidad de Madrid responde con un error a todo lo que se le pide desde la red de
+    // nuestro servidor (también la portada y el robots.txt), aunque desde otras redes funciona. No se
+    // esquiva: se le pide acceso (docs/solicitudes/8). Cuando responda, basta con quitar `paused`.
+    Object.assign(createMadridNewsSource(deps), { paused: 'En pausa mientras su web no responda a nuestro servidor' }),
     createMurciaNewsSource(deps),
     createCantabriaNewsSource(deps),
     createGaliciaNewsSource(deps),
