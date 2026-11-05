@@ -11,9 +11,70 @@ const { transit_realtime: rt } = require('gtfs-realtime-bindings');
 const STALE_MS = 10 * 60_000;
 const STATIC_TTL_MS = 24 * 3600_000;
 
-/** Decodifica un FeedMessage GTFS-RT (protobuf) a objeto plano. */
+const AS_OBJECT = { longs: Number, enums: String };
+
+/**
+ * Decodifica un FeedMessage GTFS-RT (protobuf) a objeto plano. Si llega mal formado, se leen sus entradas
+ * una a una y sólo se descartan las partes que no se pueden leer: Euskotren publica a veces un fichero con
+ * una entrada mal medida (sus paradas quedan sueltas en el fichero) y, leyéndolo de golpe, se perdía entero
+ * con «missing required 'trip'». Entonces `damaged` dice cuántas partes se han descartado.
+ * Un fichero vacío (BilboBus publica a veces 0 bytes) es un error que lo dice, no uno de protobuf.
+ * @returns {{ header?: object, entity: object[], damaged?: number }}
+ */
 export function decodeFeed(bytes) {
-  return rt.FeedMessage.toObject(rt.FeedMessage.decode(bytes), { longs: Number, enums: String });
+  if (!bytes?.length) throw new Error('el fichero llega vacío (0 bytes)');
+  try {
+    return rt.FeedMessage.toObject(rt.FeedMessage.decode(bytes), AS_OBJECT);
+  } catch (err) {
+    const feed = decodeEntityByEntity(bytes);
+    if (!feed) throw err;
+    return feed;
+  }
+}
+
+/**
+ * Lectura de un FeedMessage campo a campo (su cabecera, campo 1, y cada entrada, campo 2), quedándose con
+ * lo que se lee bien. null si ni siquiera tiene cabecera: entonces no es un feed.
+ */
+function decodeEntityByEntity(bytes) {
+  let header = null;
+  const entity = [];
+  let damaged = 0;
+  let pos = 0;
+  const varint = () => {
+    let value = 0;
+    for (let shift = 0; ; shift += 7) {
+      if (pos >= bytes.length || shift > 63) throw new Error('varint cortado');
+      const b = bytes[pos++];
+      value += (b & 0x7f) * 2 ** shift;
+      if (!(b & 0x80)) return value;
+    }
+  };
+  try {
+    while (pos < bytes.length) {
+      const tag = varint();
+      const field = Math.floor(tag / 8);
+      const wire = tag % 8;
+      if (wire === 0) varint();
+      else if (wire === 1) pos += 8;
+      else if (wire === 5) pos += 4;
+      else if (wire === 2) {
+        const length = varint();
+        const part = bytes.subarray(pos, pos + length);
+        if (pos + length > bytes.length) throw new Error('parte cortada');
+        pos += length;
+        try {
+          if (field === 1) header ??= rt.FeedHeader.toObject(rt.FeedHeader.decode(part), AS_OBJECT);
+          else if (field === 2) entity.push(rt.FeedEntity.toObject(rt.FeedEntity.decode(part), AS_OBJECT));
+        } catch {
+          damaged++;
+        }
+      } else throw new Error(`tipo de campo ${wire}`);
+    }
+  } catch {
+    damaged++; // lo que queda ya no se puede recorrer: vale lo leído hasta aquí
+  }
+  return header ? { header, entity, damaged } : null;
 }
 
 /**
@@ -106,6 +167,7 @@ export function createGtfsRtVehicleSource({ http, cache, log, now = Date.now }, 
     async fetch() {
       await loadStatic();
       const feed = decodeFeed(await http.bytes(url));
+      if (feed.damaged) log?.warn(`[${id}] su feed llega mal formado: se descartan ${feed.damaged} partes y se usa el resto`);
       return {
         vehicles: vehiclesFromFeed(feed, { id, mode, operator, line, describe, gtfs, now: now() }),
         ...(gtfsUpdated ? { datasetUpdated: gtfsUpdated } : {}),
