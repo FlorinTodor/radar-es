@@ -86,6 +86,7 @@ export function createGtfsRtAlertsSource({ http, cache, log, now = Date.now }, {
     async fetch() {
       await loadStops();
       const feed = decodeFeed(await http.bytes(url));
+      if (feed.damaged) log?.warn(`[${id}] sus avisos llegan mal formados: se descartan ${feed.damaged} partes y se usa el resto`);
       const nowMs = now();
       const nowS = nowMs / 1000;
       const cancellations = new Map(); // el mismo aviso viene repetido (uno por línea, a veces dos veces)
