@@ -45,6 +45,7 @@ export const LAYER_GROUPS = {
   incendios: ['ev-fire-glow', 'ev-fire-core'],
   sismos: ['ev-quake'],
   'renfe-avisos': ['ev-rail'],
+  cancelaciones: ['ev-cancel'],
   gdacs: ['ev-gdacs'],
   emergencias: ['ev-emerg'],
   effis: ['effis-burnt', 'burnt-sel-line'],
@@ -163,8 +164,16 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
   };
   const card = createDetailCard(map.getContainer().parentElement, (id) => onVehicleClick(id), (id) => {
     const e = eventList.find((x) => x.id === id);
-    if (e) card.show(eventDetail(e, samePlace(e)));
+    if (!e) return;
+    setStation(null); // desde la ficha de una estación: que su repintado no tape la del suceso
+    showEventCard(e);
   });
+  /** Ficha de un suceso; si es una cancelación, con las paradas de su viaje en el mapa (las suprimidas, en gris). */
+  function showEventCard(e) {
+    const stops = e.category === 'cancelacion' ? e.trip?.stops : null;
+    setTripStops(stops?.length > 1 ? { stops: stops.map((s) => ({ ...s, lon: s.lon ?? null, lat: s.lat ?? null, eta: null })), cancelled: e.type === 'cancelado' } : null);
+    card.show(eventDetail(e, samePlace(e)));
+  }
   // Otros avisos oficiales del mismo sitio (en el mapa quedan unos encima de otros).
   const samePlace = (e) => (e.category === 'emergencia' && e.area
     ? eventList.filter((x) => x.category === 'emergencia' && x.id !== e.id && x.area === e.area) : []);
@@ -193,6 +202,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     'ev-fire-core': category('incendio'),
     'ev-quake': category('sismo'),
     'ev-rail': category('ferroviario'),
+    'ev-cancel': category('cancelacion'),
     'meteo-fill': null,
     'meteo-outline': null,
   };
@@ -256,6 +266,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
       map.addImage(`triangle-${sev}`, icon('triangle', color, '#f0efec'), { pixelRatio: 2 });
       map.addImage(`square-${sev}`, icon('square', color, '#0d0d0d'), { pixelRatio: 2 });
       map.addImage(`emerg-plan-${sev}`, emergencyIcon('plan', color), { pixelRatio: 2 });
+      map.addImage(`cancel-${sev}`, cancelIcon(color), { pixelRatio: 2 });
     }
     map.addImage('emerg-luz', emergencyIcon('luz'), { pixelRatio: 2 });
 
@@ -399,6 +410,16 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
         'icon-allow-overlap': true, 'icon-ignore-placement': true,
       },
     });
+    // Trenes y autobuses cancelados (en su origen) o con paradas suprimidas (en la primera): un círculo
+    // con un aspa, del color de su gravedad.
+    map.addLayer({
+      id: 'ev-cancel', type: 'symbol', source: 'events',
+      layout: {
+        'icon-image': ['concat', 'cancel-', ['get', 'severity']],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 1, 10, 1.4],
+        'icon-allow-overlap': true, 'icon-ignore-placement': true,
+      },
+    });
     // Paradas del viaje del vehículo seleccionado, todas, de la primera a la última y con su nombre: blancas
     // con borde azul las que le quedan, grises las que ya ha pasado; el origen, el destino y la próxima (o
     // en la que está parado), más grandes. Debajo de los vehículos, para no tapar ninguno.
@@ -492,7 +513,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     });
 
     // Por orden de prioridad: si un tren está encima de su estación, se pulsa el tren.
-    const clickable = ['vehicles', 'veh-est', 'stops-dot', 'ev-rail', 'ev-quake', 'ev-emerg', 'ev-gdacs', 'ev-road', 'ev-road-major', 'ev-works', 'stations-hit', 'netst-hit', 'ev-fire-glow', 'meteo-fill'];
+    const clickable = ['vehicles', 'veh-est', 'stops-dot', 'ev-rail', 'ev-cancel', 'ev-quake', 'ev-emerg', 'ev-gdacs', 'ev-road', 'ev-road-major', 'ev-works', 'stations-hit', 'netst-hit', 'ev-fire-glow', 'meteo-fill'];
     for (const id of clickable) {
       map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
@@ -618,6 +639,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
   function clearSelection() {
     setSelected(null);
     setStation(null);
+    setTripStops(null); // las de una cancelación (las de un vehículo ya las quita setSelected)
     card.hide();
   }
 
@@ -865,12 +887,13 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     showEvent(e) {
       setSelected(null);
       setStation(null);
-      card.show(eventDetail(e, samePlace(e)));
+      showEventCard(e);
     },
 
     /** Ficha de una estación con sus trenes (ver station-board.js); se repinta al llegar datos. */
     showStation(station, board) {
       setSelected(null);
+      setTripStops(null); // las de una cancelación abierta antes
       setStation(station.code);
       card.show(stationDetail(station, board));
     },
@@ -942,6 +965,28 @@ export function icon(shape, fill, stroke) {
   return { width: size, height: size, data: g.getImageData(0, 0, size, size).data };
 }
 
+/** Icono de las cancelaciones: un círculo del color de su gravedad con un aspa oscura. */
+export function cancelIcon(fill) {
+  const size = 28;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const g = canvas.getContext('2d');
+  g.scale(2, 2);
+  g.beginPath();
+  g.arc(7, 7, 5.9, 0, Math.PI * 2);
+  g.fillStyle = fill;
+  g.fill();
+  g.lineWidth = 1.2;
+  g.strokeStyle = '#0d0d0d';
+  g.stroke();
+  g.beginPath();
+  g.moveTo(4.6, 4.6); g.lineTo(9.4, 9.4); g.moveTo(9.4, 4.6); g.lineTo(4.6, 9.4);
+  g.lineWidth = 1.7;
+  g.lineCap = 'round';
+  g.stroke();
+  return { width: size, height: size, data: g.getImageData(0, 0, size, size).data };
+}
+
 /**
  * Iconos de los avisos oficiales: 'luz' (corte de luz), un rayo amarillo sobre un círculo oscuro;
  * 'plan' (plan de emergencias), un escudo con «!» del color de su nivel.
@@ -1006,7 +1051,7 @@ function createDetailCard(host, onVehicle, onEvent) {
 }
 
 
-function stationDetail(st, { stopped, arriving, notices, lines, connections = [] }) {
+function stationDetail(st, { stopped, arriving, notices, lines, connections = [], cancellations = [] }) {
   const train = (v, when) => `<li><button type="button" class="link" data-vehicle="${esc(v.id)}">${esc(vehicleTitle(v))}</button>
     ${v.destination ? ` → ${esc(v.destination)}` : ''}${v.platform ? ` · vía ${esc(v.platform)}` : ''}${when ? ` · ${esc(when)}` : ''}
     <span class="st-delay">${esc(fmtDelay(v))}</span></li>`;
@@ -1053,6 +1098,7 @@ function stationDetail(st, { stopped, arriving, notices, lines, connections = []
     <h4>En la estación ahora</h4>${list(stopped.map((v) => train(v)), 'Ningún tren parado ahora mismo.')}
     <h4>Próximos trenes</h4>${list(arriving.map((v) => train(v, when(v))), 'Ningún tren en camino con datos en directo.')}
     ${notices.length ? `<h4>Avisos de Renfe</h4><ul class="st-list">${notices.map((e) => `<li>${esc(e.description ?? e.title)}</li>`).join('')}</ul>` : ''}
+    ${cancellations.length ? `<h4>Cancelaciones que pasan por aquí</h4><ul class="st-list">${cancellations.map((c) => `<li><button type="button" class="link" data-event="${esc(c.id)}">${esc(c.title)}</button>${c.time ? ` · ${c.first ? 'salía' : c.last ? 'llegaba' : 'pasaba'} a las ${esc(c.time)}` : ''}${c.skipped ? ' · <strong>no para aquí</strong>' : ''}</li>`).join('')}</ul>` : ''}
     ${connections.length ? `<h4>Conexiones a pie</h4>${chips(connections)}` : ''}
     <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
     <p class="st-links">${links.join(' · ')}</p>${source}
@@ -1080,6 +1126,60 @@ function sourceRows(id, operator) {
   // «Atribución» y no «Fuente»: muchas ya empiezan por «Fuente: …» u «Origen de los datos: …».
   // La atribución va como HTML: las que lo piden llevan su enlace (ver creditHtml).
   return [['Atribución', { html: creditHtml(s.operatorLicenses?.[operator] ?? s.license ?? s.name) }], dates.length && ['Actualizado', dates.join(' · ')]];
+}
+
+/**
+ * Ficha de una cancelación: qué tren, de dónde a dónde y a qué hora, qué paradas se suprimen, quién lo
+ * publica, en qué fichero y desde cuándo lo ve el radar (las fuentes no dicen cuándo lo publicaron).
+ */
+export function cancellationDetail(e, now = Date.now()) {
+  const t = e.trip;
+  const bus = t.mode === 'bus';
+  const state = e.type === 'cancelado' ? 'Cancelado: no circula'
+    : t.endsAt ? `Circula, pero termina en ${t.endsAt}`
+      : t.startsAt ? `Circula, pero empieza en ${t.startsAt}`
+        : `Circula sin parar en ${t.skipped.length === 1 ? t.skipped[0] : `${t.skipped.length} ${bus ? 'paradas' : 'estaciones'}`}`;
+  const who = [t.service, t.line, t.number].filter((x, i, all) => x && all.indexOf(x) === i).join(' ');
+  const feed = safeUrl(t.feedUrl);
+  const published = feed ? { html: `${esc(t.publisher)}, en su <a href="${esc(feed)}" target="_blank" rel="noopener">${esc(t.feed)}</a>` } : `${t.publisher}, en su ${t.feed}`;
+  const today = fmtDate(e.seen) === fmtDate(now);
+  const at = `${today ? '' : `el ${fmtDate(e.seen)} `}a las ${fmtTime(e.seen)}`;
+  const seen = e.seen ? `${t.publisher} no dice cuándo lo publicó. El radar lo vio por primera vez ${at} (${timeAgo(e.seen, now)})`
+    + (e.seenAtStart ? '; ya estaba publicado cuando el radar empezó a leer esta fuente, así que pudo publicarse antes' : '') : null;
+  const rows = [
+    ['Estado', state],
+    ['Gravedad', SEVERITY_LABEL[e.severity] ?? e.severity],
+    [bus ? 'Línea' : 'Tren', who || null],
+    ['Operador', t.operator],
+    t.origin && t.destination && ['Recorrido', `${t.origin} → ${t.destination}`],
+    t.departure && ['Salida según el horario', `${t.departure}, de ${t.origin}`],
+    t.arrival && ['Llegada según el horario', `${t.arrival}, a ${t.destination}`],
+    ['Día', t.date ? fmtDate(Date.parse(`${t.date}T12:00:00Z`)) : `${t.publisher} no lo dice en su tiempo real`],
+    t.trips > 1 && ['Expediciones afectadas', String(t.trips)],
+    t.skipped?.length && ['Paradas suprimidas', t.skipped.join('; ')],
+    ['Lo publica', published],
+    seen && ['Desde cuándo', seen],
+    t.cancelled && t.running && ['Ojo', `${t.publisher} lo da a la vez como cancelado y en servicio (con su retraso, su posición o paradas suprimidas)`],
+    // La atribución de su tiempo real (la de la fuente puede hablar de la posición estimada: Euskotren, AMB).
+    ...sourceRows(e.source).map((r) => (r && r[0] === 'Atribución' && e.credit ? ['Atribución', { html: creditHtml(e.credit) }] : r)),
+  ].filter((r) => r && r[1]);
+  const list = t.stops?.length > 1 ? cancelledStopsHtml(t.stops, e.type === 'cancelado') : '';
+  return `<div class="pop"><h3>${esc(e.title)}</h3>${e.description ? `<p>${esc(e.description)}</p>` : ''}
+    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>${list}
+    <div class="note">Las horas son las del horario del operador. Si el operador deja de publicarlo, deja de salir aquí; si su fuente
+    deja de responder, se muestra como mucho una hora más.</div></div>`;
+}
+
+/** Paradas del viaje cancelado, con su hora del horario y las suprimidas tachadas. */
+function cancelledStopsHtml(stops, whole) {
+  const skipped = stops.filter((s) => s.skipped).length;
+  const summary = whole ? `Paradas del viaje cancelado · ${stops.length}` : `Paradas · ${skipped} suprimida${skipped === 1 ? '' : 's'} de ${stops.length}`;
+  const items = stops.map((s, i) => {
+    const cls = [s.skipped && 'skipped', (i === 0 || i === stops.length - 1) && 'end'].filter(Boolean).join(' ');
+    const when = [s.time, s.skipped && 'suprimida'].filter(Boolean).join(' · ');
+    return `<li${cls ? ` class="${cls}"` : ''}><span class="ts-name">${esc(s.name)}</span>${when ? `<span class="ts-time">${esc(when)}</span>` : ''}</li>`;
+  }).join('');
+  return `<details class="trip-stops cancelled-stops" open><summary>${summary}</summary><ol>${items}</ol></details>`;
 }
 
 // La lista de paradas de la ficha se queda abierta o cerrada como la deje cada uno (la ficha se repinta
@@ -1198,6 +1298,7 @@ const APPROX_LABEL = {
 
 /** @param {object} e  @param {object[]} [others] otros avisos oficiales del mismo sitio */
 function eventDetail(e, others = []) {
+  if (e.category === 'cancelacion' && e.trip) return cancellationDetail(e);
   const rows = [
     ['Gravedad', SEVERITY_LABEL[e.severity] ?? e.severity],
     e.issued && ['Emitido', e.issuedDayOnly ? fmtDate(e.issued) : fmtDateTime(e.issued)], // algunas fuentes sólo dan el día

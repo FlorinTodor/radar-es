@@ -437,3 +437,7 @@ body.doc { overflow: auto; display: block; }
   .map-wrap:has(> .focus-banner:not([hidden])) .maplibregl-ctrl-bottom-left,
   .map-wrap:has(> .focus-banner:not([hidden])) .maplibregl-ctrl-bottom-right { bottom: 54px; }
 }
+/* Ficha de una cancelación: sus paradas suprimidas, tachadas. */
+.trip-stops li.skipped { color: var(--muted); }
+.trip-stops li.skipped .ts-name { text-decoration: line-through; }
+.trip-stops li.skipped::before { background: transparent; box-shadow: 0 0 0 2px #d03b3b; }

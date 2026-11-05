@@ -283,8 +283,13 @@ function selectVehicle(id) {
 
 function selectEvent(id) {
   const e = findEvent(id);
-  if (!e || e.lat === null || e.lat === undefined) return;
+  if (!e) return;
+  // La ficha también sin ubicación (una cancelación sin horario, un aviso que no nombra estación): lo que se sabe.
   map.showEvent(e);
+  // Una cancelación: todo su viaje en el encuadre.
+  const stops = e.category === 'cancelacion' ? (e.trip?.stops ?? []).filter((s) => Number.isFinite(s.lon) && Number.isFinite(s.lat)) : [];
+  if (stops.length > 1) return map.fitTo(stops.map((s) => [s.lon, s.lat]));
+  if (e.lat === null || e.lat === undefined) return;
   map.flyTo(e.lon, e.lat, e.category === 'sismo' || e.category === 'meteo' ? 7 : 10);
 }
 

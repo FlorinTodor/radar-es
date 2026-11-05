@@ -78,3 +78,18 @@ test('el buscador de estaciones no distingue tildes ni mayúsculas y pone primer
   assert.equal(filterStations(st, '  ').length, 0);
   assert.deepEqual(filterStations([{ code: '60000', name: 'Madrid-Puerta de Atocha-Almudena Grandes', place: 'Madrid' }], 'atocha almudena').map((s) => s.code), ['60000']);
 });
+
+test('los trenes cancelados que pasaban por la estación, por su hora allí, y si la parada es de las suprimidas', () => {
+  const trip = (stops) => ({ stops });
+  const events = [
+    { id: 'tarde', category: 'cancelacion', type: 'cancelado', title: 'Alvia 00291 cancelado', lat: 38.8, lon: -6.9,
+      trip: trip([{ name: 'Badajoz', time: '06:29', lat: 38.8, lon: -6.9 }, { name: 'Oviedo', time: '11:00', lat: 43.3664, lon: -5.8549 }]) },
+    { id: 'pronto', category: 'cancelacion', type: 'parcial', title: 'Regional 71831 no llega a Gijón', lat: 43.3, lon: -5.8,
+      trip: trip([{ name: 'OVIEDO', time: '08:00', skipped: true }, { name: 'Gijón', time: '08:30', skipped: true }]) },
+    { id: 'otro-oviedo', category: 'cancelacion', type: 'cancelado', title: 'lejos', lat: 0, lon: 0,
+      trip: trip([{ name: 'Oviedo', time: '09:00', lat: 40.0, lon: -3.0 }]) }, // otra estación con el mismo nombre
+    { id: 'aviso', category: 'ferroviario', lat: 43.3664, lon: -5.8549 },
+  ];
+  const { cancellations } = stationBoard(OVIEDO, { vehicles: [], events, lines: [] });
+  assert.deepEqual(cancellations.map((c) => [c.id, c.time, c.skipped, c.first, c.last]), [['pronto', '08:00', true, true, false], ['tarde', '11:00', false, false, true]]);
+});

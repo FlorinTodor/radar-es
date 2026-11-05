@@ -1,6 +1,7 @@
 // Lo que se ve en la ficha de una estación, a partir de lo que ya llega en directo: los trenes
 // parados en ella y los que van hacia ella (con vía, hora y retraso), los avisos de Renfe de la
-// estación, sus líneas y las conexiones con metro y tranvía. Funciones puras: no piden nada al servidor.
+// estación, los trenes cancelados (o con paradas suprimidas) que pasaban por ella, sus líneas y las
+// conexiones con metro y tranvía. Funciones puras: no piden nada al servidor.
 
 // Los trenes dicen su estación por su nombre: los de Renfe, el de su catálogo; los de metro, tranvía
 // y las demás redes, el del GTFS de su operador (del que sale también la estación). Se comparan sin
@@ -12,6 +13,7 @@ const NOTICE_KM = 0.3;  // los avisos de Renfe vienen con las coordenadas de su 
 const LINE_KM = 0.15;   // una línea de tren pasa por la estación si su trazado está a menos de esto
 const LINK_KM = 0.3;    // metro y tranvía a menos de esto: se puede hacer transbordo a pie
 const MAX_ARRIVING = 10;
+const CANCEL_KM = 3;    // una parada de un viaje cancelado es esta estación si se llama igual y está a menos de esto
 
 const plain = (s) => String(s ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
 const km = (aLat, aLon, bLat, bLon) => Math.hypot((aLat - bLat) * 110.54, (aLon - bLon) * 111.32 * Math.cos((aLat * Math.PI) / 180));
@@ -30,23 +32,42 @@ export function stationBoard(station, { vehicles, events, lines }) {
     .sort((a, b) => etaKey(a).localeCompare(etaKey(b)))
     .slice(0, MAX_ARRIVING);
   const around = linesNear(station, lines);
+  const cancellations = cancelledHere(station, name, events);
   if (station.network) {
     // Metro, tranvía y demás redes: sus líneas son las que paran en ella (o, mientras llega su ficha,
     // las de su red que pasan por ahí); todo lo demás que está a un paseo, Cercanías incluido, son
     // conexiones. Los avisos de Renfe son de sus estaciones, no de estas.
     const own = (l) => l.network === station.network;
     return {
-      stopped, arriving, notices: [],
+      stopped, arriving, notices: [], cancellations,
       lines: station.lines?.map((l) => ({ ...l, network: station.network })) ?? around.filter((l) => own(l) && l.km <= LINE_KM),
       connections: around.filter((l) => !own(l)),
     };
   }
   const notices = events.filter((e) => e.category === 'ferroviario' && near(e, NOTICE_KM));
   return {
-    stopped, arriving, notices,
+    stopped, arriving, notices, cancellations,
     lines: around.filter((l) => !URBAN.has(l.mode) && l.km <= LINE_KM),
     connections: around.filter((l) => URBAN.has(l.mode)),
   };
+}
+
+/**
+ * Cancelaciones de viajes que pasan por la estación: por el nombre de su parada (y cerca, si se sabe dónde
+ * está), con su hora allí según el horario y si es una de las suprimidas. Por esa hora.
+ * @returns {Array<{ id: string, title: string, type: string, time: string|null, skipped: boolean, first: boolean, last: boolean }>}
+ */
+function cancelledHere(station, name, events) {
+  const out = [];
+  for (const e of events) {
+    const stops = e.category === 'cancelacion' ? e.trip?.stops : null;
+    if (!stops) continue;
+    const i = stops.findIndex((s) => plain(s.name) === name
+      && (!Number.isFinite(s.lat) || km(station.lat, station.lon, s.lat, s.lon) <= CANCEL_KM));
+    if (i < 0) continue;
+    out.push({ id: e.id, title: e.title, type: e.type, time: stops[i].time ?? null, skipped: !!stops[i].skipped, first: i === 0, last: i === stops.length - 1 });
+  }
+  return out.sort((a, b) => (a.time ?? '99').localeCompare(b.time ?? '99'));
 }
 
 // La hora de llegada (local, ISO) o, en las posiciones estimadas, los minutos que faltan.
