@@ -61,7 +61,7 @@ test('plainText: un texto (recortado) o un número como texto; lo demás, null',
   assert.equal(plainText(8), '8');
   for (const bad of [NaN, Infinity, true, ['S8'], { k: 'S8' }, () => 'S8', Symbol('x'), 10n]) assert.equal(plainText(bad), null, String(typeof bad));
   const long = plainText('x'.repeat(10_000));
-  assert.equal(long.length, 500);
+  assert.equal(long.length, 1000);
   assert.match(long, /^x+…$/);
   assert.equal(plainText('x'.repeat(30), 10), `${'x'.repeat(9)}…`);
 });
@@ -109,7 +109,7 @@ test('typedSourceResult: textos que no lo son, valores anidados, posiciones y id
     null,
     'fgc:6',
   ], events: [
-    { id: 'e1', title: 'Corte', lat: deep, lon: 2, description: 'd'.repeat(30_000), type: { a: 1 }, url: 'javascript:alert(1)', geometry: nest(40) },
+    { id: 'e1', title: 'Corte', lat: deep, lon: 2, description: 'd'.repeat(30_000), credit: 'c'.repeat(600), type: { a: 1 }, url: 'javascript:alert(1)', geometry: nest(40) },
     { id: 'e2', title: nest(10), lat: 40, lon: -3 },
     { id: 'e3', title: 12, lat: 40, lon: -3, lat2: 40.1, lon2: Infinity },
     { id: 'e4' },
@@ -118,12 +118,13 @@ test('typedSourceResult: textos que no lo son, valores anidados, posiciones y id
   assert.doesNotThrow(() => JSON.stringify(result));
   const [v1, v7] = result.vehicles;
   assert.deepEqual([v1.line, v1.label, v1.origin, v1.destination, v1.end], ['8', null, null, null, null]);
-  assert.equal(v1.rollingStock.length, 500);
+  assert.equal(v1.rollingStock.length, 1000);
   assert.equal('extra' in v1, false, 'un campo que anida más de lo que admiten las rutas, fuera');
   assert.deepEqual([v7.id, v7.end, v7.extra], ['7', [2.2, 41.5], nest(5)], 'lo que anida poco sí se queda');
   const [e1, e3, e4] = result.events;
   assert.deepEqual([e1.lat, e1.lon, e1.type, e1.url, 'geometry' in e1], [null, null, null, null, false]);
   assert.equal(e1.description.length, 20_000);
+  assert.equal(e1.credit.length, 600, 'una atribución larga (la de los grupos de autobuses pasa de 500) se queda entera');
   assert.deepEqual([e3.title, e3.lat, e3.lon, e3.lat2, e3.lon2], ['12', 40, -3, null, null]);
   assert.deepEqual(e4, { id: 'e4' }, 'lo que no trae, no se añade');
 });

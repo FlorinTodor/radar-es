@@ -237,8 +237,8 @@ export function safeLink(url) {
 // volver a escribirlo y /api/live daría 500 a todos) o un instante fuera de lo que admite Date (el MCP y
 // la web lo escriben con toISOString y los formateadores de fechas, que lanzan) afectan como mucho a ese
 // registro, nunca a los de todas las fuentes.
-const TEXT_MAX = 500; // nombres, líneas, etiquetas, títulos, atribuciones…
-const DESCRIPTION_MAX = 20_000; // las descripciones de los avisos sí pueden ser largas
+const TEXT_MAX = 1000; // nombres, líneas, etiquetas, títulos… (ninguno pasa de unos cientos)
+const LONG_TEXT_MAX = 20_000; // las descripciones de los avisos y las atribuciones de los grupos sí pueden ser largas
 const ID_MAX = 1000; // más largo no se recorta (dos registros acabarían con el mismo): se descarta
 const NESTING_MAX = 32; // lo que construyen los adaptadores (la zona de un aviso, el viaje de una cancelación) no pasa de 5
 const TIME_MIN = Date.UTC(2000, 0, 1);
@@ -247,7 +247,8 @@ const TIME_AHEAD_MAX = 10 * 365 * 86_400_000;
 // Campos de texto de cada tipo de registro. Los estructurados (geometry, trip, end) los construye el adaptador.
 const VEHICLE_TEXTS = ['mode', 'operator', 'service', 'line', 'label', 'origin', 'destination', 'current', 'next', 'nextEta',
   'platform', 'area', 'shape', 'rollingStock'];
-const EVENT_TEXTS = ['category', 'type', 'subtype', 'severity', 'title', 'area', 'approx', 'group', 'credit', 'level'];
+const EVENT_TEXTS = ['category', 'type', 'subtype', 'severity', 'title', 'area', 'approx', 'group', 'level'];
+const EVENT_LONG_TEXTS = ['description', 'credit'];
 // Instantes (epoch ms). El `end` de un vehículo no es uno: es el punto [lon, lat] donde acaba su viaje.
 const VEHICLE_TIMES = ['fixTime'];
 const EVENT_TIMES = ['start', 'end', 'issued', 'updated'];
@@ -325,7 +326,7 @@ function typedVehicle(v, now) {
 function typedEvent(e, now) {
   const out = typedRecord(e, EVENT_TEXTS, EVENT_TIMES, now);
   if (!out || (given(e.title) && out.title === null)) return null;
-  if (given(out.description)) out.description = plainText(out.description, DESCRIPTION_MAX);
+  for (const k of EVENT_LONG_TEXTS) if (given(out[k])) out[k] = plainText(out[k], LONG_TEXT_MAX);
   if ((given(out.lat) && !isLat(out.lat)) || (given(out.lon) && !isLon(out.lon))) Object.assign(out, { lat: null, lon: null });
   if ((given(out.lat2) && !isLat(out.lat2)) || (given(out.lon2) && !isLon(out.lon2))) Object.assign(out, { lat2: null, lon2: null });
   if ('url' in out) out.url = safeLink(out.url);
