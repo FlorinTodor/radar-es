@@ -125,6 +125,25 @@ test('argumentos fuera de esquema: error de la herramienta, explicado para que e
   assert.equal(ask('alertas', []).error.code, -32602, 'arguments tiene que ser un objeto');
 });
 
+test('params.name que no es un texto: -32602 sin convertirlo; uno muy largo vuelve recortado en el mensaje', () => {
+  const ask = (params) => mcp({ jsonrpc: '2.0', id: 1, method: 'tools/call', params });
+  let converted = 0;
+  const trap = { toString() { converted++; throw new Error('convertido'); }, valueOf() { converted++; throw new Error('convertido'); } };
+  // 5.000 niveles de listas: convertirlo en texto (Array.prototype.join, recursivo) agota la pila.
+  const nested = JSON.parse(`${'['.repeat(5000)}${']'.repeat(5000)}`);
+  for (const name of [trap, nested, ['alertas'], 7, null, undefined, { name: 'alertas' }]) {
+    const reply = ask({ name, arguments: {} });
+    assert.equal(reply.error?.code, -32602, typeof name);
+    assert.match(reply.error.message, /params\.name tiene que ser el nombre \(texto\) de una herramienta/);
+  }
+  assert.equal(converted, 0, 'no se llama a toString ni a valueOf');
+  const long = ask({ name: 'x'.repeat(10_000), arguments: {} });
+  assert.equal(long.error.code, -32602);
+  assert.ok(long.error.message.length < 120, `mensaje de ${long.error.message.length} caracteres`);
+  assert.match(long.error.message, /^Herramienta desconocida: x+…$/);
+  assert.equal(ask({ name: 'alertas', arguments: {} }).result.isError, undefined, 'con un nombre de texto, sigue igual');
+});
+
 test('buscar_trenes: por número, sin tildes, y con la atribución de su fuente', () => {
   const r = call('buscar_trenes', { text: 'valencia sorolla' });
   assert.equal(r.structuredContent.total, 1);
@@ -308,6 +327,14 @@ test('/mcp: GET 405; JSON roto, tipo de contenido o versión del protocolo que n
   assert.equal((await post({ jsonrpc: '2.0', id: 1, method: 'ping' }, { 'Content-Type': 'text/plain' })).status, 415);
   assert.equal((await post({ jsonrpc: '2.0', id: 1, method: 'ping' }, { 'MCP-Protocol-Version': '1999-01-01' })).status, 400);
   assert.equal((await post({ jsonrpc: '2.0', id: 1, method: 'ping' }, { 'MCP-Protocol-Version': '2025-06-18' })).status, 200);
+});
+
+test('POST /mcp con un params.name de listas anidadas 10.000 niveles: error del protocolo, sin 500', async () => {
+  const name = `${'['.repeat(10_000)}${']'.repeat(10_000)}`;
+  const res = await post(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":${name}}}`);
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.deepEqual([body.id, body.error?.code], [1, -32602]);
 });
 
 test('/mcp: mensaje demasiado grande, 413; las demás rutas siguen sin aceptar POST', async () => {
