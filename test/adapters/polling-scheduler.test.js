@@ -107,3 +107,31 @@ test('si la lectura lanza un fallo inesperado, la fuente se sigue leyendo (como 
     scheduler.stop();
   }
 });
+
+test('el historial de posiciones se guarda cada minuto, sin empezar una copia encima de otra, y deja de guardarse al parar', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  let saves = 0;
+  let finish;
+  const scheduler = startPolling({
+    feeds: [], ingestSource: async () => true, detectAlerts() {}, log: quietLog,
+    saveTracks: () => { saves++; return new Promise((resolve) => { finish = resolve; }); },
+  });
+  t.mock.timers.tick(MIN - 1);
+  assert.equal(saves, 0);
+  t.mock.timers.tick(1);
+  await flush();
+  assert.equal(saves, 1);
+  t.mock.timers.tick(MIN);
+  await flush();
+  assert.equal(saves, 1, 'la anterior aún no ha terminado (un disco lento)');
+  finish();
+  await flush();
+  t.mock.timers.tick(MIN);
+  await flush();
+  assert.equal(saves, 2);
+  finish();
+  scheduler.stop();
+  t.mock.timers.tick(10 * MIN);
+  await flush();
+  assert.equal(saves, 2);
+});

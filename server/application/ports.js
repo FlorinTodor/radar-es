@@ -132,6 +132,15 @@
  */
 
 /**
+ * Copia del historial de posiciones que sobrevive a un reinicio o a un despliegue (el caso de uso
+ * keep-tracks). Durante un relevo hay dos servidores con la misma copia: cada uno la escribe de golpe,
+ * y el que arranca lee la que dejó el otro.
+ * @typedef {object} TrackStorePort
+ * @property {() => Promise<object|null>} load  La última copia guardada, o null si no hay o no se lee.
+ * @property {(snapshot: object) => Promise<void>} save  Nunca rechaza: si no puede escribir, lo registra.
+ */
+
+/**
  * Teselas y consultas de capas externas (IGN, EFFIS) servidas desde nuestro dominio para que
  * Cloudflare las guarde. Lo usa el caso de uso serve-tiles, que antes decide qué teselas se
  * pueden pedir (domain/tiles.js): el proveedor descarga y guarda en disco todo lo que se le pide.
@@ -180,6 +189,7 @@ export const PORT_MEMBERS = {
     'tracks', 'updateTracks', 'activeAlerts', 'updateActiveAlerts', 'addResolved', 'resolvedAlerts', 'setKpis', 'kpis',
     'pushKpiSample', 'kpiHistory'],
   History: ['append'],
+  TrackStore: ['load', 'save'],
   TileProvider: ['layers', 'cacheControl', 'tile', 'burntAreas'],
   Clock: ['now'],
   Logger: ['info', 'warn', 'error'],

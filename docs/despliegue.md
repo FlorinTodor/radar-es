@@ -161,8 +161,9 @@ Un monitor externo (UptimeRobot) sigue avisando si se cae el VPS entero, con la 
 - **Secretos**: el `.env` (`NAP_API_KEY`, `ESIOS_TOKEN`, las claves de EMT Madrid, titular y contacto), el token que marca los commits y las
   credenciales del túnel no están en git. El token sólo puede escribir el estado de los commits de
   este repositorio y no va en el `.env`, que también llega al contenedor.
-- **`data/`**: cachés de GTFS e histórico. Sobrevive a los redespliegues y, si se pierde, se
-  regenera sola.
+- **`data/`**: cachés de GTFS, histórico y una copia del historial de posiciones (`cache/estelas.v1`,
+  cada minuto y al apagar: el servidor que arranca en un relevo sigue la estela de cada tren desde
+  la que guardó el anterior). Sobrevive a los redespliegues y, si se pierde, se regenera sola.
 - Cómo montar el servidor desde cero o recuperarlo, el acceso y la configuración del túnel están
   documentados fuera del repositorio.
 

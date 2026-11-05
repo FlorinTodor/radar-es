@@ -181,10 +181,10 @@ flowchart TB
 | Capa | Carpeta | Qué hay |
 |---|---|---|
 | Entrada | `adapters/inbound/` | `http/http-server.js` (API, teselas y web), `http/metrics-server.js` (métricas para la monitorización, en un puerto interno), `mcp/mcp.js` (servidor MCP en `POST /mcp`) y `scheduler/polling-scheduler.js` (sondeo, alertas y catálogos) |
-| Casos de uso | `application/use-cases/` | `ingest-source`, `detect-alerts`, `query-situation`, `serve-tiles`, `refresh-catalogs` y `lines-on-rail` |
+| Casos de uso | `application/use-cases/` | `ingest-source`, `detect-alerts`, `query-situation`, `serve-tiles`, `refresh-catalogs`, `lines-on-rail` y `keep-tracks` |
 | Puertos | `application/ports.js` | los contratos que piden los casos de uso (tabla de abajo) |
 | Dominio | `domain/` | `model`, `geo`, `tracking`, `kpis`, `tiles`, `schedule`, `estimated-position`, `route-ahead`, `rail-match`, `alerts/` (`rules`, `lifecycle`, `thresholds`), `emergencias`, `lugares` y `red-aislada` |
-| Salida | `adapters/outbound/` | `sources/` (una por fuente), `stations/` (estaciones, Wikidata y Commons), `network/`, `gtfs/` y `nap/` (trazados y redes de Adif e IGN), `persistence/` (estado en memoria e histórico JSONL), `tiles/` (teselas de IGN y EFFIS), `geo/` (CartoCiudad), `workers/` (hilos de CPU), `http/`, `logging/` y `metrics/` (formato de Prometheus) |
+| Salida | `adapters/outbound/` | `sources/` (una por fuente), `stations/` (estaciones, Wikidata y Commons), `network/`, `gtfs/` y `nap/` (trazados y redes de Adif e IGN), `persistence/` (estado en memoria, histórico JSONL y copia del historial de posiciones), `tiles/` (teselas de IGN y EFFIS), `geo/` (CartoCiudad), `workers/` (hilos de CPU), `http/`, `logging/` y `metrics/` (formato de Prometheus) |
 
 - **`server/domain/`**: modelo y reglas puras. Se prueba sin red (`test/domain`).
 - **`server/application/`**: casos de uso y **puertos**, los contratos que necesitan del exterior.
@@ -237,6 +237,7 @@ Los puertos están en `server/application/ports.js`:
 | `RailNetwork` | `network/adif-rail-network.js`, `network/ign-rail-network.js` | red de Adif, para dibujar por la vía AVE, Larga y Media Distancia; red del IGN (también metro, tranvía y funicular), para rehacer por la vía los trazados en recta y los de Ouigo |
 | `SituationRepository` | `persistence/in-memory-situation.js` | estado actual: último dato de cada fuente, recorridos, alertas, KPIs |
 | `History` | `persistence/jsonl-history.js` | histórico de alertas y KPIs |
+| `TrackStore` | `persistence/track-store.js` | copia del historial de posiciones en `data/`, para que la estela de cada tren no empiece de cero tras un reinicio o un despliegue |
 | `TileProvider` | `tiles/wms-tiles.js` | teselas de IGN y EFFIS con copia en disco |
 | `Metrics` | `metrics/prometheus-metrics.js` | cuentas y tiempos para la monitorización: peticiones por ruta, mensajes MCP, lecturas de cada fuente y avisos del registro. Sin datos de quién pregunta: las rutas van sin lo que se ha pedido (`/api/stations/:code`) |
 | `Geocoder` | `geo/cartociudad-geocoder.js` | situar el municipio que cita un aviso del 112 (no traen coordenadas) y poner el municipio a los terremotos del EMSC en España. Lo usan esas fuentes, no los casos de uso: su contrato está en el propio adaptador |
