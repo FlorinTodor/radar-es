@@ -199,7 +199,7 @@ export function firesNearTrains(ctx) {
     cluster.forEach((g) => used.add(g.id));
     const near = ctx.vehicles.filter((v) => cluster.some((g) => distanceKm(g.lat, g.lon, v.lat, v.lon) <= th.fireNearKm));
     if (!near.length) continue;
-    const maxFrp = Math.max(...cluster.map((g) => g.frp ?? 0));
+    const maxFrp = cluster.reduce((max, g) => Math.max(max, g.frp ?? 0), -Infinity); // sin spread: los focos no tienen tope
     alerts.push({
       id: `incendio:${f.id}`, type: 'incendio', lat: f.lat, lon: f.lon, eventIds: cluster.map((g) => g.id),
       severity: cluster.length >= 3 || maxFrp >= 30 ? 'alta' : 'media',

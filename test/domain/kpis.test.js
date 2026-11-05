@@ -33,3 +33,11 @@ test('KPIs sin trenes o sin ningún dato de retraso: ceros y nulls, no NaN ni -I
   assert.equal(kpis.medianDelay, null);
   assert.equal(kpis.maxDelay, null);
 });
+
+test('KPIs con 200.000 trenes con retraso: el máximo sale igual (Math.max(...retrasos) agotaba la pila)', () => {
+  const vehicles = Array.from({ length: 200_000 }, (_, i) => ({ mode: 'cercanias', delay: i % 50 }));
+  vehicles[123_456].delay = 95;
+  const kpis = computeKpis(vehicles, 1000);
+  assert.equal(kpis.maxDelay, 95);
+  assert.equal(kpis.withDelayInfo, 200_000);
+});
