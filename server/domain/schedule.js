@@ -141,21 +141,59 @@ export function stopsAlongShape(stops, shape, maxOff = 300) {
 }
 
 /**
+ * Headway mínimo de una fila de frecuencia, en segundos: menos de un minuto no es un horario real (en
+ * los GTFS que se leen, el menor es de 210 s). Con headway_secs=1e-300 el bucle de las repeticiones no
+ * terminaba nunca, y con 1 s una sola fila daba 172.800 vehículos.
+ */
+export const MIN_HEADWAY_S = 60;
+
+/**
+ * Repeticiones de un mismo viaje plantilla en circulación a la vez, sumando todas sus filas de
+ * frecuencia: cada una es un vehículo en el mapa. En los GTFS que se leen hay 18 como mucho.
+ */
+export const MAX_TRIP_REPETITIONS = 200;
+
+/**
+ * Fila de frequencies.txt que se puede usar: headway entero de al menos MIN_HEADWAY_S y una ventana
+ * que acaba después de empezar.
+ * @param {{ start: number, end: number, headway: number }} freq
+ */
+export const validFrequency = ({ start, end, headway }) => Number.isInteger(headway) && headway >= MIN_HEADWAY_S
+  && Number.isFinite(start) && Number.isFinite(end) && end > start;
+
+/**
  * Viajes por frecuencia (frequencies.txt): el viaje "plantilla" se repite cada `headway`
  * segundos entre `start` y `end`. Devuelve los desfases (en segundos respecto a la plantilla)
- * de las repeticiones que están en circulación en el instante `t`.
+ * de las repeticiones que están en circulación en el instante `t`, como mucho `max`.
+ * Una fila que no es válida (validFrequency) no da ninguna.
  * @param {{ start: number, end: number, headway: number }} freq
  * @param {number} firstDep salida de la plantilla
  * @param {number} duration duración del viaje
  */
-export function activeFrequencyOffsets(freq, firstDep, duration, t) {
-  if (!(freq.headway > 0)) return [];
+export function activeFrequencyOffsets(freq, firstDep, duration, t, max = MAX_TRIP_REPETITIONS) {
+  if (!validFrequency(freq)) return [];
   const offsets = [];
   const kMin = Math.max(0, Math.ceil((t - duration - freq.start) / freq.headway));
-  for (let k = kMin; ; k++) {
+  for (let k = kMin; offsets.length < max; k++) {
     const departure = freq.start + k * freq.headway;
     if (departure >= freq.end || departure > t) break;
     offsets.push(departure - firstDep);
+  }
+  return offsets;
+}
+
+/**
+ * Los desfases de todas las filas de frecuencia de un viaje plantilla en el instante `t`, como mucho
+ * MAX_TRIP_REPETITIONS en total.
+ * @param {{ start: number, end: number, headway: number }[]} freqs
+ * @param {number} firstDep salida de la plantilla
+ * @param {number} duration duración del viaje
+ */
+export function tripFrequencyOffsets(freqs, firstDep, duration, t) {
+  const offsets = [];
+  for (const freq of freqs) {
+    if (offsets.length >= MAX_TRIP_REPETITIONS) break;
+    for (const off of activeFrequencyOffsets(freq, firstDep, duration, t, MAX_TRIP_REPETITIONS - offsets.length)) offsets.push(off);
   }
   return offsets;
 }

@@ -4,7 +4,7 @@
 // ficha de cada estación. Va aparte del catálogo de Renfe: las alertas y Rodalies buscan «la
 // estación más cercana» y tiene que ser una de Renfe. Se refresca una vez al día.
 import { distanceKm } from '../../../domain/geo.js';
-import { createPacer, csvColumns, csvColumnsStreamed, csvRows, openGtfs, own } from '../gtfs/gtfs-reader.js';
+import { createPacer, csvColumns, csvColumnsStreamed, csvRows, gtfsBudget, openGtfs, own } from '../gtfs/gtfs-reader.js';
 import { modeOf } from '../gtfs/gtfs-modes.js';
 import { DEFAULT_COLOR, NETWORKS, readableColor } from '../network/gtfs-network-catalog.js';
 import { RETIRED_PHOTOS_VERSION, loadNetworkStationExtras, wheelchair } from './station-extras.js';
@@ -61,7 +61,8 @@ export const readable = (raw) => {
  */
 export async function buildStations(zip, net) {
   const pace = createPacer();
-  const files = await openGtfs(zip, ['stops.txt', 'routes.txt', 'trips.txt']);
+  const budget = gtfsBudget(); // el de las dos llamadas: lo de la primera sigue en memoria durante la segunda
+  const files = await openGtfs(zip, ['stops.txt', 'routes.txt', 'trips.txt'], budget);
   const routes = new Map();
   for (const r of csvRows(files['routes.txt'])) {
     const mode = modeOf(r.route_type);
@@ -88,7 +89,7 @@ export async function buildStations(zip, net) {
   try {
     for await (const [tripId, stopId] of csvColumnsStreamed(zip, 'stop_times.txt', ['trip_id', 'stop_id'])) note(tripId, stopId);
   } catch {
-    const { 'stop_times.txt': bytes } = await openGtfs(zip, ['stop_times.txt']);
+    const { 'stop_times.txt': bytes } = await openGtfs(zip, ['stop_times.txt'], budget);
     for (const [tripId, stopId] of csvColumns(bytes, ['trip_id', 'stop_id'])) {
       if (pace.due()) await pace.pause();
       note(tripId, stopId);
