@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeDetectAlerts } from '../../server/application/use-cases/detect-alerts.js';
 import { createInMemorySituation } from '../../server/adapters/outbound/persistence/in-memory-situation.js';
+import { DEFAULT_THRESHOLDS } from '../../server/domain/alerts/thresholds.js';
 
 const MIN = 60_000;
 const START = Date.parse('2026-11-02T10:00:00Z');
@@ -143,4 +144,21 @@ test('un corte de luz caducado no da alerta aunque su fuente esté caída y el r
   situation.saveFailure('emergencias-castilla-y-leon', new Error('HTTP 503'), clock.t + MIN);
   clock.t += 25 * 60 * MIN;
   assert.ok(!detect().alerts.some((a) => a.type === 'apagon'), 'a las 25 h, sin noticias de la fuente, ya no está en vigor');
+});
+
+test('una regla que falla no deja sin abrir ni resolver las alertas de las demás, y queda en el registro como error', () => {
+  const situation = createInMemorySituation();
+  situation.registerSource({ id: 'renfe-ld', name: 'Renfe', kind: 'vehicles', interval: 20_000, url: 'https://x.example/' }, { enabled: true });
+  situation.registerSource({ id: 'firms', name: 'FIRMS', kind: 'events', interval: 600_000, url: 'https://x.example/' }, { enabled: true });
+  situation.saveResult('renfe-ld', { vehicles: [train('03063', 50)] }, START, 5);
+  situation.saveResult('firms', { events: [{ id: 'firms:1', category: 'incendio', type: 'foco', severity: 'media', title: 'Foco', lat: 40.41, lon: -3.7, frp: 12, start: START - MIN }] }, START, 5);
+  // Un fallo de la regla de incendios, sea cual sea (aquí, al leer su umbral).
+  const thresholds = { ...DEFAULT_THRESHOLDS, get fireWindowHours() { throw new Error('regla rota'); } };
+  const errors = [];
+  const deps = { situation, stations: { nearest: () => null }, history: { append: async () => {} }, clock: { now: () => START }, thresholds };
+  const { alerts } = makeDetectAlerts({ ...deps, log: { error: (m) => errors.push(m) } })();
+  assert.deepEqual(alerts.map((a) => a.id), ['retraso:renfe-ld:03063']);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /^\[alertas\] regla firesNearTrains: Error: regla rota/);
+  assert.throws(() => makeDetectAlerts(deps)(), /regla rota/, 'sin registro, el fallo sube como hasta ahora');
 });

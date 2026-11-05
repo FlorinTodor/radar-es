@@ -383,8 +383,22 @@ export const RULES = [
   feedHealth,
 ];
 
-/** @param {RuleContext} ctx */
-export function evaluateRules(ctx, rules = RULES) {
+/**
+ * @param {RuleContext} ctx
+ * @param {typeof RULES} [rules]
+ * @param {((rule: string, err: unknown) => void) | null} [onError]  con él, una regla que falla no deja sin
+ *   evaluar las demás: se avisa con él y esa regla no da alertas en esta ronda (las suyas se resuelven, mejor
+ *   que dejarlas todas congeladas). Sin él, el fallo sube como hasta ahora.
+ */
+export function evaluateRules(ctx, rules = RULES, onError = null) {
   const scoped = { ...ctx };
-  return rules.flatMap((rule) => rule(scoped));
+  return rules.flatMap((rule) => {
+    if (!onError) return rule(scoped);
+    try {
+      return rule(scoped);
+    } catch (err) {
+      onError(rule.name, err);
+      return [];
+    }
+  });
 }

@@ -113,6 +113,16 @@ test('200.000 focos en un mismo punto junto a un tren: una alerta con su potenci
   assert.match(alerts[0].description, /potencia máx\. 42 MW/);
 });
 
+test('una regla que falla: con onError, las demás siguen y se avisa con su nombre; sin él, el fallo sube como antes', () => {
+  const broken = function brokenRule() { throw new Error('regla rota'); };
+  const ok = () => [{ id: 'x', type: 'retraso' }];
+  const errors = [];
+  const alerts = evaluateRules(ctx({}), [ok, broken, ok], (rule, err) => errors.push([rule, err.message]));
+  assert.deepEqual(alerts.map((a) => a.id), ['x', 'x']);
+  assert.deepEqual(errors, [['brokenRule', 'regla rota']]);
+  assert.throws(() => evaluateRules(ctx({}), [ok, broken]), /regla rota/);
+});
+
 test('GDACS: sólo las alertas naranja o roja generan alerta', () => {
   const ev = (id, level) => ({ id, category: 'catastrofe', level, title: id, description: '', lat: 36, lon: -4 });
   const alerts = evaluateRules(ctx({ events: [ev('verde', 'verde'), ev('naranja', 'naranja')] })).filter((a) => a.type === 'catastrofe');
