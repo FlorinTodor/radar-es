@@ -180,3 +180,94 @@ export function stationarySince(track, radiusKm) {
   }
   return since;
 }
+
+// Historial guardado en disco para que un reinicio o un despliegue no lo empiece de cero (la estela
+// de cada tren, la flecha, «detenido en plena vía», los saltos de retraso). Cada punto son 6 números
+// seguidos en un solo Float64Array (NaN si no lo hay): sin un objeto por punto, se guarda y se lee
+// en milisegundos.
+const PACKED_COLUMNS = 6; // t, lat, lon, delay, seen, fix
+
+/**
+ * El historial de unos vehículos ([id, historial]), en arrays tipados. Quien guarda miles los puede dar por
+ * partes y juntarlas después (joinPacked), para no parar el servidor mientras tanto.
+ * @param {Iterable<[string, readonly TrackPoint[]]>} entries
+ * @returns {{ ids: string[], lengths: Uint32Array, points: Float64Array }}
+ */
+export function packTracks(entries) {
+  const ids = [];
+  const tracks = [];
+  let total = 0;
+  for (const [id, track] of entries) {
+    if (!track.length) continue;
+    ids.push(id);
+    tracks.push(track);
+    total += track.length;
+  }
+  const lengths = new Uint32Array(ids.length);
+  const points = new Float64Array(total * PACKED_COLUMNS);
+  let k = 0;
+  for (let i = 0; i < ids.length; i++) {
+    const track = tracks[i];
+    lengths[i] = track.length;
+    for (const p of track) {
+      points[k++] = p.t;
+      points[k++] = p.lat;
+      points[k++] = p.lon;
+      points[k++] = p.delay ?? NaN;
+      points[k++] = p.seen ?? NaN;
+      points[k++] = p.fix ?? NaN;
+    }
+  }
+  return { ids, lengths, points };
+}
+
+/** Junta en uno lo empaquetado por partes con packTracks. */
+export function joinPacked(parts) {
+  const lengths = new Uint32Array(parts.reduce((n, p) => n + p.lengths.length, 0));
+  const points = new Float64Array(parts.reduce((n, p) => n + p.points.length, 0));
+  const ids = [];
+  let l = 0;
+  let k = 0;
+  for (const p of parts) {
+    for (const id of p.ids) ids.push(id);
+    lengths.set(p.lengths, l);
+    points.set(p.points, k);
+    l += p.lengths.length;
+    k += p.points.length;
+  }
+  return { ids, lengths, points };
+}
+
+/**
+ * Devuelve a `tracks` lo guardado con packTracks, sin lo que a `now` ya ha salido de la ventana (las
+ * mismas reglas que recordPositions). No pisa el historial de un vehículo que ya tenga uno. Lo que
+ * no tenga la forma de packTracks (un fichero de otra versión, cortado) no se usa.
+ * @returns {number} cuántos historiales recupera.
+ */
+export function restoreTracks(tracks, packed, now, windowMs = TRACK_WINDOW_MS) {
+  const { ids, lengths, points } = packed ?? {};
+  if (!Array.isArray(ids) || !(lengths instanceof Uint32Array) || !(points instanceof Float64Array) || lengths.length !== ids.length) return 0;
+  let total = 0;
+  for (const n of lengths) total += n;
+  if (total * PACKED_COLUMNS !== points.length) return 0;
+  let restored = 0;
+  let k = 0;
+  for (let i = 0; i < ids.length; i++) {
+    const track = [];
+    for (let j = 0; j < lengths[i]; j++, k += PACKED_COLUMNS) {
+      const delay = points[k + 3];
+      const seen = points[k + 4];
+      const fix = points[k + 5];
+      const p = { t: points[k], lat: points[k + 1], lon: points[k + 2], delay: Number.isNaN(delay) ? null : delay };
+      if (!Number.isNaN(seen)) p.seen = seen;
+      if (!Number.isNaN(fix)) p.fix = fix;
+      track.push(p);
+    }
+    while (track.length > 1 && now - track[0].t > windowMs) track.shift();
+    const last = track.at(-1);
+    if (!last || now - (last.seen ?? last.t) > windowMs || tracks.has(ids[i])) continue;
+    tracks.set(ids[i], track);
+    restored++;
+  }
+  return restored;
+}
