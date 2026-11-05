@@ -354,6 +354,7 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
       else if (failed.size && Date.now() - failedAt >= RETRY_MS) await load(today, [...failed]);
       const first = loaded.get(0)?.schedule;
       const rtFeed = tripUpdatesUrl && first ? decodeFeed(await http.bytes(tripUpdatesUrl)) : null;
+      if (rtFeed?.damaged) log?.warn(`[${id}] su tiempo real llega mal formado: se descartan ${rtFeed.damaged} partes y se usa el resto`);
       const rt = rtFeed ? delaysFromTripUpdates(rtFeed, first) : null;
       const now = Date.now();
       const vehicles = [];
