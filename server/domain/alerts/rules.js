@@ -199,7 +199,7 @@ export function firesNearTrains(ctx) {
     cluster.forEach((g) => used.add(g.id));
     const near = ctx.vehicles.filter((v) => cluster.some((g) => distanceKm(g.lat, g.lon, v.lat, v.lon) <= th.fireNearKm));
     if (!near.length) continue;
-    const maxFrp = Math.max(...cluster.map((g) => g.frp ?? 0));
+    const maxFrp = cluster.reduce((max, g) => Math.max(max, g.frp ?? 0), -Infinity); // sin spread: los focos no tienen tope
     alerts.push({
       id: `incendio:${f.id}`, type: 'incendio', lat: f.lat, lon: f.lon, eventIds: cluster.map((g) => g.id),
       severity: cluster.length >= 3 || maxFrp >= 30 ? 'alta' : 'media',
@@ -383,8 +383,22 @@ export const RULES = [
   feedHealth,
 ];
 
-/** @param {RuleContext} ctx */
-export function evaluateRules(ctx, rules = RULES) {
+/**
+ * @param {RuleContext} ctx
+ * @param {typeof RULES} [rules]
+ * @param {((rule: string, err: unknown) => void) | null} [onError]  con él, una regla que falla no deja sin
+ *   evaluar las demás: se avisa con él y esa regla no da alertas en esta ronda (las suyas se resuelven, mejor
+ *   que dejarlas todas congeladas). Sin él, el fallo sube como hasta ahora.
+ */
+export function evaluateRules(ctx, rules = RULES, onError = null) {
   const scoped = { ...ctx };
-  return rules.flatMap((rule) => rule(scoped));
+  return rules.flatMap((rule) => {
+    if (!onError) return rule(scoped);
+    try {
+      return rule(scoped);
+    } catch (err) {
+      onError(rule.name, err);
+      return [];
+    }
+  });
 }

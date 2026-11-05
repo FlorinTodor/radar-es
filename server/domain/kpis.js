@@ -17,6 +17,7 @@ export function computeKpis(vehicles, now) {
     delayed: delays.filter((d) => d >= 5).length,
     withDelayInfo: delays.length,
     medianDelay: median(delays),
-    maxDelay: delays.length ? Math.max(...delays) : null,
+    // Con un bucle: Math.max(...delays) pasa cada retraso como argumento y, con unos 125.000 trenes, agota la pila.
+    maxDelay: delays.length ? delays.reduce((max, d) => Math.max(max, d), -Infinity) : null,
   };
 }

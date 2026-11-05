@@ -88,3 +88,11 @@ test('si el viaje sigue más allá del trazado, se dibuja hasta donde llega el t
   assert.deepEqual(hasta.slice(1), [[-2.98, 43.20], [-2.96, 43.20]]);
   assert.equal(pathBetween(trazado, [-2.99, 43.2001], [-2.98, 43.30]), null, 'un final lejos a un lado del trazado no es su viaje');
 });
+
+test('un trazado de 200.000 vértices entre dos posiciones se sigue entero (con push(...trozo) y Math.min(...vértices) se agotaba la pila)', () => {
+  const N = 200_000;
+  const coords = Array.from({ length: N }, (_, i) => [-5.825 + i * 1e-6, 43.36]); // unos 16 km, un vértice cada 8 cm
+  const [out] = matchTrack([[coords[0], coords[N - 1]]], [line(coords)]);
+  assert.ok(out.length >= N - 2 && out.length <= N + 2, `${out.length} puntos`);
+  assert.ok(out.every((q, i) => i === 0 || q[0] >= out[i - 1][0]), 'en orden');
+});

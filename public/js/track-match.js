@@ -39,7 +39,9 @@ export function matchTrack(parts, lines) {
       }
       const straight = Math.hypot(xy[0] - (prev?.xy[0] ?? 0), xy[1] - (prev?.xy[1] ?? 0));
       if (prev && prev.shape === hit.shape && Math.abs(hit.m - prev.m) <= DETOUR * straight + DETOUR_EXTRA_M) {
-        out.push(...slice(hit.shape, prev.m, hit.m).slice(1));
+        // Punto a punto: con out.push(...trozo), un trazado muy largo (más de unos 125.000 vértices) agota la pila.
+        const piece = slice(hit.shape, prev.m, hit.m);
+        for (let i = 1; i < piece.length; i++) out.push(piece[i]);
       } else {
         out.push(pointAt(hit.shape, hit.m));
       }
@@ -56,8 +58,12 @@ function shape(coords, toXY) {
   for (let i = 1; i < xy.length; i++) cum.push(cum[i - 1] + Math.hypot(xy[i][0] - xy[i - 1][0], xy[i][1] - xy[i - 1][1]));
   const xs = xy.map((p) => p[0]);
   const ys = xy.map((p) => p[1]);
-  return { coords, xy, cum, box: [Math.min(...xs) - NEAR_M, Math.min(...ys) - NEAR_M, Math.max(...xs) + NEAR_M, Math.max(...ys) + NEAR_M] };
+  return { coords, xy, cum, box: [least(xs) - NEAR_M, least(ys) - NEAR_M, most(xs) + NEAR_M, most(ys) + NEAR_M] };
 }
+
+// Con un bucle: Math.min(...valores) pasa cada vértice como argumento, y un trazado muy largo agota la pila.
+const least = (values) => values.reduce((a, b) => Math.min(a, b), Infinity);
+const most = (values) => values.reduce((a, b) => Math.max(a, b), -Infinity);
 
 /** El punto más cercano entre todos los trazados, si está a menos de NEAR_M: { shape, m (metros desde el inicio) }. */
 function nearest(shapes, [x, y]) {

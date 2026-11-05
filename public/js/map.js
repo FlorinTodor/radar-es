@@ -153,7 +153,9 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
   const shapeOf = (v) => (ROUTE_NETWORK[v.source] && v.shape && v.end ? byShape.get(`${ROUTE_NETWORK[v.source]}|${v.shape}`) : undefined);
   const routeShapeOf = (v) => {
     const trip = shapeOf(v);
-    if (trip || !LINE_NETWORK[v.source] || !v.line || !v.end) return trip;
+    // Una línea que no es un texto (la de FGC sale tal cual de su API) no tiene trazado: con ella,
+    // v.line.startsWith lanzaría y dejaría sin pintar los vehículos de todas las fuentes.
+    if (trip || !LINE_NETWORK[v.source] || typeof v.line !== 'string' || !v.line || !v.end) return trip;
     // Se elige otra vez sólo cuando el tren se mueve o cambia su final: la flecha lo pide en cada lectura.
     const key = `${v.lon},${v.lat},${v.end},${v.line}`;
     const memo = lineShapes.get(v.id);
