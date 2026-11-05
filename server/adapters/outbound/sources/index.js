@@ -92,6 +92,8 @@ export function createSources(deps) {
       tripUpdatesUrl: `${MOVEUSKADI}/euskotren/gtfsrt_euskotren_trip_updates.pb`,
       license: 'Powered by MITRAMS (horario, Punto de Acceso Nacional) · Open Data Euskadi, CC BY 4.0 (retrasos) · '
         + 'Posición estimada a partir del horario (dato explotado, no GPS)',
+      cancellationCredit: 'Open Data Euskadi · MoveUskadi, CC BY 4.0 (viajes cancelados y paradas suprimidas) · '
+        + 'Powered by MITRAMS (horario, Punto de Acceso Nacional)',
     }),
     ...ESTIMATED_BY_SCHEDULE.map(([id, name, operator, ficheroId, dataset, credit]) => createGtfsScheduleSource(deps, {
       id: `horario-${id}`, name: `${name} (posición estimada según horario)`, operator, ficheroId, dataset, credit,
@@ -125,6 +127,8 @@ export function createSources(deps) {
       tripUpdatesUrl: 'https://www.ambmobilitat.cat/transit/trips-updates/trips.bin',
       license: 'Powered by MITRAMS (Punto de Acceso Nacional) · AMB Àrea Metropolitana de Barcelona · '
         + 'Posición estimada a partir del horario y del retraso real (dato explotado, no GPS)',
+      cancellationCredit: 'AMB Àrea Metropolitana de Barcelona (viajes cancelados y paradas suprimidas) · '
+        + 'Powered by MITRAMS (horario, Punto de Acceso Nacional)',
     }),
     createGtfsRtVehicleSource(deps, {
       id: 'la-union', name: 'Autobuses La Unión (GTFS-RT)', mode: 'bus', operator: 'La Unión', interval: 60_000,
