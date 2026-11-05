@@ -99,8 +99,9 @@ test('Larga distancia: con el horario de otro periodo, el tren se encuentra por 
   await t.loadLd();
   assert.equal(t.ldExact('0515212026-10-31'), false);
   assert.deepEqual(t.ld('0515212026-10-31', '05152'), {
-    service: 'AVE', mode: 'av', gauge: 'standard', origin: 'València-Estació del Nord', destination: 'Moixent', stops: ['65000', '64200'],
+    service: 'AVE', mode: 'av', gauge: 'standard', number: '05152', origin: 'València-Estació del Nord', destination: 'Moixent', stops: ['65000', '64200'],
     times: null, // este horario de prueba no trae horas
+    runs: null, // ni calendario
   });
   assert.equal(t.ld('9999912026-10-31', '99999'), undefined);
 });

@@ -16,7 +16,7 @@ import { nextStopIndex, tripStopList } from '../../../domain/trip-stops.js';
 import { cancellationEvent, tripChanges } from '../../../domain/cancelaciones.js';
 import { createSeenStore } from '../persistence/seen-store.js';
 import { round5 } from '../../../domain/geo.js';
-import { madridDate, madridLocalToMs } from './parse.js';
+import { madridClock, madridLocalToMs, madridServiceDay } from './parse.js';
 import { napDatasetPage } from '../nap/nap-client.js';
 import { createCpuPool } from '../workers/cpu-pool.js';
 import { packSchedule, unpackSchedule } from '../gtfs/gtfs-schedule.js';
@@ -57,14 +57,6 @@ function shapePoints(shape) {
   const out = [];
   for (let i = 0; i + 1 < shape.coords.length; i += 2) out.push([shape.coords[i], shape.coords[i + 1]]);
   return out;
-}
-
-/** Día de servicio en Madrid desplazado `offset` días. */
-function madridServiceDay(now, offset) {
-  const [y, m, d] = madridDate(now).split('-').map(Number);
-  const day = new Date(Date.UTC(y, m - 1, d + offset));
-  const iso = day.toISOString().slice(0, 10);
-  return { ymd: iso.replaceAll('-', ''), iso, weekday: (day.getUTCDay() + 6) % 7, midnight: madridLocalToMs(`${iso}T00:00:00`) };
 }
 
 const hhmmss = (secs) => [Math.floor(secs / 3600) % 24, Math.floor(secs / 60) % 60, Math.floor(secs % 60)].map((n) => String(n).padStart(2, '0')).join(':');
@@ -455,7 +447,9 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
       if (rtFeed) {
         const found = cancellations(rtFeed, first, feeds[0].operator);
         const since = await seenStore.stamp(found.map((c) => c.id));
-        events = found.map((c) => cancellationEvent({ ...c, ...since(c.id) }, now));
+        const current = found.map((c) => cancellationEvent({ ...c, ...since(c.id) }, now));
+        // Las que su feed ha dejado de publicar hoy siguen hasta medianoche, como retiradas.
+        events = [...current, ...await seenStore.withdrawn(current, { clock: madridClock(now), endOfDay: madridServiceDay(now, 1).midnight })];
       }
       // En los grupos, la fecha del horario más reciente, la del más antiguo y la de cada operador.
       const dates = [...loaded.values()].map((l) => l.updatedAt).filter(Boolean);

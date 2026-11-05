@@ -123,6 +123,12 @@ export function stampSeen(previous, ids, now) {
  * @property {string|null} [credit]      atribución que pide su licencia
  * @property {number} seen               epoch ms en que el radar la vio por primera vez
  * @property {boolean} [seenAtStart]     ya estaba en la primera lectura tras arrancar el radar: pudo publicarse antes
+ * @property {Notice|null} [notice]      aviso del operador que habla de este viaje (ver noticesAbout)
+ * @property {Notice[]} [lineNotices]    avisos del operador sobre su línea que pueden explicarlo
+ * @property {string} [reason]           el motivo, si lo dice quien lo publica (un aviso de desvío de AUVASA)
+ *
+ * @typedef {{ id: string, text: string, url?: string|null, lines?: string[] }} Notice
+ *   Un aviso de servicio del operador: su texto, su enlace y las líneas a las que se refiere.
  */
 
 const SEVERITY = { cancelado: 'alta', parcial: 'media' };
@@ -164,6 +170,7 @@ export function cancellationEvent(c, now) {
   const schedule = departure || arrival
     ? `Según el horario, ${[departure && `salía de ${origin} a las ${departure}`, arrival && `llegaba a ${destination} a las ${arrival}`].filter(Boolean).join(' y ')}.`
     : '';
+  const notice = c.notice?.text ? `Aviso de ${c.publisher} sobre este viaje: ${c.notice.text}` : '';
   const said = whole
     ? (c.cancelled
       ? `${c.publisher} lo da como cancelado en su tiempo real (${c.feed}).`
@@ -184,7 +191,7 @@ export function cancellationEvent(c, now) {
     type,
     severity: bus && !whole ? 'baja' : SEVERITY[type],
     title,
-    description: [said, schedule, doubts].filter(Boolean).join(' '),
+    description: [c.reason, said, schedule, doubts, notice].filter(Boolean).join(' '),
     lat: place ? round5(place.at[1]) : null,
     lon: place ? round5(place.at[0]) : null,
     ...(place?.name ? { area: place.name } : {}),
@@ -213,11 +220,201 @@ export function cancellationEvent(c, now) {
         ...(s.skipped && !whole ? { skipped: true } : {}),
       })) ?? null,
       ...(c.trips ? { trips: c.trips } : {}),
+      ...(c.reason ? { reason: c.reason } : {}),
+      ...(c.notice?.text ? { notice: noticeOut(c.notice) } : {}),
+      ...(c.lineNotices?.length ? { lineNotices: c.lineNotices.map(noticeOut) } : {}),
       cancelled: c.cancelled,
       running: c.running,
       publisher: c.publisher,
       feed: c.feed,
       feedUrl: c.feedUrl ?? null,
+    },
+  };
+}
+
+const noticeOut = (n) => ({ text: n.text, ...(n.url ? { url: n.url } : {}) });
+
+// ---------- Avisos del operador que explican una cancelación ----------
+
+// Sin tildes ni mayúsculas, y lo que no es letra o número, un espacio.
+const plain = (s) => (s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9ñç]+/g, ' ').trim();
+// La hora de salida de un tren en un aviso: «salida a las 15:40h», «salida prevista a las 17:13h», «eixida
+// prevista a les 17:03h» (en valenciano), «14.15 h».
+const DEPARTURE_RE = /(?:salida|eixida|sortida)[^.;]{0,25}?\ba l[ae]s ?(\d{1,2})[:.,h](\d{2})/gi;
+const TRAIN_NUMBER_RE = /\btren(?:es)? (?:n[ºo°.]* ?)?0*(\d{3,6})\b/gi;
+// Avisos de una estación (ascensores, accesos…), no de los trenes.
+const FACILITIES_RE = /ascensor|escaler|aseos?\b|accesib|\bpmr\b|taquill|m[aá]quinas? (?:de )?(?:venta|autoventa)|vest[ií]bulo|acceso|aparcamiento|parking|igogailu|eskailera/i;
+// Un aviso que habla de un tren concreto (por su hora de salida o su número).
+const namesATrain = (text) => new RegExp(DEPARTURE_RE.source, 'i').test(text) || new RegExp(TRAIN_NUMBER_RE.source, 'i').test(text);
+// Las palabras del nombre de una estación que la distinguen (no «estación», «de», «la»…).
+const SKIP_WORDS = new Set(['estacion', 'estacio', 'de', 'del', 'la', 'el', 'les', 'los', 'las', 'puerta', 'clara', 'campoamor', 'almudena', 'grandes']);
+const keyWords = (name) => plain(name).split(' ').filter((w) => w.length >= 4 && !SKIP_WORDS.has(w));
+
+/**
+ * Los avisos de servicio del operador que hablan de una cancelación. El que nombra el viaje (por su número
+ * de tren, o por su hora de salida y su origen: «Tren con salida a las 15:40h de FUENGIROLA … no presta
+ * servicio») es el aviso sobre este viaje; los de su línea que no hablan de otro tren ni de una estación
+ * (obras, una avería, una huelga) pueden explicarlo, y se dan aparte, como mucho tres.
+ * @param {{ number?: string|null, departure?: string|null, origin?: string|null, line?: string|null }} trip
+ *   departure: «HH:MM» del horario; line: la clave de su línea, la misma que en `Notice.lines`
+ * @param {Notice[]} notices
+ * @returns {{ notice: Notice|null, lineNotices: Notice[] }}
+ */
+export function noticesAbout(trip, notices) {
+  const number = trip.number ? String(Number(trip.number)) : null;
+  const words = keyWords(trip.origin);
+  const onLine = (n) => !n.lines?.length || !trip.line || n.lines.includes(trip.line);
+  const aboutThis = (n) => {
+    if (!onLine(n)) return false;
+    if (number) for (const m of n.text.matchAll(TRAIN_NUMBER_RE)) if (String(Number(m[1])) === number) return true;
+    if (!trip.departure || !words.length) return false;
+    for (const m of n.text.matchAll(DEPARTURE_RE)) {
+      if (`${m[1].padStart(2, '0')}:${m[2]}` !== trip.departure) continue;
+      const after = plain(n.text.slice(m.index + m[0].length, m.index + m[0].length + 80));
+      if (words.some((w) => after.includes(w))) return true;
+    }
+    return false;
+  };
+  const notice = notices.find(aboutThis) ?? null;
+  const lineNotices = trip.line
+    ? notices.filter((n) => n !== notice && n.lines?.includes(trip.line) && !namesATrain(n.text) && !FACILITIES_RE.test(n.text)).slice(0, 3)
+    : [];
+  return { notice, lineNotices };
+}
+
+// ---------- Las que la fuente deja de publicar ----------
+
+/**
+ * ¿Había pasado ya su hora de llegada (según el horario) a la hora `clock` («HH:MM», la de su horario)? null
+ * si no se sabe. Un viaje que llega pasada la medianoche (llegada antes que la salida) ha llegado si `clock`
+ * está entre su llegada y su salida.
+ */
+function arrivedBy(trip, clock) {
+  const { departure, arrival } = trip ?? {};
+  if (!arrival || !clock) return null;
+  if (departure && arrival < departure) return clock >= arrival && clock < departure;
+  return clock >= arrival;
+}
+
+/**
+ * Una cancelación que su fuente ha dejado de publicar: se sigue viendo hasta el final del día, con poca
+ * gravedad y diciendo cuándo se retiró. Si fue después de su hora de llegada, es lo normal (las fuentes
+ * quitan los viajes que ya han pasado); si fue antes, puede que al final circule.
+ * @param {import('./model.js').IncidentEvent} e  la cancelación tal como se vio por última vez
+ * @param {{ now: number, clock: string, endOfDay: number }} when  clock: «HH:MM» de `now` en hora de Madrid
+ */
+export function withdrawnCancellation(e, { now, clock, endOfDay }) {
+  const t = e.trip ?? {};
+  const arrived = arrivedBy(t, clock);
+  const who = t.publisher ?? 'La fuente';
+  const note = arrived === true ? `${who} dejó de publicarlo a las ${clock}, después de su hora de llegada: lo hace con los viajes que ya han pasado.`
+    : arrived === false ? `${who} dejó de publicarlo a las ${clock}, antes de su hora de llegada: puede que al final circule, o que lo haya retirado por otro motivo.`
+      : `${who} dejó de publicarlo a las ${clock}.`;
+  return {
+    ...e,
+    severity: 'baja',
+    withdrawn: now,
+    expires: endOfDay,
+    description: [e.description, note].filter(Boolean).join(' '),
+    trip: { ...t, withdrawnAfterArrival: arrived },
+  };
+}
+
+/**
+ * Sigue las cancelaciones de lectura en lectura: las que estaban en la anterior y ya no están se retiran
+ * (withdrawnCancellation) y se guardan hasta el final del día; si una vuelve a publicarse, vuelve a ser de
+ * esta lectura.
+ * @param {{ shown: Map<string, import('./model.js').IncidentEvent>, withdrawn: Map<string, import('./model.js').IncidentEvent> }} memory
+ * @param {import('./model.js').IncidentEvent[]} current  las de esta lectura
+ * @param {{ now: number, clock: string, endOfDay: number }} when
+ * @returns {{ shown: Map<string, import('./model.js').IncidentEvent>, withdrawn: Map<string, import('./model.js').IncidentEvent> }}
+ */
+export function followWithdrawn(memory, current, when) {
+  const shown = new Map(current.map((e) => [e.id, e]));
+  const withdrawn = new Map();
+  for (const [id, e] of memory.withdrawn) if (!shown.has(id) && e.expires > when.now) withdrawn.set(id, e);
+  for (const [id, e] of memory.shown) if (!shown.has(id) && !withdrawn.has(id)) withdrawn.set(id, withdrawnCancellation(e, when));
+  return { shown, withdrawn };
+}
+
+// ---------- Trenes sin datos ----------
+
+/**
+ * @typedef {object} MissingTrain
+ * @property {string} id
+ * @property {string} who          «MD 37090»
+ * @property {string} operator
+ * @property {import('./model.js').Mode} mode
+ * @property {string|null} service
+ * @property {string} number
+ * @property {CancelledStop[]} stops  paradas de su viaje con su hora del horario
+ * @property {number} at          índice de la última parada por la que debería haber pasado
+ * @property {string} date        día de su viaje («AAAA-MM-DD»)
+ * @property {string} publisher
+ * @property {string} feed        lo que se ha mirado («posiciones y actualizaciones de AV/LD/MD»)
+ * @property {string|null} [feedUrl]
+ * @property {string|null} [credit]
+ * @property {number} seen        desde cuándo lo echa en falta el radar
+ * @property {boolean} [seenAtStart]
+ */
+
+// Se calcula en cada lectura: si su fuente deja de leerse, desaparece pronto.
+export const MISSING_TRAIN_TTL_MS = 10 * 60_000;
+
+/**
+ * Un tren que según su horario debería estar circulando y del que su operador no publica nada en tiempo
+ * real (ni posición, ni retraso, ni cancelación). No es una cancelación: no se sabe si circula. Se sitúa
+ * en la última estación por la que debería haber pasado.
+ * @param {MissingTrain} m @param {number} now
+ * @returns {import('./model.js').IncidentEvent}
+ */
+export function missingTrainEvent(m, now) {
+  const stops = m.stops;
+  const origin = stops[0]?.name ?? null;
+  const destination = stops.at(-1)?.name ?? null;
+  const departure = clockOf(stops[0]?.time ?? null);
+  const arrival = clockOf(stops.at(-1)?.time ?? null);
+  const from = stops[m.at];
+  const to = stops[m.at + 1] ?? null;
+  const placed = Array.isArray(from?.at) && from.at.every(Number.isFinite);
+  const between = to ? `ahora iría entre ${from.name} y ${to.name}` : null;
+  return {
+    id: m.id,
+    category: 'sin-datos',
+    type: 'sin-datos',
+    severity: 'baja',
+    title: `${m.who} sin datos de ${m.publisher}: ${origin}${departure ? ` ${departure}` : ''} → ${destination}`,
+    description: `Según su horario debería estar circulando: salía de ${origin}${departure ? ` a las ${departure}` : ''} y llega a ${destination}`
+      + `${arrival ? ` a las ${arrival}` : ''}${between ? `; ${between}` : ''}. ${m.publisher} no publica en su tiempo real ni su posición, ni su retraso, `
+      + 'ni lo da como cancelado: el radar no puede saber si circula.',
+    lat: placed ? round5(from.at[1]) : null,
+    lon: placed ? round5(from.at[0]) : null,
+    ...(from?.name ? { area: from.name } : {}),
+    seen: m.seen,
+    ...(m.seenAtStart ? { seenAtStart: true } : {}),
+    expires: now + MISSING_TRAIN_TTL_MS,
+    ...(m.credit ? { credit: m.credit } : {}),
+    trip: {
+      operator: m.operator,
+      mode: m.mode,
+      service: m.service ?? null,
+      line: null,
+      number: m.number,
+      origin,
+      destination,
+      date: m.date,
+      departure,
+      arrival,
+      between: to ? [from.name, to.name] : null,
+      stops: stops.map((s, i) => ({
+        name: s.name,
+        time: clockOf(s.time ?? null),
+        ...(Array.isArray(s.at) && s.at.every(Number.isFinite) ? { lon: round5(s.at[0]), lat: round5(s.at[1]) } : {}),
+        ...(i <= m.at ? { passed: true } : {}),
+      })),
+      publisher: m.publisher,
+      feed: m.feed,
+      feedUrl: m.feedUrl ?? null,
     },
   };
 }

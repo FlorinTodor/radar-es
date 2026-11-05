@@ -2,7 +2,10 @@
 // parte se ha suprimido, desde cuándo lo ve el radar y la incidencia que se arma con todo eso.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CANCELLATION_UNCONFIRMED_MS, cancellationEvent, skippedPart, stampSeen, tripChanges } from '../../server/domain/cancelaciones.js';
+import {
+  CANCELLATION_UNCONFIRMED_MS, MISSING_TRAIN_TTL_MS, cancellationEvent, followWithdrawn, missingTrainEvent, noticesAbout, skippedPart, stampSeen, tripChanges,
+  withdrawnCancellation,
+} from '../../server/domain/cancelaciones.js';
 
 const entity = (tripId, relation, skipped = [], extra = {}) => ({
   tripUpdate: { trip: { tripId, scheduleRelationship: relation, ...extra }, stopTimeUpdate: skipped.map((stopId) => ({ stopId, scheduleRelationship: 'SKIPPED' })) },
@@ -146,5 +149,102 @@ test('paradas suprimidas de una línea de autobús en varias expediciones: grave
   assert.equal(e.title, 'Línea 129 de AMB no sale de Zona Universitària: empieza en Palau Reial');
   assert.match(e.description, /^AMB da como suprimidas en su tiempo real \(.+\) esta parada en 7 expediciones: Zona Universitària\./);
   assert.equal(e.trip.trips, 7);
+  assert.equal(e.trip.date, '2026-11-05');
+});
+
+// ---------- Avisos que explican una cancelación ----------
+
+const NOTICES = [
+  { id: '1', text: 'Línea C1. Tren con salida prevista a las 17:13h de la estación de Gandia con destino València Nord, hoy no circula.', lines: ['40|C1'] },
+  { id: '2', text: "Línia C3. Tren amb eixida prevista a les 17:03h de l'estació de Buñol amb destinació València Sant Isidre, hui no circula.", lines: ['40|C3'] },
+  { id: '3', text: 'Tren 15011 Barcelona-Estació de França 14.15 h - Reus 16.03 h iniciará su recorrido con 30 minutos de demora.', lines: ['51|R15'] },
+  { id: '4', text: 'A causa de una incidencia en la infraestructura entre Arc de Triomf y El Clot, los trenes circulan con demoras.', lines: ['51|R1', '51|R15'] },
+  { id: '5', text: 'Ascensor de la estación de Reus, con acceso a vía 1, fuera de servicio.', lines: ['51|R15'] },
+  { id: '6', text: 'Línea C1. Tren con salida prevista a las 18:13h de la estación de Gandia con destino València Nord, hoy no circula.', lines: ['40|C1'] },
+];
+
+test('el aviso de un tren: por su hora de salida y su origen (también en valenciano) o por su número; y en su línea', () => {
+  assert.equal(noticesAbout({ departure: '17:13', origin: 'Gandia', line: '40|C1' }, NOTICES).notice.id, '1');
+  assert.equal(noticesAbout({ departure: '17:03', origin: 'Buñol', line: '40|C3' }, NOTICES).notice.id, '2');
+  assert.equal(noticesAbout({ number: '15011', departure: '14:15', origin: 'Barcelona-Estació de França', line: '51|R15' }, NOTICES).notice.id, '3');
+  // Otra hora, otro origen u otra línea: no es este tren.
+  assert.equal(noticesAbout({ departure: '17:43', origin: 'Gandia', line: '40|C1' }, NOTICES).notice, null);
+  assert.equal(noticesAbout({ departure: '17:13', origin: 'Xàtiva', line: '40|C1' }, NOTICES).notice, null);
+  assert.equal(noticesAbout({ departure: '17:13', origin: 'Gandia', line: '40|C2' }, NOTICES).notice, null);
+  // Los de su línea que no hablan de otro tren ni de una estación.
+  const { lineNotices } = noticesAbout({ number: '15011', departure: '14:15', origin: 'Barcelona-Estació de França', line: '51|R15' }, NOTICES);
+  assert.deepEqual(lineNotices.map((n) => n.id), ['4']);
+  assert.deepEqual(noticesAbout({ departure: '09:00', origin: 'Gandia', line: '40|C1' }, NOTICES).lineNotices, [], 'los dos de la C1 hablan de otros trenes');
+});
+
+test('la cancelación cita el aviso de su tren y su motivo, y los de su línea en la ficha', () => {
+  const e = cancellationEvent({ ...base, stops: STOPS, notice: { id: '9', text: 'Por una avería, hoy no circula.', url: 'https://renfe.com/x' },
+    lineNotices: [{ id: '8', text: 'Obras entre Mérida y Cáceres.' }] }, NOW);
+  assert.match(e.description, /Aviso de Renfe sobre este viaje: Por una avería, hoy no circula\.$/);
+  assert.deepEqual(e.trip.notice, { text: 'Por una avería, hoy no circula.', url: 'https://renfe.com/x' });
+  assert.deepEqual(e.trip.lineNotices, [{ text: 'Obras entre Mérida y Cáceres.' }]);
+  const bus = cancellationEvent({ ...base, mode: 'bus', stops: null, skippedNames: ['Plaza Uruguay'], cancelled: false, running: true,
+    reason: 'Desvío línea 7: Línea 7 desviada entre las paradas A y B.' }, NOW);
+  assert.match(bus.description, /^Desvío línea 7: Línea 7 desviada entre las paradas A y B\. Renfe da como suprimidas/);
+  assert.equal(bus.trip.reason, 'Desvío línea 7: Línea 7 desviada entre las paradas A y B.');
+});
+
+// ---------- Las que la fuente deja de publicar ----------
+
+const MIDNIGHT = 90_000_000;
+const shownOnce = cancellationEvent({ ...base, stops: STOPS }, NOW); // 06:29 → 11:07
+
+test('retirada después de su hora de llegada (lo normal) o antes (puede que circule); la de un viaje que pasa de medianoche', () => {
+  const after = withdrawnCancellation(shownOnce, { now: 9_000, clock: '11:30', endOfDay: MIDNIGHT });
+  assert.equal(after.withdrawn, 9_000);
+  assert.equal(after.expires, MIDNIGHT);
+  assert.equal(after.severity, 'baja');
+  assert.equal(after.seen, shownOnce.seen);
+  assert.equal(after.trip.withdrawnAfterArrival, true);
+  assert.match(after.description, /Renfe dejó de publicarlo a las 11:30, después de su hora de llegada: lo hace con los viajes que ya han pasado\.$/);
+  const before = withdrawnCancellation(shownOnce, { now: 9_000, clock: '08:00', endOfDay: MIDNIGHT });
+  assert.equal(before.trip.withdrawnAfterArrival, false);
+  assert.match(before.description, /antes de su hora de llegada: puede que al final circule/);
+  const night = { ...shownOnce, trip: { ...shownOnce.trip, departure: '22:40', arrival: '01:10' } };
+  assert.equal(withdrawnCancellation(night, { now: 1, clock: '23:50', endOfDay: MIDNIGHT }).trip.withdrawnAfterArrival, false);
+  assert.equal(withdrawnCancellation(night, { now: 1, clock: '01:30', endOfDay: MIDNIGHT }).trip.withdrawnAfterArrival, true);
+  const unknown = withdrawnCancellation({ ...shownOnce, trip: { ...shownOnce.trip, arrival: null } }, { now: 1, clock: '09:00', endOfDay: MIDNIGHT });
+  assert.equal(unknown.trip.withdrawnAfterArrival, null);
+  assert.match(unknown.description, /Renfe dejó de publicarlo a las 09:00\.$/);
+});
+
+test('se siguen de lectura en lectura: la que desaparece se retira hasta medianoche y, si vuelve, deja de estar retirada', () => {
+  const when = (now, clock) => ({ now, clock, endOfDay: MIDNIGHT });
+  let memory = followWithdrawn({ shown: new Map(), withdrawn: new Map() }, [shownOnce], when(10_000, '09:00'));
+  assert.equal(memory.withdrawn.size, 0);
+  memory = followWithdrawn(memory, [], when(20_000, '09:05'));
+  assert.equal(memory.withdrawn.get(shownOnce.id).withdrawn, 20_000);
+  memory = followWithdrawn(memory, [], when(30_000, '09:10'));
+  assert.equal(memory.withdrawn.get(shownOnce.id).withdrawn, 20_000, 'la hora de cuando se retiró, no la de cada lectura');
+  memory = followWithdrawn(memory, [shownOnce], when(40_000, '09:15'));
+  assert.equal(memory.withdrawn.size, 0, 'vuelve a publicarse');
+  memory = followWithdrawn(memory, [], when(50_000, '09:20'));
+  memory = followWithdrawn(memory, [], when(MIDNIGHT + 1, '00:00'));
+  assert.equal(memory.withdrawn.size, 0, 'pasada la medianoche, fuera');
+});
+
+// ---------- Trenes sin datos ----------
+
+test('tren sin datos: qué falta, por dónde iría según su horario y dónde se ve en el mapa', () => {
+  const e = missingTrainEvent({
+    id: 'renfe-sin-datos:37090', who: 'Media Distancia 37090', operator: 'Renfe', mode: 'md', service: 'Media Distancia', number: '37090',
+    stops: STOPS, at: 1, date: '2026-11-05', publisher: 'Renfe', feed: 'GTFS-RT de AV/LD/MD', feedUrl: 'https://gtfsrt.renfe.com/vehicle_positions_LD.json',
+    credit: 'Origen de los datos: Renfe Operadora', seen: 1000,
+  }, NOW);
+  assert.equal(e.category, 'sin-datos');
+  assert.equal(e.severity, 'baja');
+  assert.equal(e.title, 'Media Distancia 37090 sin datos de Renfe: Badajoz 06:29 → Madrid-Chamartín-Clara Campoamor');
+  assert.equal(e.description, 'Según su horario debería estar circulando: salía de Badajoz a las 06:29 y llega a Madrid-Chamartín-Clara Campoamor a las 11:07; '
+    + 'ahora iría entre Mérida y Cáceres. Renfe no publica en su tiempo real ni su posición, ni su retraso, ni lo da como cancelado: el radar no puede saber si circula.');
+  assert.deepEqual([e.lon, e.lat], [-6.34, 38.92], 'en la última estación por la que debería haber pasado');
+  assert.equal(e.area, 'Mérida');
+  assert.deepEqual(e.trip.between, ['Mérida', 'Cáceres']);
+  assert.deepEqual(e.trip.stops.map((st) => !!st.passed), [true, true, false, false]);
+  assert.equal(e.expires, NOW + MISSING_TRAIN_TTL_MS);
   assert.equal(e.trip.date, '2026-11-05');
 });

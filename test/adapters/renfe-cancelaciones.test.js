@@ -121,15 +121,24 @@ test('desde cuándo: se guarda y otro arranque no la da por nueva; las nuevas de
   assert.equal(byId.get('renfe-cancelado:4006J20111C2').seenAtStart, undefined);
   assert.equal(byId.get('renfe-cancelado:4006J20111C2').title, 'Cercanías C2 20111 cancelado: Moixent 10:00 → València-Estació del Nord');
 
-  // Renfe deja de publicarla: se olvida, y si vuelve es nueva.
+  // Renfe deja de publicarla: sigue hasta medianoche como retirada, también tras otro arranque; si vuelve, es nueva.
   t.mock.timers.tick(2 * 60_000);
   current = feeds({ 'trip_updates_LD.json': { entity: [] } });
   byId = await read(restarted);
-  assert.equal(byId.has('renfe-cancelado:ld:05152'), false);
+  const gone = byId.get('renfe-cancelado:ld:05152');
+  assert.equal(gone.withdrawn, T0 + 6 * 60_000);
+  assert.equal(gone.severity, 'baja');
+  assert.equal(gone.seen, T0, 'desde cuándo se vio, el de antes');
+  assert.equal(gone.expires, Date.parse('2026-11-05T23:00:00Z'), 'hasta la medianoche de Madrid');
+  assert.match(gone.description, /Renfe dejó de publicarlo a las 09:06, después de su hora de llegada: lo hace con los viajes que ya han pasado\.$/);
+  assert.equal(gone.trip.withdrawnAfterArrival, true);
+  byId = await read(avisosOf(createRenfeSources({ http, cache, stations, log })));
+  assert.equal(byId.get('renfe-cancelado:ld:05152').withdrawn, T0 + 6 * 60_000, 'un reinicio no la olvida');
   t.mock.timers.tick(2 * 60_000);
   current = feeds();
   byId = await read(restarted);
   assert.equal(byId.get('renfe-cancelado:ld:05152').seen, T0 + 8 * 60_000);
+  assert.equal(byId.get('renfe-cancelado:ld:05152').withdrawn, undefined, 'vuelve a publicarse: ya no está retirada');
 });
 
 test('si un feed falla, sus cancelaciones siguen (una hora desde la última lectura buena) y no se dan por nuevas', async (t) => {
@@ -149,4 +158,73 @@ test('si un feed falla, sus cancelaciones siguen (una hora desde la última lect
   // Fallan los tres: la lectura falla (y el repositorio guarda la anterior).
   current = feeds({ 'alerts.json': new Error('x'), 'trip_updates.json': new Error('x'), 'trip_updates_LD.json': new Error('x') });
   await assert.rejects(avisos.fetch());
+});
+
+test('el aviso de Renfe que nombra el tren cancelado (por su hora y su origen) y los de su línea van en su cancelación', async () => {
+  const text = (s) => ({ translation: [{ text: s, language: 'es' }] });
+  const alerts = { entity: [
+    { id: 'a1', alert: { informedEntity: [{ routeId: '40T0006C2' }], descriptionText: text('Línea C2. Tren con salida prevista a las 08:00h de la estación de Moixent con destino València Nord, hoy no circula.') } },
+    { id: 'a2', alert: { informedEntity: [{ routeId: '40T0006C2' }], descriptionText: text('Por obras en la infraestructura entre Moixent y Xàtiva, algunos trenes circulan con retraso.') } },
+    { id: 'a3', alert: { informedEntity: [{ routeId: '40T0006C2' }], descriptionText: text('Ascensor de la estación de Massanassa fuera de servicio.') } },
+    { id: 'a4', alert: { informedEntity: [{ routeId: '40T0002C1' }], descriptionText: text('Por una avería, los trenes de la C1 circulan con retraso.') } },
+  ] };
+  const avisos = avisosOf(createRenfeSources({ http: httpWith(feeds({ 'alerts.json': alerts })), cache: memoryCache(), stations, log }));
+  const cerc = (await avisos.fetch()).events.find((e) => e.id === 'renfe-cancelado:4006J20109C2');
+  assert.equal(cerc.trip.notice.text, alerts.entity[0].alert.descriptionText.translation[0].text);
+  assert.match(cerc.description, /Aviso de Renfe sobre este viaje: Línea C2\. Tren con salida prevista a las 08:00h/);
+  assert.deepEqual(cerc.trip.lineNotices.map((n) => n.text), ['Por obras en la infraestructura entre Moixent y Xàtiva, algunos trenes circulan con retraso.'],
+    'los de su línea, sin los de otro tren ni los de un ascensor; los de otra línea, no');
+});
+
+// Horario de AV/LD/MD con calendario: los dos trenes circulan todos los días.
+const ldWithCalendar = zipSync({
+  'routes.txt': strToU8('route_id,route_short_name\nR1,MD\nR2,AVE\n'),
+  'trips.txt': strToU8('route_id,service_id,trip_id,trip_short_name\nR1,A,1800012026-11-02,18000\nR2,A,0515212026-11-02,05152\n'),
+  'calendar.txt': strToU8('service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nA,1,1,1,1,1,1,1,20260101,20271231\n'),
+  'calendar_dates.txt': strToU8('service_id,date,exception_type\n'),
+  'stop_times.txt': strToU8('trip_id,stop_id,stop_sequence,arrival_time,departure_time\n'
+    + '1800012026-11-02,65000,1,06:00:00,06:00:00\n1800012026-11-02,64103,2,06:20:00,06:21:00\n1800012026-11-02,64200,3,07:30:00,07:30:00\n'
+    + '0515212026-11-02,65000,1,07:00:00,07:00:00\n0515212026-11-02,64200,2,07:50:00,07:50:00\n'),
+});
+
+test('trenes sin datos: según su horario circulan ahora y Renfe no publica ni su posición, ni su retraso, ni su cancelación', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-02T06:20:00Z') }); // 07:20 en Madrid
+  const cache = { ...memoryCache(), bytes: async (url, name) => (name === 'renfe-fomento_transit.zip' ? cercaniasZip : ldWithCalendar) };
+  const positions = { entity: [{ vehicle: {
+    trip: { tripId: '0515212026-11-02' }, vehicle: { id: '05152' }, position: { latitude: 39.2, longitude: -0.5 }, stopId: '64200', currentStatus: 'IN_TRANSIT_TO',
+  } }] };
+  let updatesLd = { entity: [] };
+  const http = { json: async (url) => {
+    const file = url.split('/').pop();
+    if (file === 'vehicle_positions_LD.json') return positions;
+    if (file === 'trip_updates_LD.json') return updatesLd;
+    return { entity: [] };
+  } };
+  const sources = createRenfeSources({ http, cache, stations, log });
+  const ld = sources.find((s) => s.id === 'renfe-ld');
+  const avisos = avisosOf(sources);
+  const missing = async () => (await avisos.fetch()).events.filter((e) => e.category === 'sin-datos');
+
+  assert.deepEqual(await missing(), [], 'sin una lectura reciente de las posiciones, ninguno');
+  await ld.fetch();
+  const [md] = await missing();
+  assert.equal(md.id, 'renfe-sin-datos:18000');
+  assert.equal(md.title, 'Media Distancia 18000 sin datos de Renfe: València-Estació del Nord 06:00 → Moixent');
+  assert.deepEqual(md.trip.between, ['Massanassa', 'Moixent']);
+  assert.deepEqual([md.lon, md.lat], [-0.39, 39.41], 'en Massanassa, la última por la que debería haber pasado');
+  assert.equal(md.trip.date, '2026-11-02');
+  assert.equal(md.seen, Date.parse('2026-11-02T06:20:00Z'));
+  assert.equal((await avisos.fetch()).events.some((e) => e.category === 'cancelacion' && e.withdrawn), false, 'no es una cancelación: no se «retira»');
+
+  updatesLd = { entity: [{ tripUpdate: { trip: { tripId: '1800012026-11-02' }, stopTimeUpdate: [{ stopId: '64200', arrival: { delay: 300 } }] } }] };
+  assert.deepEqual(await missing(), [], 'con su retraso publicado, ya hay datos');
+  updatesLd = { entity: [] };
+
+  t.mock.timers.tick(3 * 60_000);
+  assert.deepEqual(await missing(), [], 'las posiciones ya no son recientes: no se sabe');
+  await ld.fetch();
+  assert.equal((await missing()).length, 1);
+  t.mock.timers.tick(5 * 60_000); // 07:28: le quedan menos de 5 minutos para llegar
+  await ld.fetch();
+  assert.deepEqual(await missing(), []);
 });

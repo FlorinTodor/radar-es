@@ -68,6 +68,20 @@ export const madridDate = (t) => madridDateTime(t).slice(0, 10);
 /** Fecha de hoy en Madrid, "YYYY-MM-DD". `now`, para los tests. */
 export const madridToday = (now = Date.now()) => madridDate(now);
 
+/**
+ * Día de servicio en Madrid desplazado `offset` días: su fecha («AAAAMMDD» y «AAAA-MM-DD»), su día de la
+ * semana (0 = lunes) y su medianoche (epoch ms).
+ */
+export function madridServiceDay(now, offset = 0) {
+  const [y, m, d] = madridDate(now).split('-').map(Number);
+  const day = new Date(Date.UTC(y, m - 1, d + offset));
+  const iso = day.toISOString().slice(0, 10);
+  return { ymd: iso.replaceAll('-', ''), iso, weekday: (day.getUTCDay() + 6) % 7, midnight: madridLocalToMs(`${iso}T00:00:00`) };
+}
+
+/** «HH:MM» de un instante (epoch ms) en hora de Madrid. */
+export const madridClock = (t) => madridDateTime(t).slice(11, 16);
+
 /** "2026-10-30T19:05:43" en hora local de Madrid (sin zona) → epoch ms. */
 export function madridLocalToMs(s) {
   if (!s) return null;
