@@ -140,17 +140,31 @@
 
     <h2 id="cancelaciones">Trenes y autobuses cancelados</h2>
     <p>Los que sus operadores dan como <strong>cancelados</strong> o con <strong>paradas suprimidas</strong> en su
-      tiempo real: Renfe (Cercanías, Rodalies, Alta Velocidad, Larga y Media Distancia), Euskotren y los autobuses
-      metropolitanos de Barcelona (AMB). Cada uno sale en su estación de origen (o en la primera parada suprimida), en el
-      filtro «Cancelaciones» de la pestaña Incidencias y en la ficha de cada estación por la que pasaba. Su ficha dice qué
-      tren es, de dónde a dónde, a qué hora salía y pasaba por cada parada según el horario, qué paradas se suprimen,
-      quién lo publica y en qué fichero.</p>
+      tiempo real: Renfe (Cercanías, Rodalies, Alta Velocidad, Larga y Media Distancia), Euskotren, los autobuses
+      metropolitanos de Barcelona (AMB) y, por sus avisos de desvío, los autobuses urbanos de Valladolid (AUVASA) y de
+      Málaga (EMT). Cada uno sale en su estación de origen (o en la primera parada suprimida), en el filtro
+      «Cancelaciones» de la pestaña Incidencias y en la ficha de cada estación por la que pasaba. Su ficha dice qué tren
+      es, de dónde a dónde, a qué hora salía y pasaba por cada parada según el horario, qué paradas se suprimen, quién
+      lo publica y en qué fichero.</p>
+    <p><strong>El motivo</strong>, cuando su operador lo dice: si un aviso de Renfe nombra el tren (por su número, o por
+      su hora de salida y su estación de origen), la ficha lo cita; los avisos de su línea que pueden explicarlo (obras,
+      una avería, una huelga) van aparte. En los autobuses, el motivo es su aviso de desvío.</p>
     <p>Sus fuentes no dicen cuándo lo publicaron: la ficha dice cuándo lo vio el radar por primera vez (las lee cada
-      uno o dos minutos) y avisa si ya estaba publicado cuando el radar empezó a leerlas. Cuando el operador deja de
-      publicarlo, deja de salir. Renfe no dice el día del tren cancelado, y a veces lo da a la vez como cancelado y en
-      servicio: la ficha lo dice tal cual. De los demás operadores (Ouigo, Iryo, FGC, Metro Bilbao, los metros y
-      tranvías y el resto de autobuses) no salen cancelaciones: o no las publican como datos abiertos o el radar todavía
-      no las lee.</p>
+      uno o dos minutos) y avisa si ya estaba publicado cuando el radar empezó a leerlas. Cuando el operador
+      <strong>deja de publicarlo</strong>, sigue en el mapa, desvaído, hasta medianoche, con la hora a la que dejó de
+      publicarse: si fue después de su hora de llegada es lo normal (los operadores quitan los viajes que ya han pasado);
+      si fue antes, puede que al final circule. Renfe no dice el día del tren cancelado, y a veces lo da a la vez como
+      cancelado y en servicio: la ficha lo dice tal cual. De los demás operadores (Ouigo, Iryo, FGC, Metro Bilbao, los
+      metros y tranvías y el resto de autobuses) no salen cancelaciones: o no las publican como datos abiertos o, como
+      Metro Bilbao, publican el tiempo real de sus viajes pero hasta ahora sin ninguna cancelación.</p>
+
+    <h2 id="sin-datos">Trenes sin datos</h2>
+    <p>Un tren de Alta Velocidad, Larga o Media Distancia que, según el horario que publica Renfe, debería estar
+      circulando (lleva más de 10 minutos desde su salida y le quedan más de 5 para llegar) y del que Renfe no publica
+      nada en su tiempo real: ni su posición, ni su retraso, ni su cancelación. Sale en gris, con una interrogación, en
+      la última estación por la que debería haber pasado, y en la ficha de las estaciones por las que pasa. <strong>No es
+      una cancelación</strong>: puede circular sin que Renfe publique su posición, o no circular sin que haya publicado su
+      cancelación. Si un día faltan casi todos, lo que falla es el fichero de posiciones de Renfe y no se marca ninguno.</p>
 
     <h2>Antes de usarlo</h2>
     <p>Radar España no es una web oficial: muestra los datos que publican sus fuentes, con un retraso de
