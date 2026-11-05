@@ -133,9 +133,37 @@
       power cut does not appear, that does not mean there is none: in an emergency, call <strong>112</strong>.</p>
 
     <h2>Transport notices</h2>
-    <p>Renfe service notices (including cancelled Cercanías trains), the status of each Rodalies de Catalunya line
-      and EMT Madrid notices. Trains, metro and buses are explained in <a href="/en/live-trains">live trains</a> and
-      <a href="/en/metro-tram-bus">metro, tram and bus</a>.</p>
+    <p>Renfe service notices, the status of each Rodalies de Catalunya line and EMT Madrid notices. Trains, metro and
+      buses are explained in <a href="/en/live-trains">live trains</a> and <a href="/en/metro-tram-bus">metro, tram and bus</a>.</p>
+
+    <h2 id="cancellations">Cancelled trains and buses</h2>
+    <p>Those that their operators report as <strong>cancelled</strong> or with <strong>skipped stops</strong> in their
+      real-time data: Renfe (Cercanías, Rodalies, high-speed, long and medium distance), Euskotren, Barcelona's
+      metropolitan buses (AMB) and, through their detour notices, the city buses of Valladolid (AUVASA) and Málaga (EMT).
+      Each one appears at its origin station (or at the first skipped stop), under the «Cancelaciones» filter of the
+      Incidents tab and on the card of every station it was due to call at. Its card shows which train it is, from where
+      to where, its timetabled departure and the time at each stop, which stops are skipped, who publishes it and in which
+      file.</p>
+    <p><strong>The reason</strong>, when the operator gives it: if a Renfe notice names the train (by its number, or by
+      its departure time and origin station), the card quotes it; notices about its line that may explain it (engineering
+      works, a breakdown, a strike) are listed separately. For buses, the reason is their detour notice.</p>
+    <p>The sources do not say when they published it: the card shows when the radar first saw it (it reads them every
+      one or two minutes) and warns if it was already published when the radar started reading them. When the operator
+      <strong>stops publishing it</strong>, it stays on the map, faded, until midnight, with the time it was withdrawn:
+      after its arrival time that is normal (operators remove trips that have already gone); before it, the train may run
+      after all. Renfe does not give the day of the cancelled train, and sometimes reports it as both cancelled and
+      running: the card says so. No cancellations appear for the other operators (Ouigo, Iryo, FGC, Metro Bilbao, the
+      metro and tram networks and the other bus companies): either they do not publish them as open data or, like Metro
+      Bilbao, they publish real-time trip updates but so far without any cancellation.</p>
+
+    <h2 id="no-data">Trains with no data</h2>
+    <p>A high-speed, long or medium distance train that, according to the timetable Renfe publishes, should be running
+      (more than 10 minutes after its departure and more than 5 before its arrival) and about which Renfe publishes
+      nothing in real time: no position, no delay, no cancellation. It appears in grey, with a question mark, at the last
+      station it should have passed, and on the card of the stations on its route. <strong>It is not a
+      cancellation</strong>: it may be running without Renfe publishing its position, or not running without its
+      cancellation having been published. If almost all of them are missing, Renfe's position file is what is failing and
+      none is marked.</p>
 
     <h2>Before you use it</h2>
     <p>Radar España is not an official website: it shows the data published by its sources, seconds to minutes late,

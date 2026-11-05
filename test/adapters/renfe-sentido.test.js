@@ -99,8 +99,9 @@ test('Larga distancia: con el horario de otro periodo, el tren se encuentra por 
   await t.loadLd();
   assert.equal(t.ldExact('0515212026-10-31'), false);
   assert.deepEqual(t.ld('0515212026-10-31', '05152'), {
-    service: 'AVE', mode: 'av', gauge: 'standard', origin: 'València-Estació del Nord', destination: 'Moixent', stops: ['65000', '64200'],
+    service: 'AVE', mode: 'av', gauge: 'standard', number: '05152', origin: 'València-Estació del Nord', destination: 'Moixent', stops: ['65000', '64200'],
     times: null, // este horario de prueba no trae horas
+    runs: null, // ni calendario
   });
   assert.equal(t.ld('9999912026-10-31', '99999'), undefined);
 });
@@ -171,8 +172,14 @@ test('Cercanías: las paradas de cada viaje se guardan en disco y, con el mismo 
   const store = new Map();
   const cache = { ...cacheWith({ 'renfe-fomento_transit.zip': zip }), readValue: async (n) => store.get(n) ?? null, writeValue: async (n, v) => store.set(n, structuredClone(v)) };
   await createTimetables({ cache, stations, log }).loadCercanias();
-  const saved = store.get('renfe-cercanias-paradas.v8');
+  const saved = store.get('renfe-cercanias-paradas.v9');
   assert.ok(saved.key.startsWith(`${zip.byteLength}|`));
+  // En la misma pasada, la hora de cada viaje: su salida y lo que tarda hasta cada parada.
+  const times = store.get('renfe-cercanias-horas.v1');
+  assert.equal(times.key, saved.key);
+  const i = times.trips.indexOf('SUBE');
+  assert.equal(times.dep[i], 8 * 3600);
+  assert.deepEqual([...times.profiles[times.profile[i]]], [0, 3600, 3900, 4500]);
   // Se cambia lo guardado: si el segundo arranque lo usa (y no relee el stop_times), el viaje acaba en Massanassa.
   saved.patterns[saved.trips[saved.trips.indexOf('SUBE') + 1]] = ['64200', '64103'];
   const t = createTimetables({ cache, stations, log });

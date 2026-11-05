@@ -20,7 +20,8 @@ const nextIndex = (stops) => stops.findIndex((s) => !s.passed && !s.here);
  */
 export function stopsCollection(data) {
   const stops = data?.stops ?? [];
-  const next = nextIndex(stops);
+  // Un viaje cancelado no tiene próxima parada; las suprimidas se ven como las ya pasadas (en gris).
+  const next = data?.cancelled ? -1 : nextIndex(stops);
   const features = stops.flatMap((s, i) => {
     if (!Number.isFinite(s.lon) || !Number.isFinite(s.lat)) return [];
     const end = i === 0 || i === stops.length - 1;
@@ -28,8 +29,9 @@ export function stopsCollection(data) {
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [s.lon, s.lat] },
       properties: {
-        i, name: s.name, end: end ? 1 : 0, next: i === next ? 1 : 0, here: s.here ? 1 : 0, passed: s.passed ? 1 : 0,
-        rank: i === next || s.here ? 0 : s.passed ? 2 : 1, when: stopWhen(s),
+        i, name: s.name, end: end ? 1 : 0, next: i === next ? 1 : 0, here: s.here ? 1 : 0, passed: s.passed || s.skipped ? 1 : 0,
+        ...(s.skipped ? { skipped: 1 } : {}),
+        rank: i === next || s.here ? 0 : s.passed || s.skipped ? 2 : 1, when: stopWhen(s),
       },
     }];
   });
@@ -101,7 +103,7 @@ export function stopWhen(s) {
  */
 export function stopTipHtml(p, count) {
   const role = p.i === 0 ? 'Origen' : p.i === count - 1 ? 'Destino' : null;
-  const state = p.passed ? 'ya ha pasado' : p.here ? 'está parado aquí' : p.next ? 'próxima parada' : null;
+  const state = p.skipped ? 'suprimida' : p.passed ? 'ya ha pasado' : p.here ? 'está parado aquí' : p.next ? 'próxima parada' : null;
   const meta = [role, state, p.when].filter(Boolean).join(' · ');
   return `<strong>${esc(p.name)}</strong>${meta ? `<br><span>${esc(meta)}</span>` : ''}`;
 }

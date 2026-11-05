@@ -1,6 +1,8 @@
 // Posición estimada a partir del horario GTFS (del NAP) para operadores que no publican GPS.
 // - Sin tiempo real (Ouigo, metros, tranvías, autobuses): se colocan donde dice el horario.
 // - Con trip updates GTFS-RT (Euskotren, AMB): sólo los viajes en curso, desplazados por su retraso real.
+//   Los que su tiempo real da como cancelados no se colocan: salen como cancelaciones, con las paradas
+//   que suprime (ver domain/cancelaciones.js).
 // Las posiciones se marcan `estimated` (anillo hueco en el mapa) y no cuentan para alertas.
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -11,8 +13,10 @@ import {
 import { refineToRail } from '../../../domain/rail-match.js';
 import { estimatePosition } from '../../../domain/estimated-position.js';
 import { nextStopIndex, tripStopList } from '../../../domain/trip-stops.js';
+import { cancellationEvent, tripChanges } from '../../../domain/cancelaciones.js';
+import { createSeenStore } from '../persistence/seen-store.js';
 import { round5 } from '../../../domain/geo.js';
-import { madridDate, madridLocalToMs } from './parse.js';
+import { madridClock, madridLocalToMs, madridServiceDay } from './parse.js';
 import { napDatasetPage } from '../nap/nap-client.js';
 import { createCpuPool } from '../workers/cpu-pool.js';
 import { packSchedule, unpackSchedule } from '../gtfs/gtfs-schedule.js';
@@ -55,14 +59,6 @@ function shapePoints(shape) {
   return out;
 }
 
-/** Día de servicio en Madrid desplazado `offset` días. */
-function madridServiceDay(now, offset) {
-  const [y, m, d] = madridDate(now).split('-').map(Number);
-  const day = new Date(Date.UTC(y, m - 1, d + offset));
-  const iso = day.toISOString().slice(0, 10);
-  return { ymd: iso.replaceAll('-', ''), iso, weekday: (day.getUTCDay() + 6) % 7, midnight: madridLocalToMs(`${iso}T00:00:00`) };
-}
-
 const hhmmss = (secs) => [Math.floor(secs / 3600) % 24, Math.floor(secs / 60) % 60, Math.floor(secs % 60)].map((n) => String(n).padStart(2, '0')).join(':');
 
 /** Retraso (s) de cada viaje en curso según los trip updates: hora prevista menos hora programada. */
@@ -73,6 +69,8 @@ function delaysFromTripUpdates(feed, schedule) {
     const tu = e.tripUpdate;
     const trip = tu && byId.get(tu.trip?.tripId);
     if (!trip) continue;
+    // Cancelado: no circula (sale como cancelación, ver cancellations).
+    if (tu.trip.scheduleRelationship === 'CANCELED' || tu.trip.scheduleRelationship === 'DELETED') continue;
     const ymd = tu.trip.startDate;
     const stops = tripStops(trip, schedule);
     let delay = null;
@@ -111,8 +109,10 @@ function stretch(shape, from, to) {
  *   arrancar, o al cambiar de día, se juntarían en memoria decenas de ZIP descomprimidos a la vez).
  * @param {{ id: string, name: string, operator?: string, ficheroId?: number, dataset?: number, feeds?: Feed[], credit?: string,
  *           license?: string, interval?: number, mode?: import('../../../domain/model.js').Mode, tripUpdatesUrl?: string,
- *           label?: (trip: object) => string, line?: (name: string|null) => string|null }} options
+ *           label?: (trip: object) => string, line?: (name: string|null) => string|null, cancellationCredit?: string }} options
  *   dataset: conjunto de datos del NAP al que pertenece el fichero (para su fecha de actualización).
+ *   cancellationCredit: con tripUpdatesUrl, la atribución de sus cancelaciones (la de la fuente habla de la
+ *   posición estimada, que en ellas no hay).
  *   feeds: varios ficheros en una sola fuente (empresas con muchos conjuntos), en lugar de ficheroId/dataset/operator.
  *   credit: atribución que pide el propio operador además de la del NAP ("Powered by CRTM"…). En un grupo,
  *   la que pide uno solo de sus operadores va en su fichero (Feed.credit) y no en la de todo el grupo.
@@ -121,6 +121,8 @@ function stretch(shape, from, to) {
  */
 export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlinePool, railGeometry = null, now: clock = () => Date.now() }, options) {
   const { id, name, mode, tripUpdatesUrl, interval = 30_000 } = options;
+  // Cancelaciones de su tiempo real: desde cuándo las ve el radar (el feed no dice cuándo se publicaron).
+  const seenStore = tripUpdatesUrl ? createSeenStore({ cache, name: `${id}-cancelaciones-vistas.v1` }) : null;
   const feeds = options.feeds ?? [{ ficheroId: options.ficheroId, dataset: options.dataset, operator: options.operator }];
   const loaded = new Map(); // índice del fichero → { schedule, updatedAt }
   let loadedAt = 0;
@@ -305,6 +307,58 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
     loadedDay = today;
   }
 
+  const license = options.license ?? estimatedLicense(options.credit
+    ?? [...new Set(feeds.map((f) => (f.credit ? `${f.operator} (${f.credit})` : f.operator)))].join(', '));
+
+  /**
+   * Viajes que su tiempo real da como cancelados o con paradas suprimidas, con lo que dice su horario: de
+   * dónde a dónde, a qué hora y por dónde pasa. Las paradas suprimidas de los autobuses van por línea (AMB
+   * suprime paradas, por un desvío, en decenas de expediciones a la vez, y cada una trae sólo las que le
+   * quedan): una por línea, con todas las que suprime y en cuántas expediciones, sin la lista entera.
+   * @returns {import('../../../domain/cancelaciones.js').Cancellation[]} sin `seen` (lo pone fetch)
+   */
+  function cancellations(feed, schedule, operator) {
+    const byId = new Map(schedule.trips.map((t) => [t.id, t]));
+    const out = [];
+    const byLine = new Map(); // línea → cancelación de la línea, con sus paradas suprimidas (nombre → [lon, lat])
+    for (const [tripId, c] of tripChanges(feed)) {
+      const trip = byId.get(tripId);
+      if (!trip) continue; // no está en el horario de hoy: no se sabría ni su línea
+      const stops = tripStops(trip, schedule);
+      const skipped = new Set(c.skipped
+        .map((s) => stops.findIndex((st) => (s.stopSequence !== null ? st.seq === s.stopSequence : st.stopId === s.stopId)))
+        .filter((i) => i >= 0));
+      const line = (options.line ? options.line(trip.route.line) : trip.route.line) ?? null;
+      const bus = trip.route.mode === 'bus';
+      const list = (withTimes) => stops.map((st, i) => ({
+        name: st.name, at: [st.lon, st.lat], time: withTimes ? (i === 0 ? st.dep : st.arr) : null, skipped: skipped.has(i),
+      }));
+      const common = {
+        cancelled: c.cancelled, running: c.running, date: c.startDate, operator, publisher: operator, mode: trip.route.mode,
+        service: null, line, feed: 'GTFS-RT de actualizaciones de viaje', feedUrl: tripUpdatesUrl, credit: options.cancellationCredit ?? license,
+      };
+      if (bus && !c.cancelled && skipped.size) {
+        const key = line ?? trip.route.id ?? tripId;
+        let had = byLine.get(key);
+        if (!had) {
+          byLine.set(key, (had = {
+            ...common, id: `${id}-suprimidas:${key}`, stops: null, trips: 0, places: new Map(), date: c.startDate,
+            who: line ? `Línea ${line} de ${operator}` : operator, number: null,
+          }));
+        }
+        had.trips++;
+        for (const i of [...skipped].sort((a, b) => a - b)) if (!had.places.has(stops[i].name)) had.places.set(stops[i].name, [stops[i].lon, stops[i].lat]);
+        continue;
+      }
+      out.push({
+        ...common, id: `${id}-cancelado:${tripId}${c.startDate ? `:${c.startDate}` : ''}`, stops: list(true), number: trip.label ?? null,
+        who: bus ? `Autobús ${line ?? ''} de ${operator}`.replace(/\s+/g, ' ') : [operator, line, trip.label].filter(Boolean).join(' '),
+      });
+    }
+    const lines = [...byLine.values()].map(({ places, ...l }) => ({ ...l, skippedNames: [...places.keys()], at: places.values().next().value ?? null }));
+    return [...out, ...lines];
+  }
+
   return {
     id,
     name,
@@ -312,8 +366,7 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
     interval,
     requires: ['NAP_API_KEY'],
     url: tripUpdatesUrl ?? (feeds.length === 1 ? napDatasetPage(feeds[0].dataset) : 'https://nap.transportes.gob.es'),
-    license: options.license ?? estimatedLicense(options.credit
-      ?? [...new Set(feeds.map((f) => (f.credit ? `${f.operator} (${f.credit})` : f.operator)))].join(', ')),
+    license,
     // En un grupo, la ficha de cada vehículo cita sólo a su operador (y lo que este pida, como TMB).
     ...(feeds.length > 1 ? { operatorLicenses: Object.fromEntries(feeds.map((f) => [f.operator, estimatedLicense(feedCredit(f))])) } : {}),
     /**
@@ -391,6 +444,14 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
       }
       paths = nextPaths;
       running = nextRunning;
+      let events = null;
+      if (rtFeed) {
+        const found = cancellations(rtFeed, first, feeds[0].operator);
+        const since = await seenStore.stamp(found.map((c) => c.id));
+        const current = found.map((c) => cancellationEvent({ ...c, ...since(c.id) }, now));
+        // Las que su feed ha dejado de publicar hoy siguen hasta medianoche, como retiradas.
+        events = [...current, ...await seenStore.withdrawn(current, { clock: madridClock(now), endOfDay: madridServiceDay(now, 1).midnight })];
+      }
       // En los grupos, la fecha del horario más reciente, la del más antiguo y la de cada operador.
       const dates = [...loaded.values()].map((l) => l.updatedAt).filter(Boolean);
       const byOperator = {};
@@ -403,6 +464,7 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
       const valid = validity();
       return {
         vehicles,
+        ...(events ? { events } : {}),
         datasetValidUntil: isoDay(valid.until),
         ...(feeds.length > 1 && valid.of ? { datasetValidUntilOf: valid.of } : {}),
         datasetUpdated: dates.length ? Math.max(...dates) : null,
