@@ -10,9 +10,27 @@ const DEFAULT_UA = 'RadarES/0.1 (visor de datos abiertos de movilidad y emergenc
 const DEFAULT_MAX_BYTES = 64 * 1024 * 1024;
 
 /**
- * @typedef {{ timeout?: number, headers?: Record<string, string>, maxBytes?: number, info?: { lastModified?: number | null } }} RequestOptions
+ * Redirecciones: se siguen a mano (fetch las sigue solo, hasta 20, a cualquier sitio y reenviando las
+ * cabeceras propias, también de https a http), con estas reglas:
+ * - como mucho MAX_REDIRECTS saltos;
+ * - nunca de https a http, ni a otro esquema que no sea http(s);
+ * - si la llamada pasa cabeceras propias (`headers`), sólo al mismo origen (esquema, host y puerto). Hoy
+ *   todas las que las pasan llevan claves: la ApiKey del NAP, la x-api-key de e·sios y el X-ClientId, la
+ *   passKey y el accessToken de EMT Madrid. Va solo, sin tener que pedirlo, para que una fuente nueva con
+ *   clave no la mande a otro sitio por olvido;
+ * - con `sameOrigin: true`, lo mismo sin cabeceras: para las peticiones cuyo cuerpo se reenvía al
+ *   visitante (el WFS de áreas quemadas de EFFIS), que una redirección no lleve a un servicio interno.
+ * Las demás siguen redirecciones a otro origen, como antes (las de los catálogos y ficheros públicos).
+ */
+const MAX_REDIRECTS = 5;
+const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
+
+/**
+ * @typedef {{ timeout?: number, headers?: Record<string, string>, maxBytes?: number, info?: { lastModified?: number | null },
+ *             sameOrigin?: boolean }} RequestOptions
  *   info: si se pasa, se rellena con la fecha de Last-Modified de la respuesta (las fuentes que no la
  *   llevan dentro del propio fichero, para citar su fecha de actualización).
+ *   sameOrigin: sólo se siguen redirecciones al mismo origen (va solo si hay `headers`; ver arriba).
  * @typedef {object} HttpClient
  * @property {(url: string, opts?: RequestOptions) => Promise<string>} text
  * @property {(url: string, opts?: RequestOptions) => Promise<any>} json
@@ -21,14 +39,22 @@ const DEFAULT_MAX_BYTES = 64 * 1024 * 1024;
 
 /** @returns {HttpClient} */
 export function createHttpClient({ userAgent = DEFAULT_UA, defaultTimeout = 20_000 } = {}) {
-  async function get(url, { timeout = defaultTimeout, headers = {}, maxBytes = DEFAULT_MAX_BYTES, info } = {}) {
-    const res = await fetch(url, {
-      headers: { 'User-Agent': userAgent, ...headers },
-      signal: AbortSignal.timeout(timeout),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status} en ${new URL(url).host}`);
-    if (info) info.lastModified = Date.parse(res.headers.get('last-modified') ?? '') || null;
-    return readLimited(res, maxBytes, new URL(url).host);
+  async function get(url, { timeout = defaultTimeout, headers = {}, maxBytes = DEFAULT_MAX_BYTES, info, sameOrigin = false } = {}) {
+    const first = new URL(url);
+    const onlySameOrigin = sameOrigin || Object.keys(headers).length > 0;
+    const signal = AbortSignal.timeout(timeout); // para toda la cadena de redirecciones, como hacía fetch
+    let at = first;
+    for (let hops = 0; ; hops++) {
+      const res = await fetch(at, { headers: { 'User-Agent': userAgent, ...headers }, signal, redirect: 'manual' });
+      const location = REDIRECT_STATUS.has(res.status) ? res.headers.get('location') : null;
+      if (location === null) {
+        if (!res.ok) throw new Error(`HTTP ${res.status} en ${first.host}`);
+        if (info) info.lastModified = Date.parse(res.headers.get('last-modified') ?? '') || null;
+        return readLimited(res, maxBytes, first.host);
+      }
+      await res.body?.cancel();
+      at = nextHop(first, at, location, { onlySameOrigin, hops });
+    }
   }
   const text = async (url, opts) => new TextDecoder().decode(await get(url, opts));
   return {
@@ -36,6 +62,24 @@ export function createHttpClient({ userAgent = DEFAULT_UA, defaultTimeout = 20_0
     json: async (url, opts) => JSON.parse(await text(url, opts)),
     bytes: get,
   };
+}
+
+/**
+ * Adónde lleva una redirección desde `at`, o error si no se sigue (ver las reglas de arriba). Los errores
+ * dicen sólo el host: ni la ruta ni la consulta, que pueden llevar claves.
+ */
+function nextHop(first, at, location, { onlySameOrigin, hops }) {
+  if (hops >= MAX_REDIRECTS) throw new Error(`Más de ${MAX_REDIRECTS} redirecciones desde ${first.host}`);
+  let next;
+  try {
+    next = new URL(location, at);
+  } catch {
+    throw new Error(`Redirección no válida en ${at.host}`);
+  }
+  if (next.protocol !== 'https:' && next.protocol !== 'http:') throw new Error(`Redirección a ${next.protocol} en ${at.host}: no se sigue`);
+  if (at.protocol === 'https:' && next.protocol === 'http:') throw new Error(`Redirección de https a http en ${at.host}: no se sigue`);
+  if (onlySameOrigin && next.origin !== first.origin) throw new Error(`Redirección de ${first.host} a otro origen (${next.host}): no se sigue`);
+  return next;
 }
 
 /** Cuerpo de la respuesta, cortando la descarga en cuanto pasa de `maxBytes`. */
