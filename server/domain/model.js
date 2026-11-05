@@ -227,3 +227,134 @@ export function safeLink(url) {
     return null;
   }
 }
+
+// ---------- Lo que llega de las fuentes ----------
+
+// Cada registro sale del JSON, XML o protobuf de un tercero, y hay adaptadores que copian sus valores tal
+// cual (el `lin` de FGC, el vehicle.id de Renfe). Antes de guardarlo, cada campo que leen las rutas, el MCP
+// y la web va con su tipo. Así, un número o una lista donde se espera un texto (el mapa llama a
+// line.startsWith), un valor anidado miles de niveles (JSON.parse lo lee, pero JSON.stringify no puede
+// volver a escribirlo y /api/live daría 500 a todos) o un instante fuera de lo que admite Date (el MCP y
+// la web lo escriben con toISOString y los formateadores de fechas, que lanzan) afectan como mucho a ese
+// registro, nunca a los de todas las fuentes.
+const TEXT_MAX = 500; // nombres, líneas, etiquetas, títulos, atribuciones…
+const DESCRIPTION_MAX = 20_000; // las descripciones de los avisos sí pueden ser largas
+const ID_MAX = 1000; // más largo no se recorta (dos registros acabarían con el mismo): se descarta
+const NESTING_MAX = 32; // lo que construyen los adaptadores (la zona de un aviso, el viaje de una cancelación) no pasa de 5
+const TIME_MIN = Date.UTC(2000, 0, 1);
+const TIME_AHEAD_MAX = 10 * 365 * 86_400_000;
+
+// Campos de texto de cada tipo de registro. Los estructurados (geometry, trip, end) los construye el adaptador.
+const VEHICLE_TEXTS = ['mode', 'operator', 'service', 'line', 'label', 'origin', 'destination', 'current', 'next', 'nextEta',
+  'platform', 'area', 'shape', 'rollingStock'];
+const EVENT_TEXTS = ['category', 'type', 'subtype', 'severity', 'title', 'area', 'approx', 'group', 'credit', 'level'];
+// Instantes (epoch ms). El `end` de un vehículo no es uno: es el punto [lon, lat] donde acaba su viaje.
+const VEHICLE_TIMES = ['fixTime'];
+const EVENT_TIMES = ['start', 'end', 'issued', 'updated'];
+const RESULT_TIMES = ['sourceTime', 'datasetUpdated', 'datasetUpdatedFrom'];
+
+const given = (x) => x !== null && x !== undefined;
+const isLat = (x) => Number.isFinite(x) && x >= -90 && x <= 90;
+const isLon = (x) => Number.isFinite(x) && x >= -180 && x <= 180;
+const isPoint = (p) => Array.isArray(p) && p.length === 2 && isLon(p[0]) && isLat(p[1]);
+
+/**
+ * Texto de una fuente: un texto, recortado a `max` caracteres, o un número finito escrito como texto.
+ * null si es otra cosa (una lista, un objeto, un booleano…).
+ * @param {unknown} value @param {number} [max] @returns {string | null}
+ */
+export function plainText(value, max = TEXT_MAX) {
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : null;
+  if (typeof value !== 'string') return null;
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
+/**
+ * Instante (epoch ms) creíble: desde el año 2000 hasta diez años después de `now`. null si no lo es: un
+ * timestamp de GTFS-RT que no viene en segundos, o uno tan grande que Date no lo admite.
+ * @param {unknown} t @param {number} now @returns {number | null}
+ */
+export function plausibleTime(t, now) {
+  return Number.isFinite(t) && t >= TIME_MIN && t <= now + TIME_AHEAD_MAX ? t : null;
+}
+
+/** ¿Anida `value` más de `max` niveles de listas u objetos? Sin recursión, y para en cuanto pasa. */
+function nestedDeeperThan(value, max) {
+  const stack = [[value, 1]];
+  while (stack.length) {
+    const [v, depth] = stack.pop();
+    if (depth > max) return true;
+    for (const child of Object.values(v)) if (child !== null && typeof child === 'object') stack.push([child, depth + 1]);
+  }
+  return false;
+}
+
+/**
+ * Lo común a vehículos y sucesos: una copia con el id (imprescindible), los textos y los instantes con su
+ * tipo. null si no es un objeto o no tiene un id de texto.
+ */
+function typedRecord(record, texts, times, now) {
+  if (record === null || typeof record !== 'object' || Array.isArray(record)) return null;
+  const id = plainText(record.id, Infinity);
+  if (!id || id.length > ID_MAX) return null;
+  const out = { ...record, id };
+  for (const k of texts) if (given(out[k])) out[k] = plainText(out[k]);
+  for (const k of times) if (given(out[k])) out[k] = plausibleTime(out[k], now);
+  return out;
+}
+
+/** Sin los demás campos que anidan más de lo que puede volver a escribirse (los que no se conocen, también). */
+function withoutDeepNesting(out) {
+  for (const [k, v] of Object.entries(out)) if (v !== null && typeof v === 'object' && nestedDeeperThan(v, NESTING_MAX)) delete out[k];
+  return out;
+}
+
+/** Vehículo con sus campos tipados; null si le falta lo imprescindible: el id y una posición válida. */
+function typedVehicle(v, now) {
+  const out = typedRecord(v, VEHICLE_TEXTS, VEHICLE_TIMES, now);
+  if (!out || !isLat(out.lat) || !isLon(out.lon)) return null;
+  if (given(out.delay)) out.delay = plausibleDelay(out.delay);
+  if (given(out.end) && !isPoint(out.end)) out.end = null;
+  return withoutDeepNesting(out);
+}
+
+/**
+ * Suceso con sus campos tipados; null si no tiene id o si su título (lo que se muestra de él) no es un
+ * texto. Con unas coordenadas que no lo son, se queda sin ubicación.
+ */
+function typedEvent(e, now) {
+  const out = typedRecord(e, EVENT_TEXTS, EVENT_TIMES, now);
+  if (!out || (given(e.title) && out.title === null)) return null;
+  if (given(out.description)) out.description = plainText(out.description, DESCRIPTION_MAX);
+  if ((given(out.lat) && !isLat(out.lat)) || (given(out.lon) && !isLon(out.lon))) Object.assign(out, { lat: null, lon: null });
+  if ((given(out.lat2) && !isLat(out.lat2)) || (given(out.lon2) && !isLon(out.lon2))) Object.assign(out, { lat2: null, lon2: null });
+  if ('url' in out) out.url = safeLink(out.url);
+  return withoutDeepNesting(out);
+}
+
+/**
+ * Lo que devuelve una lectura, listo para guardar: cada vehículo y cada suceso con sus campos tipados (los
+ * que no tienen arreglo se descartan) y los instantes de la lectura, creíbles. No cambia `result`.
+ * @param {SourceResult} result @param {number} now
+ * @returns {{ result: SourceResult, dropped: number }} dropped: cuántos registros se han descartado
+ */
+export function typedSourceResult(result, now) {
+  let dropped = 0;
+  const keep = (list, typed) => {
+    const out = [];
+    for (const r of list) {
+      const t = typed(r, now);
+      if (t) out.push(t);
+      else dropped++;
+    }
+    return out;
+  };
+  const out = { ...result };
+  if (given(result.vehicles)) out.vehicles = keep(result.vehicles, typedVehicle);
+  if (given(result.events)) out.events = keep(result.events, typedEvent);
+  for (const k of RESULT_TIMES) if (given(out[k])) out[k] = plausibleTime(out[k], now);
+  if (given(out.datasetUpdatedBy)) {
+    out.datasetUpdatedBy = Object.fromEntries(Object.entries(out.datasetUpdatedBy).filter(([, t]) => plausibleTime(t, now) !== null));
+  }
+  return { result: out, dropped };
+}
