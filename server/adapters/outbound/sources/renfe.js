@@ -303,10 +303,12 @@ export function createTimetables({ cache, stations, log }) {
 /**
  * «Chamartín - Clara Campoamor             -Aranjuez»: Renfe da origen y destino en dos columnas de 40
  * caracteres separadas por «-». Partir por el guion no vale: también lo llevan algunos nombres.
+ * Recortado y partido por un solo espacio antes del guion (los demás se van con el trim): con /\s+-/,
+ * un tramo largo de espacios sin guion detrás era cuadrático.
  */
 export function routeEnds(longName) {
-  const text = String(longName ?? '');
-  const [origin, destination] = text[40] === '-' ? [text.slice(0, 40), text.slice(41)] : text.split(/\s+-/);
+  const text = String(longName ?? '').slice(0, 200);
+  const [origin, destination] = text[40] === '-' ? [text.slice(0, 40), text.slice(41)] : text.split(/\s-/);
   return { origin: origin?.trim() || null, destination: destination?.trim() || null };
 }
 
