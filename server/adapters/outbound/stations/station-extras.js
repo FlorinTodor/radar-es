@@ -529,9 +529,12 @@ export function tidyAuthor(author) {
   return author.replace(/\[(https?:\/\/[^\s\]]+)(?:\s+([^\]]*))?\]?/g, (_, url, label) => label ?? url).replace(/\s+/g, ' ').trim();
 }
 
-/** HTML de Commons (enlaces al autor…) → texto. */
+/**
+ * HTML de Commons (enlaces al autor…) → texto. Como htmlText: una etiqueta empieza por «<» + letra, «/», «!»
+ * o «?» y, sin «>», llega hasta el final; antes, cada «<» sin cerrar volvía a recorrer el resto (cuadrático).
+ */
 function plain(html) {
-  return String(html ?? '').replace(/<[^>]*>/g, '').replace(/[\u200b-\u200f\ufeff]/g, '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
+  return String(html ?? '').replace(/<[a-z!/?][^>]*(?:>|$)/gi, '').replace(/[\u200b-\u200f\ufeff]/g, '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim();
 }
 

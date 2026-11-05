@@ -40,6 +40,21 @@ test('Commons: foto con autor y licencia en texto; sin licencia no hay foto', ()
   });
 });
 
+test('Commons: miles de «<» sin cerrar en el autor o la licencia no dejan colgado el servidor', () => {
+  // Antes, cada «<» sin «>» volvía a recorrer el resto del texto (cuadrático): con estos ~200 KB tardaba
+  // segundos. Una etiqueta sin cerrar llega ahora hasta el final, como en htmlText.
+  const json = { query: { pages: {
+    1: { title: 'File:a.jpg', imageinfo: [{ thumburl: 'https://upload.wikimedia.org/a.jpg', descriptionurl: 'https://commons.wikimedia.org/wiki/File:a.jpg',
+      extmetadata: { Artist: v(`<a href="//x">Pepe &amp; Ana</a>${'<a'.repeat(100_000)}`), LicenseShortName: v(`CC BY-SA 4.0${'<b'.repeat(100_000)}`) } }] },
+    2: { title: 'File:b.jpg', imageinfo: [{ thumburl: 'https://upload.wikimedia.org/b.jpg', descriptionurl: 'https://commons.wikimedia.org/wiki/File:b.jpg',
+      extmetadata: { Artist: v(`Pepe ${'<'.repeat(200_000)}`), LicenseShortName: v('CC0') } }] },
+  } } };
+  const out = parseCommons(json);
+  assert.equal(out.get('a.jpg').author, 'Pepe & Ana');
+  assert.equal(out.get('a.jpg').license, 'CC BY-SA 4.0');
+  assert.equal(out.get('b.jpg').author, `Pepe ${'<'.repeat(72)}…`, 'los «<» sueltos son texto');
+});
+
 test('fichas de Renfe: los códigos de los PDF enlazados en sus listados', () => {
   const csv = 'CÓDIGO;DESCRIPCION;Fichas\n05102;SAN XOAN;https://data.renfe.com/files/estaciones/FichaEstacion05102.pdf\n05103;X;\n';
   assert.deepEqual([...sheetCodes(csv)], ['05102']);
