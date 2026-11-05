@@ -77,6 +77,7 @@ export function renderAlerts(el, alerts, resolved, sel = NO_SELECTION) {
 export const EVENT_CATEGORIES = [
   ['ferroviario', 'Ferroviario'],
   ['cancelacion', 'Cancelaciones'],
+  ['sin-datos', 'Trenes sin datos'],
   ['carretera', 'Carretera'],
   ['meteo', 'Meteorología'],
   ['incendio', 'Incendios'],
@@ -126,11 +127,16 @@ export function renderEvents(el, events, sel = NO_SELECTION) {
   el.innerHTML = selectionBar(sel, { one: 'una incidencia', plural: 'las incidencias' }) + rows + more;
 }
 
-/** Lo que se ve de una cancelación en la lista: quién la publica y desde cuándo la ve el radar. */
+/** Lo que se ve de una cancelación (o de un tren sin datos) en la lista: quién la publica, desde cuándo la
+ * ve el radar y, si su fuente ya no la publica, desde cuándo. */
 function cancellationMeta(e) {
   const t = e.trip;
+  if (e.category === 'sin-datos') {
+    return `<span>${esc(t.publisher)} no publica nada de él</span>${e.seen ? `<span>en falta desde las ${fmtTime(e.seen)}</span>` : ''}`;
+  }
   const seen = e.seen ? `<span title="${e.seenAtStart ? 'Ya estaba publicada cuando el radar empezó a leer la fuente: pudo publicarse antes' : 'Cuándo la vio el radar por primera vez: la fuente no dice cuándo la publicó'}">vista ${e.seenAtStart ? 'desde las' : 'a las'} ${fmtTime(e.seen)}</span>` : '';
-  return `<span>${esc(t.publisher)} · tiempo real</span>${seen}${t.trips > 1 ? `<span>${t.trips} expediciones</span>` : ''}`;
+  return `<span>${esc(t.publisher)} · tiempo real</span>${seen}${e.withdrawn ? `<span>ya no se publica (desde las ${fmtTime(e.withdrawn)})</span>` : ''}`
+    + `${t.trips > 1 ? `<span>${t.trips} expediciones</span>` : ''}${t.notice || t.reason ? '<span>con su motivo</span>' : ''}`;
 }
 
 export function filterVehicles(vehicles, query) {
@@ -271,7 +277,8 @@ export const GROUP_ITEMS = [
   ['lines', 'Líneas urbanas', 'Líneas de metro, tranvía y Cercanías', 'Ferrocarril'],
   ['stations', 'Estaciones', 'Estaciones de tren, metro y tranvía: aparecen al acercar el mapa; púlsalas para ver sus trenes', 'Ferrocarril'],
   ['renfe-avisos', 'Avisos Renfe', 'Avisos ferroviarios de Renfe y Rodalies', 'Ferrocarril'],
-  ['cancelaciones', 'Cancelaciones', 'Trenes y autobuses cancelados o con paradas suprimidas que publican en su tiempo real Renfe (Cercanías, Rodalies, Alta Velocidad, Larga y Media Distancia), Euskotren y AMB: en su origen o en la primera parada suprimida', 'Ferrocarril'],
+  ['cancelaciones', 'Cancelaciones', 'Trenes y autobuses cancelados o con paradas suprimidas que publican en su tiempo real Renfe (Cercanías, Rodalies, Alta Velocidad, Larga y Media Distancia), Euskotren, AMB, AUVASA y EMT Málaga: en su origen o en la primera parada suprimida. Las que dejan de publicarse siguen, desvaídas, hasta medianoche', 'Ferrocarril'],
+  ['sin-datos', 'Sin datos', 'Trenes de Alta Velocidad, Larga y Media Distancia que según su horario deberían estar circulando y de los que Renfe no publica nada (ni posición, ni retraso, ni cancelación): en la última estación por la que deberían haber pasado. No se sabe si circulan', 'Ferrocarril'],
   ['trails', 'Estelas', 'Estelas de todos los trenes (últimos 15 min)', 'Ferrocarril'],
   ['meteo', 'Meteo (AEMET)', 'Avisos meteorológicos de AEMET', 'Emergencias'],
   ['incendios', 'Focos de calor', 'Focos de calor detectados por satélite', 'Emergencias'],
@@ -325,7 +332,8 @@ export function renderLayers(el, prefs, countsByMode) {
     ${shape('M2.2 2.2H11.8V11.8H2.2Z', '#fab219', '#0d0d0d')}<span>Obras en carretera (color = gravedad)</span>
     <i style="background:#f0efec;border:1.5px solid #0d0d0d"></i><span>Estación de Renfe: púlsala para ver sus trenes</span>
     ${shape('M7 1.5L12.8 12.3L1.2 12.3Z', '#ec835a', '#f0efec')}<span>Aviso Renfe en estación</span>
-    <svg viewBox="0 0 14 14" width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="5.9" fill="#ec835a" stroke="#0d0d0d" stroke-width="1.2"/><path d="M4.6 4.6L9.4 9.4M9.4 4.6L4.6 9.4" stroke="#0d0d0d" stroke-width="1.7" stroke-linecap="round"/></svg><span>Tren o autobús cancelado (en su origen) o con paradas suprimidas (en la primera); color = gravedad</span>
+    <svg viewBox="0 0 14 14" width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="5.9" fill="#ec835a" stroke="#0d0d0d" stroke-width="1.2"/><path d="M4.6 4.6L9.4 9.4M9.4 4.6L4.6 9.4" stroke="#0d0d0d" stroke-width="1.7" stroke-linecap="round"/></svg><span>Tren o autobús cancelado (en su origen) o con paradas suprimidas (en la primera); color = gravedad. Desvaído: su fuente ya no lo publica</span>
+    <svg viewBox="0 0 14 14" width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="5.9" fill="#b9b8b2" stroke="#0d0d0d" stroke-width="1.2"/><text x="7" y="10.2" text-anchor="middle" font-size="9" font-weight="bold" font-family="sans-serif" fill="#0d0d0d">?</text></svg><span>Tren sin datos: según su horario debería estar circulando y Renfe no publica nada de él (en la última estación por la que debería haber pasado)</span>
     <i style="border-radius:2px;background:rgba(236,131,90,.25);border:1.2px solid #ec835a"></i><span>Aviso meteorológico (amarillo, naranja o rojo)</span>
     <i style="background:radial-gradient(circle,#ffd27a 25%,#ff5a1f 60%,transparent 75%)"></i><span>Foco de calor por satélite</span>
     <i style="background:rgba(180,140,255,.25);border:1.5px solid #b48cff"></i><span>Terremoto (tamaño = magnitud)</span>
@@ -337,7 +345,7 @@ export function renderLayers(el, prefs, countsByMode) {
 }
 
 // Casilla de «Mapa y avisos» que enseña cada incidencia en el mapa.
-const EVENT_GROUP = { ferroviario: 'renfe-avisos', cancelacion: 'cancelaciones', meteo: 'meteo', incendio: 'incendios', sismo: 'sismos', catastrofe: 'gdacs', emergencia: 'emergencias' };
+const EVENT_GROUP = { ferroviario: 'renfe-avisos', cancelacion: 'cancelaciones', 'sin-datos': 'sin-datos', meteo: 'meteo', incendio: 'incendios', sismo: 'sismos', catastrofe: 'gdacs', emergencia: 'emergencias' };
 export const groupForEvent = (e) => (e.category === 'carretera' ? (e.type === 'roadMaintenance' ? 'obras' : 'dgt') : EVENT_GROUP[e.category]);
 
 /**

@@ -33,39 +33,42 @@ export function stationBoard(station, { vehicles, events, lines }) {
     .slice(0, MAX_ARRIVING);
   const around = linesNear(station, lines);
   const cancellations = cancelledHere(station, name, events);
+  const missing = cancelledHere(station, name, events, 'sin-datos');
   if (station.network) {
     // Metro, tranvía y demás redes: sus líneas son las que paran en ella (o, mientras llega su ficha,
     // las de su red que pasan por ahí); todo lo demás que está a un paseo, Cercanías incluido, son
     // conexiones. Los avisos de Renfe son de sus estaciones, no de estas.
     const own = (l) => l.network === station.network;
     return {
-      stopped, arriving, notices: [], cancellations,
+      stopped, arriving, notices: [], cancellations, missing,
       lines: station.lines?.map((l) => ({ ...l, network: station.network })) ?? around.filter((l) => own(l) && l.km <= LINE_KM),
       connections: around.filter((l) => !own(l)),
     };
   }
   const notices = events.filter((e) => e.category === 'ferroviario' && near(e, NOTICE_KM));
   return {
-    stopped, arriving, notices, cancellations,
+    stopped, arriving, notices, cancellations, missing,
     lines: around.filter((l) => !URBAN.has(l.mode) && l.km <= LINE_KM),
     connections: around.filter((l) => URBAN.has(l.mode)),
   };
 }
 
 /**
- * Cancelaciones de viajes que pasan por la estación: por el nombre de su parada (y cerca, si se sabe dónde
- * está), con su hora allí según el horario y si es una de las suprimidas. Por esa hora.
- * @returns {Array<{ id: string, title: string, type: string, time: string|null, skipped: boolean, first: boolean, last: boolean }>}
+ * Cancelaciones de viajes que pasan por la estación (o, con `category` 'sin-datos', trenes sin datos): por el
+ * nombre de su parada (y cerca, si se sabe dónde está), con su hora allí según el horario, si es una de las
+ * suprimidas y si su fuente ya no la publica. Por esa hora.
+ * @returns {Array<{ id: string, title: string, type: string, time: string|null, skipped: boolean, first: boolean, last: boolean, withdrawn: boolean, passed: boolean }>}
+ *   passed: un tren sin datos ya debería haber pasado por ella
  */
-function cancelledHere(station, name, events) {
+function cancelledHere(station, name, events, category = 'cancelacion') {
   const out = [];
   for (const e of events) {
-    const stops = e.category === 'cancelacion' ? e.trip?.stops : null;
+    const stops = e.category === category ? e.trip?.stops : null;
     if (!stops) continue;
     const i = stops.findIndex((s) => plain(s.name) === name
       && (!Number.isFinite(s.lat) || km(station.lat, station.lon, s.lat, s.lon) <= CANCEL_KM));
     if (i < 0) continue;
-    out.push({ id: e.id, title: e.title, type: e.type, time: stops[i].time ?? null, skipped: !!stops[i].skipped, first: i === 0, last: i === stops.length - 1 });
+    out.push({ id: e.id, title: e.title, type: e.type, time: stops[i].time ?? null, skipped: !!stops[i].skipped, first: i === 0, last: i === stops.length - 1, withdrawn: !!e.withdrawn, passed: !!stops[i].passed });
   }
   return out.sort((a, b) => (a.time ?? '99').localeCompare(b.time ?? '99'));
 }
