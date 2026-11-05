@@ -144,6 +144,18 @@ test('params.name que no es un texto: -32602 sin convertirlo; uno muy largo vuel
   assert.equal(ask({ name: 'alertas', arguments: {} }).result.isError, undefined, 'con un nombre de texto, sigue igual');
 });
 
+test('una fecha que Date no admite sale como null: la herramienta sigue respondiendo', () => {
+  const late = { ...vehicles[0], id: 'renfe-ld:09999', label: '9999', fixTime: 9e18 };
+  const odd = { ...events[0], id: 'dgt:raro', start: 1e16, end: -9e18 };
+  const q = { ...query, vehicles: () => [late], events: () => [odd], health: () => health.map((h) => (h.id === 'renfe-ld' ? { ...h, sourceTime: 1e16 } : h)) };
+  const ask = (name, args) => createMcpHandler({ query: q, now: () => T })({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }).result;
+  const trains = ask('buscar_trenes', { text: '9999' }).structuredContent;
+  assert.equal(trains.vehicles[0].fixTime, undefined, 'null, y compact lo quita');
+  assert.equal(trains.sources[0].updatedAt, undefined);
+  const [e] = ask('incidencias', {}).structuredContent.events;
+  assert.deepEqual([e.id, e.start, e.end], ['dgt:raro', undefined, undefined]);
+});
+
 test('buscar_trenes: por número, sin tildes, y con la atribución de su fuente', () => {
   const r = call('buscar_trenes', { text: 'valencia sorolla' });
   assert.equal(r.structuredContent.total, 1);

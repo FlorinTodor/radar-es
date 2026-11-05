@@ -63,7 +63,10 @@ const NOTE = 'Radar España no es una web oficial: reúne datos públicos con re
   + 'a partir del horario (estimated: true). No sirven para decisiones operativas ni de seguridad.';
 
 const plain = (s) => String(s ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
-const iso = (ms) => (Number.isFinite(ms) ? new Date(ms).toISOString() : null);
+// Fuera de lo que admite Date (±8,64e15 ms), toISOString lanza: sale como si no se diera. La ingesta ya
+// descarta los instantes increíbles (domain/model.js, plausibleTime); esto es por si acaso.
+const DATE_MAX_MS = 8.64e15;
+const iso = (ms) => (Number.isFinite(ms) && Math.abs(ms) <= DATE_MAX_MS ? new Date(ms).toISOString() : null);
 const clip = (s, n) => (typeof s === 'string' && s.length > n ? `${s.slice(0, n - 1)}…` : s ?? null);
 const compact = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== undefined && v !== false));
 
