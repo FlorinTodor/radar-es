@@ -111,6 +111,42 @@ test('lugares que cita el texto, para el geocodificador', () => {
   assert.deepEqual(placeCandidates('Endesa trabaja en la zona'), []);
 });
 
+test('un aviso enorme hecho a propósito no deja colgados los clasificadores', () => {
+  // Antes, cada mención miraba todo lo que iba antes en su frase (las seis palabras de antes y la lista de
+  // sucesos) y cada «en» volvía a leer la lista de nombres hasta el final del texto: cuadrático, con estos
+  // ~200 KB tardaba de 20 a 35 segundos. Ahora el texto y lo que se clasifica de cada frase tienen un tope, las
+  // seis palabras de antes salen de una ventana corta, la lista de sucesos se sigue en una sola pasada y se leen
+  // como mucho 50 listas de nombres.
+  const big = 'no apagon '.repeat(20_000);
+  assert.equal(mentionsPowerCut(big), false);
+  assert.deepEqual(powerClauses(big), { cut: [], back: [] });
+  // El texto se corta en el último signo de puntuación antes del tope: ningún nombre a medias («Zona De Ju»).
+  assert.deepEqual(placeCandidates(`en Junta${', Zona De Junta'.repeat(15_000)}`), ['Zona De Junta']);
+  const tail = 'Sin luz en Villanueva de la Concepción y Castillo de Locubín.';
+  assert.deepEqual(placeCandidates(`${'x'.repeat(100)}. ${tail}`), ['Villanueva de la Concepción', 'Castillo de Locubín']);
+  assert.deepEqual(placeCandidates(`${'x'.repeat(20_000 - tail.length + 4)}. ${tail}`), [], 'el tope cae en «Locubín»: ni «Castillo de Lo»');
+  // Una frase enorme: el corte se ve en su principio.
+  assert.equal(mentionsPowerCut(`Corte de luz en la red${', en la red'.repeat(20_000)}.`), true);
+  assert.equal(mentionsPowerCut(`${'la red, '.repeat(20_000)}corte de luz.`), false, 'más allá de los topes no se clasifica');
+});
+
+test('los topes no cambian nada en un aviso normal: los pueblos salen enteros, la negación y la lista de sucesos se ven', () => {
+  // Los nombres van al geocodificador: no puede perderse ni cortarse ninguno, aunque la lista empiece lejos de
+  // su «en» o haya muchos «en» sin lista delante.
+  const towns = 'Castillo de Locubín, Villanueva de la Concepción, Alcalá la Real, Frailes, Valdepeñas de Jaén, Los Villares y Martos';
+  const six = ['Castillo de Locubín', 'Villanueva de la Concepción', 'Alcalá la Real', 'Frailes', 'Valdepeñas de Jaén', 'Los Villares'];
+  assert.deepEqual(placeCandidates(`Corte de luz en ${'sigue la avería en la red de media tensión y '.repeat(6)}en ${towns}.`), six);
+  assert.deepEqual(placeCandidates(`Corte de luz ${'en la red '.repeat(60)}en ${towns}.`), six);
+  const filler = 'la compañía eléctrica trabaja en la zona y '.repeat(35);
+  assert.equal(mentionsPowerCut(`${filler}no se han registrado cortes de luz`), false);
+  assert.equal(mentionsPowerCut(`${filler}se han registrado cortes de luz`), true);
+  assert.equal(mentionsPowerCut(`${'el consejero repasa el año '.repeat(8)}con acontecimientos como la DANA, el apagón o las lluvias`), false);
+  // La lista de sucesos se ve aunque empiece lejos de la mención, y un signo la cierra.
+  const themes = `El consejero repasó temas como ${'la vivienda, la sanidad, el transporte, '.repeat(10)}`;
+  assert.equal(mentionsPowerCut(`${themes}y el apagón que dejó sin luz a la isla`), false);
+  assert.equal(mentionsPowerCut(`${themes}y la vivienda: hubo un apagón en Ventrosa`), true);
+});
+
 test('una frase con el corte y la vuelta de la luz se separa', () => {
   const { cut, back } = powerClauses('Hay falta de suministro eléctrico en Espera y San José del Valle, mientras que en Puerto Serrano ya se ha recuperado tanto la luz como la cobertura.');
   assert.equal(cut.length, 1);

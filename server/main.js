@@ -84,7 +84,7 @@ for (const s of sources) {
 
 // --- Casos de uso ----------------------------------------------------------
 const ingestSource = makeIngestSource({ sources: enabledSources, situation, clock, log, metrics });
-const detectAlerts = makeDetectAlerts({ situation, stations, history, clock });
+const detectAlerts = makeDetectAlerts({ situation, stations, history, clock, log });
 const query = makeQuerySituation({ situation, stations, networkStations, network, clock, sources, railNetwork });
 const serveTiles = makeServeTiles({ tiles });
 const refreshCatalogs = makeRefreshCatalogs({ stations, networkStations, network, railNetwork, railGeometry, log });

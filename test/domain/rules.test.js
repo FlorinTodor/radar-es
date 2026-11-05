@@ -1,7 +1,7 @@
 // Las reglas del dominio son funciones puras: se prueban sin red, sin servidor y sin reloj real.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { earthquakesNearTrains, evaluateRules, feedHealth, fleetDrop, largeDelays, stoppedOutsideStation } from '../../server/domain/alerts/rules.js';
+import { earthquakesNearTrains, evaluateRules, feedHealth, firesNearTrains, fleetDrop, largeDelays, stoppedOutsideStation } from '../../server/domain/alerts/rules.js';
 import { reconcileAlerts } from '../../server/domain/alerts/lifecycle.js';
 import { DEFAULT_THRESHOLDS } from '../../server/domain/alerts/thresholds.js';
 import { recordPositions } from '../../server/domain/tracking.js';
@@ -102,6 +102,25 @@ test('foco de incendio cerca de un tren genera alerta; lejos, no', () => {
   const far = evaluateRules(ctx({ vehicles, events: [fire('f2', 39.0, -4.5)] })).filter((a) => a.type === 'incendio');
   assert.equal(near.length, 1);
   assert.equal(far.length, 0);
+});
+
+test('200.000 focos en un mismo punto junto a un tren: una alerta con su potencia máxima (Math.max(...potencias) agotaba la pila)', () => {
+  const fires = Array.from({ length: 200_000 }, (_, i) => ({ id: `f${i}`, category: 'incendio', lat: 38.01, lon: -4.5, frp: i % 20, start: T0 - 60 * MIN }));
+  fires[150_000].frp = 42;
+  const alerts = firesNearTrains(ctx({ vehicles: [train('a', 38.0, -4.5)], events: fires }));
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0].eventIds.length, 200_000);
+  assert.match(alerts[0].description, /potencia máx\. 42 MW/);
+});
+
+test('una regla que falla: con onError, las demás siguen y se avisa con su nombre; sin él, el fallo sube como antes', () => {
+  const broken = function brokenRule() { throw new Error('regla rota'); };
+  const ok = () => [{ id: 'x', type: 'retraso' }];
+  const errors = [];
+  const alerts = evaluateRules(ctx({}), [ok, broken, ok], (rule, err) => errors.push([rule, err.message]));
+  assert.deepEqual(alerts.map((a) => a.id), ['x', 'x']);
+  assert.deepEqual(errors, [['brokenRule', 'regla rota']]);
+  assert.throws(() => evaluateRules(ctx({}), [ok, broken]), /regla rota/);
 });
 
 test('GDACS: sólo las alertas naranja o roja generan alerta', () => {

@@ -65,6 +65,13 @@ function readNumbers(s) {
   return n;
 }
 
+// Cada tramo: su etiqueta de apertura entera (una sola clase, que se para en «<» y «>»), su id dentro de ella
+// y su posList sólo hasta el tramo siguiente. Ninguna búsqueda vuelve a recorrer el resto de una respuesta de
+// muchos MB: con [\s\S]*? hasta el posList, tramos sin posList (o «gml:id» repetido en una etiqueta sin «>»)
+// eran cuadráticos. Un tramo sin posList ya no se lleva el del siguiente.
+const LINK_ID = /\bgml:id="([^"<>]+)"/;
+const POS_LIST = /<gml:posList\b[^<>]*>([^<]+)<\/gml:posList>/;
+
 /**
  * Recorre los tramos de una respuesta GML del WFS: su id y su línea como [lon, lat, lon, lat…] (el GML da
  * «lat lon» en ETRS89, que para esto es lo mismo que WGS84), redondeada a 5 decimales (~1 m). La línea se
@@ -74,11 +81,19 @@ function readNumbers(s) {
  * @returns {number} cuántos tramos dice la respuesta que trae (numberReturned)
  */
 export function readRailwayLinks(xml, onLink) {
+  const links = /<tn-ra:RailwayLink\b([^<>]*)>/g; // propia de cada llamada: lleva su lastIndex
   let line = new Float64Array(4096);
   let found = 0;
-  for (const m of xml.matchAll(/<tn-ra:RailwayLink\b[^>]*gml:id="([^"]+)"[\s\S]*?<gml:posList[^>]*>([^<]+)<\/gml:posList>/g)) {
+  for (let m = links.exec(xml); m;) {
+    const id = LINK_ID.exec(m[1])?.[1];
+    const from = links.lastIndex;
+    const next = links.exec(xml);
+    m = next;
+    if (!id) continue;
+    const pos = POS_LIST.exec(xml.slice(from, next ? next.index : xml.length));
+    if (!pos) continue;
     found++;
-    const n = readNumbers(m[2]);
+    const n = readNumbers(pos[1]);
     if (line.length < n) line = new Float64Array(numbers.length);
     let points = 0;
     for (let i = 0; i + 1 < n; i += 2) {
@@ -89,7 +104,7 @@ export function readRailwayLinks(xml, onLink) {
       line[points * 2 + 1] = Math.round(lat * 1e5) / 1e5;
       points++;
     }
-    if (points > 1) onLink(m[1], line, points);
+    if (points > 1) onLink(id, line, points);
   }
   return Number(/numberReturned="(\d+)"/.exec(xml)?.[1] ?? found);
 }

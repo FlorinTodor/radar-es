@@ -89,3 +89,14 @@ test('vía de montaña: entre dos paradas el trazado da un rodeo largo, y si la 
   const p = pathThroughStops(loop, X, [Y]);
   assert.ok(p && near(p.at(-1), Y), 'antes se cortaba por ser mucho más largo que la recta');
 });
+
+test('un trazado de 200.000 vértices entre el tren y su parada se dibuja entero (con push(...tramo) se agotaba la pila)', () => {
+  // Una recta de unos 17 km con un vértice cada 8 cm: lo que publique el operador no tiene tope de vértices.
+  const N = 200_000;
+  const coords = Array.from({ length: N }, (_, i) => [-3.7 + i * 1e-6, 40.4]);
+  const p = pathThroughStops(coords, coords[0], [coords[N - 1]]);
+  assert.ok(p, 'se dibuja');
+  assert.ok(p.length >= N - 2 && p.length <= N + 2, `${p.length} puntos`);
+  assert.ok(near(p[0], coords[0]) && near(p.at(-1), coords[N - 1]));
+  assert.ok(p.every((q, i) => i === 0 || q[0] >= p[i - 1][0]), 'en orden, del tren a su destino');
+});

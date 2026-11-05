@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { decodeFeed } from './gtfs-rt.js';
 import {
-  SCHEDULE_ENDING_DAYS, activeFrequencyOffsets, buildShape, daysLeft, isoDay, pointAlong, serviceRuns, stopsAlongShape,
+  SCHEDULE_ENDING_DAYS, buildShape, daysLeft, isoDay, pointAlong, serviceRuns, stopsAlongShape, tripFrequencyOffsets,
 } from '../../../domain/schedule.js';
 import { refineToRail } from '../../../domain/rail-match.js';
 import { estimatePosition } from '../../../domain/estimated-position.js';
@@ -432,12 +432,10 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
               if (v) vehicles.push(v);
               continue;
             }
-            const duration = trip.last - trip.first;
-            for (const fr of trip.freqs) {
-              for (const off of activeFrequencyOffsets(fr, trip.first, duration, t)) {
-                const v = vehicle(fi, schedule, trip, day, t, null, off, nextPaths, nextRunning);
-                if (v) vehicles.push(v);
-              }
+            // Las repeticiones del viaje plantilla, con su tope (las filas de frecuencia que no valen no dan ninguna).
+            for (const off of tripFrequencyOffsets(trip.freqs, trip.first, trip.last - trip.first, t)) {
+              const v = vehicle(fi, schedule, trip, day, t, null, off, nextPaths, nextRunning);
+              if (v) vehicles.push(v);
             }
           }
         }

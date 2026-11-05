@@ -45,6 +45,16 @@ test('el nombre de la línea son dos columnas de 40 caracteres, aunque un nombre
   assert.deepEqual(routeEnds(undefined), { origin: null, destination: null });
 });
 
+test('el nombre de la línea con un tramo enorme de espacios no deja colgado el servidor', () => {
+  // Antes, split(/\s+-/) volvía a recorrer el tramo de espacios desde cada uno (cuadrático, al leer el ZIP de
+  // Cercanías en cada arranque): con estos ~200 KB tardaba más de veinte segundos. Ahora se recorta a 200
+  // caracteres y se parte por un solo espacio antes del guion.
+  const { origin, destination } = routeEnds(`A${' '.repeat(200_000)}B`);
+  assert.equal(origin, 'A');
+  assert.equal(destination, null);
+  assert.deepEqual(routeEnds('Alicante-Murcia  -Águilas'), { origin: 'Alicante-Murcia', destination: 'Águilas' });
+});
+
 test('Cercanías: origen, destino y final salen de las paradas del viaje, no de la línea ni del trazado', async () => {
   const t = createTimetables({ cache: cacheWith({ 'renfe-fomento_transit.zip': cercaniasZip() }), stations, log });
   await t.loadCercanias();

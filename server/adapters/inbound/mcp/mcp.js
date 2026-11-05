@@ -63,7 +63,10 @@ const NOTE = 'Radar España no es una web oficial: reúne datos públicos con re
   + 'a partir del horario (estimated: true). No sirven para decisiones operativas ni de seguridad.';
 
 const plain = (s) => String(s ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
-const iso = (ms) => (Number.isFinite(ms) ? new Date(ms).toISOString() : null);
+// Fuera de lo que admite Date (±8,64e15 ms), toISOString lanza: sale como si no se diera. La ingesta ya
+// descarta los instantes increíbles (domain/model.js, plausibleTime); esto es por si acaso.
+const DATE_MAX_MS = 8.64e15;
+const iso = (ms) => (Number.isFinite(ms) && Math.abs(ms) <= DATE_MAX_MS ? new Date(ms).toISOString() : null);
 const clip = (s, n) => (typeof s === 'string' && s.length > n ? `${s.slice(0, n - 1)}…` : s ?? null);
 const compact = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== undefined && v !== false));
 
@@ -437,15 +440,19 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
   }
 
   function callTool(params, { budget } = {}) {
-    const tool = Object.hasOwn(tools, params?.name ?? '') ? tools[params.name] : null;
-    if (!tool) throw new RpcError(RPC.invalidParams, `Herramienta desconocida: ${params?.name}`);
+    // Sólo un texto: otra cosa se convertiría en clave o en texto (un array anidado, con un join
+    // recursivo que crece con el cuadrado de su profundidad y, muy hondo, agota la pila).
+    const name = typeof params?.name === 'string' ? params.name : null;
+    if (name === null) throw new RpcError(RPC.invalidParams, 'params.name tiene que ser el nombre (texto) de una herramienta');
+    const tool = Object.hasOwn(tools, name) ? tools[name] : null;
+    if (!tool) throw new RpcError(RPC.invalidParams, `Herramienta desconocida: ${clip(name, 80)}`);
     const args = params.arguments ?? {};
     if (typeof args !== 'object' || Array.isArray(args)) throw new RpcError(RPC.invalidParams, 'arguments tiene que ser un objeto');
     // Un argumento que no cumple el esquema es un error de la herramienta, no del protocolo: así el
     // modelo lee qué ha fallado y puede corregirlo. No gasta presupuesto.
     const problem = argsProblem(tool.inputSchema, args);
     if (problem) return { content: [{ type: 'text', text: problem }], isError: true };
-    const key = `${params.name}?${JSON.stringify(Object.keys(args).sort().map((k) => [k, k === 'text' ? plain(args[k]) : args[k]]))}`;
+    const key = `${name}?${JSON.stringify(Object.keys(args).sort().map((k) => [k, k === 'text' ? plain(args[k]) : args[k]]))}`;
     return remember(key, tool.ttl, () => {
       // Sólo se gasta presupuesto al calcular; un error de la herramienta (una estación que no existe) no cuesta nada.
       if (budget && !budget.take()) throw new McpBusy();

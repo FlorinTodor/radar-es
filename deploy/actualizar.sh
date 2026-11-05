@@ -73,6 +73,10 @@ esperar_sano() {
   return 1
 }
 
+# $1 si es un número entero; si no, $2. Lo que sale de dentro de un contenedor se comprueba antes de
+# usarlo en una expresión aritmética de bash: allí, un texto como a[$(…)] ejecutaría órdenes como root.
+entero() { if [[ $1 =~ ^-?[0-9]+$ ]]; then echo "$1"; else echo "$2"; fi; }
+
 # Fuentes que todavía no han terminado su primera lectura en el servicio $1, o -1 si no responde.
 # Se pregunta desde dentro del contenedor (node está en la imagen; en el VPS no hace falta).
 fuentes_pendientes() {
@@ -86,7 +90,7 @@ fuentes_pendientes() {
 esperar_datos() {
   local fin=$((SECONDS + ESPERA_DATOS)) pendientes=-1
   while ((SECONDS < fin)); do
-    pendientes=$(fuentes_pendientes "$1")
+    pendientes=$(entero "$(fuentes_pendientes "$1")" -1)
     ((pendientes == 0)) && return 0
     sleep 5
   done
@@ -174,8 +178,8 @@ comprobar() {
     -e PRUEBAS="http://$(dc port "$(activo)" 8080)" -e PRODUCCION=http://127.0.0.1:8080 \
     "$imagen" node --input-type=module - <deploy/comprobar.mjs || return 1
   id=$(contenedor)
-  pico=$(docker exec "$id" cat /sys/fs/cgroup/memory.peak 2>/dev/null || echo 0)
-  reinicios=$(docker inspect -f '{{.RestartCount}}' "$id")
+  pico=$(entero "$(docker exec "$id" cat /sys/fs/cgroup/memory.peak 2>/dev/null)" 0)
+  reinicios=$(entero "$(docker inspect -f '{{.RestartCount}}' "$id")" 0)
   echo "memoria: pico de $((pico / 1024 / 1024)) MB; reinicios: $reinicios"
   if ((pico > MEMORIA_MAX)); then echo "  ✗ el pico de memoria pasa de $((MEMORIA_MAX / 1024 / 1024)) MB"; return 1; fi
   if ((reinicios > 0)); then echo "  ✗ el contenedor se ha reiniciado"; return 1; fi

@@ -3,7 +3,7 @@
 // El resultado se cachea en disco un día: la licencia del NAP exige mostrar datos actualizados.
 import { mkdir, readFile, stat } from 'node:fs/promises';
 import { writeFileAtomic } from '../http/file-cache.js';
-import { createPacer, csvColumns, csvRows, openGtfs, own } from '../gtfs/gtfs-reader.js';
+import { createPacer, csvColumns, csvRows, gtfsBudget, openGtfs, own } from '../gtfs/gtfs-reader.js';
 import { modeOf } from '../gtfs/gtfs-modes.js';
 import { round5 } from '../../../domain/geo.js';
 import { madridLocalToMs } from '../sources/parse.js';
@@ -87,7 +87,9 @@ const round = ([lon, lat]) => [round5(lon), round5(lat)];
 export async function buildNetwork(zip, network) {
   const pace = createPacer();
   // stop_times.txt sólo hace falta si no hay trazados, y es enorme (290 MB en Cercanías): primero lo demás.
-  const files = await openGtfs(zip, ['routes.txt', 'trips.txt', 'shapes.txt']);
+  // Las dos llamadas comparten presupuesto: lo de la primera sigue en memoria durante la segunda.
+  const budget = gtfsBudget();
+  const files = await openGtfs(zip, ['routes.txt', 'trips.txt', 'shapes.txt'], budget);
 
   const routes = new Map();
   for (const r of csvRows(files['routes.txt'])) {
@@ -107,7 +109,7 @@ export async function buildNetwork(zip, network) {
   const wantedShapes = new Set([...trips.values()].map((t) => t.shape).filter(Boolean));
 
   const fromShapes = Boolean(files['shapes.txt'] && wantedShapes.size);
-  if (!fromShapes) Object.assign(files, await openGtfs(zip, ['stops.txt', 'stop_times.txt']));
+  if (!fromShapes) Object.assign(files, await openGtfs(zip, ['stops.txt', 'stop_times.txt'], budget));
 
   if (fromShapes) {
     const shapes = new Map();

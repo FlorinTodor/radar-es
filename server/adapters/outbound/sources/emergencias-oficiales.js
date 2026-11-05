@@ -75,6 +75,20 @@ const slug = (s) => fold(s).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').sl
 const lastSegment = (link) => String(link ?? '').replace(/[?#].*$/, '').split('/').filter(Boolean).pop() || null;
 const placeByName = (list, name) => list.find((p) => fold(p.name) === fold(name));
 
+/**
+ * Lo que va tras el primer «>» de `marker` (la etiqueta que lo lleva) hasta `end`, o hasta el final si no se da;
+ * null si no está. Con indexOf y sólo desde la primera vez que sale `marker`: con /marker[^>]*>(…)/, cada
+ * `marker` sin «>» ni `end` detrás volvía a recorrer el resto del texto (cuadrático).
+ */
+function afterTag(html, marker, end = null) {
+  const at = html.indexOf(marker);
+  if (at < 0) return null;
+  const gt = html.indexOf('>', at + marker.length);
+  if (gt < 0) return null;
+  const stop = end ? html.indexOf(end, gt + 1) : html.length;
+  return stop < 0 ? null : html.slice(gt + 1, stop);
+}
+
 /** «27/10/2026 a las 16:16» o «27/10/2026 16:16» (hora de Madrid) → epoch ms. */
 function spanishDateTime(s) {
   const m = String(s ?? '').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\D+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
@@ -444,8 +458,9 @@ export function parseRiojaSos(xml) {
     const title = htmlText(text(it.title));
     const html = String(text(it.description) ?? '');
     // «27/10/2026 a las 16:16 en Ventrosa»: la fecha y el lugar del suceso (el pubDate siempre dice las 12:00).
-    const when = htmlText(html.match(/class="fecha_sos"[^>]*>([\s\S]*?)<\/div>/)?.[1]);
-    const body = htmlText(html.match(/class="contentText"[^>]*>([\s\S]*)$/)?.[1] ?? html);
+    // Recortada a 500 caracteres (la del 112 tiene unas decenas): buscar el lugar en ella cuesta poco por largo que llegue.
+    const when = htmlText(afterTag(html, 'class="fecha_sos"', '</div>')?.slice(0, 500));
+    const body = htmlText(afterTag(html, 'class="contentText"') ?? html);
     const link = text(it.link);
     const notice = powerNotice({
       id: slug(lastSegment(link) ?? title),
@@ -695,7 +710,7 @@ export function parseMadridNews(xml) {
     const day = String(link ?? '').match(/\/noticias\/(\d{4})\/(\d{2})\/(\d{2})\//);
     const at = Math.max(Date.parse(text(it.pubDate)) || 0, (day && madridLocalToMs(`${day[1]}-${day[2]}-${day[3]}T00:00:00`)) || 0);
     // La descripción trae la nota entera (con sus fotos): sólo su primer párrafo.
-    const body = String(text(it.description) ?? '').match(/field--name-body[^>]*>([\s\S]*)$/)?.[1] ?? '';
+    const body = afterTag(String(text(it.description) ?? ''), 'field--name-body') ?? '';
     return { id: slug(lastSegment(link) ?? title), at, title, summary: firstParagraph(body), url: link || null };
   });
   return { notices: pressNotices(items, 'madrid'), updated: newest(items.map((i) => i.at)) };
