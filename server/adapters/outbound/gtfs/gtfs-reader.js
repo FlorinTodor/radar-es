@@ -3,10 +3,30 @@
 import { Readable } from 'node:stream';
 import { createInflateRaw, inflateRaw } from 'node:zlib';
 import { promisify } from 'node:util';
-import { unzipSync } from 'fflate';
 
 const inflate = promisify(inflateRaw);
 const CHUNK_BYTES = 1 << 20;
+
+/**
+ * Tope de lo que se descomprime de un GTFS en una misma lectura, sumando todas las llamadas a openGtfs
+ * que comparten presupuesto: parseSchedule hace tres y guarda ficheros de la primera mientras hace las
+ * otras, y los trazados y las estaciones de una red, dos. Sin él, un ZIP de ~1 MB se inflaba a más de
+ * 1 GB y el contenedor (1 GB) caía en cada arranque mientras la copia siguiera en data/cache.
+ * El mayor GTFS real entero es el de Cercanías (292 MB descomprimidos en noviembre de 2026, 316 MB
+ * semanas antes), y lo más que se lee de verdad en una lectura son 91 MB (el horario de Villavesas):
+ * 384 MB dejan pasar los dos con holgura y, sumados al pico del arranque (~350 MB en un hilo, ~530 MB
+ * con dos), caben en el contenedor.
+ */
+export const MAX_GTFS_BYTES = 384 * 1024 * 1024;
+
+/**
+ * Presupuesto de descompresión de una lectura: quien llama varias veces a openGtfs con el mismo ZIP le
+ * pasa a todas el mismo, para que el tope sea de la suma y no de cada llamada.
+ *   const budget = gtfsBudget();
+ *   const f = await openGtfs(zip, ['trips.txt'], budget);
+ *   const g = await openGtfs(zip, ['stop_times.txt'], budget);
+ */
+export const gtfsBudget = (bytes = MAX_GTFS_BYTES) => ({ left: bytes });
 
 /**
  * Ritmo para los bucles largos (un stop_times de millones de filas): tras cada ~20 ms de trabajo
@@ -29,27 +49,44 @@ export function createPacer(sliceMs = 20) {
 
 /**
  * Descomprime los ficheros pedidos con zlib asíncrono, en los hilos de libuv y no en el principal:
- * descomprimir de golpe un GTFS de 20 MB dejaba el servidor sin responder medio segundo. Los ZIP64
- * (tamaños o posiciones que no caben en 32 bits) van por fflate, síncrono, como antes.
+ * descomprimir de golpe un GTFS de 20 MB dejaba el servidor sin responder medio segundo.
  * - Cada fichero se descomprime en un solo bloque del tamaño final que dice el ZIP: con los bloques
  *   de 16 KB por defecto, zlib juntaba al final dos copias (el stop_times de Cercanías son 290 MB)
  *   y dejaba la memoria fragmentada: el pico subía de ~580 a ~920 MB.
  * - Uno detrás de otro, no a la vez: así sólo hay un fichero grande en memoria a medio hacer.
  * - Antes de descomprimir nada se comprueba todo el ZIP, para que un fichero dañado sea un error
  *   normal (que quien llama registra) y no una promesa rechazada sin dueño que tumbe el proceso.
+ * - También antes, lo que declaran los ficheros pedidos se descuenta de `budget` (gtfsBudget): si no
+ *   cabe, error. Y ningún fichero puede dar más de lo que declara, así que el presupuesto se cumple.
+ * - Los ZIP64 (tamaños o posiciones que no caben en 32 bits) dan error: ningún GTFS lo necesita (el
+ *   mayor ZIP son 18 MB) y por ahí se descomprimía con fflate lo que dijera el ZIP, sin tope.
+ * @param {Uint8Array} zipBytes
+ * @param {string[]} files
+ * @param {{ left: number }} [budget]  lo que queda por descomprimir en esta lectura (se descuenta)
  * @returns {Promise<Record<string, Uint8Array>>} nombre de fichero → contenido
  */
-export async function openGtfs(zipBytes, files) {
+export async function openGtfs(zipBytes, files, budget = gtfsBudget()) {
   const zip = Buffer.from(zipBytes.buffer, zipBytes.byteOffset, zipBytes.byteLength);
   const entries = centralDirectory(zip);
-  if (!entries) {
-    const all = unzipSync(zipBytes, { filter: (f) => files.includes(f.name.split('/').pop()) });
-    return Object.fromEntries(Object.entries(all).map(([name, data]) => [name.split('/').pop(), data]));
-  }
+  if (!entries) throw new Error('es un ZIP64: ningún GTFS lo necesita y no se lee');
   const wanted = entries.filter((e) => files.includes(e.name)).map((e) => withData(zip, e));
+  for (const e of wanted) {
+    const size = e.method === 0 ? e.size : e.usize;
+    if (size > budget.left) throw new Error(`${e.name}: el GTFS pasa del tope de ${MAX_GTFS_BYTES / 1048576} MB descomprimidos por lectura`);
+    budget.left -= size;
+  }
   const out = {};
   for (const e of wanted) {
-    out[e.name] = e.method === 0 ? e.data : await inflate(e.data, { chunkSize: Math.min(Math.max(e.usize, MIN_CHUNK), MAX_CHUNK), maxOutputLength: MAX_CHUNK });
+    if (e.method === 0) {
+      out[e.name] = e.data;
+      continue;
+    }
+    try {
+      out[e.name] = await inflate(e.data, { chunkSize: Math.min(Math.max(e.usize, MIN_CHUNK), MAX_CHUNK), maxOutputLength: Math.max(e.usize, 1) });
+    } catch (err) {
+      if (err.code === 'ERR_BUFFER_TOO_LARGE') throw new Error(`${e.name}: da más de lo que declara el ZIP (${e.usize} bytes)`);
+      throw err;
+    }
   }
   return out;
 }
@@ -120,9 +157,10 @@ function inflating(data) {
   return inflater;
 }
 
-// El tamaño descomprimido lo declara el propio ZIP: se acota por si viene mal (si se queda corto,
-// zlib sigue con más bloques; si es enorme, no se reserva de golpe más de 512 MB). Ningún fichero
-// puede pasar de 512 MB descomprimido: un ZIP malicioso (bomba de descompresión) da error.
+// El tamaño descomprimido lo declara el propio ZIP. En openGtfs, un fichero que da más de lo que
+// declara es un error y la suma de lo declarado tiene su tope (MAX_GTFS_BYTES); al leer por trozos
+// (csvColumnsStreamed) sólo hay un trozo en memoria, y ningún fichero puede pasar de 512 MB
+// descomprimido: un ZIP malicioso (bomba de descompresión) da error.
 const MIN_CHUNK = 64 * 1024;
 const MAX_CHUNK = 512 * 1024 * 1024;
 
