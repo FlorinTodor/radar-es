@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { lookup } from '../../server/adapters/outbound/sources/parse.js';
+import { htmlText, lookup } from '../../server/adapters/outbound/sources/parse.js';
 import { createInMemorySituation } from '../../server/adapters/outbound/persistence/in-memory-situation.js';
 import { createFgcSource } from '../../server/adapters/outbound/sources/fgc.js';
 import { vehiclesFromFeed } from '../../server/adapters/outbound/sources/gtfs-rt.js';
@@ -121,4 +121,20 @@ test('instantes fuera de rango (GTFS-RT, avisos): null al guardarlos; el MCP sig
     const reply = tool(name, args); // con los instantes tal cual, iso() lanzaba «Invalid time value»
     assert.ok(reply.result && !reply.result.isError, `${name} ${JSON.stringify(args)}`);
   }
+});
+
+test('htmlText con «<», «<!--» o «<script» sin cerrar a miles: termina y no se come el texto normal', () => {
+  // Antes, cada apertura sin cerrar volvía a recorrer el resto del texto (cuadrático): con estos ~200 KB
+  // tardaba segundos, y con los MB de un feed, horas. Ahora una etiqueta empieza por «<» + letra, «/», «!» o
+  // «?», y un comentario o un script sin cerrar llegan hasta el final, como en un navegador.
+  assert.equal(htmlText('<!--'.repeat(50_000)), '');
+  assert.equal(htmlText('<script'.repeat(30_000)), '');
+  assert.equal(htmlText('<a'.repeat(100_000)), '');
+  assert.equal(htmlText(`Aviso${'<'.repeat(200_000)}`), `Aviso${'<'.repeat(200_000)}`);
+  // Con HTML normal, lo mismo que antes.
+  assert.equal(htmlText('Temperaturas < 0 ºC en cumbres'), 'Temperaturas < 0 ºC en cumbres');
+  assert.equal(htmlText('<p>Aviso por <b>lluvias</b> en <a href="https://x.invalid/a">Gran Canaria</a>.</p><p>Segundo</p>'), 'Aviso por lluvias en Gran Canaria .\nSegundo');
+  assert.equal(htmlText('<!-- c -->texto<script>var a=1<2;</script> fin'), 'texto fin');
+  assert.equal(htmlText('<STYLE>p{}</STYLE><h2>Título</h2><ul><li>uno</li><li>dos</li></ul><BR/>y'), 'Título\nuno\ndos\ny');
+  assert.equal(htmlText('<?xml version="1.0"?><!DOCTYPE html>Lluvias &lt;b&gt;fuertes&lt;/b&gt; &amp;oacute;'), 'Lluvias <b>fuertes</b> ó');
 });

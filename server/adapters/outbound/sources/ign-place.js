@@ -9,6 +9,10 @@
 // estar cortado.
 
 const CUT_AT = 29;
+// Más allá de esto no es una localización del IGN (que la corta a 30 caracteres): no se lee entera.
+const MAX_PLACE = 64;
+// Artículos que se quedan colgando al final de un nombre cortado («VILLANUEVA DE LA SERENA DE LA»).
+const TRAILING = new Set(['DE', 'DEL', 'LA', 'LAS', 'LOS', 'EL', 'Y', 'I', 'D']);
 
 const DIRECTION = {
   N: 'norte', NE: 'noreste', E: 'este', SE: 'sureste', S: 'sur', SW: 'suroeste', W: 'oeste', NW: 'noroeste',
@@ -41,7 +45,7 @@ const KEEP = [[/ de el Hierro\b/g, ' de El Hierro'], [/ de la Palma\b/g, ' de La
  * @returns {{ text: string, near: boolean } | null}  near: es una dirección desde un pueblo o un cabo, no una zona
  */
 export function ignPlace(raw) {
-  const s = String(raw ?? '').replace(/\s+/g, ' ').trim();
+  const s = String(raw ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_PLACE).trimEnd();
   if (!s) return null;
   const cut = s.length >= CUT_AT;
   const m = /^(?:(N|NE|E|SE|S|SW|W|NW) )?(.+)$/.exec(s);
@@ -55,7 +59,10 @@ export function ignPlace(raw) {
   }
   if (cut) {
     suffix = null;
-    name = name.split('/')[0].replace(/(?: (?:DE|DEL|LA|LAS|LOS|EL|Y|I|D))+$/, '');
+    // Palabra a palabra: con /(?: (?:DE|…))+$/, un nombre con « DE» repetido era cuadrático.
+    const words = name.split('/')[0].split(' ');
+    while (words.length > 1 && TRAILING.has(words.at(-1))) words.pop();
+    name = words.join(' ');
   }
   if (AREA[s]) return { text: AREA[s], near: false };
   const town = nice(name);

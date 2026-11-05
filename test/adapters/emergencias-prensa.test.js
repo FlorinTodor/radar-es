@@ -118,6 +118,17 @@ const MURCIA_XML = `<?xml version="1.0" encoding="UTF-8"?><resultados>${[
   murciaRow({ id: 126503, title: 'La Filmoteca regional acoge la muestra CinePOLSKA', date: '02/11/2026', hour: '09:00', lead: 'Cine', category: 'Turismo, Cultura y Deportes' }),
 ].join('')}</resultados>`;
 
+test('Madrid: una nota con miles de «field--name-body» sin «>» no deja colgado el servidor', () => {
+  // Antes, cada marca sin «>» detrás volvía a recorrer el resto de la nota (cuadrático): con estos ~200 KB
+  // tardaba segundos. Ahora el cuerpo se saca con indexOf desde la primera.
+  const xml = rss(`<item><title>Corte de luz en Alcobendas por una avería</title><link>https://www.comunidad.madrid/noticias/2026/11/02/corte-luz-alcobendas</link>
+    <description><![CDATA[${'field--name-body '.repeat(12_000)}]]></description><pubDate>Mon, 02 Nov 2026 10:30:00 +0000</pubDate></item>`);
+  const { notices } = parseMadridNews(xml);
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].description, '', 'sin cuerpo que leer, sin resumen');
+  assert.deepEqual(notices[0].candidates, ['Alcobendas']);
+});
+
 test('Murcia: el plan con la hora de su vigencia, la entradilla (primer párrafo) y el enlace sin escapar dos veces', async () => {
   const src = createMurciaNewsSource({ http: fakeHttp(() => MURCIA_XML), geocoder: fakeGeocoder({}), now: clock });
   const { events, sourceTime } = await src.fetch();

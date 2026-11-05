@@ -38,6 +38,26 @@ test('lee los tramos del GML en [lon, lat], redondeados a 5 decimales, como los 
   assert.deepEqual(read(xml).out[0].line, expected);
 });
 
+test('una respuesta mal formada (tramos sin posList, etiquetas sin «>») da cero tramos y no deja colgado el servidor', () => {
+  // Antes, desde cada tramo se buscaba su posList en todo el resto de la respuesta (cuadrático): con estos
+  // ~300 KB tardaba segundos, y con los MB de una respuesta del WFS, minutos u horas. Ahora cada tramo se lee
+  // sólo hasta el siguiente.
+  const read = (xml) => {
+    const ids = [];
+    const returned = readRailwayLinks(`<wfs:FeatureCollection>${xml}</wfs:FeatureCollection>`, (id) => ids.push(id));
+    return { returned, ids };
+  };
+  const none = { returned: 0, ids: [] };
+  assert.deepEqual(read('<tn-ra:RailwayLink gml:id="a">'.repeat(10_000)), none, 'tramos sin posList');
+  assert.deepEqual(read(`<tn-ra:RailwayLink gml:id="a">${'<gml:posList '.repeat(20_000)}`), none, '«<gml:posList » sin «>»');
+  assert.deepEqual(read('<tn-ra:RailwayLink '.repeat(15_000)), none, '«<tn-ra:RailwayLink » repetido');
+  assert.deepEqual(read(`<tn-ra:RailwayLink${' gml:id="a"'.repeat(25_000)}`), none, 'gml:id repetido en una etiqueta sin «>»');
+  // Un tramo sin posList ya no se lleva el del siguiente: cada uno, con su id y su línea.
+  const mixed = read('<tn-ra:RailwayLink gml:id="A"><net:fictitious>false</net:fictitious></tn-ra:RailwayLink>'
+    + '<tn-ra:RailwayLink gml:id="B"><gml:posList srsDimension="2">40 -3 41 -4</gml:posList></tn-ra:RailwayLink>');
+  assert.deepEqual(mixed, { returned: 1, ids: ['B'] });
+});
+
 test('descarga por cuadrículas, reintenta, guarda la copia y sigue con ella si el IGN falla', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'radar-ign-'));
   try {
