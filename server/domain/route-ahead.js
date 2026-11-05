@@ -59,18 +59,27 @@ function walk(coords, cum, kx, ky, xy, start, at, stops) {
     const straight = Math.hypot((stop[0] - prev.p[0]) * kx, (stop[1] - prev.p[1]) * ky);
     const sense = Math.sign(along);
     if (Math.abs(along) < AT_STOP_M) { // en la misma parada: no fija el sentido
-      if (dir && sense === dir) path.push(...slice(coords, cum, prev.m, hit.m).slice(1));
+      if (dir && sense === dir) pushRest(path, slice(coords, cum, prev.m, hit.m));
       prev = { m: hit.m, p: stop };
       reached++;
       continue;
     }
     if ((dir && sense !== dir) || (hit.passes > 1 && Math.abs(along) > DETOUR * straight + DETOUR_EXTRA_M)) break;
     dir = sense;
-    path.push(...slice(coords, cum, prev.m, hit.m).slice(1));
+    pushRest(path, slice(coords, cum, prev.m, hit.m));
     prev = { m: hit.m, p: stop };
     reached++;
   }
   return { path, reached };
+}
+
+/**
+ * Añade a `path` los puntos de `points` menos el primero (el último de `path`), uno a uno: con
+ * path.push(...points), cada punto es un argumento, y un trazado de más de unos 125.000 vértices entre el
+ * tren y su parada (lo decide el GTFS del operador) agota la pila y deja /api/live en 500.
+ */
+function pushRest(path, points) {
+  for (let i = 1; i < points.length; i++) path.push(points[i]);
 }
 
 // El trazado en metros (x, y) y la distancia acumulada en cada vértice, guardados por trazado: sólo
