@@ -65,25 +65,51 @@ const NOT_NOW_AFTER = new RegExp(`^\\s*(?:(?:del?|de la|d')\\s*(?:pasado|passat|
   + '|[^.]{0,40}\\ben (?:el|un) (?:edificio|inmueble|local|vivienda|nave)\\b)');
 // Un suceso más de una lista que empieza antes, en la misma frase («con acontecimientos como la DANA, el
 // apagón o las lluvias»): es un balance, no un corte de ahora, aunque la coma lo deje fuera de wordsBefore.
-const LISTED = /\b(?:cuestiones|asuntos|temas|problemas|acontecimientos|episodios|sucesos|situaciones|emergencias) como\b[^.;:!?]*$/;
+// La lista sigue abierta hasta el siguiente «.», «;», «:», «!» o «?». Se recorre una sola vez, junto con las
+// menciones: mirar desde cada mención todo lo de antes era cuadrático.
+const LIST_OPENS_OR_CLOSES = /\b(?:cuestiones|asuntos|temas|problemas|acontecimientos|episodios|sucesos|situaciones|emergencias) como\b|[.;:!?]/g;
 // Un simulacro habla de cortes que no existen: si lo es, nada de lo que diga es un corte de luz.
 const DRILL = words(['simulacro', 'simulacre', 'simulad[oa]s?', 'simulacion', 'simulacio']);
 
+// Un aviso real tiene unos pocos miles de caracteres y frases de unos cientos: más allá no se clasifica. Con
+// un texto de terceros sin tope, mirar desde cada mención todo lo que va antes era cuadrático.
+const MAX_TEXT = 20_000;
+const MAX_CLAUSE = 2_000;
+
+/**
+ * El texto hasta MAX_TEXT. Si sigue, sólo hasta el último signo de puntuación antes del corte: los nombres que
+ * salen de él van al geocodificador, y ninguno puede quedar a medias (un nombre no lleva «,», «.», «;», «:»).
+ */
+function capped(text) {
+  const s = String(text ?? '');
+  if (s.length <= MAX_TEXT) return s;
+  const cut = s.slice(0, MAX_TEXT);
+  return cut.slice(0, Math.max(0, ...[',', '.', ';', ':', '\n'].map((c) => cut.lastIndexOf(c))));
+}
+
 /** Frases y partes de frase de un texto: «Hay falta de suministro en A, mientras que en B ya se ha recuperado» son dos. */
-const clausesOf = (text) => String(text ?? '').split(/(?<=[.!?])\s+|\n+/)
+const clausesOf = (text) => capped(text).split(/(?<=[.!?])\s+|\n+/)
   .flatMap((sentence) => sentence.split(/[,;]\s+(?=mientras que|aunque|pero|y ya|ya se)|;\s+/));
 
-/** Lo que va antes de `at` en la misma parte de la frase (desde la última coma o dos puntos), como mucho seis palabras. */
-const wordsBefore = (t, at) => t.slice(0, at).split(/[,;:(]/).pop().trim().split(/\s+/).slice(-6).join(' ');
+/**
+ * Lo que va antes de `at` en la misma parte de la frase (desde la última coma o dos puntos), como mucho seis
+ * palabras: se miran sólo los 200 caracteres de antes, que en un texto real sobran para seis palabras.
+ */
+const wordsBefore = (t, at) => t.slice(Math.max(0, at - 200), at).split(/[,;:(]/).pop().trim().split(/\s+/).slice(-6).join(' ');
 
-/** Alguna mención de `re` en esta parte de la frase que no niega ni anticipa ni cita otro suceso. */
+/** Alguna mención de `re` en esta parte de la frase (en sus primeros MAX_CLAUSE caracteres) que no niega ni anticipa ni cita otro suceso. */
 function saysNow(clause, re, { negationOnly = false } = {}) {
-  const t = fold(clause);
+  const t = fold(clause.slice(0, MAX_CLAUSE));
+  const marks = t.matchAll(LIST_OPENS_OR_CLOSES);
+  let mark = marks.next();
+  let listed = false; // antes de la mención hay una lista de sucesos sin cerrar
   for (const m of t.matchAll(re)) {
+    // Lo último antes de la mención: una lista de sucesos la abre; un signo («.», «;»…), la cierra.
+    for (; !mark.done && mark.value.index + mark.value[0].length <= m.index; mark = marks.next()) listed = mark.value[0].length > 1;
     const before = wordsBefore(t, m.index);
     if (NEGATION.test(before)) continue;
     if (negationOnly) return true;
-    if (NOT_NOW.test(before) || LISTED.test(t.slice(0, m.index)) || NOT_NOW_AFTER.test(t.slice(m.index + m[0].length))) continue;
+    if (NOT_NOW.test(before) || listed || NOT_NOW_AFTER.test(t.slice(m.index + m[0].length))) continue;
     return true;
   }
   return false;
@@ -289,6 +315,12 @@ const NOT_PLACES = new Set(['el', 'la', 'los', 'las', 'este', 'esta', 'endesa', 
   'comunidad de madrid', 'comunidad', 'region de murcia', 'region', 'cantabria', 'galicia', 'xunta', 'asem', 'axega',
   'euskadi', 'gobierno vasco', 'ertzaintza', 'euskalmet']);
 
+// Como mucho MAX_LISTS listas de nombres por texto. Sólo cuentan las introducciones («en …», «zona de …») con
+// una lista detrás: las demás fallan en el primer carácter (LIST va anclada con ^), y contarlas haría perder los
+// pueblos de un texto con muchos «en». Cada lista se lee entera (ningún nombre sale cortado) y el trabajo queda
+// acotado a MAX_LISTS × MAX_TEXT: antes, cada introducción volvía a leer la lista hasta el final del texto.
+const MAX_LISTS = 50;
+
 /**
  * Lugares que cita un texto tras «en», «localidad de», etc. («Hay falta de suministro eléctrico en
  * Espera y San José del Valle» → Espera, San José del Valle). Son candidatos: el geocodificador
@@ -296,11 +328,13 @@ const NOT_PLACES = new Set(['el', 'la', 'los', 'las', 'este', 'esta', 'endesa', 
  */
 export function placeCandidates(text, max = 6) {
   const out = [];
-  const s = String(text ?? '');
+  const s = capped(text);
+  let lists = 0;
   for (const m of s.matchAll(INTRO)) {
     const rest = s.slice(m.index + m[0].length);
     const list = rest.match(LIST);
     if (!list) continue;
+    if (++lists > MAX_LISTS) break;
     const names = [list[1], ...(list[2] ? list[2].split(',').map((x) => x.trim()).filter(Boolean) : []), list[3]].filter(Boolean);
     for (const n of names) {
       const name = n.trim();
