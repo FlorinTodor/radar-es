@@ -8,6 +8,7 @@ import { createRenfeSources } from './renfe.js';
 import { createFgcSource } from './fgc.js';
 import { createRodaliesSource } from './rodalies.js';
 import { createGtfsRtVehicleSource } from './gtfs-rt.js';
+import { createGtfsRtAlertsSource } from './gtfs-rt-avisos.js';
 import { createMoveuskadiBusSource } from './moveuskadi-bus.js';
 import { createGtfsScheduleSource } from './gtfs-horario.js';
 import { createDgtSource } from './dgt.js';
@@ -92,6 +93,8 @@ export function createSources(deps) {
       tripUpdatesUrl: `${MOVEUSKADI}/euskotren/gtfsrt_euskotren_trip_updates.pb`,
       license: 'Powered by MITRAMS (horario, Punto de Acceso Nacional) · Open Data Euskadi, CC BY 4.0 (retrasos) · '
         + 'Posición estimada a partir del horario (dato explotado, no GPS)',
+      cancellationCredit: 'Open Data Euskadi · MoveUskadi, CC BY 4.0 (viajes cancelados y paradas suprimidas) · '
+        + 'Powered by MITRAMS (horario, Punto de Acceso Nacional)',
     }),
     ...ESTIMATED_BY_SCHEDULE.map(([id, name, operator, ficheroId, dataset, credit]) => createGtfsScheduleSource(deps, {
       id: `horario-${id}`, name: `${name} (posición estimada según horario)`, operator, ficheroId, dataset, credit,
@@ -125,6 +128,8 @@ export function createSources(deps) {
       tripUpdatesUrl: 'https://www.ambmobilitat.cat/transit/trips-updates/trips.bin',
       license: 'Powered by MITRAMS (Punto de Acceso Nacional) · AMB Àrea Metropolitana de Barcelona · '
         + 'Posición estimada a partir del horario y del retraso real (dato explotado, no GPS)',
+      cancellationCredit: 'AMB Àrea Metropolitana de Barcelona (viajes cancelados y paradas suprimidas) · '
+        + 'Powered by MITRAMS (horario, Punto de Acceso Nacional)',
     }),
     createGtfsRtVehicleSource(deps, {
       id: 'la-union', name: 'Autobuses La Unión (GTFS-RT)', mode: 'bus', operator: 'La Unión', interval: 60_000,
@@ -138,12 +143,27 @@ export function createSources(deps) {
       url: 'http://212.170.201.204:50080/GTFSRTapi/api/vehicleposition',
       line: (e) => e.vehicle?.trip?.tripId?.split('_')[0] ?? e.vehicle?.trip?.routeId ?? null, // "LB5_LB5A1_7" → "LB5"
     }),
+    // Sus avisos de servicio (desvíos y paradas suprimidas), en la misma página de datos abiertos y con la
+    // misma licencia; las paradas, de su horario (también allí).
+    createGtfsRtAlertsSource(deps, {
+      id: 'auvasa-avisos', name: 'AUVASA: avisos de servicio, desvíos y paradas suprimidas (GTFS-RT)', operator: 'AUVASA',
+      url: 'http://212.170.201.204:50080/GTFSRTapi/api/alert', page: 'https://www.auvasa.es/empresa/datos-abiertos/',
+      license: 'Fuente: AUVASA (CC BY 3.0 ES)',
+      stopsZip: () => deps.cache.bytes('http://212.170.201.204:50080/GTFSRTapi/api/GTFSFile', 'auvasa-gtfs.zip', 24 * 3600_000),
+    }),
     ...busGroupSources(deps, createGtfsScheduleSource),
     createGtfsRtVehicleSource(deps, {
       id: 'emt-malaga', name: 'EMT Málaga (GTFS-RT)', mode: 'bus', operator: 'EMT Málaga', interval: 60_000,
       // El portal de datos abiertos de Málaga declara para estos datos CC BY-SA 4.0: se cumple la más estricta.
       license: 'Powered by MITRAMS (Punto de Acceso Nacional) · EMT Málaga, Ayuntamiento de Málaga · Datos en bruto, CC BY-SA 4.0',
       url: 'https://gtfs.emtmalaga.es/GTFSRTapi/api/vehicleposition',
+    }),
+    // Sus avisos de servicio, del mismo conjunto del NAP (1293); las paradas, de su horario (fichero 1494).
+    createGtfsRtAlertsSource(deps, {
+      id: 'emt-malaga-avisos', name: 'EMT Málaga: avisos de servicio, desvíos y paradas suprimidas (GTFS-RT)', operator: 'EMT Málaga',
+      url: 'https://gtfs.emtmalaga.es/GTFSRTapi/api/alert', page: 'https://nap.transportes.gob.es/ConjuntoDato/Detail/1293',
+      license: 'Powered by MITRAMS (Punto de Acceso Nacional) · EMT Málaga, Ayuntamiento de Málaga · Datos en bruto, CC BY-SA 4.0',
+      stopsZip: () => deps.nap.gtfs(1494, 24 * 3600_000),
     }),
     createGtfsRtVehicleSource(deps, {
       id: 'emt-fuenlabrada', name: 'EMT Fuenlabrada (GTFS-RT)', mode: 'bus', operator: 'EMT Fuenlabrada', interval: 60_000,

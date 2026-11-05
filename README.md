@@ -181,10 +181,10 @@ flowchart TB
 | Capa | Carpeta | Qué hay |
 |---|---|---|
 | Entrada | `adapters/inbound/` | `http/http-server.js` (API, teselas y web), `http/metrics-server.js` (métricas para la monitorización, en un puerto interno), `mcp/mcp.js` (servidor MCP en `POST /mcp`) y `scheduler/polling-scheduler.js` (sondeo, alertas y catálogos) |
-| Casos de uso | `application/use-cases/` | `ingest-source`, `detect-alerts`, `query-situation`, `serve-tiles`, `refresh-catalogs` y `lines-on-rail` |
+| Casos de uso | `application/use-cases/` | `ingest-source`, `detect-alerts`, `query-situation`, `serve-tiles`, `refresh-catalogs`, `lines-on-rail` y `keep-tracks` |
 | Puertos | `application/ports.js` | los contratos que piden los casos de uso (tabla de abajo) |
 | Dominio | `domain/` | `model`, `geo`, `tracking`, `kpis`, `tiles`, `schedule`, `estimated-position`, `route-ahead`, `rail-match`, `alerts/` (`rules`, `lifecycle`, `thresholds`), `emergencias`, `lugares` y `red-aislada` |
-| Salida | `adapters/outbound/` | `sources/` (una por fuente), `stations/` (estaciones, Wikidata y Commons), `network/`, `gtfs/` y `nap/` (trazados y redes de Adif e IGN), `persistence/` (estado en memoria e histórico JSONL), `tiles/` (teselas de IGN y EFFIS), `geo/` (CartoCiudad), `workers/` (hilos de CPU), `http/`, `logging/` y `metrics/` (formato de Prometheus) |
+| Salida | `adapters/outbound/` | `sources/` (una por fuente), `stations/` (estaciones, Wikidata y Commons), `network/`, `gtfs/` y `nap/` (trazados y redes de Adif e IGN), `persistence/` (estado en memoria, histórico JSONL y copia del historial de posiciones), `tiles/` (teselas de IGN y EFFIS), `geo/` (CartoCiudad), `workers/` (hilos de CPU), `http/`, `logging/` y `metrics/` (formato de Prometheus) |
 
 - **`server/domain/`**: modelo y reglas puras. Se prueba sin red (`test/domain`).
 - **`server/application/`**: casos de uso y **puertos**, los contratos que necesitan del exterior.
@@ -237,6 +237,7 @@ Los puertos están en `server/application/ports.js`:
 | `RailNetwork` | `network/adif-rail-network.js`, `network/ign-rail-network.js` | red de Adif, para dibujar por la vía AVE, Larga y Media Distancia; red del IGN (también metro, tranvía y funicular), para rehacer por la vía los trazados en recta y los de Ouigo |
 | `SituationRepository` | `persistence/in-memory-situation.js` | estado actual: último dato de cada fuente, recorridos, alertas, KPIs |
 | `History` | `persistence/jsonl-history.js` | histórico de alertas y KPIs |
+| `TrackStore` | `persistence/track-store.js` | copia del historial de posiciones en `data/`, para que la estela de cada tren no empiece de cero tras un reinicio o un despliegue |
 | `TileProvider` | `tiles/wms-tiles.js` | teselas de IGN y EFFIS con copia en disco |
 | `Metrics` | `metrics/prometheus-metrics.js` | cuentas y tiempos para la monitorización: peticiones por ruta, mensajes MCP, lecturas de cada fuente y avisos del registro. Sin datos de quién pregunta: las rutas van sin lo que se ha pedido (`/api/stations/:code`) |
 | `Geocoder` | `geo/cartociudad-geocoder.js` | situar el municipio que cita un aviso del 112 (no traen coordenadas) y poner el municipio a los terremotos del EMSC en España. Lo usan esas fuentes, no los casos de uso: su contrato está en el propio adaptador |
@@ -276,18 +277,19 @@ Todas son públicas. Las marcadas con 🔑 necesitan una clave gratuita: casi to
 |---|---|---|
 | Renfe Cercanías/Rodalies (GTFS-RT `gtfsrt.renfe.com/vehicle_positions.json` + `trip_updates.json`) | posición, línea, retraso y estación; origen, destino, próxima parada y recorrido desde las paradas de cada viaje de su GTFS | 20 s |
 | Renfe AV/LD/MD (GTFS-RT `vehicle_positions_LD.json` + `trip_updates_LD.json`) | posición y retraso; producto (AVE, Alvia…), origen y destino desde su GTFS | 20 s |
-| Renfe GTFS-RT alerts + trip updates (`alerts.json`, `trip_updates.json`) | avisos de servicio y trenes de Cercanías/Rodalies cancelados | 2 min |
+| Renfe GTFS-RT alerts + trip updates (`alerts.json`, `trip_updates.json`, `trip_updates_LD.json`) | avisos de servicio; trenes cancelados y paradas suprimidas de Cercanías/Rodalies y de AV/LD/MD, con su horario, el aviso que los explica y desde cuándo los ve el radar (las que deja de publicar, hasta medianoche); trenes de AV/LD/MD sin datos (según su horario circulan y Renfe no publica nada de ellos) | 2 min |
 | Estaciones Renfe (lista oficial `estaciones.csv` + paradas de sus GTFS) | nombres y coordenadas de ~1.530 estaciones | 24 h |
 | FGC (`dadesobertes.fgc.cat`, `posicionament-dels-trens`) | posición y si va en hora | 30 s |
 | Rodalies de Catalunya (RSS «Estat del servei» de la Generalitat) | avisos por línea (p. ej. transporte por carretera) | 3 min |
 | Metro Bilbao (GTFS-RT y GTFS, Open Data Euskadi) | posición; nombres de estación, origen, destino y recorrido desde su GTFS | 30 s |
-| 🔑 Euskotren (GTFS del NAP + trip updates de Open Data Euskadi) | **posición estimada** con su **retraso real** | 30 s |
+| 🔑 Euskotren (GTFS del NAP + trip updates de Open Data Euskadi) | **posición estimada** con su **retraso real**; viajes cancelados y paradas suprimidas | 30 s |
 | 🔑 Ouigo (GTFS del NAP) | **posición estimada** por horario, marcada como tal | 30 s |
 | 🔑 Metros y tranvías sin GPS (GTFS del NAP) | **posición estimada** por horario en Barcelona (Metro, TRAM), Madrid (Metro Ligero), Valencia, Alicante, Sevilla, Málaga, Granada, Zaragoza y Murcia | 30 s |
 | Autobuses de Euskadi (~25 operadores), EMT Málaga, EMT Fuenlabrada (GTFS-RT) | posición; capa oculta por defecto y fuera de las alertas | 60 s |
 | 🔑 ALSA (GTFS del NAP) | **posición estimada** por horario de sus autobuses (nadie publica su tiempo real); capa de autobuses | 60 s |
-| 🔑 AMB (GTFS del NAP + trip updates de `ambmobilitat.cat`) | autobús metropolitano de Barcelona: **posición estimada** con su **retraso real** | 60 s |
+| 🔑 AMB (GTFS del NAP + trip updates de `ambmobilitat.cat`) | autobús metropolitano de Barcelona: **posición estimada** con su **retraso real**; viajes cancelados y paradas suprimidas (por línea) | 60 s |
 | Autobuses La Unión (GTFS-RT, NAP) y AUVASA Valladolid (GTFS-RT, CC BY 3.0 ES) | posición | 60 s |
+| AUVASA y EMT Málaga, avisos de servicio (GTFS-RT alerts) | desvíos; las paradas que suprimen, como cancelación parcial de la línea con su aviso como motivo | 5 min |
 | 🔑 83 horarios de autobús del NAP, en 9 grupos (`autobuses-nap.js`) | **posición estimada** de Avanza, Sagalés, Moventis, Grupo Ruiz, AISA, Vectalia, urbanos de ciudades, interurbanos autonómicos e insulares y otras empresas | 60 s |
 | EMT Madrid (GTFS-RT, listado en el NAP; con las claves gratuitas de MobilityLabs si están) | avisos de servicio | 5 min |
 | 🔑 GTFS de 16 redes en el NAP + líneas del tranvía de Tenerife (Cabildo de Tenerife) | trazados de Cercanías, metros, tranvías, FGC y Euskotren | 24 h |
@@ -623,7 +625,19 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Posiciones estimadas a partir del horario donde no hay GPS (Ouigo, ALSA y una docena de redes de
   metro y tranvía), con el retraso real cuando el operador lo publica. Se dibujan con la placa hueca.
 - Autobuses de varias ciudades y operadores.
-- Rodalies: trenes cancelados y avisos de servicio.
+- Avisos de servicio de Renfe y Rodalies.
+- Trenes y autobuses cancelados o con paradas suprimidas: los de Renfe (Cercanías, Rodalies, Alta
+  Velocidad, Larga y Media Distancia), Euskotren y AMB, y las paradas que suprimen los desvíos de
+  AUVASA y EMT Málaga. Cada uno en su origen o en la primera parada suprimida, con su horario, quién lo
+  publica y en qué fichero, el aviso del operador que lo explica si lo hay (el que nombra el tren y los
+  de su línea) y desde cuándo lo ve el radar, porque las fuentes no dicen cuándo lo publicaron. Si el
+  operador deja de publicarlo, sigue desvaído hasta medianoche con la hora a la que lo retiró. También
+  en la ficha de cada estación por la que pasaba y en el servidor MCP. Los viajes que Euskotren y AMB
+  cancelan ya no se dibujan como si circularan.
+- Trenes sin datos: los de Alta Velocidad, Larga y Media Distancia que según su horario deberían estar
+  circulando y de los que Renfe no publica nada (ni posición, ni retraso, ni cancelación). Salen en gris,
+  aparte de las cancelaciones, en la última estación por la que deberían haber pasado: no se sabe si
+  circulan.
 - Contexto y emergencias: incidencias de tráfico y obras en carretera (capas separadas), avisos
   meteorológicos, focos de calor por satélite, áreas quemadas con su ficha, terremotos, alertas
   de catástrofes y demanda eléctrica.
@@ -672,6 +686,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Ficha de cada tren, con la vía de la estación en la que para o a la que llega.
 - Recorrido de los últimos 45 minutos del tren seleccionado y, como capa opcional, la estela de
   todos los trenes.
+- El recorrido reciente y la estela de cada tren siguen tras cada versión nueva de la web: ya no
+  empiezan de cero en cada despliegue.
 - En Cercanías, metro y tranvía, el recorrido va pegado a la vía de su línea, con sus curvas.
 - En Alta Velocidad, Larga y Media Distancia, el recorrido también va por la vía, con la red
   ferroviaria que publica Adif: aunque el tren pase un rato sin dar su posición (túneles, zonas sin
@@ -793,6 +809,7 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   «Todas · Ninguna», la leyenda plegada y las preferencias guardadas en el navegador.
 - Aviso al entrar sobre los datos públicos que todavía faltan.
 - Páginas que explican cada parte del mapa y versión en inglés.
+- Sin avisos en la consola del navegador por los iconos que pide el mapa base y no trae.
 - Se puede instalar en el móvil como una app, desde Chrome o Safari («Añadir a pantalla de inicio»).
 - Preparada para los buscadores: título y descripción a medida en cada página (sin que Google las
   corte), sitemap con la fecha de cada cambio y datos estructurados del sitio y de su autor.
@@ -816,6 +833,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   servidor MCP responden, el tráfico y los errores por ruta, el uso de cada herramienta MCP, el estado
   de cada fuente, la memoria y los registros. Sólo cuenta, sin guardar quién pregunta.
 - Directo servido desde caché, preparado para picos de muchas visitas a la vez.
+- Un fichero de tiempo real que llega mal formado ya no se pierde entero: se usa todo lo que se puede
+  leer (le pasaba a ratos al de Euskotren). Uno que llega vacío lo dice así en el estado de su fuente.
 - Respuestas de la API calculadas una sola vez y compartidas entre todas las visitas.
 - Arranque sin bloquear el servidor mientras carga los horarios de más de cien redes, y menos
   memoria al leerlos. Los horarios más grandes se leen por partes, sin cargarlos enteros.
@@ -942,10 +961,13 @@ Ninguna por ahora.
   - incidencias de Adif por tramo, si llegan a publicarse con licencia de reutilización (hoy su web
     responde 403; ver *Pendiente y conocido*);
   - posiciones reales de Iryo, si las publica (hoy no publica nada).
-- Que la línea discontinua de cada tren (por dónde ha pasado en los últimos 45 minutos) no empiece de
-  cero con cada versión nueva: el historial de posiciones está en memoria y se pierde al cambiar de
-  contenedor (el 4-nov-2026, todas empezaban a la hora del despliegue). Guardar una copia cada poco y
-  recuperarla al arrancar.
+- Cancelaciones de Metro Bilbao y de los autobuses de Euskadi cuando las publiquen: ya publican el
+  tiempo real de sus viajes, pero hasta ahora sin ninguna cancelación. Las paradas suprimidas de EMT
+  Fuenlabrada, cuando su dato sea fiable (marca como suprimidas paradas por las que el autobús ya ha
+  pasado).
+- Trenes sin datos también en Cercanías y Rodalies.
+- Pedir a Renfe que publique la posición de todos sus trenes de Alta Velocidad, Larga y Media
+  Distancia: la tarde del 5-nov-2026 faltaba la de unos 80 de 200, casi la mitad en el eje de Andalucía.
 - Terremotos: leer el RSS del IGN (los de magnitud 2,6 o más) como repuesto si un día falla la capa de
   su servicio de visualización. Y poner la isla a los de Baleares y La Gomera: en un año no ha salido
   ninguno con su sufijo, y no se sabe cómo lo escribe el IGN.

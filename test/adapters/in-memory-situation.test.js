@@ -24,6 +24,17 @@ test('vehículos y sucesos sólo de las fuentes activas con datos, con el id de 
   assert.deepEqual(s.metrics(), { ree: { demanda: 25_000 } });
 });
 
+test('una fuente de vehículos también puede dar sucesos (los viajes que su tiempo real cancela)', () => {
+  const s = createInMemorySituation();
+  s.registerSource(source('euskotren', 'vehicles'), { enabled: true });
+  s.registerSource(source('amb', 'vehicles'), { enabled: false, reason: 'sin clave' });
+  s.saveResult('euskotren', { vehicles: [{ id: 'euskotren:1' }], events: [{ id: 'euskotren-cancelado:T1' }] }, 1000, 5);
+  s.saveResult('amb', { vehicles: [], events: [{ id: 'amb-cancelado:T1' }] }, 1000, 5);
+  assert.deepEqual(s.events(), [{ id: 'euskotren-cancelado:T1', source: 'euskotren' }], 'de las activas');
+  assert.deepEqual(s.vehicles(), [{ id: 'euskotren:1', source: 'euskotren' }]);
+  assert.equal(s.health().find((h) => h.id === 'euskotren').count, 1, 'cuenta sus vehículos');
+});
+
 test('la salud de cada fuente: última lectura buena, último fallo y cuántos datos trajo', () => {
   const s = createInMemorySituation();
   s.registerSource(source('renfe', 'vehicles'), { enabled: true });

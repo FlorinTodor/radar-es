@@ -12,10 +12,12 @@ export function createInMemorySituation() {
   let kpis = null;
   const kpiHistory = [];
 
+  // Los vehículos, de las fuentes de vehículos; las incidencias, de cualquiera que las dé: las de horario
+  // con tiempo real (Euskotren, AMB) dan también los viajes cancelados de su feed.
   const collect = (kind, key) => {
     const out = [];
     for (const { meta, data, status } of sources.values()) {
-      if (meta.kind === kind && data && status.enabled) for (const item of data[key]) out.push({ ...item, source: meta.id });
+      if ((meta.kind === kind || key === 'events') && data?.[key] && status.enabled) for (const item of data[key]) out.push({ ...item, source: meta.id });
     }
     return out;
   };

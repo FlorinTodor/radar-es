@@ -1,6 +1,7 @@
 // Adaptador de entrada temporizado: igual que la API HTTP dispara casos de uso cuando
 // llega una petición, éste los dispara según el reloj: la lectura de cada fuente según su
-// intervalo, la detección de alertas y la recarga de los catálogos estáticos.
+// intervalo, la detección de alertas, la recarga de los catálogos estáticos y la copia del historial
+// de posiciones.
 const FIRST_RETRY_MS = 30_000;
 const MIN_RETRY_CAP_MS = 10 * 60_000;
 // Cada evaluación de alertas recorre todos los vehículos: tras una lectura se espera un poco por si
@@ -10,6 +11,8 @@ const DETECT_HEARTBEAT_MS = 30_000; // las alertas dependen del tiempo transcurr
 // Cada hora: si están al día no cuesta nada, y lo que falló la vez anterior (una red de líneas, las
 // fotos de las estaciones) se reintenta pronto. Cada catálogo decide cuándo renovarse entero.
 const CATALOG_REFRESH_MS = 3600_000;
+// La copia del historial de posiciones: lo que se pierde en un despliegue es, como mucho, esto.
+const TRACKS_SAVE_MS = 60_000;
 
 /**
  * Espera hasta la siguiente lectura. Si la fuente ha fallado, se reintenta pronto (30 s, 1, 2,
@@ -24,12 +27,13 @@ export function nextDelay(interval, failures) {
 /**
  * @param {{ feeds: Array<{ id: string, interval: number }>,
  *           ingestSource: (id: string) => Promise<boolean>,
- *           detectAlerts: () => unknown, refreshCatalogs?: () => Promise<unknown>,
+ *           detectAlerts: () => unknown, refreshCatalogs?: () => Promise<unknown>, saveTracks?: () => Promise<unknown>,
  *           log: import('../../../application/ports.js').LoggerPort }} deps
  *   feeds: qué fuentes leer y cada cuánto (ms). El planificador sólo conoce su id: leerlas es
  *   cosa del caso de uso ingestSource.
+ *   saveTracks: guarda el historial de posiciones (caso de uso keep-tracks), cada minuto.
  */
-export function startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, log }) {
+export function startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, saveTracks, log }) {
   const timers = new Map();
   let pending = null;
   let stopped = false;
@@ -68,12 +72,20 @@ export function startPolling({ feeds, ingestSource, detectAlerts, refreshCatalog
   const catalogs = refreshCatalogs && setInterval(() => {
     Promise.resolve().then(refreshCatalogs).catch((err) => log.warn(`[catálogos] ${err.message}`));
   }, CATALOG_REFRESH_MS);
+  // Si una copia tarda más de un minuto (un disco lento), no se empieza otra encima.
+  let saving = false;
+  const tracksTimer = saveTracks && setInterval(() => {
+    if (saving) return;
+    saving = true;
+    Promise.resolve().then(saveTracks).catch((err) => log.warn(`[estelas] ${err.message}`)).finally(() => { saving = false; });
+  }, TRACKS_SAVE_MS);
 
   return {
     stop() {
       stopped = true;
       clearInterval(heartbeat);
       clearInterval(catalogs);
+      clearInterval(tracksTimer);
       clearTimeout(pending);
       for (const t of timers.values()) clearTimeout(t);
     },

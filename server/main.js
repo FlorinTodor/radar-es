@@ -9,6 +9,7 @@ import { makeQuerySituation } from './application/use-cases/query-situation.js';
 import { makeServeTiles } from './application/use-cases/serve-tiles.js';
 import { makeRefreshCatalogs } from './application/use-cases/refresh-catalogs.js';
 import { makeLinesOnRail } from './application/use-cases/lines-on-rail.js';
+import { makeKeepTracks } from './application/use-cases/keep-tracks.js';
 import { createHttpClient } from './adapters/outbound/http/http-client.js';
 import { createFileCache } from './adapters/outbound/http/file-cache.js';
 import { createConsoleLogger } from './adapters/outbound/logging/console-logger.js';
@@ -22,6 +23,7 @@ import { createAdifRailNetwork } from './adapters/outbound/network/adif-rail-net
 import { createIgnRailNetwork } from './adapters/outbound/network/ign-rail-network.js';
 import { createInMemorySituation } from './adapters/outbound/persistence/in-memory-situation.js';
 import { createJsonlHistory } from './adapters/outbound/persistence/jsonl-history.js';
+import { createTrackStore } from './adapters/outbound/persistence/track-store.js';
 import { createSources } from './adapters/outbound/sources/index.js';
 import { startPolling } from './adapters/inbound/scheduler/polling-scheduler.js';
 import { createHttpServer } from './adapters/inbound/http/http-server.js';
@@ -60,6 +62,7 @@ const network = assertPort('NetworkCatalog',
   makeLinesOnRail({ network: createGtfsNetworkCatalog({ nap, cache, cacheDir, log, pool }), railGeometry }), PORT_MEMBERS.NetworkCatalog);
 const situation = assertPort('SituationRepository', createInMemorySituation(), PORT_MEMBERS.SituationRepository);
 const history = assertPort('History', createJsonlHistory({ dir: new URL('history/', config.dataDir), log }), PORT_MEMBERS.History);
+const trackStore = assertPort('TrackStore', createTrackStore({ cache }), PORT_MEMBERS.TrackStore);
 const tiles = assertPort('TileProvider', createWmsTiles({ http, dir: fileURLToPath(new URL('tiles/', config.dataDir)), log }), PORT_MEMBERS.TileProvider);
 
 // Sitúa los municipios que citan los avisos del 112 (no traen coordenadas). No es un puerto de la
@@ -85,12 +88,16 @@ const detectAlerts = makeDetectAlerts({ situation, stations, history, clock });
 const query = makeQuerySituation({ situation, stations, networkStations, network, clock, sources, railNetwork });
 const serveTiles = makeServeTiles({ tiles });
 const refreshCatalogs = makeRefreshCatalogs({ stations, networkStations, network, railNetwork, railGeometry, log });
+const keepTracks = makeKeepTracks({ situation, store: trackStore, clock, log });
 
 // --- Adaptadores de entrada ------------------------------------------------
 await refreshCatalogs(); // espera a las estaciones; los trazados y la red ferroviaria siguen cargándose detrás
+// Justo antes de la primera lectura: en un relevo, el servidor anterior sigue en marcha y guardando
+// su copia cada minuto, así que la estela de cada tren sigue sin hueco (o casi).
+await keepTracks.restore().catch((err) => log.warn(`[estelas] no se pudo recuperar el historial: ${err.message}`));
 
 const feeds = enabledSources.map(({ id, interval }) => ({ id, interval }));
-const scheduler = startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, log });
+const scheduler = startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, saveTracks: keepTracks.save, log });
 
 const server = createHttpServer({
   query,
@@ -124,7 +131,8 @@ function shutdown() {
   metrics.close();
   pool.close();
   if (xmlPool !== pool) xmlPool.close();
-  server.close(() => process.exit(0));
+  // Lo último que se guarda: el historial de posiciones, para que el siguiente arranque lo siga.
+  keepTracks.save().catch((err) => log.warn(`[estelas] ${err.message}`)).finally(() => server.close(() => process.exit(0)));
   setTimeout(() => process.exit(0), 3000).unref();
 }
 process.on('SIGINT', shutdown);
