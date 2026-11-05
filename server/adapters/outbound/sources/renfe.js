@@ -9,6 +9,8 @@ import { madridDateTime, madridToday, num } from './parse.js';
 import { distanceKm } from '../../../domain/geo.js';
 import { gtfsTimeToSeconds } from '../../../domain/schedule.js';
 import { tripStopList } from '../../../domain/trip-stops.js';
+import { cancellationEvent, tripChanges } from '../../../domain/cancelaciones.js';
+import { createSeenStore } from '../persistence/seen-store.js';
 
 const GTFSRT = 'https://gtfsrt.renfe.com';
 // Una estación con andenes largos no pasa de unos cientos de metros: «parado» más lejos que esto de
@@ -46,6 +48,11 @@ const PRODUCTS = {
 const product = (short) => PRODUCTS[(short ?? '').toUpperCase()] ?? [short || 'Renfe', 'ld'];
 
 const madridIso = (epochSec) => madridDateTime(epochSec * 1000);
+/** Número de un tren de AV/LD/MD por su viaje: «0029112026-11-05» (y su variante «…2…») y los
+ * especiales que añade el tiempo real («SPECIAL_9074720261105») → «00291», «90747». */
+export const ldNumber = (tripId) => /^(\d{5})\d\d{4}-\d{2}-\d{2}$/.exec(tripId)?.[1] ?? /^SPECIAL_(\d{5})/.exec(tripId)?.[1] ?? tripId;
+/** Número de un tren de Cercanías por su viaje: «1002V20109C3», «4008J31413C3» → «20109», «31413». */
+export const cercaniasNumber = (tripId) => /^\d{4}[A-Z](\d{5})/.exec(tripId)?.[1] ?? null;
 
 /** Horarios oficiales de Renfe, cargados una vez al día y compartidos por las dos fuentes. */
 export function createTimetables({ cache, stations, log }) {
@@ -53,6 +60,9 @@ export function createTimetables({ cache, stations, log }) {
   let ldByNumber = new Map(); // número de tren → lo mismo, del periodo vigente
   let cerc = new Map(); // trip_id → { line, origin, destination, shape, end, stops }
   let cercStops = new Map(); // stop_id → { name, at: [lon, lat] }, del stops.txt de Cercanías
+  let cercKey = null; // huella del GTFS de Cercanías cargado (ver zipKey)
+  let cercTimes = new Map(); // viaje → hora de sus paradas, de los pedidos por cercaniasTimes (null: no se sabe)
+  let cercTimesKey = null; // de qué GTFS son
   const loadedAt = { ld: 0, cerc: 0 };
   // Las dos fuentes de Renfe piden los horarios a la vez al arrancar: mientras una carga está en
   // marcha, las demás llamadas esperan a esa misma en vez de leer otra vez el GTFS en paralelo.
@@ -128,6 +138,7 @@ export function createTimetables({ cache, stations, log }) {
     loadedAt.cerc = Date.now();
     try {
       const zip = await cache.bytes(RENFE_FILES.cercanias, 'renfe-fomento_transit.zip', TIMETABLE_TTL_MS);
+      const key = zipKey(zip);
       const f = await openGtfs(zip, ['routes.txt', 'trips.txt', 'stops.txt']);
       const routes = new Map();
       // route_type 3: autobuses de Renfe por carretera (la C2 de Murcia a Águilas, Caudiel-Puçol…), no trenes.
@@ -171,9 +182,34 @@ export function createTimetables({ cache, stations, log }) {
         next.set(own(tripId), trip);
       }
       cerc = next;
+      cercKey = key;
     } catch (err) {
       log.warn(`[renfe] horarios de Cercanías: ${err.message}`);
     }
+  }
+
+  /**
+   * Hora de cada parada de unos viajes de Cercanías en su horario (como stopTimes), para los que Renfe
+   * cancela o a los que suprime paradas. Se lee de disco sólo la primera vez que se pide cada viaje; los
+   * que dejan de pedirse se olvidan.
+   * @param {string[]} tripIds @returns {Promise<Map<string, Int32Array|null>>}
+   */
+  async function cercaniasTimes(tripIds) {
+    if (cercTimesKey !== cercKey) {
+      cercTimes = new Map();
+      cercTimesKey = cercKey;
+    }
+    const missing = tripIds.filter((id) => !cercTimes.has(id));
+    if (missing.length) {
+      const found = await savedCercaniasTimes(cache, cercKey, missing).catch((err) => {
+        log.warn(`[renfe] horas de los viajes de Cercanías: ${err.message}`);
+        return new Map();
+      });
+      for (const id of missing) cercTimes.set(id, found.get(id) ?? null);
+    }
+    const wanted = new Set(tripIds);
+    for (const id of cercTimes.keys()) if (!wanted.has(id)) cercTimes.delete(id);
+    return new Map(tripIds.map((id) => [id, cercTimes.get(id) ?? null]));
   }
 
   return {
@@ -184,6 +220,7 @@ export function createTimetables({ cache, stations, log }) {
     ldExact: (id) => ld.has(id),
     cercanias: (id) => cerc.get(id),
     cercaniasStop: (id) => cercStops.get(id),
+    cercaniasTimes,
   };
 }
 
@@ -197,15 +234,22 @@ export function routeEnds(longName) {
   return { origin: origin?.trim() || null, destination: destination?.trim() || null };
 }
 
-const STOPS_CACHE = 'renfe-cercanias-paradas.v8';
+// v9: la misma pasada guarda también la hora de cada viaje (TIMES_CACHE).
+const STOPS_CACHE = 'renfe-cercanias-paradas.v9';
+// La hora de cada viaje de Cercanías en el horario, aparte: no se tiene en memoria (140.000 viajes) y sólo
+// se lee para los que Renfe cancela o a los que suprime paradas (ver cercaniasTimes).
+const TIMES_CACHE = 'renfe-cercanias-horas.v1';
+/** Huella del GTFS de Cercanías: sus cachés valen mientras Renfe no publique otro. */
+const zipKey = (zip) => `${zip.byteLength}|${zipLocalDate(zip)}`;
 
 /**
  * Las paradas de cada viaje, guardadas en disco con la huella del GTFS del que salen: leer el
  * stop_times cuesta minutos en el servidor al arrancar (compite con la carga de todos los demás
  * horarios), y sólo cambia cuando Renfe publica un horario nuevo. Sin caché (tests), se calculan.
+ * En la misma pasada se guarda la hora de cada viaje (TIMES_CACHE).
  */
 async function cachedTripStops(cache, zip, pace) {
-  const key = `${zip.byteLength}|${zipLocalDate(zip)}`;
+  const key = zipKey(zip);
   const saved = await cache.readValue?.(STOPS_CACHE);
   if (saved?.key === key) {
     const patterns = saved.patterns.map((stops, id) => Object.assign(stops, { id }));
@@ -213,15 +257,36 @@ async function cachedTripStops(cache, zip, pace) {
     for (let i = 0; i < saved.trips.length; i += 2) byTrip.set(saved.trips[i], patterns[saved.trips[i + 1]]);
     return byTrip;
   }
-  const byTrip = await tripStops(zip, pace);
+  const { byTrip, times } = await tripStops(zip, pace);
   const patterns = [];
   const trips = [];
   for (const [tripId, stops] of byTrip) {
     patterns[stops.id] ??= [...stops];
     trips.push(tripId, stops.id);
   }
+  await cache.writeValue?.(TIMES_CACHE, { key, ...times });
   await cache.writeValue?.(STOPS_CACHE, { key, patterns, trips });
   return byTrip;
+}
+
+/**
+ * Hora de cada parada de unos viajes de Cercanías en el horario (segundos del día de servicio, como en
+ * stopTimes; -1 donde no la trae), de lo guardado en TIMES_CACHE para el GTFS con huella `key`.
+ * @returns {Promise<Map<string, Int32Array>>}  sólo los que se encuentran
+ */
+async function savedCercaniasTimes(cache, key, tripIds) {
+  const out = new Map();
+  const saved = key ? await cache.readValue?.(TIMES_CACHE) : null;
+  if (saved?.key !== key || !Array.isArray(saved.trips)) return out;
+  const wanted = new Set(tripIds);
+  for (let i = 0; i < saved.trips.length && out.size < wanted.size; i++) {
+    if (!wanted.has(saved.trips[i])) continue;
+    const profile = saved.profiles[saved.profile[i]];
+    const dep = saved.dep[i];
+    if (!profile || dep < 0) continue;
+    out.set(saved.trips[i], Int32Array.from(profile, (offset) => (offset >= 0 ? dep + offset : -1)));
+  }
+  return out;
 }
 
 /**
@@ -253,12 +318,19 @@ function stopTimes(rows) {
  * Paradas de cada viaje, en orden, leyendo el stop_times (290 MB en Cercanías) por trozos. Los
  * 138.000 viajes repiten unas 640 secuencias: cada una se guarda una vez, con su número en `id`.
  * Un viaje cuyas filas no vienen seguidas (el GTFS no lo exige, aunque Renfe lo hace) se descarta.
- * @returns {Promise<Map<string, string[] & { id: number }>>}
+ * También la hora de cada viaje: la de salida y su «perfil» (lo que tarda hasta cada parada), que
+ * comparten los viajes de una misma línea y recorrido; así caben todos en poco más de un megabyte.
+ * @returns {Promise<{ byTrip: Map<string, string[] & { id: number }>,
+ *   times: { trips: string[], dep: Int32Array, profile: Int32Array, profiles: Int32Array[] } }>}
  */
 async function tripStops(zip, pace) {
   const byTrip = new Map();
   const patterns = new Map();
   const broken = new Set();
+  const profiles = new Map(); // «0,300,540…» → número de perfil
+  const tripIds = [];
+  const deps = [];
+  const profileOf = [];
   let trip = null;
   let rows = [];
   const close = () => {
@@ -271,20 +343,40 @@ async function tripStops(zip, pace) {
       stops = Object.assign(rows.map((r) => own(r[1])), { id: patterns.size });
       patterns.set(key, stops);
     }
-    byTrip.set(own(trip), stops);
+    const tripKey = own(trip);
+    byTrip.set(tripKey, stops);
+    // Como en stopTimes: la de salida en la primera parada y la de llegada en las demás.
+    const times = rows.map((r, i) => gtfsTimeToSeconds(i === 0 ? r[3] || r[2] : r[2] || r[3]) ?? -1);
+    const dep = times[0];
+    const offsets = times.map((t) => (t >= 0 && dep >= 0 ? t - dep : -1)).join(',');
+    let profile = profiles.get(offsets);
+    if (profile === undefined) profiles.set(offsets, (profile = profiles.size));
+    tripIds.push(tripKey);
+    deps.push(dep);
+    profileOf.push(profile);
   };
-  for await (const [tripId, stopId, seq] of csvColumnsStreamed(zip, 'stop_times.txt', ['trip_id', 'stop_id', 'stop_sequence'])) {
+  const columns = ['trip_id', 'stop_id', 'stop_sequence', 'arrival_time', 'departure_time'];
+  for await (const [tripId, stopId, seq, arrival, departure] of csvColumnsStreamed(zip, 'stop_times.txt', columns)) {
     if (pace.due()) await pace.pause();
     if (tripId !== trip) {
       close();
       trip = tripId;
       rows = [];
     }
-    rows.push([+seq, stopId]);
+    rows.push([+seq, stopId, arrival, departure]);
   }
   close();
   for (const t of broken) byTrip.delete(t);
-  return byTrip;
+  const keep = tripIds.map((t, i) => (broken.has(t) ? -1 : i)).filter((i) => i >= 0);
+  return {
+    byTrip,
+    times: {
+      trips: keep.map((i) => tripIds[i]),
+      dep: Int32Array.from(keep, (i) => deps[i]),
+      profile: Int32Array.from(keep, (i) => profileOf[i]),
+      profiles: [...profiles.keys()].map((offsets) => Int32Array.from(offsets.split(','), Number)),
+    },
+  };
 }
 
 /**
@@ -629,46 +721,114 @@ export function createRenfeSources({ http, cache, stations, log }) {
     },
   };
 
-  /** Trenes de Cercanías/Rodalies que el GTFS-RT marca como cancelados (sin posición: sólo la línea). */
-  function cancellations(feed) {
-    const events = [];
-    for (const e of feed?.entity ?? []) {
-      const trip = e.tripUpdate?.trip;
-      if (trip?.scheduleRelationship !== 'CANCELED' || !trip.tripId) continue;
-      const route = timetables.cercanias(trip.tripId);
-      if (!route) continue; // viaje que no está en el horario vigente
-      const number = /^\d+V(\d+)/.exec(trip.tripId)?.[1] ?? trip.tripId; // "1002V20109C3" → 20109
-      const network = /^R/i.test(route.line ?? '') ? 'Rodalies' : 'Cercanías';
-      events.push({
-        id: `renfe-cancelado:${trip.tripId}`,
-        category: 'ferroviario',
-        type: 'cancelacion',
-        severity: 'alta',
-        title: `${network} ${route.line ?? ''} · ${route.bus ? 'autobús' : 'tren'} ${number} cancelado`.replace(/\s+/g, ' '),
-        description: `Renfe marca el ${route.bus ? 'autobús' : 'tren'} como cancelado. Línea ${[route.origin, route.destination].filter(Boolean).join(' – ')}.`,
-        lat: null,
-        lon: null,
-        start: null,
-      });
-    }
-    return events;
+  // Cancelaciones y paradas suprimidas: desde cuándo las ve el radar (Renfe no dice cuándo las publica).
+  const seenStore = createSeenStore({ cache, name: 'renfe-cancelaciones-vistas.v1' });
+  // Las de la última lectura buena de cada feed y su hora: si uno falla, se siguen mostrando (hasta una
+  // hora después de leerlas: ver domain/cancelaciones.js) y no se olvida desde cuándo se ven.
+  const lastCancellations = { cercanias: { list: [], at: 0 }, ld: { list: [], at: 0 } };
+
+  /**
+   * Paradas de un viaje (códigos) con su nombre, su posición y su hora del horario, y las que Renfe suprime.
+   * @param {string[]} codes @param {Int32Array|null} times @param {Set<string>} skipped
+   * @param {(code: string) => { name: string, at: number[] } | undefined} [fallback]
+   */
+  function cancelledStops(codes, times, skipped, fallback) {
+    const withTimes = times?.length === codes.length ? times : null;
+    return codes.map((code, i) => {
+      const st = stations.get(code);
+      const placed = Number.isFinite(st?.lat) && Number.isFinite(st?.lon);
+      const other = placed ? null : fallback?.(code);
+      return {
+        name: st?.name ?? other?.name ?? stations.name(code) ?? code,
+        code,
+        at: placed ? [st.lon, st.lat] : other?.at ?? null,
+        time: withTimes && withTimes[i] >= 0 ? withTimes[i] : null,
+        skipped: skipped.has(code),
+      };
+    });
+  }
+  /** Lo común a las cancelaciones de un viaje de Renfe a partir de lo que dice su tiempo real. */
+  function renfeCancellation(c, codes, times, fallback) {
+    const skipped = new Set(c.skipped.map((s) => s.stopId).filter(Boolean));
+    return {
+      cancelled: c.cancelled,
+      running: c.running,
+      date: c.startDate,
+      stops: codes?.length ? cancelledStops(codes, times, skipped, fallback) : null,
+      skippedNames: [...skipped].filter((code) => !codes?.includes(code)).map((code) => stations.name(code) ?? fallback?.(code)?.name ?? code),
+      operator: 'Renfe',
+      publisher: 'Renfe',
+      credit: ATTRIBUTION,
+    };
+  }
+
+  /** Trenes de Cercanías/Rodalies (y autobuses de Renfe) cancelados o con paradas suprimidas. */
+  async function cercaniasCancellations(feed) {
+    // Los que no están en el horario vigente no se muestran: no se sabría ni su línea.
+    const changes = [...tripChanges(feed)].filter(([tripId]) => timetables.cercanias(tripId));
+    const times = await timetables.cercaniasTimes(changes.map(([tripId]) => tripId));
+    return changes.map(([tripId, c]) => {
+      const route = timetables.cercanias(tripId);
+      const number = cercaniasNumber(tripId);
+      const network = route.bus ? 'Autobús de Renfe' : /^R/i.test(route.line ?? '') ? 'Rodalies' : 'Cercanías';
+      return {
+        id: `renfe-cancelado:${tripId}`,
+        ...renfeCancellation(c, route.stops, times.get(tripId), timetables.cercaniasStop),
+        who: [network, route.line, number].filter(Boolean).join(' '),
+        mode: route.bus ? 'bus' : 'cercanias',
+        service: network,
+        line: route.line ?? null,
+        number,
+        origin: route.origin ?? null,
+        destination: route.destination ?? null,
+        feed: 'GTFS-RT de Cercanías y Rodalies',
+        feedUrl: `${GTFSRT}/trip_updates.json`,
+      };
+    });
+  }
+
+  /** Trenes de AV/LD/MD cancelados o con paradas suprimidas: uno por número (cada tren va en dos viajes). */
+  function ldCancellations(feed) {
+    return [...tripChanges(feed, ldNumber)].map(([number, c]) => {
+      const trip = c.tripIds.map((tripId) => timetables.ld(tripId, number)).find(Boolean) ?? null;
+      return {
+        id: `renfe-cancelado:ld:${number}`,
+        ...renfeCancellation(c, trip?.stops ?? null, trip?.times ?? null),
+        who: `${trip?.service ?? 'Tren'} ${number}`,
+        mode: trip?.mode ?? 'ld',
+        service: trip?.service ?? null,
+        line: null,
+        number,
+        origin: trip?.origin ?? null,
+        destination: trip?.destination ?? null,
+        feed: 'GTFS-RT de Alta Velocidad, Larga y Media Distancia',
+        feedUrl: `${GTFSRT}/trip_updates_LD.json`,
+      };
+    });
   }
 
   const avisos = {
     id: 'renfe-avisos',
-    name: 'Renfe avisos de servicio y trenes de Cercanías cancelados (GTFS-RT)',
+    name: 'Renfe avisos de servicio, trenes cancelados y paradas suprimidas (GTFS-RT)',
     kind: 'events',
     interval: 120_000,
     url: `${GTFSRT}/alerts.json`,
     page: 'https://data.renfe.com/dataset/incidencias-avisos',
     license: ATTRIBUTION,
     async fetch() {
-      await timetables.loadCercanias();
-      const [alerts, updates] = await Promise.allSettled([http.json(this.url), http.json(`${GTFSRT}/trip_updates.json`)]);
-      if (alerts.status === 'rejected' && updates.status === 'rejected') throw alerts.reason;
+      await Promise.all([timetables.loadCercanias(), timetables.loadLd()]);
+      const [alerts, updates, updatesLd] = await Promise.allSettled([
+        http.json(this.url), http.json(`${GTFSRT}/trip_updates.json`), http.json(`${GTFSRT}/trip_updates_LD.json`),
+      ]);
+      if ([alerts, updates, updatesLd].every((r) => r.status === 'rejected')) throw alerts.reason;
       const d = alerts.status === 'fulfilled' ? alerts.value : null;
-      const now = Date.now() / 1000;
-      const events = updates.status === 'fulfilled' ? cancellations(updates.value) : [];
+      const readAt = Date.now();
+      const now = readAt / 1000;
+      if (updates.status === 'fulfilled') lastCancellations.cercanias = { list: await cercaniasCancellations(updates.value), at: readAt };
+      if (updatesLd.status === 'fulfilled') lastCancellations.ld = { list: ldCancellations(updatesLd.value), at: readAt };
+      const found = [lastCancellations.cercanias, lastCancellations.ld].flatMap(({ list, at }) => list.map((c) => ({ c, at })));
+      const since = await seenStore.stamp(found.map(({ c }) => c.id));
+      const events = found.map(({ c, at }) => cancellationEvent({ ...c, ...since(c.id) }, at));
       for (const e of d?.entity ?? []) {
         const a = e.alert;
         if (!a) continue;
@@ -693,7 +853,8 @@ export function createRenfeSources({ http, cache, stations, log }) {
           end: periods[0]?.end ? +periods[0].end * 1000 : null,
         });
       }
-      return { events, sourceTime: freshest(d, updates.status === 'fulfilled' ? updates.value : null) };
+      const fresh = (r) => (r.status === 'fulfilled' ? r.value : null);
+      return { events, sourceTime: freshest(d, fresh(updates), fresh(updatesLd)) };
     },
   };
 
