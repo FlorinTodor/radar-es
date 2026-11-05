@@ -625,7 +625,19 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Posiciones estimadas a partir del horario donde no hay GPS (Ouigo, ALSA y una docena de redes de
   metro y tranvía), con el retraso real cuando el operador lo publica. Se dibujan con la placa hueca.
 - Autobuses de varias ciudades y operadores.
-- Rodalies: trenes cancelados y avisos de servicio.
+- Avisos de servicio de Renfe y Rodalies.
+- Trenes y autobuses cancelados o con paradas suprimidas: los de Renfe (Cercanías, Rodalies, Alta
+  Velocidad, Larga y Media Distancia), Euskotren y AMB, y las paradas que suprimen los desvíos de
+  AUVASA y EMT Málaga. Cada uno en su origen o en la primera parada suprimida, con su horario, quién lo
+  publica y en qué fichero, el aviso del operador que lo explica si lo hay (el que nombra el tren y los
+  de su línea) y desde cuándo lo ve el radar, porque las fuentes no dicen cuándo lo publicaron. Si el
+  operador deja de publicarlo, sigue desvaído hasta medianoche con la hora a la que lo retiró. También
+  en la ficha de cada estación por la que pasaba y en el servidor MCP. Los viajes que Euskotren y AMB
+  cancelan ya no se dibujan como si circularan.
+- Trenes sin datos: los de Alta Velocidad, Larga y Media Distancia que según su horario deberían estar
+  circulando y de los que Renfe no publica nada (ni posición, ni retraso, ni cancelación). Salen en gris,
+  aparte de las cancelaciones, en la última estación por la que deberían haber pasado: no se sabe si
+  circulan.
 - Contexto y emergencias: incidencias de tráfico y obras en carretera (capas separadas), avisos
   meteorológicos, focos de calor por satélite, áreas quemadas con su ficha, terremotos, alertas
   de catástrofes y demanda eléctrica.
@@ -674,6 +686,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Ficha de cada tren, con la vía de la estación en la que para o a la que llega.
 - Recorrido de los últimos 45 minutos del tren seleccionado y, como capa opcional, la estela de
   todos los trenes.
+- El recorrido reciente y la estela de cada tren siguen tras cada versión nueva de la web: ya no
+  empiezan de cero en cada despliegue.
 - En Cercanías, metro y tranvía, el recorrido va pegado a la vía de su línea, con sus curvas.
 - En Alta Velocidad, Larga y Media Distancia, el recorrido también va por la vía, con la red
   ferroviaria que publica Adif: aunque el tren pase un rato sin dar su posición (túneles, zonas sin
@@ -795,6 +809,7 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   «Todas · Ninguna», la leyenda plegada y las preferencias guardadas en el navegador.
 - Aviso al entrar sobre los datos públicos que todavía faltan.
 - Páginas que explican cada parte del mapa y versión en inglés.
+- Sin avisos en la consola del navegador por los iconos que pide el mapa base y no trae.
 - Se puede instalar en el móvil como una app, desde Chrome o Safari («Añadir a pantalla de inicio»).
 - Preparada para los buscadores: título y descripción a medida en cada página (sin que Google las
   corte), sitemap con la fecha de cada cambio y datos estructurados del sitio y de su autor.
@@ -818,6 +833,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   servidor MCP responden, el tráfico y los errores por ruta, el uso de cada herramienta MCP, el estado
   de cada fuente, la memoria y los registros. Sólo cuenta, sin guardar quién pregunta.
 - Directo servido desde caché, preparado para picos de muchas visitas a la vez.
+- Un fichero de tiempo real que llega mal formado ya no se pierde entero: se usa todo lo que se puede
+  leer (le pasaba a ratos al de Euskotren). Uno que llega vacío lo dice así en el estado de su fuente.
 - Respuestas de la API calculadas una sola vez y compartidas entre todas las visitas.
 - Arranque sin bloquear el servidor mientras carga los horarios de más de cien redes, y menos
   memoria al leerlos. Los horarios más grandes se leen por partes, sin cargarlos enteros.
@@ -944,10 +961,13 @@ Ninguna por ahora.
   - incidencias de Adif por tramo, si llegan a publicarse con licencia de reutilización (hoy su web
     responde 403; ver *Pendiente y conocido*);
   - posiciones reales de Iryo, si las publica (hoy no publica nada).
-- Que la línea discontinua de cada tren (por dónde ha pasado en los últimos 45 minutos) no empiece de
-  cero con cada versión nueva: el historial de posiciones está en memoria y se pierde al cambiar de
-  contenedor (el 4-nov-2026, todas empezaban a la hora del despliegue). Guardar una copia cada poco y
-  recuperarla al arrancar.
+- Cancelaciones de Metro Bilbao y de los autobuses de Euskadi cuando las publiquen: ya publican el
+  tiempo real de sus viajes, pero hasta ahora sin ninguna cancelación. Las paradas suprimidas de EMT
+  Fuenlabrada, cuando su dato sea fiable (marca como suprimidas paradas por las que el autobús ya ha
+  pasado).
+- Trenes sin datos también en Cercanías y Rodalies.
+- Pedir a Renfe que publique la posición de todos sus trenes de Alta Velocidad, Larga y Media
+  Distancia: la tarde del 5-nov-2026 faltaba la de unos 80 de 200, casi la mitad en el eje de Andalucía.
 - Terremotos: leer el RSS del IGN (los de magnitud 2,6 o más) como repuesto si un día falla la capa de
   su servicio de visualización. Y poner la isla a los de Baleares y La Gomera: en un año no ha salido
   ninguno con su sufijo, y no se sabe cómo lo escribe el IGN.
