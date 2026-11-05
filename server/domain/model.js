@@ -3,7 +3,7 @@
 /**
  * @typedef {'av'|'ld'|'md'|'cercanias'|'metro'|'tranvia'|'bus'|'otros'} Mode
  * @typedef {'baja'|'media'|'alta'|'muy alta'} Severity
- * @typedef {'ferroviario'|'carretera'|'sismo'|'meteo'|'incendio'|'catastrofe'|'emergencia'} EventCategory
+ * @typedef {'ferroviario'|'cancelacion'|'carretera'|'sismo'|'meteo'|'incendio'|'catastrofe'|'emergencia'} EventCategory
  */
 
 /**
@@ -70,7 +70,16 @@
  * @property {string} [credit]   Atribución que pide la licencia de su fuente, para mostrarla junto al dato.
  * @property {number} [expires]  Epoch ms a partir del cual deja de estar en vigor aunque su fuente no
  *   vuelva a responder (avisos oficiales: lo que dura uno sin noticias de su fin, ver domain/emergencias.js;
- *   terremotos: dos días, domain/sismos.js; tráfico: su fin o una hora sin leerlo, domain/carreteras.js).
+ *   terremotos: dos días, domain/sismos.js; tráfico: su fin o una hora sin leerlo, domain/carreteras.js;
+ *   cancelaciones: una hora sin leerla, domain/cancelaciones.js).
+ * @property {object} [trip]     Cancelaciones (category 'cancelacion', type 'cancelado' o 'parcial'): el viaje,
+ *   con su operador, producto, línea, número, origen, destino, día (si la fuente lo da), salida y llegada y la
+ *   hora de cada parada según el horario, las paradas suprimidas, quién lo publica y en qué fichero (ver
+ *   domain/cancelaciones.js, cancellationEvent).
+ * @property {number} [seen]     Cancelaciones: epoch ms en que el radar la vio por primera vez (sus fuentes no
+ *   dicen cuándo la publicaron).
+ * @property {boolean} [seenAtStart]  Ya estaba en la primera lectura de su fuente tras arrancar el radar: pudo
+ *   publicarse antes de `seen`.
  */
 
 /**
