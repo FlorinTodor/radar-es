@@ -188,24 +188,26 @@ export function stationarySince(track, radiusKm) {
 const PACKED_COLUMNS = 6; // t, lat, lon, delay, seen, fix
 
 /**
- * El historial de los vehículos que diga `keep(id)`, en arrays tipados.
- * @param {ReadonlyMap<string, readonly TrackPoint[]>} tracks
- * @param {(id: string) => boolean} keep
+ * El historial de unos vehículos ([id, historial]), en arrays tipados. Quien guarda miles los puede dar por
+ * partes y juntarlas después (joinPacked), para no parar el servidor mientras tanto.
+ * @param {Iterable<[string, readonly TrackPoint[]]>} entries
  * @returns {{ ids: string[], lengths: Uint32Array, points: Float64Array }}
  */
-export function packTracks(tracks, keep) {
+export function packTracks(entries) {
   const ids = [];
+  const tracks = [];
   let total = 0;
-  for (const [id, track] of tracks) {
-    if (!track.length || !keep(id)) continue;
+  for (const [id, track] of entries) {
+    if (!track.length) continue;
     ids.push(id);
+    tracks.push(track);
     total += track.length;
   }
   const lengths = new Uint32Array(ids.length);
   const points = new Float64Array(total * PACKED_COLUMNS);
   let k = 0;
   for (let i = 0; i < ids.length; i++) {
-    const track = tracks.get(ids[i]);
+    const track = tracks[i];
     lengths[i] = track.length;
     for (const p of track) {
       points[k++] = p.t;
@@ -215,6 +217,23 @@ export function packTracks(tracks, keep) {
       points[k++] = p.seen ?? NaN;
       points[k++] = p.fix ?? NaN;
     }
+  }
+  return { ids, lengths, points };
+}
+
+/** Junta en uno lo empaquetado por partes con packTracks. */
+export function joinPacked(parts) {
+  const lengths = new Uint32Array(parts.reduce((n, p) => n + p.lengths.length, 0));
+  const points = new Float64Array(parts.reduce((n, p) => n + p.points.length, 0));
+  const ids = [];
+  let l = 0;
+  let k = 0;
+  for (const p of parts) {
+    for (const id of p.ids) ids.push(id);
+    lengths.set(p.lengths, l);
+    points.set(p.points, k);
+    l += p.lengths.length;
+    k += p.points.length;
   }
   return { ids, lengths, points };
 }
