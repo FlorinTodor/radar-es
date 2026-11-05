@@ -5,6 +5,9 @@ import { headingAlong, matchTrack, pathBetween } from './track-match.js';
 import { STOP_SPACE_PX, stopLabelLayout, stopSpaceLayout, stopTipHtml, stopsCollection, stopsListHtml, tripFramePoints } from './trip-stops.js';
 
 const STYLE = 'https://tiles.openfreemap.org/styles/dark';
+// Iconos que el estilo pide y su sprite no tiene (ver styleimagemissing en createMap). Sólo esos: uno de los
+// nuestros que faltara es un error de verdad y tiene que verse.
+const BASEMAP_IMAGE = /^(circle-11|wood-pattern)$/;
 const FONT = ['Noto Sans Regular'];
 const ANIM_MS = 1500;
 const MAX_ANIM_DEG = 0.2; // saltos mayores (cambio de servicio, GPS erróneo) no se animan
@@ -119,6 +122,14 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
   });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
   map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
+  // El estilo de OpenFreeMap pide iconos que su sprite no trae («circle-11», el punto de los pueblos y
+  // ciudades, que en su sprite se llama «circle_11», y «wood-pattern», la trama de los bosques) y MapLibre
+  // avisa en la consola de cada uno. Nunca se han dibujado: se ponen transparentes para que el mapa se vea
+  // igual y sin avisos. MapLibre pregunta aquí antes de darlos por perdidos (el evento styleimagemissing
+  // llega tarde para los iconos). Los nuestros se añaden al cargar, antes que sus capas: no se tocan.
+  map.setMissingStyleImageResolver((id) => {
+    if (BASEMAP_IMAGE.test(id) && !map.hasImage(id)) map.addImage(id, { width: 1, height: 1, data: new Uint8Array(4) });
+  });
 
   let anims = new Map(); // id → { from, to, t0, props }
   let raf = null;
