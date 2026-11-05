@@ -39,7 +39,7 @@ export const RPC = Object.freeze({
 });
 
 const MODES = ['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'bus', 'otros'];
-const CATEGORIES = ['ferroviario', 'cancelacion', 'carretera', 'meteo', 'incendio', 'sismo', 'catastrofe', 'emergencia'];
+const CATEGORIES = ['ferroviario', 'cancelacion', 'sin-datos', 'carretera', 'meteo', 'incendio', 'sismo', 'catastrofe', 'emergencia'];
 const SEVERITIES = ['baja', 'media', 'alta', 'muy alta'];
 // Tope de elementos por respuesta: lo que cabe con holgura en el contexto de un modelo.
 const DEFAULT_LIMIT = 20;
@@ -170,18 +170,29 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
   });
   // Las descripciones largas se recortan (el texto entero está en `url`) y se dice que se han recortado.
   const described = (d) => ({ description: clip(d, MAX_DESCRIPTION), descriptionTruncated: typeof d === 'string' && d.length > MAX_DESCRIPTION });
-  // Las cancelaciones llevan el viaje (sin sus paradas, salvo las suprimidas) y desde cuándo las ve el radar:
-  // sus fuentes no dicen cuándo las publicaron.
+  // Las cancelaciones (y los trenes sin datos) llevan el viaje (sin sus paradas, salvo las suprimidas), su
+  // motivo y los avisos de su línea si los hay, y desde cuándo las ve el radar: sus fuentes no dicen cuándo
+  // las publicaron.
+  const noticeOut = (n) => compact({ text: clip(n.text, MAX_DESCRIPTION), url: n.url });
   const tripOut = (t) => compact({
     operator: t.operator, mode: t.mode, service: t.service, line: t.line, number: t.number, origin: t.origin, destination: t.destination,
-    date: t.date, departure: t.departure, arrival: t.arrival, endsAt: t.endsAt, startsAt: t.startsAt,
-    skipped: t.skipped?.length ? t.skipped : null, trips: t.trips, publisher: t.publisher, feed: t.feed, feedUrl: t.feedUrl,
+    date: t.date, departure: t.departure, arrival: t.arrival, endsAt: t.endsAt, startsAt: t.startsAt, between: t.between,
+    skipped: t.skipped?.length ? t.skipped : null, trips: t.trips, reason: t.reason, notice: t.notice ? noticeOut(t.notice) : null,
+    lineNotices: t.lineNotices?.length ? t.lineNotices.map(noticeOut) : null,
+    publisher: t.publisher, feed: t.feed, feedUrl: t.feedUrl,
   });
   const eventOut = (e) => compact({
     id: e.id, category: e.category, type: e.type, severity: e.severity, level: e.level, title: e.title,
     ...described(e.description), area: e.area, lat: e.lat, lon: e.lon, magnitude: e.magnitude,
     start: iso(e.start), end: iso(e.end), issued: iso(e.issued), url: e.url,
     ...(e.trip ? { trip: tripOut(e.trip), seenByRadar: iso(e.seen), seenAtRadarStart: e.seenAtStart } : {}),
+    // Ya no la publica su fuente (se sigue dando hasta medianoche): desde cuándo, y si fue antes o después de
+    // su hora de llegada (antes: puede que al final circule). Ninguno de los dos si no se sabe.
+    ...(e.withdrawn ? {
+      withdrawnBySource: iso(e.withdrawn),
+      withdrawnAfterArrival: e.trip?.withdrawnAfterArrival === true,
+      withdrawnBeforeArrival: e.trip?.withdrawnAfterArrival === false,
+    } : {}),
   });
   const alertOut = (a) => compact({
     id: a.id, type: a.type, severity: a.severity, title: a.title, ...described(a.description),
@@ -263,8 +274,9 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
       title: 'Ficha de una estación',
       ttl: 10_000,
       description: 'Trenes parados en una estación y los que van hacia ella (con vía, hora prevista y retraso), los '
-        + 'avisos de Renfe de la estación y los trenes cancelados o con paradas suprimidas que pasaban por ella (con su '
-        + 'hora allí según el horario). El código sale de «buscar_estaciones».',
+        + 'avisos de Renfe de la estación, los trenes cancelados o con paradas suprimidas que pasaban por ella y los trenes '
+        + 'sin datos (según su horario deberían pasar y Renfe no publica nada de ellos), con su hora allí según el horario. '
+        + 'El código sale de «buscar_estaciones».',
       inputSchema: {
         type: 'object',
         properties: { code: { type: 'string', maxLength: 80, description: 'Código de la estación: 5 cifras en Renfe («71801») o red:código («fgc:PC»).' } },
@@ -276,14 +288,14 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
         if (!station) throw new ToolError(`No hay ninguna estación con el código «${code}». Búscala con buscar_estaciones.`);
         const events = liveEvents().list;
         // Las cancelaciones están en su origen: las que pasan por la estación se buscan entre todas por sus paradas.
-        const cancelled = events.filter((e) => e.category === 'cancelacion');
+        const cancelled = events.filter((e) => e.category === 'cancelacion' || e.category === 'sin-datos');
         const board = stationBoard(station, {
           vehicles: aroundStation(station, liveVehicles().list),
           events: [...aroundStation(station, events).filter((e) => e.category === 'ferroviario'), ...cancelled],
           lines: [],
         });
         const byId = new Map(cancelled.map((e) => [e.id, e]));
-        const here = board.cancellations.map((c) => byId.get(c.id) && { ...eventOut(byId.get(c.id)), timeHere: c.time, skippedHere: c.skipped });
+        const at = (list) => list.map((c) => byId.get(c.id) && { ...eventOut(byId.get(c.id)), timeHere: c.time, skippedHere: c.skipped }).filter(Boolean);
         return envelope({
           station: compact({
             code: station.code, name: station.name, place: station.place, province: station.province, address: station.address,
@@ -292,8 +304,9 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
           stopped: board.stopped.map(vehicleOut),
           arriving: board.arriving.map(vehicleOut),
           notices: board.notices.map(eventOut),
-          cancellations: here.filter(Boolean),
-        }, [...board.stopped, ...board.arriving, ...board.notices, ...board.cancellations.map((c) => byId.get(c.id)).filter(Boolean)]);
+          cancellations: at(board.cancellations),
+          missingTrains: at(board.missing),
+        }, [...board.stopped, ...board.arriving, ...board.notices, ...[...board.cancellations, ...board.missing].map((c) => byId.get(c.id)).filter(Boolean)]);
       },
     },
 
@@ -301,7 +314,9 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
       title: 'Incidencias y avisos',
       ttl: 15_000,
       description: 'Incidencias activas en España: avisos ferroviarios de Renfe, trenes y autobuses cancelados o con paradas '
-        + 'suprimidas (Renfe, Euskotren y AMB; categoría «cancelacion», con el viaje y su horario), tráfico (DGT y otras), avisos '
+        + 'suprimidas (Renfe, Euskotren, AMB, AUVASA y EMT Málaga; categoría «cancelacion», con el viaje, su horario, su motivo '
+        + 'si se sabe y, si su fuente ya no la publica, desde cuándo: se dan hasta medianoche), trenes sin datos (categoría '
+        + '«sin-datos»: según su horario deberían estar circulando y Renfe no publica nada de ellos), tráfico (DGT y otras), avisos '
         + 'meteorológicos de AEMET, incendios, terremotos, catástrofes (GDACS) y emergencias oficiales (planes de '
         + 'protección civil y cortes de luz). De más a menos grave.',
       inputSchema: {
