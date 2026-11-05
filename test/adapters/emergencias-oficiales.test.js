@@ -229,6 +229,24 @@ test('La Rioja: «Restablecido el suministro eléctrico» cierra la avería', as
   assert.deepEqual(events.map((e) => e.area), [], 'la vuelta en Ventrosa cierra la avería entera, también en Brieva');
 });
 
+test('La Rioja: una descripción con miles de «class="fecha_sos"», «class="contentText"» o «en» no deja colgado el servidor', () => {
+  // Antes, cada marca sin «>» (o sin «</div>») detrás, y cada «en» de una línea que no es la última, volvían a
+  // recorrer el resto del texto (cuadrático): con estos ~200 KB tardaba segundos. Ahora la fecha y el cuerpo
+  // se sacan con indexOf desde la primera marca, y la fecha se recorta antes de buscar el lugar.
+  const item = (desc) => `<item><title>Corte de luz</title><link>https://www.larioja.org/x/averia-1</link>
+    <description><![CDATA[${desc}]]></description><pubDate>Tue, 27 Oct 2026 12:00:00 +0100</pubDate></item>`;
+  const sinFecha = parseRiojaSos(rss(item(`<div class="contentText">Corte de luz en Ventrosa.</div>${'class="fecha_sos" '.repeat(12_000)}`))).notices;
+  assert.equal(sinFecha.length, 1);
+  assert.equal(sinFecha[0].at, Date.parse('2026-10-27T11:00:00Z'), 'sin la fecha del suceso, la del RSS');
+  assert.deepEqual(sinFecha[0].candidates, ['Ventrosa']);
+  const sinCuerpo = parseRiojaSos(rss(item(`<div class="fecha_sos">2/11/2026 a las 09:16 en Ventrosa</div>${'class="contentText" '.repeat(10_000)}`))).notices;
+  assert.equal(sinCuerpo[0].at, Date.parse('2026-11-02T08:16:00Z'));
+  assert.deepEqual(sinCuerpo[0].candidates, ['Ventrosa']);
+  const muchosEn = parseRiojaSos(rss(item(`<div class="fecha_sos">2/11/2026 a las 09:16${' en'.repeat(60_000)}<br>Ventrosa</div><div class="contentText">Avería.</div>`))).notices;
+  assert.equal(muchosEn[0].at, Date.parse('2026-11-02T08:16:00Z'));
+  assert.ok(muchosEn[0].candidates[0].length < 500, 'el lugar sale de los primeros 500 caracteres de la fecha');
+});
+
 // ---------- Castilla y León ----------
 const cylItem = (id, title, desc, date) => `<item><title>${title}</title><description>${desc}</description><pubDate>${date}</pubDate>
   <link><![CDATA[https://112.jcyl.es/web/jcyl/112/es/Plantilla100Detalle/1284178030391/Incidente/${id}/Emergencia?utm_source=suscripcion&utm_medium=rss]]></link></item>`;
