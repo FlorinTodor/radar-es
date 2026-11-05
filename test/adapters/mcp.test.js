@@ -412,3 +412,28 @@ test('www: un GET se redirige con 301 y un POST con 308, que no lo convierte en 
     site.close();
   }
 });
+
+test('cancelaciones: en incidencias con su viaje y desde cuándo las ve el radar; en la estación, las que pasaban por ella', () => {
+  const cancelled = {
+    id: 'renfe-cancelado:ld:00291', source: 'renfe-avisos', category: 'cancelacion', type: 'cancelado', severity: 'alta',
+    title: 'Alvia 00291 cancelado: Badajoz 06:29 → Madrid', lat: 38.89, lon: -6.98, seen: T - 600_000, seenAtStart: true,
+    credit: 'Origen de los datos: Renfe Operadora (CC BY 4.0; cancelaciones)',
+    trip: {
+      operator: 'Renfe', mode: 'ld', service: 'Alvia', number: '00291', origin: 'Badajoz', destination: 'Madrid', departure: '06:29', arrival: '11:07',
+      skipped: [], publisher: 'Renfe', feed: 'GTFS-RT de AV/LD/MD', feedUrl: 'https://gtfsrt.renfe.com/trip_updates_LD.json',
+      stops: [{ name: 'Badajoz', time: '06:29', lat: 38.89, lon: -6.98 }, { name: 'Móstoles', time: '10:40', lat: 40.3, lon: -3.8 }, { name: 'Madrid', time: '11:07' }],
+    },
+  };
+  const q = { ...query, events: ({ category } = {}) => [...events, cancelled].filter((e) => !category || e.category === category) };
+  const ask = (name, args) => createMcpHandler({ query: q, now: () => T })({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }).result.structuredContent;
+  const [e] = ask('incidencias', { category: 'cancelacion' }).events;
+  assert.equal(e.trip.departure, '06:29');
+  assert.equal(e.trip.feedUrl, 'https://gtfsrt.renfe.com/trip_updates_LD.json');
+  assert.equal(e.trip.stops, undefined, 'sin la lista de paradas: ocuparía mucho');
+  assert.equal(e.seenByRadar, new Date(T - 600_000).toISOString());
+  assert.equal(e.seenAtRadarStart, true);
+  const station = ask('estacion', { code: '35400' });
+  assert.deepEqual(station.cancellations.map((c) => [c.id, c.timeHere, c.skippedHere]), [['renfe-cancelado:ld:00291', '10:40', false]],
+    'aunque su origen esté lejos');
+  assert.ok(station.sources.some((s) => s.attribution === 'Origen de los datos: Renfe Operadora (CC BY 4.0; cancelaciones)'), 'cita la atribución de la cancelación');
+});

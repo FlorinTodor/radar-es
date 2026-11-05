@@ -39,7 +39,7 @@ export const RPC = Object.freeze({
 });
 
 const MODES = ['av', 'ld', 'md', 'cercanias', 'metro', 'tranvia', 'bus', 'otros'];
-const CATEGORIES = ['ferroviario', 'carretera', 'meteo', 'incendio', 'sismo', 'catastrofe', 'emergencia'];
+const CATEGORIES = ['ferroviario', 'cancelacion', 'carretera', 'meteo', 'incendio', 'sismo', 'catastrofe', 'emergencia'];
 const SEVERITIES = ['baja', 'media', 'alta', 'muy alta'];
 // Tope de elementos por respuesta: lo que cabe con holgura en el contexto de un modelo.
 const DEFAULT_LIMIT = 20;
@@ -140,9 +140,12 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
     const out = new Map();
     for (const it of items) {
       const h = health.get(it.source);
-      const key = `${h?.id}|${it.operator ?? ''}`;
+      // Una cancelación cita la atribución de su tiempo real (la de la fuente puede hablar de otra cosa: la
+      // posición estimada de Euskotren y AMB).
+      const own = it.trip && it.credit ? it.credit : null;
+      const key = `${h?.id}|${it.operator ?? ''}|${own ?? ''}`;
       if (!h || out.has(key)) continue;
-      const license = h.operatorLicenses?.[it.operator] ?? h.license;
+      const license = own ?? h.operatorLicenses?.[it.operator] ?? h.license;
       const datasetUpdated = h.datasetUpdatedBy?.[it.operator] ?? h.datasetUpdated;
       out.set(key, compact({
         source: h.id, name: h.name, attribution: license, url: h.url,
@@ -167,10 +170,18 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
   });
   // Las descripciones largas se recortan (el texto entero está en `url`) y se dice que se han recortado.
   const described = (d) => ({ description: clip(d, MAX_DESCRIPTION), descriptionTruncated: typeof d === 'string' && d.length > MAX_DESCRIPTION });
+  // Las cancelaciones llevan el viaje (sin sus paradas, salvo las suprimidas) y desde cuándo las ve el radar:
+  // sus fuentes no dicen cuándo las publicaron.
+  const tripOut = (t) => compact({
+    operator: t.operator, mode: t.mode, service: t.service, line: t.line, number: t.number, origin: t.origin, destination: t.destination,
+    date: t.date, departure: t.departure, arrival: t.arrival, endsAt: t.endsAt, startsAt: t.startsAt,
+    skipped: t.skipped?.length ? t.skipped : null, trips: t.trips, publisher: t.publisher, feed: t.feed, feedUrl: t.feedUrl,
+  });
   const eventOut = (e) => compact({
     id: e.id, category: e.category, type: e.type, severity: e.severity, level: e.level, title: e.title,
     ...described(e.description), area: e.area, lat: e.lat, lon: e.lon, magnitude: e.magnitude,
     start: iso(e.start), end: iso(e.end), issued: iso(e.issued), url: e.url,
+    ...(e.trip ? { trip: tripOut(e.trip), seenByRadar: iso(e.seen), seenAtRadarStart: e.seenAtStart } : {}),
   });
   const alertOut = (a) => compact({
     id: a.id, type: a.type, severity: a.severity, title: a.title, ...described(a.description),
@@ -251,8 +262,9 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
     estacion: {
       title: 'Ficha de una estación',
       ttl: 10_000,
-      description: 'Trenes parados en una estación y los que van hacia ella (con vía, hora prevista y retraso) y los '
-        + 'avisos de Renfe de la estación. El código sale de «buscar_estaciones».',
+      description: 'Trenes parados en una estación y los que van hacia ella (con vía, hora prevista y retraso), los '
+        + 'avisos de Renfe de la estación y los trenes cancelados o con paradas suprimidas que pasaban por ella (con su '
+        + 'hora allí según el horario). El código sale de «buscar_estaciones».',
       inputSchema: {
         type: 'object',
         properties: { code: { type: 'string', maxLength: 80, description: 'Código de la estación: 5 cifras en Renfe («71801») o red:código («fgc:PC»).' } },
@@ -262,11 +274,16 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
       run({ code }) {
         const station = isStationCode(code) ? query.station(code) : null;
         if (!station) throw new ToolError(`No hay ninguna estación con el código «${code}». Búscala con buscar_estaciones.`);
+        const events = liveEvents().list;
+        // Las cancelaciones están en su origen: las que pasan por la estación se buscan entre todas por sus paradas.
+        const cancelled = events.filter((e) => e.category === 'cancelacion');
         const board = stationBoard(station, {
           vehicles: aroundStation(station, liveVehicles().list),
-          events: aroundStation(station, liveEvents().list).filter((e) => e.category === 'ferroviario'),
+          events: [...aroundStation(station, events).filter((e) => e.category === 'ferroviario'), ...cancelled],
           lines: [],
         });
+        const byId = new Map(cancelled.map((e) => [e.id, e]));
+        const here = board.cancellations.map((c) => byId.get(c.id) && { ...eventOut(byId.get(c.id)), timeHere: c.time, skippedHere: c.skipped });
         return envelope({
           station: compact({
             code: station.code, name: station.name, place: station.place, province: station.province, address: station.address,
@@ -275,14 +292,16 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
           stopped: board.stopped.map(vehicleOut),
           arriving: board.arriving.map(vehicleOut),
           notices: board.notices.map(eventOut),
-        }, [...board.stopped, ...board.arriving, ...board.notices]);
+          cancellations: here.filter(Boolean),
+        }, [...board.stopped, ...board.arriving, ...board.notices, ...board.cancellations.map((c) => byId.get(c.id)).filter(Boolean)]);
       },
     },
 
     incidencias: {
       title: 'Incidencias y avisos',
       ttl: 15_000,
-      description: 'Incidencias activas en España: avisos ferroviarios de Renfe, tráfico (DGT y otras), avisos '
+      description: 'Incidencias activas en España: avisos ferroviarios de Renfe, trenes y autobuses cancelados o con paradas '
+        + 'suprimidas (Renfe, Euskotren y AMB; categoría «cancelacion», con el viaje y su horario), tráfico (DGT y otras), avisos '
         + 'meteorológicos de AEMET, incendios, terremotos, catástrofes (GDACS) y emergencias oficiales (planes de '
         + 'protección civil y cortes de luz). De más a menos grave.',
       inputSchema: {
