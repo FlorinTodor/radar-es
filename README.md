@@ -900,6 +900,19 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Pruebas automáticas que no dependen de la velocidad de la máquina: dan lo mismo en el servidor,
   más lento y ocupado, que en un ordenador rápido.
 - Limpieza automática del servidor, también de las teselas del mapa que ya nadie mira.
+- Revisión de seguridad del código, con cada hallazgo comprobado por separado, y arreglo de lo que
+  podía dejar la web sin servicio:
+  - lo que llega de cada fuente se comprueba al entrar (textos, posiciones y fechas): un registro mal
+    formado se descarta sin dejar sin servicio el mapa, la API ni el servidor MCP;
+  - el texto de las fuentes se analiza en un tiempo proporcional a su tamaño, aunque llegue hecho a
+    propósito para atascarlo;
+  - los horarios descargados tienen un tamaño máximo al descomprimirse, y las frecuencias imposibles
+    se ignoran;
+  - las peticiones que llevan claves no siguen redirecciones a otros sitios, y ninguna pasa de https a
+    http;
+  - el servidor MCP rechaza nada más llegar las peticiones mal formadas;
+  - una regla de alertas que falla no deja sin evaluar las demás y queda en el registro;
+  - el despliegue comprueba lo que lee de los contenedores antes de usarlo.
 - El repositorio público ya no detalla cómo se prepara ni se protege el servidor: esas notas se
   guardan fuera de él.
 - Diagramas de la arquitectura, del camino de cada dato hasta el mapa, de las ramas y del despliegue,
