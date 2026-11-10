@@ -60,7 +60,8 @@ TELEGRAM_BOT_USERNAME=RadarEspanaBot
   Claude Code. En ese caso el token queda en la conversación.
 - **Pruebas** (`/opt/radar-pruebas/.env`): **otro bot** (por ejemplo `RadarEspanaPruebasBot`) o ninguno. Con
   el mismo token, los dos servidores leerían el mismo bot: Telegram corta a uno (error 409) y los dos
-  mandarían los mismos avisos.
+  mandarían los mismos avisos. Por eso `deploy/preparar-pruebas.sh`, que copia el `.env` de producción, deja
+  fuera `TELEGRAM_BOT_TOKEN` y `TELEGRAM_BOT_USERNAME`.
 - `TELEGRAM_BOT_USERNAME` sólo hace falta para el botón de la web. Sin él, el bot funciona igual.
 - `TELEGRAM_WEB_URL` (opcional) es la web que citan los mensajes: por defecto, `https://radarespana.es`.
 
