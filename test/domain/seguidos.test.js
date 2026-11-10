@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { lineKey, numberedServiceKey, scheduledServiceKey, stopKey } from '../../server/domain/seguir.js';
 import { entryLabel, guessedName, knownNames, searchDirectory, updateDirectory } from '../../server/domain/seguidos/directorio.js';
 import {
-  DELAY_MIN, MESSAGE_MAX, collectFacts, factsMessage, fitMessage, madridDay, madridHourMinute, newFacts, packBlocks, provinceSub, statusOf,
+  DELAY_MIN, MESSAGE_MAX, collectFacts, factsMessage, fitMessage, madridDay, madridHourMinute, newFacts, newFactsOf, packBlocks, provinceSub, statusOf,
   capSeen, stopAt, trackFacts, tripsAt,
 } from '../../server/domain/seguidos/avisos.js';
 import { parseCommand, parseHour, smallTalk } from '../../server/domain/seguidos/ordenes.js';
@@ -308,4 +308,22 @@ test('charla: «hola», «gracias», «vale»… no son búsquedas; una línea o
   for (const [t, kind] of [['Hola', 'saludo'], ['¡Hola, bot!', 'saludo'], ['buenos días', 'saludo'], ['Gracias!!', 'gracias'], ['vale', 'vale'],
     ['ok', 'vale'], ['ayuda', 'ayuda'], ['help', 'ayuda']]) assert.equal(smallTalk(t), kind, t);
   for (const t of ['C4 Madrid', '08058', 'hola madrid', 'Valencia', '27 EMT Málaga', '']) assert.equal(smallTalk(t), null, t);
+});
+
+test('lo nuevo de muchos chats en una ronda (newFactsOf): lo mismo que newFacts, mirando cada suscripción una vez', () => {
+  const t0 = NOW;
+  const t1 = NOW + 60_000;
+  let seen = trackFacts(new Map(), collectFacts({ keys: [AVANT, C4A], vehicles, events: [notice], now: t0 }), t0);
+  const more = { ...notice, id: 'renfe-aviso:2', description: 'Otro aviso.' };
+  const facts = collectFacts({ keys: [AVANT, C4A], vehicles, events: [notice, more, cancelled], now: t1 });
+  const firsts = new Map();
+  seen = trackFacts(seen, facts, t1, { firsts });
+  for (const fresh of [newFactsOf(facts, seen, firsts), newFactsOf(facts, seen)]) {
+    for (const sub of [AVANT, C4A, 'l-nadie']) {
+      for (const checkedAt of [t0 - 60_000, t0, t1]) {
+        assert.deepEqual(fresh(sub, checkedAt), newFacts(sub, facts.get(sub), seen, checkedAt), `${sub} desde ${checkedAt - t0}`);
+      }
+    }
+  }
+  assert.deepEqual(newFactsOf(facts, seen, firsts)(C4A, t0).map((f) => f.id), ['renfe-aviso:2']);
 });

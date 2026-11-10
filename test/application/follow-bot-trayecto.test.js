@@ -173,3 +173,35 @@ test('las paradas de los vehículos se piden como mucho una vez por minuto, y el
   for (const t of ['Alcalá > Madrid-Atocha Cercanías 6-9', 'Guadalajara > Madrid-Atocha Cercanías 6-9']) say(`/trayecto ${t}`);
   assert.equal(world.stationsAsked, 1);
 });
+
+test('si fallan las paradas de un viaje, ese tren no cuenta y la ronda de todos sigue (se apunta en el registro)', () => {
+  const warned = [];
+  let now = T0;
+  const byCode = new Map(CATALOG.map((s) => [s.code, s]));
+  const world = { vehicles: [md(0), { ...md(0), id: 'roto', follow: [] }] };
+  const bot = makeFollowBot({
+    read: { vehicles: () => world.vehicles, events: () => [], station: (code) => byCode.get(code) ?? null },
+    trayectos: {
+      stops: (id) => {
+        if (id === 'roto') throw new Error('fichero de paradas roto');
+        return { stops: MD_STOPS };
+      },
+      stations: () => CATALOG,
+    },
+    store: { load: async () => null, save: async () => {} },
+    clock: { now: () => now },
+    creditOf: () => CREDIT,
+    webUrl: 'https://radarespana.es',
+    log: { info() {}, warn: (m) => warned.push(m), error() {} },
+  });
+  assert.match(bot.handle({ chatId: CHAT, text: `/start ${KEY}` }).replies[0].text, /^Hecho: te aviso de /);
+  now += 60_000;
+  bot.tick();
+  world.vehicles = [md(20), { ...md(20), id: 'roto', follow: [] }];
+  now += 60_000;
+  const out = bot.tick();
+  assert.equal(out.length, 1);
+  assert.match(out[0].text, /Media Distancia 18001, el de las 07:10 en Alcalá de Henares, va con 20 min de retraso/);
+  assert.equal(warned.length, 1, 'una vez, no por cada vehículo ni cada ronda');
+  assert.match(warned[0], /paradas de un viaje: fichero de paradas roto/);
+});

@@ -43,12 +43,32 @@ const toMin = (t) => {
 };
 const DAY_MS = 86_400_000;
 const addDays = (day, n) => new Date(Date.parse(`${day}T12:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
+// Lo de cada día que se pregunta mucho (unos pocos días a la vez: ayer, hoy y mañana), sin crear fechas cada vez.
+const DAYS = new Map(); // «AAAA-MM-DD» → { weekday, minutes }
+function dayInfo(day) {
+  let info = DAYS.get(day);
+  if (!info) {
+    if (DAYS.size > 64) DAYS.clear();
+    const ms = Date.parse(`${day}T00:00:00Z`);
+    DAYS.set(day, (info = { weekday: (new Date(ms + 12 * 3600_000).getUTCDay() + 6) % 7, minutes: Math.round(ms / 60_000) }));
+  }
+  return info;
+}
 /** Día de la semana de una fecha «AAAA-MM-DD»: 0 el lunes… 6 el domingo (como la máscara de días). */
-export const weekday = (day) => (new Date(`${day}T12:00:00Z`).getUTCDay() + 6) % 7;
+export const weekday = (day) => dayInfo(day).weekday;
 /** Un instante como día y minuto de Madrid. */
 const madridAt = (ms) => ({ day: madridDay(ms), min: toMin(madridHourMinute(ms)) });
 /** Para ordenar y comparar días y minutos: minutos desde 1970 (en hora de Madrid, sin más). */
-const order = ({ day, min }) => Math.round(Date.parse(`${day}T00:00:00Z`) / 60_000) + min;
+const order = ({ day, min }) => dayInfo(day).minutes + min;
+/**
+ * La hora de Madrid de una consulta, una vez (formatear con Intl en cada tren y cada trayecto costaba la mitad de la
+ * ronda): el instante, el día, el minuto y su orden.
+ * @returns {{ now: number, today: string, min: number, at: number }}
+ */
+function clockOf(now) {
+  const { day, min } = madridAt(now);
+  return { now, today: day, min, at: order({ day, min }) };
+}
 
 // ---------------------------------------------------------------------------------------------------------------
 // Lo que se escribe
@@ -213,10 +233,17 @@ function namesOf(stops) {
   if (!names) NAMES.set(stops, (names = stops.map((s) => plainStop(s?.name))));
   return names;
 }
+// El nombre comparable de cada estación del catálogo, una vez mientras viva su objeto.
+const STATION_NAMES = new WeakMap();
+const stationName = (station) => {
+  let name = STATION_NAMES.get(station);
+  if (name === undefined) STATION_NAMES.set(station, (name = plainStop(station.name)));
+  return name;
+};
 /** Dónde está una estación en una lista de paradas, desde `from`: como en su ficha, mismo nombre y cerca. -1 si no está. */
 function stopIndexIn(stops, station, from = 0) {
   const names = namesOf(stops);
-  const name = plainStop(station.name);
+  const name = stationName(station);
   for (let i = Math.max(0, from); i < stops.length; i++) if (names[i] === name && nearStation(stops[i], station)) return i;
   return -1;
 }
@@ -257,10 +284,9 @@ export function passIndex(vehicles, stopsOf) {
 }
 
 /** El día de unos minutos del día que están a menos de 12 h de ahora (un tren que circula ahora). */
-function nearestDay(now, min) {
-  const today = madridDay(now);
-  const diff = min - toMin(madridHourMinute(now));
-  return diff > 720 ? addDays(today, -1) : diff < -720 ? addDays(today, 1) : today;
+function nearestDay(clock, min) {
+  const diff = min - clock.min;
+  return diff > 720 ? addDays(clock.today, -1) : diff < -720 ? addDays(clock.today, 1) : clock.today;
 }
 
 /** Lo que le falta a un vehículo por recorrer hasta la parada `o` por sus paradas (en línea recta), en km: negativo si ya
@@ -291,33 +317,75 @@ function kmTo(v, stops, o) {
  * @returns {{ day: string, min: number, estimated: boolean }|null}  null si no se puede saber
  */
 export function vehicleDeparture(v, stops, o, now) {
+  return departureAt(v, stops, o, clockOf(now));
+}
+
+function departureAt(v, stops, o, clock) {
   const delay = Number.isFinite(v.delay) ? v.delay : 0;
   const scheduled = toMin(stops[o]?.time);
-  if (scheduled !== null) return { day: nearestDay(now, scheduled), min: scheduled, estimated: false };
+  if (scheduled !== null) return { day: nearestDay(clock, scheduled), min: scheduled, estimated: false };
   const eta = stops[o]?.passed ? null : toMin(stops[o]?.eta);
   if (eta !== null) {
     const min = (((eta - delay) % 1440) + 1440) % 1440;
-    return { day: nearestDay(now, min), min, estimated: true };
+    return { day: nearestDay(clock, min), min, estimated: true };
   }
   const km = kmTo(v, stops, o);
   if (km === null) return null;
-  return { ...madridAt(now + (km / ESTIMATE_KMH) * 3600_000 - delay * 60_000), estimated: true };
+  return { ...madridAt(clock.now + (km / ESTIMATE_KMH) * 3600_000 - delay * 60_000), estimated: true };
 }
 
-/** Cuándo salía del origen el tren de una cancelación (o sin datos), por su horario. Sin fecha (Renfe no la da en
- * las de hoy), de hoy; de madrugada, si salía de noche, de anoche. */
-function eventDeparture(trip, stop, now) {
-  const min = toMin(stop?.time);
+/** Cuántas veces pasa de medianoche un viaje desde su primera parada hasta la `o` (sus horas ya van de 00 a 23). */
+function midnightsUpTo(stops, o) {
+  let days = 0;
+  let prev = null;
+  for (let i = 0; i <= o; i++) {
+    const min = toMin(stops[i]?.time);
+    if (min === null) continue;
+    if (prev !== null && min < prev) days++;
+    prev = min;
+  }
+  return days;
+}
+
+/**
+ * Cuándo salía del origen (la parada `o`) el tren de una cancelación (o sin datos), por su horario. Con fecha (el día
+ * de servicio de su horario), ese día, y uno más por cada medianoche que pasa antes de llegar al origen (una hora de
+ * su horario de las 24:00 o más llega como 00-23: sin esto quedaba 24 h antes). Sin fecha (Renfe no la da en las de
+ * hoy), de hoy; de madrugada, si salía de noche, de anoche.
+ */
+function eventDeparture(trip, stops, o, clock) {
+  const min = toMin(stops[o]?.time);
   if (min === null) return null;
   const date = /^(\d{4})-?(\d{2})-?(\d{2})$/.exec(String(trip?.date ?? ''));
-  if (date) return { day: `${date[1]}-${date[2]}-${date[3]}`, min, estimated: false };
-  const today = madridDay(now);
-  const late = toMin(madridHourMinute(now)) < 4 * 60 && min >= 20 * 60;
-  return { day: late ? addDays(today, -1) : today, min, estimated: false };
+  if (date) {
+    const day = `${date[1]}-${date[2]}-${date[3]}`;
+    const late = midnightsUpTo(stops, o);
+    return { day: late ? addDays(day, late) : day, min, estimated: false };
+  }
+  const late = clock.min < 4 * 60 && min >= 20 * 60;
+  return { day: late ? addDays(clock.today, -1) : clock.today, min, estimated: false };
 }
 
 /** ¿Sale del origen en la franja, uno de los días del trayecto? */
 const inWindow = (t, dep) => Boolean(t.days & (1 << weekday(dep.day))) && dep.min >= t.from && dep.min <= t.to;
+
+// Lo que pasa entre dos estaciones no depende de la franja ni de los días de cada trayecto: se busca una vez por par
+// origen-destino y consulta (la lista de sucesos o el índice de vehículos de la ronda, a una hora), y cada trayecto
+// sólo mira cuáles salen en su franja. Con 1.500 trayectos y 60 cancelaciones se hacía todo 90.000 veces por ronda.
+const EVENT_LEGS = new WeakMap(); // lista de sucesos → { now, size, byPair }
+const VEHICLE_LEGS = new WeakMap(); // índice de vehículos (passIndex) → { now, byPair }
+const pairOf = (t) => `${t.origin.code}>${t.destination.code}`;
+function memoByPair(cache, list, t, clock, compute) {
+  let entry = cache.get(list);
+  if (!entry || entry.now !== clock.now || (Array.isArray(list) && entry.size !== list.length)) {
+    entry = { now: clock.now, size: list.length, byPair: new Map() };
+    cache.set(list, entry);
+  }
+  const k = pairOf(t);
+  let legs = entry.byPair.get(k);
+  if (!legs) entry.byPair.set(k, (legs = compute()));
+  return legs;
+}
 
 /**
  * Las cancelaciones, paradas suprimidas y trenes sin datos del trayecto: los que pasaban por el origen y luego por
@@ -326,41 +394,55 @@ const inWindow = (t, dep) => Boolean(t.days & (1 << weekday(dep.day))) && dep.mi
  * publica) van marcadas. `end`: cuándo llegaba al destino según su horario (o, si no se sabe, GONE_MIN después de
  * salir del origen), como `order`.
  */
-function eventTrains(t, events, now) {
-  const out = [];
-  for (const { e, here } of tripsAt(events, t.origin)) {
-    const stops = e.trip.stops;
-    const o = stops.indexOf(here);
-    const d = o < 0 ? -1 : stopIndexIn(stops, t.destination, o + 1);
-    if (d < 0) continue;
-    const dep = eventDeparture(e.trip, stops[o], now);
-    if (!dep || !inWindow(t, dep)) continue;
-    let kind;
-    if (e.category === 'sin-datos') {
-      if (stops[d].passed) continue;
-      kind = 'sin-datos';
-    } else if (e.type !== 'parcial') kind = 'cancelado';
-    else if (stops[o].skipped || stops[d].skipped) kind = 'parcial';
-    else continue;
-    const arrival = toMin(stops[d].time);
-    const end = order(dep) + (arrival === null ? GONE_MIN : (arrival - dep.min + 1440) % 1440);
-    out.push({ kind, e, dep, end, o: stops[o], d: stops[d], withdrawn: Boolean(e.withdrawn) });
-  }
-  return out;
+function eventTrains(t, events, clock) {
+  return eventLegs(t, events, clock).filter((x) => inWindow(t, x.dep));
+}
+
+/** Las de eventTrains de un par de estaciones, sin mirar la franja ni los días: una vez por par y consulta. */
+function eventLegs(t, events, clock) {
+  return memoByPair(EVENT_LEGS, events, t, clock, () => {
+    const out = [];
+    for (const { e, here } of tripsAt(events, t.origin)) {
+      const stops = e.trip.stops;
+      const o = stops.indexOf(here);
+      const d = o < 0 ? -1 : stopIndexIn(stops, t.destination, o + 1);
+      if (d < 0) continue;
+      const dep = eventDeparture(e.trip, stops, o, clock);
+      if (!dep) continue;
+      let kind;
+      if (e.category === 'sin-datos') {
+        if (stops[d].passed) continue;
+        kind = 'sin-datos';
+      } else if (e.type !== 'parcial') kind = 'cancelado';
+      else if (stops[o].skipped || stops[d].skipped) kind = 'parcial';
+      else continue;
+      const arrival = toMin(stops[d].time);
+      const end = order(dep) + (arrival === null ? GONE_MIN : (arrival - dep.min + 1440) % 1440);
+      out.push({ kind, e, dep, at: order(dep), end, o: stops[o], d: stops[d], withdrawn: Boolean(e.withdrawn) });
+    }
+    return out;
+  });
 }
 
 /** Los vehículos del trayecto (index: passIndex): los que paran en el origen y luego en el destino, aún no han pasado
  * por el destino y salen (o han salido) del origen en la franja. */
-function vehicleTrains(t, index, now) {
-  const out = [];
-  for (const { v, stops } of index.get(plainStop(t.origin.name)) ?? []) {
-    const leg = legOf(stops, t.origin, t.destination);
-    if (!leg || stops[leg.d].passed) continue;
-    const dep = vehicleDeparture(v, stops, leg.o, now);
-    if (!dep || !inWindow(t, dep)) continue;
-    out.push({ kind: 'circula', v, dep, gone: Boolean(stops[leg.o].passed) });
-  }
-  return out;
+function vehicleTrains(t, index, clock) {
+  return vehicleLegs(t, index, clock).filter((x) => inWindow(t, x.dep));
+}
+
+/** Los de vehicleTrains de un par de estaciones, sin mirar la franja ni los días: una vez por par y consulta. */
+function vehicleLegs(t, index, clock) {
+  return memoByPair(VEHICLE_LEGS, index, t, clock, () => {
+    const out = [];
+    for (const { v, stops } of index.get(plainStop(t.origin.name)) ?? []) {
+      const leg = legOf(stops, t.origin, t.destination);
+      if (!leg || stops[leg.d].passed) continue;
+      const dep = departureAt(v, stops, leg.o, clock);
+      if (!dep) continue;
+      out.push({ kind: 'circula', v, dep, at: order(dep), gone: Boolean(stops[leg.o].passed) });
+    }
+    return out;
+  });
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -454,17 +536,27 @@ export function collectTrayectoFacts({
     if (way) trayectos.push([key, way]);
   }
   if (!trayectos.length) return out;
-  const nowAt = order(madridAt(now));
+  const clock = clockOf(now);
   // Sólo los que van con retraso: sus paradas, una vez para todos los trayectos.
   const late = passIndex(vehicles.filter((v) => v?.delay >= delayMin), stopsOf);
+  // El texto de cada tren depende sólo de su par de estaciones (y del idioma): una vez por tren y par.
+  const said = new WeakMap(); // tren de eventLegs/vehicleLegs → sus hechos
+  const factsOf = (x, make) => {
+    let list = said.get(x);
+    if (!list) said.set(x, (list = make()));
+    return list;
+  };
   for (const [key, way] of trayectos) {
     const facts = [];
+    const ids = new Set();
     const add = (f) => {
-      if (!facts.some((x) => x.id === f.id)) facts.push(f);
+      if (ids.has(f.id)) return;
+      ids.add(f.id);
+      facts.push(f);
     };
     // De un tren que ya habría llegado al destino no se avisa: a esas horas ya no sirve de nada.
-    for (const x of eventTrains(way, events, now)) if (!x.withdrawn && x.end >= nowAt) add(eventFact(x, way, creditOf, tr));
-    for (const x of vehicleTrains(way, late, now)) for (const f of delayFacts(x, way, delayMin, creditOf, tr)) add(f);
+    for (const x of eventTrains(way, events, clock)) if (!x.withdrawn && x.end >= clock.at) for (const f of factsOf(x, () => [eventFact(x, way, creditOf, tr)])) add(f);
+    for (const x of vehicleTrains(way, late, clock)) for (const f of factsOf(x, () => delayFacts(x, way, delayMin, creditOf, tr))) add(f);
     if (facts.length) out.set(key, facts);
   }
   return out;
@@ -493,18 +585,18 @@ export function trayectoStatus(key, { vehicles = [], events = [], now, stationOf
   const way = trayectoStations(key, stationOf);
   if (!way) return { lines: [t('Alguna de las estaciones de este trayecto ya no está en el catálogo del radar.')], credits: [] };
   const credits = new Set();
-  const nowAt = order(madridAt(now));
-  const recent = (x) => order(x.dep) >= nowAt - GONE_MIN;
-  const found = eventTrains(way, events, now).filter(recent);
+  const clock = clockOf(now);
+  const recent = (x) => x.at >= clock.at - GONE_MIN;
+  const found = eventTrains(way, events, clock).filter(recent);
   const live = found.filter((x) => !x.withdrawn);
   const withdrawn = found.length - live.length;
   const told = new Set(live.flatMap((x) => serviceKeys(x.e.trip?.follow)));
-  const running = vehicleTrains(way, index ?? passIndex(vehicles, stopsOf), now).filter((x) => !serviceKeys(x.v.follow).some((k) => told.has(k)));
-  const trains = [...live, ...running].sort((a, b) => order(a.dep) - order(b.dep));
+  const running = vehicleTrains(way, index ?? passIndex(vehicles, stopsOf), clock).filter((x) => !serviceKeys(x.v.follow).some((k) => told.has(k)));
+  const trains = [...live, ...running].sort((a, b) => a.at - b.at);
   const lines = [];
   const at = { origin: way.origin.name, destination: way.destination.name, station: way.origin.name };
   if (!trains.length) {
-    lines.push(!(way.days & (1 << weekday(madridDay(now))))
+    lines.push(!(way.days & (1 << weekday(clock.today)))
       ? t('Hoy no es uno de tus días: te aviso {days}.', { days: tr.days(way.days) })
       : t('Ahora no se ve ningún tren de tu franja de {origin} a {destination}. Los trenes salen aquí cuando empiezan su recorrido, y las '
         + 'cancelaciones, cuando su operador las publica.', at));

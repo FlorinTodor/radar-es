@@ -230,3 +230,37 @@ test('por dónde pasan: sólo los vehículos que dicen sus paradas y no van por 
   assert.deepEqual(asked, [cercanias().id], 'ni se piden las paradas de los demás');
   assert.equal(index.get('alcala de henares').length, 1);
 });
+
+test('varios trayectos del mismo par de estaciones: lo de las dos se busca una vez, y cada uno sólo lo de su franja y sus días', () => {
+  const early = trayectoKey({ origin: ST.al.code, destination: ST.at.code, from: 7 * 60, to: 7 * 60 + 40, days: 0x1f });
+  const late = trayectoKey({ origin: ST.al.code, destination: ST.at.code, from: 7 * 60 + 41, to: 9 * 60, days: 0x02 }); // sólo martes
+  const weekend = trayectoKey({ origin: ST.al.code, destination: ST.at.code, from: 6 * 60, to: 9 * 60, days: 0x60 });
+  const events = [cancel('a', '21516', ['07:20', '07:37', '08:10']), cancel('b', '21540', ['07:40', '07:57', '08:30'])];
+  const facts = collectTrayectoFacts({ keys: [early, late, weekend, KEY], events, now: NOW, stationOf, creditOf, stopsOf: () => null });
+  assert.deepEqual(facts.get(early).map((f) => f.id), ['a']);
+  assert.deepEqual(facts.get(late).map((f) => f.id), ['b']);
+  assert.equal(facts.get(weekend), undefined);
+  assert.deepEqual(facts.get(KEY).map((f) => f.id), ['a', 'b']);
+  assert.equal(facts.get(KEY)[0].text, facts.get(early)[0].text, 'el mismo texto');
+  // Otra hora con la misma lista: se vuelve a mirar (a las 08:20 el de las 07:37 ya habría llegado a Atocha).
+  const at0820 = Date.parse('2026-11-10T07:20:00Z');
+  assert.deepEqual(collectTrayectoFacts({ keys: [KEY], events, now: at0820, stationOf, stopsOf: () => null }).get(KEY).map((f) => f.id), ['b']);
+});
+
+test('un tren de pasada la medianoche con la fecha de su día de servicio (24:30 en su horario, 00:30 en sus paradas): es del día siguiente', () => {
+  const night = trayectoKey({ origin: ST.al.code, destination: ST.at.code, from: 0, to: 119, days: 0x7f });
+  const now = Date.parse('2026-11-09T23:20:00Z'); // martes 10-nov, 00:20 en Madrid
+  const ev = (date, times = ['23:55', '00:30', '01:00']) => ({
+    ...cancel('noche', '29999', times), trip: { ...cancel('x', '29999', times).trip, date },
+  });
+  for (const date of ['2026-11-09', null]) {
+    const facts = collectTrayectoFacts({ keys: [night], events: [ev(date)], now, stationOf, stopsOf: () => null });
+    assert.deepEqual(facts.get(night)?.map((f) => f.id), ['noche'], `fecha ${date}: antes, con la fecha, quedaba 24 h antes y no se avisaba`);
+    assert.equal(trayectoStatus(night, { events: [ev(date)], now, stationOf }).lines[1], '- 00:30 Cercanías C2 29999: cancelado.');
+  }
+  // Un tren que sale después de medianoche en su día de servicio (sin pasar por ella): ese mismo día.
+  const today = collectTrayectoFacts({ keys: [night], events: [ev('2026-11-10', ['00:10', '00:30', '01:00'])], now, stationOf, stopsOf: () => null });
+  assert.deepEqual(today.get(night)?.map((f) => f.id), ['noche']);
+  assert.equal(collectTrayectoFacts({ keys: [night], events: [ev('2026-11-09', ['00:10', '00:30', '01:00'])], now, stationOf, stopsOf: () => null }).get(night),
+    undefined, 'el del día anterior (sin pasar la medianoche) ya pasó');
+});

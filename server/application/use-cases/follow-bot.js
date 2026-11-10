@@ -10,8 +10,8 @@ import { isFollowKey, isRoadKey, followKind, stopCode } from '../../domain/segui
 import { PROVINCE_TRAFFIC_TEXT, asksForRoad, parseRoadRequest, roadFollowedText, roadName, roadRequestHelp, roadSeen, roadSub, roadTitle } from '../../domain/seguidos/trafico.js';
 import { entryLabel, guessedName, knownNames, searchDirectory, updateDirectory } from '../../domain/seguidos/directorio.js';
 import {
-  DELAY_MIN, SEEN_HARD_MAX, SEEN_MAX, capSeen, collectFacts, factsMessage, fitMessage, madridDay, madridHourMinute, newFacts, packBlocks,
-  provinceSub, statusOf, trackFacts,
+  DELAY_MIN, SEEN_HARD_MAX, SEEN_MAX, capSeen, collectFacts, factsMessage, fitMessage, madridDay, madridHourMinute, markSeen, newFactsOf,
+  packBlocks, provinceSub, statusOf, trackFacts,
 } from '../../domain/seguidos/avisos.js';
 import {
   LANG_NAMES, botProfiles, commandsFor, dataText, helpText, langLabel, parseCommand, parseHour, smallTalk, smallTalkText, welcomeText,
@@ -41,7 +41,8 @@ const SAVE_EVERY_MS = 10 * 60_000;
 const DIRECTORY_EVERY_MS = 5 * 60_000;
 const BUTTON_MAX = 60;
 const EN = translator('en');
-// Cada cuánto, como mucho, se apunta en el registro que lo recordado de lo avisado pasa del tope.
+// Cada cuánto, como mucho, se apunta en el registro un mismo problema de la ronda (lo recordado pasa del tope, no se
+// pueden leer las paradas de un viaje).
 const SEEN_WARN_EVERY_MS = 3600_000;
 
 const num = (x) => (Number.isFinite(x) ? x : 0);
@@ -124,10 +125,23 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
   // (las piden la ronda, /estado y los partes de ese minuto); por dónde pasan, una vez por consulta (la ronda, con los
   // partes de todos los chats, es una); el catálogo de estaciones, cada tanto.
   let tripStops = { at: -Infinity, byId: new Map() };
+  let stopsFailedAt = -Infinity;
   const stopsOf = (id) => {
     const now = clock.now();
     if (now - tripStops.at >= 60_000) tripStops = { at: now, byId: new Map() };
-    if (!tripStops.byId.has(id)) tripStops.byId.set(id, trayectos.stops?.(id)?.stops ?? null);
+    if (!tripStops.byId.has(id)) {
+      // Si fallan las paradas de un viaje, ese vehículo no cuenta: la ronda de todos sigue.
+      let stops = null;
+      try {
+        stops = trayectos.stops?.(id)?.stops ?? null;
+      } catch (err) {
+        if (now - stopsFailedAt >= SEEN_WARN_EVERY_MS) {
+          stopsFailedAt = now;
+          log?.warn(`[telegram] no se pudieron leer las paradas de un viaje: ${err.message}`);
+        }
+      }
+      tripStops.byId.set(id, stops);
+    }
     return tripStops.byId.get(id);
   };
   const passing = new WeakMap(); // ctx → passIndex
@@ -211,7 +225,7 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
   /** Lo que ya se ve de algo al empezar a seguirlo no se avisa: se cuenta en la respuesta. */
   function baseline(sub, c) {
     const facts = sub.startsWith('prov:') ? factsOf([], [sub.slice(5)], c) : factsOf([sub], [], c);
-    seen = trackFacts(seen, facts, c.now);
+    markSeen(seen, facts, c.now);
   }
 
   function chatFor(chatId, now) {
@@ -814,18 +828,20 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
       const allProvinces = new Set(BOT_LANGS.flatMap((l) => [...provinces.get(l)]));
       if (!allKeys.size && !allProvinces.size) return [];
       const facts = factsOf(allKeys, allProvinces, c);
-      seen = trackFacts(seen, facts, now);
+      const firsts = new Map();
+      seen = trackFacts(seen, facts, now, { firsts });
       // Lo de esta ronda no se olvida por el tope (avisos perdidos o repetidos): si sólo eso ya pasa, se dice.
       if (seen.size > SEEN_MAX && now - seenWarnedAt >= SEEN_WARN_EVERY_MS) {
         seenWarnedAt = now;
         log?.warn(`[telegram] lo avisado que se recuerda pasa del tope (${SEEN_MAX}): ${seen.size} pares, de esta ronda; la válvula, ${SEEN_HARD_MAX}`);
       }
+      const fresh = newFactsOf(facts, seen, firsts); // lo nuevo de cada suscripción, mirado una vez para todos sus chats
       const factsIn = new Map([[DEFAULT_LANG, facts]]);
       /** Los hechos nuevos de una suscripción, con su texto en el idioma del chat (los mismos ids, en el mismo orden). */
-      const sayIn = (lang, sub, fresh) => {
-        if (lang === DEFAULT_LANG) return fresh;
+      const sayIn = (lang, sub, list) => {
+        if (lang === DEFAULT_LANG) return list;
         if (!factsIn.has(lang)) factsIn.set(lang, factsOf(keys.get(lang), provinces.get(lang), c, translator(lang)));
-        const ids = new Set(fresh.map((f) => f.id));
+        const ids = new Set(list.map((f) => f.id));
         return (factsIn.get(lang).get(sub) ?? []).filter((f) => ids.has(f.id));
       };
       const out = [];
@@ -844,10 +860,10 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
               dirty = true;
             }
           }
-          const fresh = withoutRepeats(newFacts(key, facts.get(key), seen, s.checkedAt), sent);
+          const told = withoutRepeats(fresh(key, s.checkedAt), sent);
           s.checkedAt = now;
-          if (fresh.length) {
-            out.push(reply(chat.id, factsMessage(tr.name(s.name), sayIn(chat.lang, key, fresh), { webUrl: web(tr), tr })));
+          if (told.length) {
+            out.push(reply(chat.id, factsMessage(tr.name(s.name), sayIn(chat.lang, key, told), { webUrl: web(tr), tr })));
             note('aviso', 'aviso');
           }
         }
@@ -855,10 +871,10 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
           const sub = provinceSub(id);
           // Los focos de calor, sólo a quien los ha pedido en esa provincia.
           // Sin repetir lo que ya ha llegado por una carretera seguida en esta ronda (withoutRepeats).
-          const fresh = withoutRepeats(provinceFacts(newFacts(sub, facts.get(sub), seen, s.checkedAt), { fires: s.fires }), sent);
+          const told = withoutRepeats(provinceFacts(fresh(sub, s.checkedAt), { fires: s.fires }), sent);
           s.checkedAt = now;
-          if (fresh.length) {
-            out.push(reply(chat.id, factsMessage(provinceTitle(provinceById(id), tr), sayIn(chat.lang, sub, fresh), { webUrl: web(tr), tr })));
+          if (told.length) {
+            out.push(reply(chat.id, factsMessage(provinceTitle(provinceById(id), tr), sayIn(chat.lang, sub, told), { webUrl: web(tr), tr })));
             note('aviso', 'aviso');
           }
         }

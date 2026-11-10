@@ -313,24 +313,72 @@ export function capSeen(seen, { max = SEEN_MAX, hardMax = SEEN_HARD_MAX, keepFro
  * nunca sale por el tope.
  * @param {Map<string, { first: number, last: number }>} seen
  * @param {Map<string, Fact[]>} factsBySub
- * @param {{ forgetMs?: number, max?: number, hardMax?: number }} [opts]
+ * @param {{ forgetMs?: number, max?: number, hardMax?: number, firsts?: Map<string, number[]> }} [opts]
+ *   firsts: si se da, apunta en él la primera vez de cada hecho de cada suscripción (en el orden de sus hechos), para
+ *   newFactsOf: así no se vuelve a buscar cada par en lo recordado.
  * @returns {Map<string, { first: number, last: number }>}  otro mapa (el de antes no cambia)
  */
-export function trackFacts(seen, factsBySub, now, { forgetMs = FACT_FORGET_MS, max = SEEN_MAX, hardMax = SEEN_HARD_MAX } = {}) {
+export function trackFacts(seen, factsBySub, now, { forgetMs = FACT_FORGET_MS, max = SEEN_MAX, hardMax = SEEN_HARD_MAX, firsts = null } = {}) {
   const next = new Map();
   for (const [k, v] of seen) if (now - v.last <= (isDayFact(k) ? Math.max(forgetMs, DAY_FACT_FORGET_MS) : forgetMs)) next.set(k, v);
   for (const [sub, facts] of factsBySub) {
-    for (const f of facts) {
+    const list = firsts ? new Array(facts.length) : null;
+    facts.forEach((f, i) => {
       const k = `${sub}|${f.id}`;
-      next.set(k, { first: next.get(k)?.first ?? now, last: now });
-    }
+      const first = next.get(k)?.first ?? now;
+      next.set(k, { first, last: now });
+      if (list) list[i] = first;
+    });
+    if (list) firsts.set(sub, list);
   }
   return capSeen(next, { max, hardMax, keepFrom: now });
+}
+
+/**
+ * Apunta como vistos, en el sitio, los hechos de lo que se acaba de empezar a seguir (lo que ya había no se avisa). Sin
+ * copiar lo recordado: con cientos de miles de pares, cada /seguir lo copiaba entero. Lo viejo y el tope, en la ronda
+ * (trackFacts).
+ * @param {Map<string, { first: number, last: number }>} seen
+ * @param {Map<string, Fact[]>} factsBySub
+ */
+export function markSeen(seen, factsBySub, now) {
+  for (const [sub, facts] of factsBySub) {
+    for (const f of facts) {
+      const k = `${sub}|${f.id}`;
+      const had = seen.get(k);
+      if (had) had.last = Math.max(had.last, now);
+      else seen.set(k, { first: now, last: now });
+    }
+  }
+  return seen;
 }
 
 /** Los hechos de una suscripción que han salido después de la última vez que se le avisó (`checkedAt`); los callados, nunca. */
 export function newFacts(sub, facts, seen, checkedAt) {
   return (facts ?? []).filter((f) => !f.silent && (seen.get(`${sub}|${f.id}`)?.first ?? -Infinity) > checkedAt);
+}
+
+/**
+ * newFacts para muchos chats en una ronda: lo de cada suscripción se mira una vez (su primera vez de cada hecho) y
+ * cada chat sólo compara números. Con 20.000 chats y 20 cosas cada uno, buscar cada par en lo recordado para cada
+ * chat costaba casi un segundo por ronda; y si nada es más nuevo que lo último que se le avisó, ni eso.
+ * @param {Map<string, Fact[]>} factsBySub  @param {Map<string, { first: number }>} seen
+ * @param {Map<string, number[]>} [firsts]  los de trackFacts con esos hechos (si no, se buscan en `seen`)
+ * @returns {(sub: string, checkedAt: number) => Fact[]}
+ */
+export function newFactsOf(factsBySub, seen, firsts = null) {
+  const bySub = new Map(); // sub → { list: [{ f, first }], newest }
+  return (sub, checkedAt) => {
+    let entry = bySub.get(sub);
+    if (!entry) {
+      const known = firsts?.get(sub);
+      const list = (factsBySub.get(sub) ?? []).map((f, i) => ({ f, first: known ? known[i] : seen.get(`${sub}|${f.id}`)?.first ?? -Infinity }))
+        .filter((x) => !x.f.silent);
+      entry = { list, newest: list.reduce((max, x) => Math.max(max, x.first), -Infinity) };
+      bySub.set(sub, entry);
+    }
+    return entry.newest > checkedAt ? entry.list.filter((x) => x.first > checkedAt).map((x) => x.f) : [];
+  };
 }
 
 /**
