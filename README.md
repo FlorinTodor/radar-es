@@ -462,6 +462,12 @@ directo con herramientas de sólo lectura. Sin la ñ y con `www.` redirigen con 
 HTTP «streamable» sin sesiones ni SSE: cada POST es un mensaje JSON-RPC completo
 (`server/adapters/inbound/mcp/mcp.js`).
 
+**In English:** a read-only MCP server with live data on Spain's trains, metro, trams and buses, and on
+incidents (traffic, weather, wildfires, earthquakes, emergencies). Connect any AI assistant to
+`https://radarespana.es/mcp`. Tools, descriptions and data are in Spanish, and the assistant is told to
+answer in the user's language. Source texts (operator and agency notices) are kept as published, as
+their licences require.
+
 Habla la versión **2026-07-28** del protocolo (sin saludo inicial: cada petición lleva su versión en
 `params._meta`, y `server/discover` dice qué entiende el servidor) y, para los clientes que aún no la
 usan, la 2025-11-25, la 2025-06-18 y la 2025-03-26 (con `initialize`).
@@ -845,7 +851,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Servidor MCP en `/mcp`: un asistente de IA (Claude, ChatGPT, Cursor…) consulta el directo (trenes,
   estaciones, incidencias, alertas, resumen y fuentes) con herramientas de sólo lectura, citando las
   fuentes. Habla la versión 2026-07-28 del protocolo y las anteriores. Lo propuso y escribió Edgar Milá
-  ([DemboNauta](https://github.com/DemboNauta)) en la PR #1.
+  ([DemboNauta](https://github.com/DemboNauta)) en la PR #1. Sus datos van en español, pero pide al
+  asistente que conteste en el idioma de quien pregunta, y el README lo describe también en inglés.
 - «Siguiendo»: con la estrella de su ficha se sigue un tren, un autobús, un metro o un tranvía concreto,
   su línea o una estación, y la pestaña Siguiendo dice cómo va cada cosa ahora (si circula, su retraso,
   si se ha cancelado y los avisos de su línea). Se guarda sólo en el navegador, sin cuentas.
@@ -867,7 +874,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   todo, quien escribe sobre el día, quien usa el bot, quien intenta romperlo y quien revisa las
   cancelaciones), con los datos reales del entorno de pruebas. De ahí salieron, ya hechos:
   - las seis pestañas del panel en dos filas de tres, también en el móvil, donde además el panel se puede
-    ocultar para ver el mapa entero;
+    ocultar para ver el mapa entero y vuelve con el botón «Panel», bajo «Capas» (lejos del borde de abajo,
+    que en el móvil comparten la barra del navegador y los gestos del sistema);
   - botones de seguir y de Telegram cómodos para el dedo; un servicio se nombra con su línea («Cercanías
     C3 20071») y una línea, por el tipo de vehículo que más se ve en ella;
   - el día en cifras: fechas que no existen, días sin datos con salida, sin porcentajes de retraso en

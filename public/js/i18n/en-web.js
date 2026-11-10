@@ -49,7 +49,7 @@ export default {
   'Ver todo': 'Show all',
   Capas: 'Layers',
   'Abrir el panel': 'Open the panel',
-  '▴ Mostrar el panel': '▴ Show the panel',
+  Panel: 'Panel',
   'Ocultar el panel para ver el mapa entero': 'Hide the panel to see the whole map',
   'Ocultar ▾': 'Hide ▾',
   'Lo que sigues: vehículos, líneas o estaciones': 'What you follow: vehicles, lines or stations',
