@@ -125,6 +125,14 @@ export function provinceOfPoint(lat, lon) {
   return bestRatio <= MAX_RATIO ? best : null;
 }
 
+// La provincia de cada suceso, calculada una vez mientras viva el objeto (cada ronda de avisos pregunta por cada
+// provincia seguida: sin esto, cada aviso de AEMET se mediría con las 52 provincias tantas veces como provincias).
+const BY_EVENT = new WeakMap();
+function eventProvinceId(e) {
+  if (!BY_EVENT.has(e)) BY_EVENT.set(e, provinceOfPoint(e.lat, e.lon)?.id ?? null);
+  return BY_EVENT.get(e);
+}
+
 /** Km desde un punto hasta el borde (aproximado) de una provincia; 0 si está dentro. */
 export function kmToProvince(p, lat, lon) {
   return Math.max(0, Math.min(...p.circles.map((c) => distanceKm(lat, lon, c.lat, c.lon) - c.km)));
@@ -155,7 +163,7 @@ export function eventInProvince(e, p, { now, quakeMinMagnitude = 3.5, quakeWindo
   if (!e || !p) return false;
   if (e.category === 'meteo') {
     if (e.level !== 'naranja' && e.level !== 'rojo') return false;
-    return provinceOfPoint(e.lat, e.lon)?.id === p.id;
+    return eventProvinceId(e) === p.id;
   }
   if (e.category === 'sismo') {
     if (!(e.magnitude >= quakeMinMagnitude) || !Number.isFinite(e.start) || now - e.start > quakeWindowHours * 3600_000) return false;
@@ -167,7 +175,7 @@ export function eventInProvince(e, p, { now, quakeMinMagnitude = 3.5, quakeWindo
     if (e.area && e.approx === 'provincia') return namesProvince(p, e.area);
     if (e.area && e.approx === 'isla') return namesIsland(p, e.area);
     if (e.area && (namesRegion(p, e.area) || namesProvince(p, e.area))) return true;
-    return provinceOfPoint(e.lat, e.lon)?.id === p.id;
+    return eventProvinceId(e) === p.id;
   }
   return false;
 }
