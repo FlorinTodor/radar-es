@@ -867,6 +867,10 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   de tu provincia; y, si se le pide, manda un parte cada día a la hora elegida. Cada ficha lleva arriba
   el botón «Avísame por Telegram», que lo sigue con un toque, y cada cosa de Siguiendo, el suyo. Guarda
   sólo lo necesario para avisar, y con `/baja` se borra todo.
+- El bot avisa además, en una estación, de los avisos de Renfe de la estación (ascensores, accesos), los
+  mismos que su ficha en la web; y en una provincia, de los posibles apagones de las islas, Ceuta y Melilla
+  y, si se piden (`/provincia Granada incendios`), de los focos de calor por satélite más claros, agrupados
+  y como posible incendio, nunca como incendio confirmado.
 - Todo lo anterior vale para cualquier tipo de vehículo: todos comparten las mismas claves para
   seguirlos y un registro de tipos, así que un tipo nuevo (barcos, aviones) sólo necesita su entrada en
   el registro y el adaptador de su fuente.

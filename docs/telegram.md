@@ -7,8 +7,12 @@ tranvía y los tipos que se añadan), su línea, una estación o una provincia. 
 - si va con 15 minutos o más de retraso, y otra vez cada 15 minutos más (cuando empeora; si recupera, no);
 - si su operador deja de publicar sus datos (trenes «sin datos»);
 - de los avisos del operador sobre su línea;
+- en una estación, de los trenes cancelados o sin datos que pasan por ella y de los avisos de Renfe de la estación
+  (ascensores fuera de servicio, accesos cerrados…), los mismos que enseña su ficha en la web;
 - en una provincia, de los avisos naranja y rojo de AEMET, los terremotos que pueden sentirse y los avisos
-  oficiales (planes de emergencia y cortes de luz).
+  oficiales (planes de emergencia y cortes de luz); en Canarias, Ceuta y Melilla, también de los posibles apagones
+  que se ven en la demanda eléctrica de cada isla; y, si los pide (`/provincia Granada incendios`), de los focos de
+  calor por satélite que pueden ser un incendio ([más abajo](#provincias-apagones-y-focos-de-calor)).
 
 Con `/parte 07:30` manda cada día un resumen de lo que sigue. El parte y `/estado` cuentan cada cosa entera: si no
 caben en un mensaje, van en varios (hasta 6) y, si ni así, dicen cuántas cosas quedan fuera. Lo que se puede seguir son las claves de
@@ -92,7 +96,8 @@ TELEGRAM_BOT_TOKEN` y la web no enseña el botón.
 - **Atiende un solo servidor a la vez.** Durante un relevo hay dos contenedores, y un turno en
   `data/bot/turno.json` decide cuál atiende el bot. El que se apaga lo suelta y el nuevo lo coge.
 - **Lo que guarda**, en `data/bot/seguidos.v1.json`:
-  - el número de cada chat, lo que sigue (con su nombre), desde cuándo y la hora de su parte;
+  - el número de cada chat, lo que sigue (con su nombre y, en una provincia, si ha pedido los focos de calor), desde
+    cuándo y la hora de su parte;
   - para no repetir avisos tras un reinicio, qué se ha avisado ya;
   - y los totales de uso (`totals`), sin ningún número de chat: altas, bajas por motivo, avisos y partes, y
     mensajes por orden, desde que se cuentan.
@@ -117,10 +122,55 @@ TELEGRAM_BOT_TOKEN` y la web no enseña el botón.
 - **Las provincias son círculos aproximados**, uno por isla en Baleares y Canarias
   (`server/domain/provincias.js`). Cerca de un límite puede llegar algún aviso de la vecina, y así se avisa al
   seguir una.
+- **Un aviso no se repite en la misma ronda**: si un chat sigue una estación y la línea de la que habla un aviso de
+  Renfe, le llega en uno de los dos mensajes. Las cancelaciones sí van en cada cosa a la que afectan, con lo suyo
+  (la hora en esa estación).
 
 Código:
 
-- dominio: `server/domain/seguidos/` y `server/domain/provincias.js`;
+- dominio: `server/domain/seguidos/` (lo de las provincias, en `zona.js`; lo de las estaciones, en `estacion.js`),
+  `server/domain/provincias.js` y `server/domain/avisos-estacion.js`;
 - caso de uso: `server/application/use-cases/follow-bot.js`;
 - adaptadores: `server/adapters/inbound/telegram/` y `server/adapters/outbound/telegram/`, más el almacén y el
   turno en `server/adapters/outbound/persistence/`.
+
+## Estaciones: avisos de Renfe
+
+Qué aviso es de qué estación lo decide `server/domain/avisos-estacion.js`, el mismo módulo que usa la ficha de la
+estación en la web (el servidor lo sirve tal cual al navegador): los avisos ferroviarios que llegan con las
+coordenadas de la estación, a menos de 300 m, y una vez cada texto. Las estaciones de metro, tranvía y demás redes
+no tienen avisos de Renfe. El texto va **sin alterar**, como pide la licencia de Renfe, con su atribución («Origen
+de los datos: Renfe Operadora…»); los de Rodalies, con la suya.
+
+## Provincias: apagones y focos de calor
+
+**Apagones de las islas, Ceuta y Melilla.** Son las alertas «Posible apagón total en …» y «Demanda eléctrica de …
+por debajo de lo esperado» del motor de alertas (`isolatedGridBlackouts` en `server/domain/alerts/rules.js`), que
+el bot lee de las alertas abiertas y lleva a la provincia de cada isla (`server/domain/seguidos/zona.js`). Llegan a
+quien sigue la provincia sin pedirlo, como los cortes de luz de los avisos oficiales. El texto dice la demanda, la
+hora del dato y que es una estimación de Radar España, y cita «Fuente: Red Eléctrica», como la web. Si un corte
+parcial pasa a total se vuelve a avisar; si un apagón total se queda en parcial al volver la luz, no. De Baleares no
+hay: Red Eléctrica no publica su demanda real en tiempo real.
+
+**Focos de calor (NASA FIRMS), sólo si se piden.** `/provincia Granada incendios` los añade (también a una provincia
+que ya se sigue) y `/provincia Granada sin incendios` los quita. Son opcionales porque un foco no es un incendio
+confirmado: quien sigue su provincia por los avisos oficiales no recibe, sin pedirlo, detecciones que pueden ser
+una quema o una fábrica. Para que un aviso sea casi siempre un fuego de verdad:
+
+- sólo focos de **confianza alta** (VIIRS: píxel saturado, la anomalía de calor más fuerte) y de **10 MW o más**
+  de potencia radiativa: las quemas agrícolas suelen quedarse por debajo;
+- fuera de las fuentes de calor fijas que el satélite ve a diario (refinerías, siderurgias y los volcanes de
+  Canarias; lista `STATIC_HEAT` en `zona.js`, con círculos aproximados);
+- encadenados a menos de 2 km, un grupo es un solo aviso, y sólo si su foco más fuerte llega a **30 MW** o junta
+  **3 focos**: lo que el motor de alertas llama gravedad «alta» en un posible incendio cerca de trenes;
+- de las últimas 12 horas (como el motor de alertas) o de hoy;
+- **como mucho un aviso por zona** (casillas de unos 25 km) **y día**: aunque el fuego crezca o haya otro grupo en
+  la misma zona, y aunque deje de verse un rato. Al día siguiente, si sigue, otro aviso.
+
+Cada aviso dice siempre que es una detección por satélite y no un incendio confirmado, qué más puede ser (en
+Canarias, también actividad volcánica), la potencia, la hora del último paso del satélite y un enlace al punto en
+OpenStreetMap. Cita la fuente como la web: «NASA FIRMS (LANCE, ESDIS) · Datos de NASA sin restricciones de uso · No
+apto para decisiones tácticas».
+
+`/estado` y el parte cuentan los apagones y, a quien los ha pedido, los focos (`/estado Granada incendios` los
+enseña a cualquiera).
