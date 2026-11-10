@@ -99,12 +99,13 @@ flowchart LR
 ```
 
 - **Lo que cuenta la web:** las peticiones por ruta, los mensajes del servidor MCP (método,
-  herramienta y resultado), las lecturas de cada fuente, los avisos del registro y la memoria. Nada de
-  quién pregunta: las rutas van sin lo que se ha pedido y no hay IPs.
+  herramienta y resultado), las lecturas de cada fuente, los avisos del registro y la memoria; y del
+  bot de Telegram, cuánta gente lo usa y qué sigue, en conjunto. Nada de quién pregunta: las rutas van
+  sin lo que se ha pedido, no hay IPs ni ningún número de chat.
 - **Lo que mira además:** el VPS (CPU, memoria, disco y red), los registros de la web y de los
   despliegues (sin IPs ni claves) y, cada minuto y desde fuera, que respondan la web, la API, el MCP y
   la redirección de `radarespana.es`.
-- **Cinco paneles** (General, API y MCP, Fuentes, Servidor y Registros) y **14 alertas**:
+- **Seis paneles** (General, API y MCP, Fuentes, Servidor, Registros y Bot de Telegram) y **14 alertas**:
   - la web, la API o el MCP sin responder;
   - una fuente sin datos;
   - memoria, errores o tirones del servidor;
@@ -819,6 +820,14 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   «Todas · Ninguna», la leyenda plegada y las preferencias guardadas en el navegador.
 - Aviso al entrar sobre los datos públicos que todavía faltan.
 - Páginas que explican cada parte del mapa y versión en inglés.
+- La web en inglés, con el interruptor ES/EN de la barra superior: en español por defecto, se recuerda en
+  el navegador y se puede enlazar con `?lang=en` (las páginas en inglés llevan así al mapa). Se traduce
+  lo que escribe Radar España: pestañas, fichas, capas y leyenda, las alertas del motor, «Siguiendo»,
+  «El día en cifras», fechas y números. Los nombres de estaciones, líneas y operadores, los avisos que
+  publica cada fuente (Renfe, AEMET, protección civil…) y las atribuciones que piden las licencias se
+  quedan tal cual. Al cambiar de idioma, el mapa vuelve al mismo sitio y a la misma pestaña, y quien ve
+  la web en español no descarga el diccionario. Los botones del propio mapa (acercar, alejar, cerrar)
+  también salen ya en el idioma de la web.
 - Sin avisos en la consola del navegador por los iconos que pide el mapa base y no trae.
 - Se puede instalar en el móvil como una app, desde Chrome o Safari («Añadir a pantalla de inicio»).
 - Preparada para los buscadores: título y descripción a medida en cada página (sin que Google las
@@ -878,6 +887,10 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Monitorización privada del servidor, con avisos por Telegram si algo falla: si la web, la API y el
   servidor MCP responden, el tráfico y los errores por ruta, el uso de cada herramienta MCP, el estado
   de cada fuente, la memoria y los registros. Sólo cuenta, sin guardar quién pregunta.
+- Panel del bot de Telegram en la monitorización: cuánta gente lo usa, qué sigue (lo más seguido y por
+  tipo), quién pide el parte, altas y bajas, avisos y mensajes por orden, de cada día y desde el
+  principio. Todo en conjunto, sin el número de ningún chat, y con los totales guardados con lo demás
+  del bot: no vuelven a 0 al reiniciar ni al desplegar.
 - Directo servido desde caché, preparado para picos de muchas visitas a la vez.
 - Un fichero de tiempo real que llega mal formado ya no se pierde entero: se usa todo lo que se puede
   leer (le pasaba a ratos al de Euskotren). Uno que llega vacío lo dice así en el estado de su fuente.
@@ -1000,7 +1013,7 @@ Ninguna por ahora.
 
 ## Posibles mejoras
 
-- Botón en el mapa para cambiar entre español e inglés.
+- El aviso legal y el bot de Telegram también en inglés (hoy sólo en español; la web en inglés lo indica).
 - Tiempo real de TMB y posiciones de los autobuses de EMT Madrid desde sus API, cuando EMT apruebe nuestra
   aplicación de MobilityLabs (ver
   *Pendiente y conocido*).
@@ -1008,6 +1021,8 @@ Ninguna por ahora.
 - Alertas de retraso más estables: algunas se abren y se cierran muchas veces en el mismo día cuando
   el retraso de un tren baila alrededor del umbral; darles un margen antes de cerrarlas.
 - Avisos por correo, además de por Telegram, para quien no lo use.
+- Historial del bot de más de 30 días (lo que guarda Prometheus): un resumen de cada día guardado
+  aparte, para ver cómo crece a lo largo de meses.
 - Incidencias en días de huelga: un buscador por número de tren o por línea y agrupar por línea o
   núcleo, porque la lista enseña las primeras 250.
 - Bot: «/estado <provincia>» y «/seguir <provincia>» que ofrezcan la provincia, y ciudades e islas como

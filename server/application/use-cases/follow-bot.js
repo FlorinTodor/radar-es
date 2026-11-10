@@ -11,6 +11,7 @@ import {
 } from '../../domain/seguidos/avisos.js';
 import { dataText, helpText, parseCommand, parseHour, smallTalk, smallTalkText, welcomeText } from '../../domain/seguidos/ordenes.js';
 import { cutText } from '../../domain/seguidos/texto.js';
+import { countEvent, emptyTotals, parseTotals, usageOf } from '../../domain/seguidos/uso.js';
 import { findProvince, provinceById } from '../../domain/provincias.js';
 
 /** Topes: chats en total, cosas seguidas por chat (provincias incluidas), provincias por chat y menús. */
@@ -51,6 +52,9 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
   const directory = new Map();
   const menus = new Map(); // chat → { kind: 'add'|'drop', items, at }: los botones de la última lista
   const rate = new Map(); // chat → { from, count }: sus mensajes del último minuto
+  // Altas, bajas, avisos y mensajes por orden desde que se empezó a contar (domain/seguidos/uso.js): se guardan con
+  // lo demás, así que un arranque o un relevo no los pone a cero.
+  let totals = emptyTotals(clock.now());
   let dirty = false;
   let savedAt = 0;
   let directoryAt = -Infinity;
@@ -64,6 +68,10 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
     known = null;
   };
   const knownOf = () => (known ??= knownNames(directory));
+  const note = (event, detail = '') => {
+    countEvent(totals, event, detail);
+    dirty = true;
+  };
 
   const stationOf = (code) => (code && read.station ? read.station(code) : null);
   const ctx = () => ({ vehicles: read.vehicles(), events: read.events(), now: clock.now(), stationOf, creditOf });
@@ -104,12 +112,13 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
     if (chats.size >= limits.chats) return null;
     chat = { id: chatId, since: now, subs: new Map(), provinces: new Map(), digest: null, digestDay: null };
     chats.set(chatId, chat);
+    note('alta');
     return chat;
   }
 
   /** Quita un chat que ya no sigue nada: no se guarda nada de quien no sigue nada. */
   function dropIfEmpty(chat) {
-    if (chat && !count(chat)) chats.delete(chat.id);
+    if (chat && !count(chat) && chats.delete(chat.id)) note('baja', 'dejar');
   }
 
   function follow(chatId, key, name = null) {
@@ -302,7 +311,7 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
   function erase(chatId) {
     const had = chats.delete(chatId);
     menus.delete(chatId);
-    if (had) dirty = true;
+    if (had) note('baja', 'baja');
     return [reply(chatId, had ? 'Hecho: he borrado todo lo de este chat. Si vuelves a seguir algo, empezará de cero.'
       : 'De este chat no tenía nada guardado.')];
   }
@@ -347,6 +356,7 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
       chats = new Map();
       seen = new Map();
       offset = 0;
+      totals = parseTotals(saved?.version === 1 ? saved.totals : null, clock.now());
       if (!saved || saved.version !== 1) return 0;
       offset = Number.isSafeInteger(saved.offset) ? saved.offset : 0;
       for (const c of Array.isArray(saved.chats) ? saved.chats.slice(0, limits.chats) : []) {
@@ -370,6 +380,13 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
         if (Array.isArray(row) && typeof row[0] === 'string' && Number.isFinite(row[1]) && Number.isFinite(row[2])) seen.set(row[0], { first: row[1], last: row[2] });
       }
       dirty = false;
+      if (saved.totals === undefined && chats.size) {
+        // Un fichero de antes de los totales: quienes ya siguen algo cuentan como altas, desde la primera (las bajas de
+        // entonces no constan). Se guarda en la siguiente ronda.
+        totals.added = chats.size;
+        totals.since = [...chats.values()].reduce((min, c) => (c.since > 0 && c.since < min ? c.since : min), totals.since);
+        dirty = true;
+      }
       return chats.size;
     },
 
@@ -384,6 +401,7 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
           provinces: [...c.provinces].map(([id, s]) => ({ id, since: s.since, checkedAt: s.checkedAt })),
         })),
         seen: [...seen].map(([k, v]) => [k, v.first, v.last]),
+        totals: structuredClone(totals),
       };
     },
 
@@ -425,10 +443,16 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
         rate.set(chatId, { from: now, count: 1 });
       } else if (++r.count > limits.messagesPerMinute) {
         // Se avisa una vez; lo demás de ese minuto se ignora.
+        note('orden', 'limite');
         return { replies: r.count === limits.messagesPerMinute + 1 ? [reply(chatId, 'Demasiados mensajes seguidos. Espera un minuto, por favor.')] : [] };
       }
-      if (msg.callback !== undefined) return callback(chatId, msg.callback);
+      if (msg.callback !== undefined) {
+        note('orden', 'boton');
+        return callback(chatId, msg.callback);
+      }
       const { command, arg } = parseCommand(msg.text);
+      // /start con una clave o una provincia: llega desde un enlace de la web («Avísame por Telegram»).
+      note('orden', command === 'start' && (isFollowKey(arg) || /^prov-/.test(arg)) ? 'enlace' : command);
       const run = {
         start: () => start(chatId, arg),
         seguir: () => search(chatId, arg),
@@ -485,18 +509,25 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
           }
           const fresh = newFacts(key, facts.get(key), seen, s.checkedAt);
           s.checkedAt = now;
-          if (fresh.length) out.push(reply(chat.id, factsMessage(s.name, fresh, { webUrl })));
+          if (fresh.length) {
+            out.push(reply(chat.id, factsMessage(s.name, fresh, { webUrl })));
+            note('aviso', 'aviso');
+          }
         }
         for (const [id, s] of chat.provinces) {
           const sub = provinceSub(id);
           const fresh = newFacts(sub, facts.get(sub), seen, s.checkedAt);
           s.checkedAt = now;
-          if (fresh.length) out.push(reply(chat.id, factsMessage(provinceTitle(provinceById(id)), fresh, { webUrl })));
+          if (fresh.length) {
+            out.push(reply(chat.id, factsMessage(provinceTitle(provinceById(id)), fresh, { webUrl })));
+            note('aviso', 'aviso');
+          }
         }
         if (chat.digest && chat.digestDay !== today && hour >= chat.digest) {
           chat.digestDay = today;
           const blocks = listOf(chat).map((it) => `${it.name}:\n${statusText(it.sub, c)}`);
           for (const text of packed([`Parte de las ${chat.digest}:`, ...blocks])) out.push(reply(chat.id, text));
+          note('aviso', 'parte');
         }
       }
       if (out.length) dirty = true;
@@ -507,11 +538,14 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
     forget(chatId) {
       menus.delete(chatId);
       if (chats.delete(chatId)) {
-        dirty = true;
+        note('baja', 'bloqueo');
         log?.info(`[telegram] un chat ha bloqueado el bot o ya no existe: borrado (quedan ${chats.size})`);
       }
     },
 
     stats: () => ({ chats: chats.size, subs: [...chats.values()].reduce((n, c) => n + count(c), 0) }),
+
+    /** Cuánto se usa, en conjunto y sin el número de ningún chat (domain/seguidos/uso.js): para las métricas. */
+    usage: () => ({ ...usageOf(chats.values()), totals: structuredClone(totals) }),
   };
 }

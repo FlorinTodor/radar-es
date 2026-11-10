@@ -93,10 +93,25 @@ TELEGRAM_BOT_TOKEN` y la web no enseña el botón.
   `data/bot/turno.json` decide cuál atiende el bot. El que se apaga lo suelta y el nuevo lo coge.
 - **Lo que guarda**, en `data/bot/seguidos.v1.json`:
   - el número de cada chat, lo que sigue (con su nombre), desde cuándo y la hora de su parte;
-  - y, para no repetir avisos tras un reinicio, qué se ha avisado ya.
+  - para no repetir avisos tras un reinicio, qué se ha avisado ya;
+  - y los totales de uso (`totals`), sin ningún número de chat: altas, bajas por motivo, avisos y partes, y
+    mensajes por orden, desde que se cuentan.
 
   Nada de nombres, usuarios ni teléfonos. Un chat que deja de seguirlo todo, escribe `/baja` o bloquea el bot
   se borra. La política de privacidad de `/legal` lo explica.
+- **Cuánto se usa**, en el panel «Radar · Bot de Telegram» de la monitorización
+  ([despliegue.md](despliegue.md#monitorización)):
+  - las personas (cada chat privado que sigue algo), lo que siguen por tipo, quién pide el parte y lo más
+    seguido, con cuántas personas lo siguen;
+  - altas y bajas, avisos y mensajes por orden, de 24 horas, de cada día y desde el principio.
+
+  Todo va en conjunto, sin el número de ningún chat (`server/domain/seguidos/uso.js`), y sólo lo da el
+  servidor que atiende el bot. Los totales se guardan con lo demás: un reinicio o un relevo no los pone a 0,
+  así que en Prometheus son la misma cifra antes y después de un despliegue, y lo de cada día es la resta
+  exacta entre el total de ahora y el de hace 24 horas. El primer arranque con esta versión cuenta como altas a
+  quienes ya seguían algo, desde la primera de ellas; las bajas de antes no constan. Lo único que se pierde
+  es lo de un apagón brusco del contenedor (sin cerrarse bien), como mucho el último minuto, igual que lo
+  que sigue cada chat. Las gráficas abarcan lo que guarda Prometheus: 30 días.
 - **Topes**: 20.000 chats y 20 cosas por chat, de ellas 5 provincias como mucho. Una cola de 5.000 mensajes:
   si se llena, se tiran los más viejos y se apunta en el registro.
 - **Las provincias son círculos aproximados**, uno por isla en Baleares y Canarias

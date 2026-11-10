@@ -1,6 +1,7 @@
 // Paradas del viaje del vehículo seleccionado (/api/stops/<id>): los puntos del mapa y la lista de su
 // ficha. Va aparte de map.js para poder probarlo en Node (map.js carga MapLibre).
 import { esc } from './format.js';
+import { t, tn } from './i18n.js';
 
 /**
  * @typedef {{ name: string, lon: number|null, lat: number|null, time: string|null, eta: string|null, passed: boolean, here?: boolean }} TripStop
@@ -93,7 +94,7 @@ export function tripFramePoints(data, vehicle) {
 /** «17:05», «17:05 · prevista 17:12» o «prevista 17:12»; '' si no se sabe la hora. */
 export function stopWhen(s) {
   if (s.passed) return s.time ?? '';
-  return [s.time, s.eta && `prevista ${s.eta}`].filter(Boolean).join(' · ');
+  return [s.time, s.eta && t('prevista {time}', { time: s.eta })].filter(Boolean).join(' · ');
 }
 
 /**
@@ -102,8 +103,8 @@ export function stopWhen(s) {
  * @param {number} count  paradas del viaje
  */
 export function stopTipHtml(p, count) {
-  const role = p.i === 0 ? 'Origen' : p.i === count - 1 ? 'Destino' : null;
-  const state = p.skipped ? 'suprimida' : p.passed ? 'ya ha pasado' : p.here ? 'está parado aquí' : p.next ? 'próxima parada' : null;
+  const role = p.i === 0 ? t('Origen') : p.i === count - 1 ? t('Destino') : null;
+  const state = p.skipped ? t('suprimida') : p.passed ? t('ya ha pasado') : p.here ? t('está parado aquí') : p.next ? t('próxima parada') : null;
   const meta = [role, state, p.when].filter(Boolean).join(' · ');
   return `<strong>${esc(p.name)}</strong>${meta ? `<br><span>${esc(meta)}</span>` : ''}`;
 }
@@ -119,12 +120,13 @@ export function stopsListHtml(data, { open = false } = {}) {
   if (stops.length < 2) return '';
   const next = nextIndex(stops);
   const left = stops.filter((s) => !s.passed && !s.here).length;
-  const summary = left === 0 ? `Paradas · ya ha llegado a ${esc(stops.at(-1).name)}`
-    : data.partial ? `Paradas · le ${left === 1 ? 'queda' : 'quedan'} ${left}` : `Paradas · le ${left === 1 ? 'queda' : 'quedan'} ${left} de ${stops.length}`;
+  const summary = left === 0 ? t('Paradas · ya ha llegado a {name}', { name: esc(stops.at(-1).name) })
+    : data.partial ? tn('Paradas · le queda {n}', 'Paradas · le quedan {n}', left)
+      : tn('Paradas · le queda {n} de {total}', 'Paradas · le quedan {n} de {total}', left, { total: stops.length });
   const items = stops.map((s, i) => {
     const cls = [s.passed && 'passed', s.here && 'here', i === next && 'next', (i === 0 || i === stops.length - 1) && 'end'].filter(Boolean).join(' ');
-    const when = s.here ? ['parado aquí', stopWhen(s)].filter(Boolean).join(' · ') : stopWhen(s);
-    const gap = data.partial && i === 1 ? '<li class="gap" aria-label="paradas que la fuente no da">…</li>' : '';
+    const when = s.here ? [t('parado aquí'), stopWhen(s)].filter(Boolean).join(' · ') : stopWhen(s);
+    const gap = data.partial && i === 1 ? `<li class="gap" aria-label="${esc(t('paradas que la fuente no da'))}">…</li>` : '';
     return `${gap}<li${cls ? ` class="${cls}"` : ''}><span class="ts-name">${esc(s.name)}</span>${when ? `<span class="ts-time">${esc(when)}</span>` : ''}</li>`;
   }).join('');
   return `<details class="trip-stops" data-keep="stops"${open ? ' open' : ''}><summary>${summary}</summary><ol>${items}</ol></details>`;
