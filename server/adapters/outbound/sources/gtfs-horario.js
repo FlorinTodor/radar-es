@@ -14,6 +14,7 @@ import { refineToRail } from '../../../domain/rail-match.js';
 import { estimatePosition } from '../../../domain/estimated-position.js';
 import { nextStopIndex, tripStopList } from '../../../domain/trip-stops.js';
 import { cancellationEvent, tripChanges } from '../../../domain/cancelaciones.js';
+import { followOf, lineKey, numberedServiceKey, scheduledServiceKey } from '../../../domain/seguir.js';
 import { createSeenStore } from '../persistence/seen-store.js';
 import { round5 } from '../../../domain/geo.js';
 import { madridClock, madridLocalToMs, madridServiceDay } from './parse.js';
@@ -57,6 +58,23 @@ function shapePoints(shape) {
   const out = [];
   for (let i = 0; i + 1 < shape.coords.length; i += 2) out.push([shape.coords[i], shape.coords[i + 1]]);
   return out;
+}
+
+/**
+ * Lo que se puede seguir de un viaje del horario (ver domain/seguir.js): el servicio (por su número, si lo
+ * tiene y es estable, o por su línea, su parada de origen y su hora de salida) y su línea. Sin offset, se
+ * guarda en el viaje: es el mismo en todas las lecturas del día.
+ * @param {object} trip  viaje del horario  @param {object[]} stops  sus paradas (tripStops)
+ * @param {{ operator: string, line: string|null, label: string|null, numbered: boolean, offset?: number }} o
+ */
+function tripFollow(trip, stops, { operator, line, label, numbered, offset = 0 }) {
+  if (!offset && trip.follow !== undefined) return trip.follow;
+  const service = numbered && label
+    ? numberedServiceKey({ operator, number: label })
+    : scheduledServiceKey({ operator, line, origin: stops[0]?.stopId, departure: (stops[0]?.dep ?? NaN) + offset });
+  const follow = followOf(service, lineKey({ operator, line }));
+  if (!offset) trip.follow = follow;
+  return follow;
 }
 
 const hhmmss = (secs) => [Math.floor(secs / 3600) % 24, Math.floor(secs / 60) % 60, Math.floor(secs % 60)].map((n) => String(n).padStart(2, '0')).join(':');
@@ -109,13 +127,16 @@ function stretch(shape, from, to) {
  *   arrancar, o al cambiar de día, se juntarían en memoria decenas de ZIP descomprimidos a la vez).
  * @param {{ id: string, name: string, operator?: string, ficheroId?: number, dataset?: number, feeds?: Feed[], credit?: string,
  *           license?: string, interval?: number, mode?: import('../../../domain/model.js').Mode, tripUpdatesUrl?: string,
- *           label?: (trip: object) => string, line?: (name: string|null) => string|null, cancellationCredit?: string }} options
+ *           label?: (trip: object) => string, line?: (name: string|null) => string|null, cancellationCredit?: string,
+ *           numberedService?: boolean }} options
  *   dataset: conjunto de datos del NAP al que pertenece el fichero (para su fecha de actualización).
  *   cancellationCredit: con tripUpdatesUrl, la atribución de sus cancelaciones (la de la fuente habla de la
  *   posición estimada, que en ellas no hay).
  *   feeds: varios ficheros en una sola fuente (empresas con muchos conjuntos), en lugar de ficheroId/dataset/operator.
  *   credit: atribución que pide el propio operador además de la del NAP ("Powered by CRTM"…). En un grupo,
  *   la que pide uno solo de sus operadores va en su fichero (Feed.credit) y no en la de todo el grupo.
+ *   numberedService: el label de cada viaje es su número de tren, el mismo todos los días (Ouigo): se sigue por
+ *   él; sin esto, cada viaje se reconoce por su línea, su parada de origen y su hora de salida (domain/seguir.js).
  * @typedef {{ ficheroId: number, dataset: number, operator: string, credit?: string, excludeAgency?: RegExp, excludeRoute?: RegExp }} Feed
  * @returns {import('../../../application/ports.js').DataSourcePort}
  */
@@ -224,7 +245,10 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
   function vehicle(fi, schedule, trip, day, t, delaySec, offset = 0, nextPaths = paths, nextRunning = running) {
     const tt = t - offset;
     if (tt < trip.first || tt > trip.last) { // descarte barato antes de crear objetos
-      if (tt > trip.last) trip.stopObjects = undefined; // ya ha acabado: no hace falta guardarlas
+      if (tt > trip.last) { // ya ha acabado: no hace falta guardar sus paradas ni sus claves
+        trip.stopObjects = undefined;
+        trip.follow = undefined;
+      }
       return null;
     }
     const stops = tripStops(trip, schedule, true);
@@ -238,13 +262,16 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
     // Sus paradas, para su ficha (tripStops): las del viaje, que ya se guardan mientras circula.
     nextRunning.set(vid, { stops, tt, offset, delaySec });
     const { operator } = feeds[fi];
+    const line = options.line ? options.line(trip.route.line) : trip.route.line;
+    const label = options.label?.(trip) ?? trip.label ?? null;
     return {
       id: vid,
       mode: trip.route.mode,
       operator,
       service: operator,
-      line: options.line ? options.line(trip.route.line) : trip.route.line,
-      label: options.label?.(trip) ?? trip.label ?? null,
+      line,
+      label,
+      follow: tripFollow(trip, stops, { operator, line, label, numbered: !!options.numberedService, offset }),
       lat: est.lat,
       lon: est.lon,
       delay: delaySec === null ? null : Math.round(delaySec / 60),
@@ -347,11 +374,14 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
           }));
         }
         had.trips++;
+        had.follow ??= followOf(lineKey({ operator, line }));
         for (const i of [...skipped].sort((a, b) => a - b)) if (!had.places.has(stops[i].name)) had.places.set(stops[i].name, [stops[i].lon, stops[i].lat]);
         continue;
       }
+      const label = options.label?.(trip) ?? trip.label ?? null;
       out.push({
         ...common, id: `${id}-cancelado:${tripId}${c.startDate ? `:${c.startDate}` : ''}`, stops: list(true), number: trip.label ?? null,
+        follow: tripFollow(trip, stops, { operator, line, label, numbered: !!options.numberedService }),
         who: bus ? `Autobús ${line ?? ''} de ${operator}`.replace(/\s+/g, ' ') : [operator, line, trip.label].filter(Boolean).join(' '),
       });
     }

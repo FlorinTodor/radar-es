@@ -13,6 +13,7 @@ import {
   cancellationEvent, mergeSameTrain, missingTrainEvent, noticesAbout, tripChanges, withoutCancelledTrains,
 } from '../../../domain/cancelaciones.js';
 import { createSeenStore } from '../persistence/seen-store.js';
+import { followOf, lineKey, numberedServiceKey } from '../../../domain/seguir.js';
 
 const GTFSRT = 'https://gtfsrt.renfe.com';
 // Una estación con andenes largos no pasa de unos cientos de metros: «parado» más lejos que esto de
@@ -70,6 +71,19 @@ const madridIso = (epochSec) => madridDateTime(epochSec * 1000);
 export const ldNumber = (tripId) => /^(\d{5})\d\d{4}-\d{2}-\d{2}$/.exec(tripId)?.[1] ?? /^SPECIAL_(\d{5})/.exec(tripId)?.[1] ?? tripId;
 /** Número de un tren de Cercanías por su viaje: «1002V20109C3», «4008J31413C3» → «20109», «31413». */
 export const cercaniasNumber = (tripId) => /^\d{4}[A-Z](\d{5})/.exec(tripId)?.[1] ?? null;
+
+/**
+ * Lo que se puede seguir de un tren de Renfe (ver domain/seguir.js): su número, el mismo todos los días y en
+ * los dos feeds (los regionales de Rodalies también van en el de AV/LD/MD), y su línea. En Cercanías, la
+ * línea va con su núcleo («40|C2» → núcleo 40, línea C2: hay C2 en varios); en AV/LD/MD, el producto (AVE,
+ * Avant…), que es lo que el radar enseña como su línea.
+ * @param {{ number?: string|null, line?: string|null, lineKey?: string|null, tripId?: string }} t
+ *   lineKey: la de renfeLineKey; sin ella, el núcleo sale del viaje de Cercanías («4013M…» → 40)
+ */
+export function renfeFollow({ number = null, line = null, lineKey: key = null, tripId = '' }) {
+  const scope = key?.split('|')[0] ?? /^(\d{2})\d{2}[A-Z]/.exec(tripId)?.[1] ?? null;
+  return followOf(numberedServiceKey({ operator: 'Renfe', number }), lineKey({ operator: 'Renfe', scope, line }));
+}
 
 /** Horarios oficiales de Renfe, cargados una vez al día y compartidos por las dos fuentes. */
 export function createTimetables({ cache, stations, log }) {
@@ -658,6 +672,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
           service: route?.bus ? 'Autobús de Renfe' : 'Cercanías',
           line: line ?? route?.line ?? null,
           label: number ?? v.vehicle?.id ?? tripId,
+          follow: renfeFollow({ number: number ?? cercaniasNumber(tripId), line: line ?? route?.line ?? null, lineKey: route?.lineKey, tripId }),
           origin: route?.origin ?? null,
           destination: route?.destination ?? null,
           // La vía es la de stopId: con IN_TRANSIT_TO, la de la estación que acaba de dejar.
@@ -790,6 +805,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
           service: trip?.service ?? 'Renfe',
           line: trip?.service ?? null,
           label: number,
+          follow: renfeFollow({ number, line: trip?.service ?? null }),
           origin: trip?.origin ?? null,
           destination: trip?.destination ?? null,
           ...(rest.length ? { ahead: true } : {}), // lo que le queda, por la vía: /api/ahead
@@ -866,6 +882,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
         line: route.line ?? null,
         lineKey: route.lineKey ?? null,
         number,
+        follow: renfeFollow({ number, line: route.line ?? null, lineKey: route.lineKey, tripId }),
         origin: route.origin ?? null,
         destination: route.destination ?? null,
         feed: 'GTFS-RT de Cercanías y Rodalies',
@@ -886,6 +903,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
         service: trip?.service ?? null,
         line: null,
         number,
+        follow: renfeFollow({ number, line: trip?.service ?? null }),
         origin: trip?.origin ?? null,
         destination: trip?.destination ?? null,
         feed: 'GTFS-RT de Alta Velocidad, Larga y Media Distancia',
@@ -931,6 +949,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
       mode: trip.mode,
       service: trip.service,
       number: trip.number,
+      follow: renfeFollow({ number: trip.number, line: trip.service }),
       stops: cancelledStops(trip.stops, trip.times, new Set()),
       at,
       date: day.iso,

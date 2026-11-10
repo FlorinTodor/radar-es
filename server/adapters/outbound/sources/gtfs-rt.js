@@ -4,6 +4,7 @@
 import { createRequire } from 'node:module';
 import { csvRows, openGtfs, zipLocalDate } from '../gtfs/gtfs-reader.js';
 import { madridLocalToMs } from './parse.js';
+import { followOf, lineKey } from '../../../domain/seguir.js';
 
 const require = createRequire(import.meta.url);
 const { transit_realtime: rt } = require('gtfs-realtime-bindings');
@@ -95,7 +96,7 @@ export function vehiclesFromFeed(feed, { id, mode, operator, line, describe, gtf
     const fixTime = vp.timestamp ? vp.timestamp * 1000 : null;
     if (fixTime && now - fixTime > STALE_MS) continue;
     const vehicleId = vp.vehicle?.id || vp.vehicle?.label || e.id;
-    vehicles.push({
+    const v = {
       id: `${id}:${vehicleId}`,
       mode,
       operator,
@@ -108,7 +109,11 @@ export function vehiclesFromFeed(feed, { id, mode, operator, line, describe, gtf
       next: (gtfs ? gtfs.stop(vp.stopId)?.name : vp.stopId) ?? null,
       fixTime,
       ...describe?.(e, gtfs),
-    });
+    };
+    // Sólo su línea (o toda la red, si no la dice): el número es el del coche, que cambia de un día a otro, y
+    // no hay forma de saber qué servicio del horario hace (ver domain/seguir.js).
+    v.follow = followOf(lineKey({ operator, line: v.line }));
+    vehicles.push(v);
   }
   return vehicles;
 }

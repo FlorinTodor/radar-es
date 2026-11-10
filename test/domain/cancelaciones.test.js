@@ -355,3 +355,31 @@ test('withoutCancelledTrains: un tren cancelado (en cualquier feed) no es un tre
   const kept = withoutCancelledTrains([missing('18093', h(9, 15)), missing('18095', h(9, 15)), missing('18093', h(19, 15))], [r16()]);
   assert.deepEqual(kept.map((e) => [e.trip.number, e.trip.departure]), [['18095', '09:15'], ['18093', '19:15']]);
 });
+
+test('mergeSameTrain: quien siga el número o cualquiera de las dos líneas encuentra la incidencia juntada', () => {
+  const withKeys = (e, follow) => ({ ...e, trip: { ...e.trip, follow } });
+  const a = withKeys(r16(), ['s-renfe-18093', 'l-renfe-51-R16']);
+  const b = withKeys(re18093(), ['s-renfe-18093', 'l-renfe-Regional_20Expr_C3_A9s']);
+  const [one] = mergeSameTrain([a, b]);
+  assert.deepEqual(one.trip.follow, ['s-renfe-18093', 'l-renfe-Regional_20Expr_C3_A9s', 'l-renfe-51-R16']);
+  assert.deepEqual(one.trip.alsoIn[0].follow, ['s-renfe-18093', 'l-renfe-51-R16'], 'y la otra, con las suyas');
+  // Una retirada guardada en disco por una versión anterior no trae claves: se junta igual.
+  const old = withdrawnCancellation(re18093(), { now: 9_000, clock: '11:21', endOfDay: MIDNIGHT });
+  assert.equal(old.trip.follow, undefined);
+  const [mixed] = mergeSameTrain([old, a]);
+  assert.deepEqual(mixed.trip.follow, ['s-renfe-18093', 'l-renfe-51-R16']);
+  assert.equal(mixed.trip.alsoIn[0].follow, undefined);
+  const [none] = mergeSameTrain([old, withdrawnCancellation(r16(), { now: 8_000, clock: '11:00', endOfDay: MIDNIGHT })]);
+  assert.equal(none.trip.follow, undefined, 'ninguna trae claves: sin lista');
+});
+
+test('cancelación y tren sin datos llevan las claves que les da su fuente', () => {
+  const e = cancellationEvent({ ...base, stops: STOPS, follow: ['s-renfe-291', 'l-renfe-Alvia'] }, NOW);
+  assert.deepEqual(e.trip.follow, ['s-renfe-291', 'l-renfe-Alvia']);
+  assert.equal(cancellationEvent({ ...base, stops: STOPS }, NOW).trip.follow, undefined);
+  const m = missingTrainEvent({
+    id: 'renfe-sin-datos:37090', who: 'Media Distancia 37090', operator: 'Renfe', mode: 'md', service: 'Media Distancia', number: '37090',
+    stops: STOPS, at: 1, date: '2026-11-05', publisher: 'Renfe', feed: 'x', seen: 1000, follow: ['s-renfe-37090', 'l-renfe-Media_20Distancia'],
+  }, NOW);
+  assert.deepEqual(m.trip.follow, ['s-renfe-37090', 'l-renfe-Media_20Distancia']);
+});

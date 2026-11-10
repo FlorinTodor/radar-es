@@ -5,6 +5,7 @@
 // publica y desde cuándo lo ve el radar.
 import { clockOf } from './trip-stops.js';
 import { round5 } from './geo.js';
+import { mergeFollow } from './seguir.js';
 
 // Si su fuente deja de responder, lo último que publicó se muestra como mucho una hora más: sin
 // noticias suyas no se sabe si el tren sigue cancelado (como el tráfico, ver carreteras.js).
@@ -112,6 +113,8 @@ export function stampSeen(previous, ids, now) {
  * @property {string|null} [service]
  * @property {string|null} [line]
  * @property {string|null} [number]
+ * @property {string[]} [follow]         claves de lo que se puede seguir de este viaje (servicio, línea), las de sus
+ *   vehículos: las pone el adaptador de su fuente (ver domain/seguir.js)
  * @property {string|null} [origin]      si no hay `stops`
  * @property {string|null} [destination] si no hay `stops`
  * @property {string|null} [date]        día del viaje («AAAAMMDD») si la fuente lo dice
@@ -225,6 +228,7 @@ export function cancellationEvent(c, now) {
       ...(c.lineNotices?.length ? { lineNotices: c.lineNotices.map(noticeOut) } : {}),
       cancelled: c.cancelled,
       running: c.running,
+      ...(c.follow?.length ? { follow: c.follow } : {}),
       publisher: c.publisher,
       feed: c.feed,
       feedUrl: c.feedUrl ?? null,
@@ -399,6 +403,7 @@ function mergedTrain(group) {
   const line = fromOther('line');
   const notice = fromOther('notice');
   const lineNotices = fromOther('lineNotices');
+  const followed = mergeFollow(...[kept, ...others].map((e) => e.trip?.follow ?? []));
   return {
     ...rest,
     // Siempre el mismo, aunque cambie la que se queda: lo marcado en el mapa no se pierde.
@@ -411,10 +416,14 @@ function mergedTrain(group) {
       line: line ?? null,
       ...(notice ? { notice } : {}),
       ...(lineNotices ? { lineNotices } : {}),
+      // Lo encuentra quien siga cualquiera de los dos: el mismo número y las dos líneas (R16 y Regional Exprés).
+      // Las retiradas guardadas por versiones anteriores no traen claves: no pasa nada.
+      ...(followed.length ? { follow: followed } : {}),
       alsoIn: others.map((o) => ({
         feed: o.trip.feed,
         feedUrl: o.trip.feedUrl ?? null,
         as: whoOf(o.trip),
+        ...(o.trip.follow?.length ? { follow: o.trip.follow } : {}),
         origin: o.trip.origin ?? null,
         destination: o.trip.destination ?? null,
         ...(o.withdrawn ? { withdrawn: o.withdrawn } : {}),
@@ -479,6 +488,7 @@ export function withoutCancelledTrains(missing, cancellations) {
  * @property {import('./model.js').Mode} mode
  * @property {string|null} service
  * @property {string} number
+ * @property {string[]} [follow]  claves de lo que se puede seguir de él (ver domain/seguir.js)
  * @property {CancelledStop[]} stops  paradas de su viaje con su hora del horario
  * @property {number} at          índice de la última parada por la que debería haber pasado
  * @property {string} date        día de su viaje («AAAA-MM-DD»)
@@ -544,6 +554,7 @@ export function missingTrainEvent(m, now) {
         ...(Array.isArray(s.at) && s.at.every(Number.isFinite) ? { lon: round5(s.at[0]), lat: round5(s.at[1]) } : {}),
         ...(i <= m.at ? { passed: true } : {}),
       })),
+      ...(m.follow?.length ? { follow: m.follow } : {}),
       publisher: m.publisher,
       feed: m.feed,
       feedUrl: m.feedUrl ?? null,

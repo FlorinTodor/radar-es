@@ -170,6 +170,8 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
     origin: v.origin, destination: v.destination, current: v.current, stopped: v.stopped, next: v.next,
     nextEta: v.nextEta, nextInMinutes: v.nextInMinutes, platform: v.platform, delay: v.delay, late: v.late,
     lat: v.lat, lon: v.lon, fixTime: iso(v.fixTime), estimated: v.estimated,
+    // Claves para seguirlo (servicio, línea; ver domain/seguir.js): las mismas en la web y en el bot.
+    follow: v.follow?.length ? v.follow : null,
   });
   // Las descripciones largas se recortan (el texto entero está en `url`) y se dice que se han recortado.
   const described = (d) => ({ description: clip(d, MAX_DESCRIPTION), descriptionTruncated: typeof d === 'string' && d.length > MAX_DESCRIPTION });
@@ -182,7 +184,7 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
     date: t.date, departure: t.departure, arrival: t.arrival, endsAt: t.endsAt, startsAt: t.startsAt, between: t.between,
     skipped: t.skipped?.length ? t.skipped : null, trips: t.trips, reason: t.reason, notice: t.notice ? noticeOut(t.notice) : null,
     lineNotices: t.lineNotices?.length ? t.lineNotices.map(noticeOut) : null,
-    publisher: t.publisher, feed: t.feed, feedUrl: t.feedUrl,
+    publisher: t.publisher, feed: t.feed, feedUrl: t.feedUrl, follow: t.follow?.length ? t.follow : null,
     // El mismo tren en otro feed del operador (y si ahí ya no lo publica, desde cuándo).
     alsoPublishedIn: t.alsoIn?.length
       ? t.alsoIn.map((o) => compact({ feed: o.feed, feedUrl: o.feedUrl, as: o.as, origin: o.origin, destination: o.destination, withdrawnBySource: iso(o.withdrawn) }))

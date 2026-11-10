@@ -1,7 +1,8 @@
 // Modelo del dominio. No importa nada de infraestructura: sólo tipos y reglas puras.
 
 /**
- * @typedef {'av'|'ld'|'md'|'cercanias'|'metro'|'tranvia'|'bus'|'otros'} Mode
+ * @typedef {'av'|'ld'|'md'|'cercanias'|'metro'|'tranvia'|'bus'|'otros'} Mode  Tipo de vehículo: los que hay
+ *   dados de alta en domain/modos.js (MODES), con su nombre y su familia. Uno nuevo se da de alta allí.
  * @typedef {'baja'|'media'|'alta'|'muy alta'} Severity
  * @typedef {'ferroviario'|'cancelacion'|'sin-datos'|'carretera'|'sismo'|'meteo'|'incendio'|'catastrofe'|'emergencia'} EventCategory
  *   sin-datos: trenes que según su horario deberían estar circulando y de los que su operador no publica nada.
@@ -17,6 +18,9 @@
  * @property {string} [service]       Producto comercial (AVE, Alvia, Cercanías...).
  * @property {string|null} line
  * @property {string} label           Número de tren o unidad.
+ * @property {string[]} [follow]      Lo que se puede seguir de él, como claves estables entre días (servicio, línea;
+ *   ver domain/seguir.js). Las pone el adaptador de su fuente, que es el que sabe qué es estable en sus datos:
+ *   todas traen al menos su línea (o toda la red de su operador, si la fuente no la dice).
  * @property {number} lat
  * @property {number} lon
  * @property {number|null} delay      Minutos; null si la fuente no lo publica.
