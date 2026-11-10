@@ -104,6 +104,7 @@ export default {
   'o de {what}': 'or about {what}',
   'de las cancelaciones y avisos de {what}': 'about cancellations and notices for {what}',
   'de las cancelaciones que su operador publique en esta estación': 'about cancellations its operator publishes at this station',
+  'de los cortes y accidentes de la {road}': 'about closures and accidents on the {road}',
   'Avísame por Telegram': 'Alert me on Telegram (in Spanish)',
   'Avisos por Telegram de {name}': 'Telegram alerts for {name} (the bot writes in Spanish)',
   'Avisos por Telegram': 'Telegram alerts (the bot writes in Spanish)',
