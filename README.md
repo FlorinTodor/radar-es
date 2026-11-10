@@ -887,6 +887,10 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Monitorización privada del servidor, con avisos por Telegram si algo falla: si la web, la API y el
   servidor MCP responden, el tráfico y los errores por ruta, el uso de cada herramienta MCP, el estado
   de cada fuente, la memoria y los registros. Sólo cuenta, sin guardar quién pregunta.
+- Panel del bot de Telegram en la monitorización: cuánta gente lo usa, qué sigue (lo más seguido y por
+  tipo), quién pide el parte, altas y bajas, avisos y mensajes por orden, de cada día y desde el
+  principio. Todo en conjunto, sin el número de ningún chat, y con los totales guardados con lo demás
+  del bot: no vuelven a 0 al reiniciar ni al desplegar.
 - Directo servido desde caché, preparado para picos de muchas visitas a la vez.
 - Un fichero de tiempo real que llega mal formado ya no se pierde entero: se usa todo lo que se puede
   leer (le pasaba a ratos al de Euskotren). Uno que llega vacío lo dice así en el estado de su fuente.
@@ -1017,6 +1021,8 @@ Ninguna por ahora.
 - Alertas de retraso más estables: algunas se abren y se cierran muchas veces en el mismo día cuando
   el retraso de un tren baila alrededor del umbral; darles un margen antes de cerrarlas.
 - Avisos por correo, además de por Telegram, para quien no lo use.
+- Historial del bot de más de 30 días (lo que guarda Prometheus): un resumen de cada día guardado
+  aparte, para ver cómo crece a lo largo de meses.
 - Incidencias en días de huelga: un buscador por número de tren o por línea y agrupar por línea o
   núcleo, porque la lista enseña las primeras 250.
 - Bot: «/estado <provincia>» y «/seguir <provincia>» que ofrezcan la provincia, y ciudades e islas como
