@@ -503,14 +503,14 @@ body.doc { overflow: auto; display: block; }
   .dia-nav .btn-ghost { flex: 1; }
 }
 
-.sheet-handle, .sheet-hide { display: none; }
+.sheet-handle, .sheet-hide, .sheet-show { display: none; }
 
 /* ---------- Móvil ----------
    El mapa ocupa toda la pantalla y el panel lateral pasa a ser una hoja que sube desde abajo
    (sólo pestañas, media pantalla o entera; ver app.js). Los indicadores van en una fila que
    se desliza de lado. */
 @media (max-width: 860px) {
-  /* --peek: el asa y las dos filas de pestañas; --sheet-min: oculto, sólo «Mostrar el panel». --sheet-half = SHEET_HALF de app.js */
+  /* --peek: el asa y las dos filas de pestañas; --sheet-min: por debajo, al arrastrar, se oculta. --sheet-half = SHEET_HALF de app.js */
   :root { --peek: 116px; --sheet-min: 44px; --sheet-half: 55%; }
   body { height: 100dvh; }
 
@@ -533,8 +533,8 @@ body.doc { overflow: auto; display: block; }
 
   .layout { position: relative; }
   .map-wrap { position: absolute; inset: 0 0 var(--peek); }
-  /* Con el panel oculto, el mapa llega hasta la barra de «Mostrar el panel» (MapLibre se ajusta solo). */
-  .layout.sheet-hidden .map-wrap { bottom: var(--sheet-min); }
+  /* Con el panel oculto, el mapa llega hasta abajo (MapLibre se ajusta solo). */
+  .layout.sheet-hidden .map-wrap { bottom: 0; }
   .sidebar {
     position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; width: auto; overflow: hidden;
     height: var(--peek); min-height: var(--peek); max-height: 100%;
@@ -542,7 +542,7 @@ body.doc { overflow: auto; display: block; }
     box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.45); transition: height .25s ease;
   }
   .sidebar[data-sheet="half"] { height: var(--sheet-half); }
-  .sidebar[data-sheet="hidden"] { height: var(--sheet-min); min-height: var(--sheet-min); }
+  .sidebar[data-sheet="hidden"] { display: none; }
   .sidebar[data-sheet="full"] { height: 100%; border-radius: 0; }
   .sidebar.dragging { transition: none; min-height: var(--sheet-min); } /* se puede arrastrar hasta ocultarla */
   .sheet-handle {
@@ -550,15 +550,18 @@ body.doc { overflow: auto; display: block; }
     padding: 0; border: 0; background: none; color: var(--ink); cursor: grab; touch-action: none;
   }
   .sheet-grip { width: 40px; height: 4px; border-radius: 2px; background: var(--muted); }
-  .sheet-label { display: none; font-size: 14px; font-weight: 600; }
   .sheet-hide {
     display: block; position: absolute; top: 0; right: 4px; z-index: 1; height: 28px; padding: 0 10px;
     border: 0; background: none; color: var(--ink-2); font-size: 12.5px; cursor: pointer;
   }
-  /* Oculto: toda la barra es el botón para volver a abrirlo (44 px, cómodo para el dedo). */
-  .sidebar[data-sheet="hidden"] .sheet-handle { height: var(--sheet-min); }
-  .sidebar[data-sheet="hidden"] .sheet-grip, .sidebar[data-sheet="hidden"] .sheet-hide { display: none; }
-  .sidebar[data-sheet="hidden"] .sheet-label { display: inline; }
+  /* Oculto, el panel desaparece y lo vuelve a abrir un botón como el de «Capas», debajo de él: lejos del borde de
+     abajo, que en el móvil comparte con la barra del navegador y los gestos del sistema (una franja de 44 px ahí
+     no se conseguía tocar). Si se abre «Capas», su tarjeta lo tapa por encima. */
+  .sheet-show:not([hidden]) {
+    display: flex; align-items: center; gap: 10px; position: absolute; top: 56px; left: 10px; z-index: 2;
+    min-height: 44px; padding: 0 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .sheet-show::after { content: "▴"; color: var(--muted); }
   /* Las seis pestañas en dos filas de tres: se ven todas sin deslizar. */
   .tabs { flex: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: visible; }
   .tabs.more { -webkit-mask-image: none; mask-image: none; }

@@ -510,22 +510,34 @@ document.querySelector('.tabs').addEventListener('click', (ev) => {
 });
 
 // ---------- Móvil: el panel es una hoja que sube desde abajo ----------
-// Cuatro alturas: oculto (sólo «Mostrar el panel», para ver el mapa entero), sólo las pestañas, media
-// pantalla y pantalla completa. Se cambia tocando el asa, «Ocultar» o una pestaña, o arrastrando el asa;
-// en el escritorio no hace nada (el CSS lo ignora).
+// Cuatro alturas: oculto (para ver el mapa entero: lo vuelve a abrir el botón «Panel», bajo «Capas»), sólo
+// las pestañas, media pantalla y pantalla completa. Se cambia tocando el asa, «Ocultar» o una pestaña, o
+// arrastrando el asa; en el escritorio no hace nada (el CSS lo ignora).
 const mobile = window.matchMedia('(max-width: 860px)');
 const sidebar = document.querySelector('.sidebar');
 const sheetHandle = document.getElementById('sheet-handle');
+const sheetShow = document.getElementById('sheet-show');
 const SHEET_HALF = 0.55; // fracción de la zona bajo la barra superior; igual que en el CSS
+let sheetOpen = 'peek'; // la última altura con el panel a la vista: la que vuelve con «Panel»
 
 function setSheet(stop) {
   sidebar.dataset.sheet = stop;
+  if (stop !== 'hidden') sheetOpen = stop;
   sidebar.parentElement.classList.toggle('sheet-hidden', stop === 'hidden');
+  sheetShow.hidden = stop !== 'hidden';
   sheetHandle.setAttribute('aria-expanded', String(stop !== 'peek' && stop !== 'hidden'));
-  sheetHandle.setAttribute('aria-label', stop === 'hidden' ? t('Mostrar el panel') : stop === 'peek' ? t('Abrir el panel') : t('Bajar el panel'));
+  sheetHandle.setAttribute('aria-label', stop === 'peek' ? t('Abrir el panel') : t('Bajar el panel'));
 }
 setSheet('peek');
-document.getElementById('sheet-hide').addEventListener('click', () => setSheet('hidden'));
+// El foco pasa al botón que queda a la vista: el que se ha pulsado desaparece.
+document.getElementById('sheet-hide').addEventListener('click', () => {
+  setSheet('hidden');
+  sheetShow.focus();
+});
+sheetShow.addEventListener('click', () => {
+  setSheet(sheetOpen);
+  sheetHandle.focus();
+});
 // Las alturas fijas, del CSS (no del min-height de la hoja, que cambia con el estado).
 const cssPx = (name) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || 0;
 
@@ -539,7 +551,8 @@ sheetHandle.addEventListener('pointerdown', (ev) => {
 sheetHandle.addEventListener('pointermove', (ev) => {
   if (!sheetDrag) return;
   const dy = sheetDrag.y - ev.clientY;
-  if (!sheetDrag.moved && Math.abs(dy) < 6) return;
+  // Un dedo se mueve algo al tocar: hasta 10 px es un toque, no un arrastre (con 6 se perdían toques).
+  if (!sheetDrag.moved && Math.abs(dy) < 10) return;
   sheetDrag.moved = true;
   sidebar.classList.add('dragging');
   sidebar.style.height = `${Math.min(sidebar.parentElement.clientHeight, Math.max(0, sheetDrag.h + dy))}px`;
@@ -562,8 +575,7 @@ sheetHandle.addEventListener('pointerup', endSheetDrag);
 sheetHandle.addEventListener('pointercancel', endSheetDrag);
 sheetHandle.addEventListener('click', () => {
   if (Date.now() - sheetDragEnd < 400) return; // el click que sigue a soltar un arrastre
-  const now = sidebar.dataset.sheet;
-  setSheet(now === 'hidden' ? 'peek' : now === 'peek' ? 'half' : 'peek');
+  setSheet(sidebar.dataset.sheet === 'peek' ? 'half' : 'peek');
 });
 // Al escribir en un buscador el teclado tapa media pantalla: se sube la hoja entera.
 for (const id of ['vehicle-search', 'station-search']) {
