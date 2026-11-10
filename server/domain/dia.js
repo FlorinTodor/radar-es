@@ -221,14 +221,14 @@ export function foldEvents(day, events, now) {
     if (e.category === 'cancelacion') {
       entry = addOnce(day, 'cancellations', e.id, () => ({
         t: Number.isFinite(e.seen) ? e.seen : now, op: text(t.operator), mode: safeId(t.mode) ? t.mode : 'otros', svc: text(t.service),
-        line: text(t.line), lk: lineKeyOf(t.follow), o: text(t.origin), type: e.type === 'parcial' ? 'parcial' : 'cancelado',
+        line: text(t.line), lk: lineKeyOf(t.follow), type: e.type === 'parcial' ? 'parcial' : 'cancelado',
       }));
       // Si pasa de paradas suprimidas a cancelado del todo (o al revés), cuenta lo último que publica.
       if (entry && !e.withdrawn) entry.type = e.type === 'parcial' ? 'parcial' : 'cancelado';
     } else if (e.category === 'sin-datos') {
       entry = addOnce(day, 'missing', e.id, () => ({
         t: Number.isFinite(e.seen) ? e.seen : now, op: text(t.operator), mode: safeId(t.mode) ? t.mode : 'otros', svc: text(t.service),
-        line: text(t.line), num: text(t.number), lk: lineKeyOf(t.follow), o: text(t.origin),
+        line: text(t.line), num: text(t.number), lk: lineKeyOf(t.follow),
       }));
     } else {
       const group = emergencyGroup(e, day.date, now);
@@ -367,22 +367,24 @@ const nounLabel = (mode) => {
 
 /**
  * Nombre de lo que agrupa una clave de línea (una línea o, en AV/LD/MD, el producto), tal como lo da
- * describeFollow con lo que se sabe del viaje («Tren C5 · Cercanías · Renfe»).
+ * describeFollow con lo que se sabe del viaje: «Cercanías C5 · Renfe (Madrid)», «AVE · Renfe».
  */
 function lineName(e) {
   const modeLabel = nounLabel(e.mode);
   if (e.lk) return describeFollow(e.lk, { operator: e.op ?? undefined, service: e.svc ?? undefined, line: e.line ?? undefined, modeLabel });
-  // Sin clave (las guardadas por versiones anteriores): lo mismo, con lo que se sepa.
-  const who = e.svc && e.svc !== e.line && e.svc !== e.op ? `${e.svc} · ${e.op}` : e.op;
-  if (e.line) return `${modeLabel ?? 'Línea'} ${e.line} · ${who ?? '?'}`;
-  return [e.svc, e.op].filter(Boolean).join(' · ') || 'Sin nombre';
+  // Sin clave (las guardadas por versiones anteriores): con la misma forma, pero sin el ámbito, que no se sabe.
+  const kind = e.svc && e.svc !== e.op ? e.svc : modeLabel ?? 'Línea';
+  const line = e.line ?? (e.svc && e.svc !== e.op ? e.svc : null);
+  if (!line) return e.op ?? 'Sin nombre';
+  return `${kind === line ? line : `${kind} ${line}`} · ${e.op ?? '?'}`;
 }
 
 /** Cancelaciones o trenes sin datos agrupados por operador, por tipo y por línea (con su nombre). */
 function grouped(entries, { withType = false } = {}) {
   const list = Object.values(entries);
   // Las que no traen clave (guardadas por versiones anteriores) van con la de su línea si sólo hay una con
-  // ese operador, servicio y línea (C1 hay en varias ciudades: entonces, aparte).
+  // ese operador, servicio y línea; si hay varias (C1 de Madrid y C1 de Valencia), aparte, porque sin la
+  // clave no se sabe de qué núcleo es.
   const triple = (e) => `${e.op ?? '?'}|${e.svc ?? ''}|${e.line ?? ''}`;
   const keysOf = new Map();
   for (const e of list) if (e.lk) keysOf.set(triple(e), new Set([...(keysOf.get(triple(e)) ?? []), e.lk]));
@@ -391,16 +393,13 @@ function grouped(entries, { withType = false } = {}) {
     const only = !raw.lk && keysOf.get(triple(raw))?.size === 1 ? [...keysOf.get(triple(raw))][0] : null;
     const e = only ? { ...raw, lk: only } : raw;
     const key = e.lk ?? triple(e);
-    const g = byLine.get(key) ?? { key: e.lk ?? null, name: lineName(e), operator: e.op ?? null, mode: e.mode, n: 0, partial: 0, origins: new Map() };
+    const g = byLine.get(key) ?? { key: e.lk ?? null, name: lineName(e), operator: e.op ?? null, mode: e.mode, n: 0, partial: 0 };
     g.n++;
     if (e.type === 'parcial') g.partial++;
-    if (e.o) g.origins.set(e.o, (g.origins.get(e.o) ?? 0) + 1);
     byLine.set(key, g);
   }
   const lines = [...byLine.values()].sort((a, b) => b.n - a.n || a.name.localeCompare(b.name)).slice(0, TOP_LINES).map((g) => ({
     key: g.key, name: g.name, operator: g.operator, mode: g.mode, n: g.n, ...(withType ? { partial: g.partial } : {}),
-    // Por dónde: las paradas de origen más repetidas (una línea C5 hay en varias ciudades).
-    origins: topOf(g.origins, 2).map(([name]) => name),
   }));
   const byMode = topOf(counted(list, (e) => e.mode), 20).sort((a, b) => modeOrder(a[0], b[0])).map(([id, n]) => ({ id, label: modeLabel(id), n }));
   return {

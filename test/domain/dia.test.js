@@ -53,7 +53,7 @@ test('vehículos: por tipo y por horas, sin los estimados; retrasos donde se pub
 const cancellation = (id, over = {}) => ({
   id, category: 'cancelacion', type: 'cancelado', severity: 'alta', source: 'renfe-avisos', credit: 'Origen de los datos: Renfe Operadora',
   seen: at('07:00'), expires: at('23:59'),
-  trip: { operator: 'Renfe', mode: 'cercanias', service: 'Cercanías', line: 'C5', origin: 'Móstoles-El Soto', follow: ['s-renfe-23719', 'l-renfe-10-C5'] },
+  trip: { operator: 'Renfe', mode: 'cercanias', service: 'Cercanías', line: 'C5', origin: 'Móstoles-El Soto', follow: ['s-renfe-23719', 'l-renfe-Madrid-C5'] },
   ...over,
 });
 
@@ -77,7 +77,7 @@ test('incidencias: cada cancelación una vez al día (también si se retira), si
   foldEvents(day, [cancellation('c1', { withdrawn: at('10:01'), type: 'cancelado' }), { ...events[1], type: 'cancelado' }], at('10:02'));
   assert.deepEqual(Object.keys(day.cancellations).sort(), ['c1', 'c2'], 'la que ya no está en vigor no cuenta');
   assert.equal(day.cancellations.c2.type, 'cancelado');
-  assert.equal(day.cancellations.c1.lk, 'l-renfe-10-C5');
+  assert.equal(day.cancellations.c1.lk, 'l-renfe-Madrid-C5');
   assert.deepEqual(Object.keys(day.missing), ['s1']);
   assert.deepEqual(Object.keys(day.emergencies).sort(), ['m1', 'o1', 'q1'], 'ni el amarillo, ni el de mañana, ni el terremoto de ayer, ni GDACS verde');
   assert.equal(day.emergencies.o1.power, true);
@@ -194,10 +194,10 @@ test('resumen: cancelaciones por operador, tipo y línea (con su nombre y por d�
   assert.deepEqual(s.cancellations.byOperator, [{ name: 'Renfe', n: 4 }, { name: 'EMT Málaga', n: 1 }]);
   assert.deepEqual(s.cancellations.byMode.map((m) => [m.id, m.n]), [['av', 1], ['cercanias', 3], ['bus', 1]]);
   const [c5, ...rest] = s.cancellations.byLine;
-  assert.deepEqual([c5.key, c5.name, c5.n, c5.origins], ['l-renfe-10-C5', 'Tren C5 · Cercanías · Renfe', 3, ['Móstoles-El Soto', 'Humanes']],
-    'el nombre de describeFollow, con el tipo del registro (sin «Línea» delante)');
-  assert.deepEqual(rest.map((g) => g.name).sort(), ['Autobús 27 · EMT Málaga', 'Tren Avant · Avant · Renfe'],
-    'en AV/LD/MD lo que agrupa es el producto');
+  assert.deepEqual([c5.key, c5.name, c5.n], ['l-renfe-Madrid-C5', 'Cercanías C5 · Renfe (Madrid)', 3],
+    'el nombre de describeFollow, con su núcleo (sin «Línea» delante)');
+  assert.deepEqual(rest.map((g) => g.name).sort(), ['Autobús 27 · EMT Málaga', 'Avant · Renfe'],
+    'en AV/LD/MD lo que agrupa es el producto, sin repetirlo; de un autobús, su tipo');
   assert.equal(s.alerts.total, 2);
   assert.deepEqual(s.alerts.bySeverity, { alta: 1, baja: 1 });
   assert.deepEqual(s.alerts.top.map((a) => a.severity), ['alta', 'baja'], 'la que se agravó cuenta con su gravedad mayor');
@@ -238,14 +238,16 @@ test('resumen: las fuentes por su nombre y con su atribución (la de cada operad
 
 test('las que no traen clave de línea (de versiones anteriores) van con la suya si no hay duda; si la hay, aparte', () => {
   const record = emptyDay(DATE);
-  const c1 = (id, scope, over = {}) => cancellation(id, { trip: { operator: 'Renfe', mode: 'cercanias', service: 'Cercanías', line: 'C1', follow: scope ? ['l-renfe-' + scope + '-C1'] : undefined }, ...over });
+  const c1 = (id, nucleo, over = {}) => cancellation(id, { trip: { operator: 'Renfe', mode: 'cercanias', service: 'Cercanías', line: 'C1', follow: nucleo ? [`l-renfe-${nucleo}-C1`] : undefined }, ...over });
   foldEvents(record, [
     cancellation('a1'), cancellation('a2', { trip: { operator: 'Renfe', mode: 'cercanias', service: 'Cercanías', line: 'C5' } }),
-    c1('b1', '10'), c1('b2', '40'), c1('b3', null),
+    c1('b1', 'Madrid'), c1('b2', 'Valencia'), c1('b3', null),
   ], at('10:00'));
   const lines = summarizeDay({ date: DATE, now: at('10:30'), today: true, record }).cancellations.byLine;
-  assert.equal(lines.find((g) => g.key === 'l-renfe-10-C5').n, 2, 'la C5 sin clave, con la única C5');
-  assert.equal(lines.filter((g) => g.name.startsWith('Tren C1')).length, 3, 'C1 hay en Madrid y en València: la que no tiene clave, aparte');
+  assert.equal(lines.find((g) => g.key === 'l-renfe-Madrid-C5').n, 2, 'la C5 sin clave, con la única C5');
+  assert.deepEqual(lines.filter((g) => g.name.startsWith('Cercanías C1')).map((g) => g.name).sort(),
+    ['Cercanías C1 · Renfe', 'Cercanías C1 · Renfe (Madrid)', 'Cercanías C1 · Renfe (Valencia)'],
+    'C1 hay en Madrid y en Valencia: la que no tiene clave, aparte y sin núcleo, con el mismo formato');
 });
 
 test('lo que no se sabe sale null, no 0: alertas sin leer, y cancelaciones, sin datos y avisos de un día sin registro', () => {

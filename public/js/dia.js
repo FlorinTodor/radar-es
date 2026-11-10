@@ -122,7 +122,6 @@ function delaySection(d) {
     ${rows.length ? `<ul class="dia-list">${rows.map((m) => `<li><strong>${esc(m.label)}</strong>: ${fmt(m.delay.lateShare)} % con 5 min o más${medianPhrase(m.delay.median) ? `; ${esc(medianPhrase(m.delay.median))}` : ''}</li>`).join('')}</ul>` : ''}`;
 }
 
-const origins = (g) => (g.origins?.length ? `sobre todo desde ${g.origins.join(' y ')}` : '');
 
 function cancellationsSection(d) {
   const c = d.cancellations;
@@ -131,7 +130,7 @@ function cancellationsSection(d) {
   return `<h2>Cancelaciones</h2>
     <p class="muted">${fmt(c.total)} viajes cancelados o con paradas suprimidas${c.byMode.length ? `: ${c.byMode.map((m) => `${fmt(m.n)} de ${esc(m.label.toLowerCase())}`).join(', ')}` : ''}.</p>
     <div class="dia-cols">
-      <div><h3>Dónde más cancelaciones</h3>${hbars(c.byLine.map((g) => ({ label: g.name, value: g.n, sub: origins(g) })))}</div>
+      <div><h3>Dónde más cancelaciones</h3>${hbars(c.byLine.map((g) => ({ label: g.name, value: g.n, sub: g.partial ? `${fmt(g.partial)} con paradas suprimidas` : '' })))}</div>
       <div><h3>Por operador</h3>${hbars(c.byOperator.map((o) => ({ label: o.name, value: o.n })))}</div>
     </div>`;
 }
