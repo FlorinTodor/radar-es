@@ -99,12 +99,13 @@ flowchart LR
 ```
 
 - **Lo que cuenta la web:** las peticiones por ruta, los mensajes del servidor MCP (método,
-  herramienta y resultado), las lecturas de cada fuente, los avisos del registro y la memoria. Nada de
-  quién pregunta: las rutas van sin lo que se ha pedido y no hay IPs.
+  herramienta y resultado), las lecturas de cada fuente, los avisos del registro y la memoria; y del
+  bot de Telegram, cuánta gente lo usa y qué sigue, en conjunto. Nada de quién pregunta: las rutas van
+  sin lo que se ha pedido, no hay IPs ni ningún número de chat.
 - **Lo que mira además:** el VPS (CPU, memoria, disco y red), los registros de la web y de los
   despliegues (sin IPs ni claves) y, cada minuto y desde fuera, que respondan la web, la API, el MCP y
   la redirección de `radarespana.es`.
-- **Cinco paneles** (General, API y MCP, Fuentes, Servidor y Registros) y **14 alertas**:
+- **Seis paneles** (General, API y MCP, Fuentes, Servidor, Registros y Bot de Telegram) y **14 alertas**:
   - la web, la API o el MCP sin responder;
   - una fuente sin datos;
   - memoria, errores o tirones del servidor;
