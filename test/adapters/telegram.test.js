@@ -158,7 +158,9 @@ test('bucle: sin turno no lee; con turno, lee, contesta por la cola, responde a 
   await g.tg.pollOnce();
   g.advance(2000);
   await g.tg.drainOnce();
-  g.inbox.push({ update_id: 12, callback_query: { id: 'q7', data: 'd:0', message: { chat: { id: 9, type: 'private' } } } });
+  const data = g.sent.at(-1).buttons[0][0].data;
+  assert.match(data, /^d:[0-9a-z]+:0$/);
+  g.inbox.push({ update_id: 12, callback_query: { id: 'q7', data, message: { chat: { id: 9, type: 'private' } } } });
   await g.tg.pollOnce();
   assert.deepEqual(g.answered, [{ id: 'q7', text: 'Hecho' }]);
   g.advance(2000);
