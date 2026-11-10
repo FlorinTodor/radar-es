@@ -7,7 +7,7 @@
 // desde la web en inglés (su enlace lo dice). Se guarda con lo demás del chat; mientras no siga nada, sólo en
 // memoria, como todo lo de quien no sigue nada.
 import { isFollowKey, isRoadKey, followKind, stopCode } from '../../domain/seguir.js';
-import { PROVINCE_TRAFFIC_TEXT, parseRoadRequest, roadFollowedText, roadName, roadRequestHelp, roadSub, roadTitle } from '../../domain/seguidos/trafico.js';
+import { PROVINCE_TRAFFIC_TEXT, asksForRoad, parseRoadRequest, roadFollowedText, roadName, roadRequestHelp, roadSeen, roadSub, roadTitle } from '../../domain/seguidos/trafico.js';
 import { entryLabel, guessedName, knownNames, searchDirectory, updateDirectory } from '../../domain/seguidos/directorio.js';
 import {
   DELAY_MIN, SEEN_MAX, collectFacts, factsMessage, fitMessage, madridDay, madridHourMinute, newFacts, packBlocks, provinceSub,
@@ -317,7 +317,10 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
     // El nombre se guarda en español («Carretera A-7»), como los demás, y se enseña en el idioma del chat.
     chat.subs.set(sub.key, { name: roadTitle(name, sub.province), since: c.now, checkedAt: c.now });
     dirty = true;
-    return [reply(chatId, `${roadFollowedText(sub, name, tr)}\n\n${t('Ahora:')}\n${statusText(sub.key, c, tr)}`
+    // Sin lista de carreteras, una mal escrita se sigue igual: si ahora no tiene ninguna incidencia, se dice.
+    const unseen = roadSeen(sub.key, c.events) ? ''
+      : `\n\n${t('Ahora no veo ninguna incidencia en ella, ni leve: comprueba que el nombre está bien escrito; si lo está, te aviso en cuanto haya algo.')}`;
+    return [reply(chatId, `${roadFollowedText(sub, name, tr)}\n\n${t('Ahora:')}\n${statusText(sub.key, c, tr)}${unseen}`
       + `\n\n${t('/mis para ver lo que sigues · /dejar para dejar de seguirlo')}`)];
   }
 
@@ -424,13 +427,15 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
       blocks.push(`${tr.name(nameOf(arg))}:\n${statusText(arg, c, tr)}`);
     } else {
       refreshDirectory(c);
-      const found = searchDirectory(directory, arg, { limit: 3 });
+      // «/estado A-7»: la carretera, no el autobús 7 (asksForRoad); «/estado C4 Madrid», la línea.
+      const roadFirst = asksForRoad(arg);
+      const found = roadFirst ? [] : searchDirectory(directory, arg, { limit: 3 });
       // «/estado Granada incendios», con los focos de calor; sólo la provincia, si los sigue.
       const option = provinceOption(arg);
-      const p = !found.length ? findProvince(option.place) : null;
+      const p = !found.length && !roadFirst ? findProvince(option.place) : null;
       const fires = option.fires ?? !!chat?.provinces.get(p?.id)?.fires;
       if (p) blocks.push(`${provinceTitle(p, tr)}:\n${statusText(provinceSub(p.id), c, tr, fires)}`);
-      const road = !found.length && !p ? parseRoadRequest(arg) : null; // «/estado A-7»: cómo está esa carretera
+      const road = roadFirst ?? (!found.length && !p ? parseRoadRequest(arg) : null); // cómo está esa carretera
       if (road?.key) blocks.push(`${tr.name(roadTitle(roadName(road.road, c.events), road.province))}:\n${statusText(road.key, c, tr)}`);
       for (const e of found) blocks.push(`${tr.name(entryLabel(e))}:\n${statusText(e.key, c, tr)}`);
       if (!blocks.length) return [reply(chatId, t('No encuentro nada así entre lo que circula ahora o ha circulado hace poco.'))];
@@ -804,7 +809,7 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
       const hour = madridHourMinute(now);
       for (const chat of chats.values()) {
         const tr = translator(chat.lang);
-        const sent = new Set(); // los avisos ya contados a este chat en esta ronda: no se repiten (estación y línea)
+        const sent = new Set(); // los avisos ya contados a este chat en esta ronda: no se repiten (estación y línea, carretera y provincia)
         for (const [key, s] of chat.subs) {
           // Lo que se siguió sin verse lleva un nombre provisional: el de verdad, en cuanto se vuelve a ver.
           if (s.guessed) {
@@ -825,7 +830,8 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
         for (const [id, s] of chat.provinces) {
           const sub = provinceSub(id);
           // Los focos de calor, sólo a quien los ha pedido en esa provincia.
-          const fresh = provinceFacts(newFacts(sub, facts.get(sub), seen, s.checkedAt), { fires: s.fires });
+          // Sin repetir lo que ya ha llegado por una carretera seguida en esta ronda (withoutRepeats).
+          const fresh = withoutRepeats(provinceFacts(newFacts(sub, facts.get(sub), seen, s.checkedAt), { fires: s.fires }), sent);
           s.checkedAt = now;
           if (fresh.length) {
             out.push(reply(chat.id, factsMessage(provinceTitle(provinceById(id), tr), sayIn(chat.lang, sub, fresh), { webUrl: web(tr), tr })));

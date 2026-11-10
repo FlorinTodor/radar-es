@@ -29,7 +29,8 @@ export const stationNoticeFact = (e, credit, tr = ES) => ({ id: e.id, kind: 'avi
  */
 export function withoutRepeats(facts, sent) {
   return facts.filter((f) => {
-    if (f.kind !== 'aviso') return true;
+    // Avisos de Renfe (estación y línea) y tráfico (carretera y provincia): el mismo, una vez por ronda.
+    if (f.kind !== 'aviso' && f.kind !== 'carretera') return true;
     if (sent.has(f.id)) return false;
     sent.add(f.id);
     return true;

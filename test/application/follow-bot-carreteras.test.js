@@ -144,3 +144,32 @@ test('topes, lo que se guarda y las métricas: una carretera cuenta como una cos
   assert.equal(await other.bot.load(), 1);
   assert.equal(other.say('/mis')[0].text, 'Sigues:\n\n1. Carretera A-7\n2. Avisos en Soria\n\nPara dejar algo: /dejar (o /dejar y su número).');
 });
+
+test('/estado A-7: la carretera, no el autobús 7; «C4 Madrid» sigue siendo la línea', () => {
+  const { say, world } = setup();
+  world.vehicles = [{ id: 'bus7', source: 'tranvias-coruna', mode: 'bus', line: '7', label: '7', service: 'Autobús', operator: 'Tranvías de A Coruña',
+    lat: 43.36, lon: -8.41, follow: ['l-tranvias-coruna-7'] }];
+  world.events = [dgt(T0 - 5 * MIN, { closed: true })];
+  const [r] = say('/estado A-7');
+  assert.match(r.text, /^Carretera A-7:\nAhora hay 1 corte, accidente o incidencia grave en la A-7:/);
+  assert.doesNotMatch(r.text, /Autobús 7/);
+  assert.match(say('/estado AP-7 Tarragona')[0].text, /^Carretera AP-7 \(Tarragona\):/);
+});
+
+test('un corte que llega por la carretera seguida no se repite en el aviso de la provincia (misma ronda)', () => {
+  const { say, world, tick } = setup();
+  say('/carretera A-7 Málaga');
+  say('/provincia Málaga');
+  tick();
+  world.events = [dgt(T0 + 2 * MIN, { id: 'dgt:2', closed: true, title: 'Obstáculo · A-7 km 1000.0' })];
+  const sent = tick();
+  assert.equal(sent.filter((m) => m.text.includes('Obstáculo · A-7 km 1000.0')).length, 1, sent.map((m) => m.text).join('\n---\n'));
+});
+
+test('carreteras: comillas alrededor, y una sin ninguna incidencia avisa de que compruebe el nombre', () => {
+  const { say, world } = setup();
+  world.events = [dgt(T0 - 5 * MIN)];
+  assert.match(say('/carretera «A 7»')[0].text, /^Hecho: te aviso de .* de la A-7;/);
+  assert.doesNotMatch(say('/carretera A-7 Málaga')[0].text, /comprueba que el nombre/);
+  assert.match(say('/carretera A-99')[0].text, /Ahora no veo ninguna incidencia en ella, ni leve: comprueba que el nombre está bien escrito/);
+});

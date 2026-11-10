@@ -109,6 +109,8 @@ export const EN = {
     "I can't find that station in the radar's catalogue. Find it on the map and tap “Alert me on Telegram” on its card: {web}",
   'Ya sigues {name}.': 'You already follow {name}.',
   'Ahora:': 'Now:',
+  'Ahora no veo ninguna incidencia en ella, ni leve: comprueba que el nombre está bien escrito; si lo está, te aviso en cuanto haya algo.':
+    'I can\'t see any incident on it right now, not even a minor one: check the name is spelt correctly; if it is, I\'ll alert you as soon as something happens.',
   'Ya sigues {n} cosas, el máximo. Deja alguna con /dejar.': 'You already follow {n} things, the maximum. Unfollow one with /unfollow.',
   'Ahora mismo no puedo atender a más gente. Prueba más tarde, por favor.': "I can't take on more people right now. Please try again later.",
   'Hecho: te aviso de {name}.': "Done: I'll alert you about {name}.",

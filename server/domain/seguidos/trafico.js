@@ -109,7 +109,8 @@ const JOINER_RE = /^(?:en|de|por|provincia|in|of|province)$/i;
  *   sin-carretera: sólo ha dicho una provincia
  */
 export function parseRoadRequest(text) {
-  const words = String(text ?? '').slice(0, 100).trim().split(/\s+/).filter(Boolean);
+  // Sin comillas alrededor («A 7», "A-7"): son de quien escribe, no de la carretera.
+  const words = String(text ?? '').slice(0, 100).replace(/[«»"“”‘’']/g, ' ').trim().split(/\s+/).filter(Boolean);
   while (words.length && FILLER_RE.test(words[0])) words.shift();
   if (!words.length) return { error: 'vacia' };
   const alone = findProvince(words.join(' '));
@@ -125,6 +126,23 @@ export function parseRoadRequest(text) {
     : words.length === 2 && /^[A-Za-z]{1,4}$/.test(words[0]) && /^(?:\d|(?:I{1,3}|IV|VI?)A?$)/i.test(words[1]) ? words.join('') : null;
   const key = joined && roadKey(joined, province?.id ?? null);
   return key ? roadSub(key) : { error: 'carretera' };
+}
+
+/** ¿Tiene ahora alguna incidencia, aunque sea leve? Una que no tiene ninguna puede estar mal escrita (no hay lista de carreteras). */
+export function roadSeen(key, events = []) {
+  const sub = roadSub(key);
+  return Boolean(sub) && events.some((e) => isTrafficIncident(e) && typeof e.road === 'string' && roadCode(e.road) === sub.road);
+}
+
+/**
+ * ¿«/estado …» pide una carretera antes que una línea? Sí, si se escribe con guion y una letra que no usan las
+ * líneas («A-7», «AP-7», «N-340»): si no, «A-7» encontraba el autobús 7. «C-4», «R-3», «L-5», «S-2», «T-1», «E-1» o
+ * «M-30» pueden ser una línea o una carretera: primero las líneas, como siempre.
+ */
+export function asksForRoad(text) {
+  const sub = parseRoadRequest(text);
+  if (!sub.key || !/\b[a-z]{1,4}-[0-9ivx]/i.test(String(text))) return null;
+  return /^(?:c|r|l|s|t|e|m|ml|tg|tr|fe)$/i.test(/^[a-z]+/i.exec(sub.road)?.[0] ?? '') ? null : sub;
 }
 
 /** Lo que se contesta a un «/carretera …» que no se entiende, en el idioma del chat. */
