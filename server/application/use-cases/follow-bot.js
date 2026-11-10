@@ -39,16 +39,17 @@ const clipLabel = (s) => cutText(s, BUTTON_MAX);
  */
 
 /**
- * @param {{ read: { vehicles: () => object[], events: () => object[], station?: (code: string) => object|null,
- *                   stops?: (vehicleId: string) => { stops: object[] }|null, stations?: () => object[] },
+ * @param {{ read: { vehicles: () => object[], events: () => object[], station?: (code: string) => object|null },
  *           store: import('../ports.js').FollowStorePort, clock: import('../ports.js').ClockPort,
- *           creditOf?: (source: string, operator?: string) => string|null, webUrl: string,
+ *           creditOf?: (source: string, operator?: string) => string|null, webUrl: string, trayectos?: TrayectoReads,
  *           log?: import('../ports.js').LoggerPort, limits?: Partial<typeof LIMITS> }} deps
- *   read: lo que se ve ahora (query-situation: vehículos, incidencias en vigor y la ficha de una estación) y, para los
- *   trayectos, las paradas del viaje de un vehículo y el catálogo de estaciones.
+ *   read: lo que se ve ahora (query-situation: vehículos, incidencias en vigor y la ficha de una estación).
  *   creditOf: la atribución que pide la licencia de una fuente (por su id y, si agrupa a varios, el operador).
+ *   trayectos: lo que hace falta para «Mi trayecto» (query-situation): las paradas del viaje de un vehículo y el
+ *   catálogo de estaciones. Sin ello, los trayectos no encuentran estaciones ni trenes.
+ * @typedef {{ stops?: (vehicleId: string) => { stops: object[] }|null, stations?: () => object[] }} TrayectoReads
  */
-export function makeFollowBot({ read, store, clock, creditOf = () => null, webUrl, log, limits: custom = {} }) {
+export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = () => null, webUrl, log, limits: custom = {} }) {
   const limits = { ...LIMITS, ...custom };
   /** @type {Map<number, { id: number, since: number, subs: Map<string, { name: string, since: number, checkedAt: number }>,
    *   provinces: Map<string, { since: number, checkedAt: number }>, digest: string|null, digestDay: string|null }>} */
@@ -79,7 +80,6 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
     dirty = true;
   };
 
-  const stationOf = (code) => (code && read.station ? read.station(code) : null);
   // Trayectos (domain/seguidos/trayectos.js): las paradas del viaje de cada vehículo, como mucho una vez por minuto
   // (las piden la ronda, /estado y los partes de ese minuto); por dónde pasan, una vez por consulta (la ronda, con los
   // partes de todos los chats, es una); el catálogo de estaciones, cada tanto.
@@ -87,7 +87,7 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
   const stopsOf = (id) => {
     const now = clock.now();
     if (now - tripStops.at >= 60_000) tripStops = { at: now, byId: new Map() };
-    if (!tripStops.byId.has(id)) tripStops.byId.set(id, read.stops?.(id)?.stops ?? null);
+    if (!tripStops.byId.has(id)) tripStops.byId.set(id, trayectos.stops?.(id)?.stops ?? null);
     return tripStops.byId.get(id);
   };
   const passing = new WeakMap(); // ctx → passIndex
@@ -98,16 +98,18 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
   };
   let catalog = { at: -Infinity, list: [] };
   const stationList = () => {
-    if (clock.now() - catalog.at >= DIRECTORY_EVERY_MS) catalog = { at: clock.now(), list: read.stations?.() ?? [] };
+    if (clock.now() - catalog.at >= DIRECTORY_EVERY_MS) catalog = { at: clock.now(), list: trayectos.stations?.() ?? [] };
     return catalog.list;
   };
-  const ctx = () => ({ vehicles: read.vehicles(), events: read.events(), now: clock.now(), stationOf, creditOf, stopsOf });
   /** Los hechos de lo que se sigue: los de avisos.js y los de los trayectos. */
   const factsOf = (keys, provinces, c) => {
     const facts = collectFacts({ keys, provinces, ...c });
-    for (const [key, list] of collectTrayectoFacts({ keys, ...c })) facts.set(key, list);
+    for (const [key, list] of collectTrayectoFacts({ keys, ...c, stopsOf })) facts.set(key, list);
     return facts;
   };
+
+  const stationOf = (code) => (code && read.station ? read.station(code) : null);
+  const ctx = () => ({ vehicles: read.vehicles(), events: read.events(), now: clock.now(), stationOf, creditOf });
   const reply = (chatId, text, buttons) => ({ chatId, text: fitMessage(text), ...(buttons?.length ? { buttons } : {}) });
   const count = (chat) => (chat ? chat.subs.size + chat.provinces.size : 0);
   const provinceTitle = (p) => `Avisos en ${p.name}`;
@@ -129,7 +131,7 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
   /** Cómo está ahora, en texto: sus líneas y sus fuentes. */
   function statusText(sub, c = ctx()) {
     const { lines, credits } = followKind(sub) === 'trayecto'
-      ? trayectoStatus(sub, { ...c, index: passingOf(c) })
+      ? trayectoStatus(sub, { ...c, stopsOf, index: passingOf(c) })
       : statusOf(sub, c);
     return [lines.join('\n'), credits.length ? credits.join(' · ') : null].filter(Boolean).join('\n\n');
   }

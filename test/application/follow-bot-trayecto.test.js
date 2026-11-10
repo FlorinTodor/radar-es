@@ -39,10 +39,8 @@ function setup({ limits } = {}) {
   const disk = { value: null };
   const byCode = new Map(CATALOG.map((s) => [s.code, s]));
   const bot = makeFollowBot({
-    read: {
-      vehicles: () => world.vehicles,
-      events: () => world.events,
-      station: (code) => byCode.get(code) ?? null,
+    read: { vehicles: () => world.vehicles, events: () => world.events, station: (code) => byCode.get(code) ?? null },
+    trayectos: {
       stops: (id) => (world.stops.has(id) ? { stops: world.stops.get(id), partial: false } : null),
       stations: () => {
         world.stationsAsked++;
