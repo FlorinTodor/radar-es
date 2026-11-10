@@ -179,7 +179,12 @@ test('recortes: nunca parten un emoji (par sustituto) por la mitad', () => {
   assert.equal(cutText('corto', 10), 'corto');
   assert.ok(wellFormed(fitMessage(`${'a'.repeat(MESSAGE_MAX - 2)}🚆🚆🚆`)));
   const notice = { id: 'n', category: 'ferroviario', type: 'aviso', title: `${'t'.repeat(118)}🚆🚆`, description: `${'d'.repeat(398)}🚆🚆`, follow: [C4A] };
-  assert.ok(wellFormed(collectFacts({ keys: [C4A], events: [notice], now: NOW }).get(C4A)[0].text), 'el título y el texto de un aviso, recortados');
+  const noticeText = collectFacts({ keys: [C4A], events: [notice], now: NOW }).get(C4A)[0].text;
+  assert.ok(wellFormed(noticeText));
+  assert.ok(noticeText.includes(notice.description), 'el texto de un aviso va entero: su licencia pide no alterarlo');
+  const longReason = { ...c4Cancelled, id: 'largo', trip: { ...c4Cancelled.trip, reason: `${'Motivo largo del operador. '.repeat(20)}Fin.` } };
+  const reasonText = collectFacts({ keys: [C4A], events: [longReason], now: NOW }).get(C4A)[0].text;
+  assert.ok(reasonText.includes('Fin.'), 'el motivo de una cancelación, entero');
   assert.ok(wellFormed(parseCommand(`/provincia ${'x'.repeat(188)}${'🚆'.repeat(10)}`).arg), 'lo que escribe alguien, acotado sin partir');
 });
 

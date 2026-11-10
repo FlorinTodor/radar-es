@@ -31,6 +31,8 @@ const OPTIONS_SIDE_MAX = 20;
 const example = ({ t }) => t('/trayecto Alcalá de Henares > Atocha 7:00-9:00 L-V');
 
 const clip = (s, n) => cutText(String(s ?? '').replace(/\s+/g, ' ').trim(), n);
+// Los textos de las fuentes (avisos, motivos) van enteros, como piden sus licencias: sólo se juntan sus saltos de línea.
+const whole = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 const pad = (n) => String(n).padStart(2, '0');
 /** Minutos del día → «HH:MM». */
 const hhmm = (min) => `${pad(Math.floor(min / 60))}:${pad(min % 60)}`;
@@ -406,8 +408,8 @@ function eventFact(x, way, creditOf, tr) {
   const title = tr.server(e.title, e.source);
   const at = t('Pasaba por {station} a las {time}.', { station: way.origin.name, time: hhmm(x.dep.min) });
   if (x.kind === 'sin-datos') return { id: e.id, kind: 'sin-datos', text: `${title}. ${t('No se sabe si circula: su operador no publica nada de él.')} ${at}`, credit };
-  const reason = e.trip?.reason ? ` ${t('Motivo: {reason}', { reason: clip(e.trip.reason, 200) })}`
-    : e.trip?.notice?.text ? ` ${t('Aviso del operador: {notice}', { notice: clip(e.trip.notice.text, 200) })}` : '';
+  const reason = e.trip?.reason ? ` ${t('Motivo: {reason}', { reason: whole(e.trip.reason) })}`
+    : e.trip?.notice?.text ? ` ${t('Aviso del operador: {notice}', { notice: whole(e.trip.notice.text) })}` : '';
   if (x.kind === 'parcial') {
     // Si el título ya nombra la estación suprimida («no para en Alcalá de Henares»), no se repite.
     const named = [x.o.skipped && way.origin, x.d.skipped && way.destination].filter(Boolean).every((st) => plainStop(e.title).includes(plainStop(st.name)));

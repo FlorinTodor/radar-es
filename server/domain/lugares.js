@@ -138,6 +138,7 @@ export const CALOR_FIJO = Object.freeze([
   { name: 'Polígono petroquímico sur de Tarragona', lat: 41.115, lon: 1.17, km: 3 },
   { name: 'Complejo industrial de Puertollano', lat: 38.67, lon: -4.045, km: 4 },
   { name: 'Refinería de La Rábida (Huelva)', lat: 37.2, lon: -6.92, km: 4 },
+  { name: 'Fundición de Atlantic Copper (Huelva)', lat: 37.229, lon: -6.948, km: 2 }, // a 4 km de La Rábida: fuera de su círculo
   { name: 'Refinería de San Roque', lat: 36.19, lon: -5.385, km: 3.5 },
   { name: 'Refinería de Castellón', lat: 39.95, lon: 0.01, km: 3.5 },
   { name: 'Volcán de Tajogaite (La Palma)', lat: 28.615, lon: -17.88, km: 5 },

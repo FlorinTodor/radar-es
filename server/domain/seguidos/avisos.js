@@ -46,6 +46,8 @@ export const madridHourMinute = (ms) => MADRID_TIME.format(ms);
 export const madridDay = (ms) => MADRID_DAY.format(ms);
 
 const clip = (s, n) => cutText(String(s ?? '').replace(/\s+/g, ' ').trim(), n);
+// Los textos de las fuentes (avisos, motivos) van enteros, como piden sus licencias: sólo se juntan sus saltos de línea.
+const whole = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 
 /**
  * @typedef {object} Fact
@@ -125,8 +127,8 @@ function tripFact(e, credit, here = null, tr = ES) {
   if (e.category === 'sin-datos') {
     return { id: e.id, kind: 'sin-datos', text: `${title}. ${t('No se sabe si circula: su operador no publica nada de él.')}${at}`, credit };
   }
-  const reason = e.trip?.reason ? ` ${t('Motivo: {reason}', { reason: clip(e.trip.reason, 200) })}`
-    : e.trip?.notice?.text ? ` ${t('Aviso del operador: {notice}', { notice: clip(e.trip.notice.text, 200) })}` : '';
+  const reason = e.trip?.reason ? ` ${t('Motivo: {reason}', { reason: whole(e.trip.reason) })}`
+    : e.trip?.notice?.text ? ` ${t('Aviso del operador: {notice}', { notice: whole(e.trip.notice.text) })}` : '';
   return { id: e.id, kind: e.type === 'parcial' ? 'parcial' : 'cancelado', text: `${title}.${at}${reason}`, credit };
 }
 
@@ -186,7 +188,7 @@ function zoneFact(e, p, creditOf, tr = ES) {
       credit,
     };
   }
-  const notice = clip(title, 300);
+  const notice = whole(title);
   return { id: e.id, kind: 'emergencia', text: e.power ? t('Corte de luz: {notice}.', { notice }) : t('Aviso oficial: {notice}.', { notice }), credit };
 }
 
@@ -235,7 +237,7 @@ export function collectFacts({
       } else if (Array.isArray(e.follow) && e.type === 'aviso') {
         for (const key of e.follow) {
           // El título por defecto («Aviso Renfe · C4a») es nuestro; el aviso, del operador.
-          if (wanted.has(key)) add(key, { id: e.id, kind: 'aviso', text: `${clip(tr.server(e.title, e.source), 120)}: ${clip(e.description, 400)}`, credit: credited(e, creditOf) });
+          if (wanted.has(key)) add(key, { id: e.id, kind: 'aviso', text: `${whole(tr.server(e.title, e.source))}: ${whole(e.description)}`, credit: credited(e, creditOf) });
         }
       }
     }
@@ -429,7 +431,7 @@ export function statusOf(sub, { vehicles = [], events = [], alerts = [], now, st
       if (cancelled.length > 3) lines.push(t('…y {n} más.', { n: cancelled.length - 3 }));
     }
     for (const e of events.filter((x) => x.type === 'aviso' && answersTo(x.follow, sub)).slice(0, 2)) {
-      lines.push(t('Aviso: {title}: {notice}', { title: clip(title(e), 100), notice: clip(e.description, 250) }));
+      lines.push(t('Aviso: {title}: {notice}', { title: whole(title(e)), notice: whole(e.description) }));
       credit(credited(e, creditOf));
     }
   } else if (kind === 'parada') {

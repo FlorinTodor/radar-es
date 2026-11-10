@@ -190,3 +190,9 @@ test('hechos y estado de una provincia: apagones siempre; focos, sólo a quien l
   ]);
   assert.equal(FIRE_RULES.clusterKm, DEFAULT_THRESHOLDS.fireClusterKm, 'el mismo grupo que el motor de alertas');
 });
+
+test('la fundición de Atlantic Copper (Huelva), a 4 km de La Rábida, también es una fuente de calor fija', async () => {
+  const { CALOR_FIJO } = await import('../../server/domain/lugares.js');
+  const { distanceKm } = await import('../../server/domain/geo.js');
+  assert.ok(CALOR_FIJO.some((s) => distanceKm(s.lat, s.lon, 37.229, -6.948) <= s.km));
+});
