@@ -876,6 +876,10 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   mismos que su ficha en la web; y en una provincia, de los posibles apagones de las islas, Ceuta y Melilla
   y, si se piden (`/provincia Granada incendios`), de los focos de calor por satélite más claros, agrupados
   y como posible incendio, nunca como incendio confirmado.
+- El bot avisa también del tráfico: con `/carretera A-7` (o `/carretera A-7 Málaga`, sólo ese tramo), de
+  los cortes, los accidentes y las incidencias graves de esa carretera, y en las provincias seguidas, de sus
+  cortes y accidentes graves; pocas y sin repetir, con el texto y la atribución de la DGT, el Servei Català
+  de Trànsit y Tráfico de Euskadi. La ficha de cada incidencia de tráfico lleva su «Avísame por Telegram».
 - Todo lo anterior vale para cualquier tipo de vehículo: todos comparten las mismas claves para
   seguirlos y un registro de tipos, así que un tipo nuevo (barcos, aviones) sólo necesita su entrada en
   el registro y el adaptador de su fuente.

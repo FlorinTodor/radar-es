@@ -3,7 +3,8 @@
 // leídos ({ chatId, text } o { chatId, callback }) y devuelve respuestas ({ chatId, text, buttons }); el
 // adaptador de entrada (adapters/inbound/telegram) las trae y las lleva. Vale para cualquier vehículo: lo que se
 // sigue son claves `follow` (domain/seguir.js), sin mirar de qué fuente ni de qué tipo es.
-import { isFollowKey, followKind, stopCode } from '../../domain/seguir.js';
+import { isFollowKey, isRoadKey, followKind, stopCode } from '../../domain/seguir.js';
+import { PROVINCE_TRAFFIC_TEXT, parseRoadRequest, roadFollowedText, roadName, roadRequestHelp, roadSub, roadTitle } from '../../domain/seguidos/trafico.js';
 import { entryLabel, guessedName, knownNames, searchDirectory, updateDirectory } from '../../domain/seguidos/directorio.js';
 import {
   DELAY_MIN, SEEN_MAX, collectFacts, factsMessage, fitMessage, fmtWhen, madridDay, madridHourMinute, newFacts, packBlocks, provinceSub,
@@ -173,7 +174,7 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
     chat.provinces.set(p.id, { since: c.now, checkedAt: c.now, ...(fires ? { fires: true } : {}) });
     dirty = true;
     return [reply(chatId, `Hecho: te aviso en ${p.name} de los avisos naranja y rojo de AEMET, de los terremotos que puedan `
-      + `sentirse y de los avisos oficiales (planes de emergencia y cortes de luz). La zona de cada provincia es aproximada: `
+      + `sentirse y de los avisos oficiales (planes de emergencia y cortes de luz). ${PROVINCE_TRAFFIC_TEXT} La zona de cada provincia es aproximada: `
       + `cerca de su límite puede llegarte alguno de la vecina.\n\nAhora:\n${statusText(sub, { ...c, fires })}\n\n${provinceExtrasText(p, { fires })}`)];
   }
 
@@ -185,6 +186,26 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
     delete had.fires;
     dirty = true;
     return [reply(chatId, `Hecho: en ${p.name} ya no te aviso de los focos de calor; del resto de sus avisos, sí.`)];
+  }
+
+  /** Seguir una carretera (entera o en una provincia): `sub` es de roadSub. Cuenta en el tope de cosas por chat. */
+  function followRoad(chatId, sub) {
+    const c = ctx();
+    const existing = chats.get(chatId);
+    if (existing?.subs.has(sub.key)) return [reply(chatId, `Ya sigues ${existing.subs.get(sub.key).name}.\n\nAhora:\n${statusText(sub.key, c)}`)];
+    if (count(existing) >= limits.subsPerChat) return [reply(chatId, `Ya sigues ${limits.subsPerChat} cosas, el máximo. Deja alguna con /dejar.`)];
+    const chat = chatFor(chatId, c.now);
+    if (!chat) return [reply(chatId, 'Ahora mismo no puedo atender a más gente. Prueba más tarde, por favor.')];
+    const name = roadName(sub.road, c.events);
+    baseline(sub.key, c);
+    chat.subs.set(sub.key, { name: roadTitle(name, sub.province), since: c.now, checkedAt: c.now });
+    dirty = true;
+    return [reply(chatId, `${roadFollowedText(sub, name)}\n\nAhora:\n${statusText(sub.key, c)}\n\n/mis para ver lo que sigues · /dejar para dejar de seguirlo`)];
+  }
+
+  function roadCmd(chatId, arg) {
+    const wanted = parseRoadRequest(arg);
+    return wanted.key ? followRoad(chatId, wanted) : [reply(chatId, roadRequestHelp(wanted, arg))];
   }
 
   /** Lo que sigue un chat, en orden: lo que se ve en /mis y lo que numeran /dejar y los botones. */
@@ -240,6 +261,9 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
       const { place, fires } = provinceOption(arg);
       const p = findProvince(place);
       if (p) return fires === false ? dropFires(chatId, p) : followProvince(chatId, p, { fires: !!fires });
+      // Algo que parece una carretera («A-7»): no se sigue sin preguntar (también podría ser una línea que ahora no circula).
+      const road = parseRoadRequest(arg);
+      if (road.key) return [reply(chatId, `No encuentro ningún vehículo ni línea así. Si es una carretera, para sus cortes y accidentes: /carretera ${arg}`)];
       return [reply(chatId, `No encuentro nada así entre lo que circula ahora o ha circulado hace poco. Prueba con el número `
         + `(«08058»), la línea y su ciudad u operador («C4 Madrid»), o búscalo en el mapa y pulsa «Avísame por Telegram» en su ficha: ${webUrl}`)];
     }
@@ -271,6 +295,8 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
       const p = !found.length ? findProvince(option.place) : null;
       const fires = option.fires ?? !!chat?.provinces.get(p?.id)?.fires;
       if (p) blocks.push(`${provinceTitle(p)}:\n${statusText(provinceSub(p.id), { ...c, fires })}`);
+      const road = !found.length && !p ? parseRoadRequest(arg) : null; // «/estado A-7»: cómo está esa carretera
+      if (road?.key) blocks.push(`${roadTitle(roadName(road.road, c.events), road.province)}:\n${statusText(road.key, c)}`);
       for (const e of found) blocks.push(`${entryLabel(e)}:\n${statusText(e.key, c)}`);
       if (!blocks.length) return [reply(chatId, 'No encuentro nada así entre lo que circula ahora o ha circulado hace poco.')];
     }
@@ -356,6 +382,9 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
 
   function start(chatId, arg) {
     if (isFollowKey(arg)) return follow(chatId, arg);
+    // Una carretera, desde la ficha de una incidencia de tráfico en la web («c-A7»); con una provincia que no existe, no.
+    const road = isRoadKey(arg) ? roadSub(arg) : null;
+    if (road) return followRoad(chatId, road);
     const prov = /^prov-([a-z0-9-]{2,40})$/.exec(arg ?? '');
     if (prov && provinceById(prov[1])) return followProvince(chatId, provinceById(prov[1]));
     return [reply(chatId, welcomeText({ webUrl, limits }))];
@@ -392,7 +421,7 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
         if (!Number.isSafeInteger(c?.id)) continue;
         const subs = new Map();
         for (const s of Array.isArray(c.subs) ? c.subs.slice(0, limits.subsPerChat) : []) {
-          if (!isFollowKey(s?.key) || typeof s.name !== 'string') continue;
+          if (!(isFollowKey(s?.key) || roadSub(s?.key)) || typeof s.name !== 'string') continue;
           subs.set(s.key, { name: cutText(s.name, 200), since: num(s.since), checkedAt: num(s.checkedAt), ...(s.guessed === true ? { guessed: true } : {}) });
         }
         const provinces = new Map();
@@ -481,7 +510,7 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
       }
       const { command, arg } = parseCommand(msg.text);
       // /start con una clave o una provincia: llega desde un enlace de la web («Avísame por Telegram»).
-      note('orden', command === 'start' && (isFollowKey(arg) || /^prov-/.test(arg)) ? 'enlace' : command);
+      note('orden', command === 'start' && (isFollowKey(arg) || isRoadKey(arg) || /^prov-/.test(arg)) ? 'enlace' : command);
       const run = {
         start: () => start(chatId, arg),
         seguir: () => search(chatId, arg),
@@ -493,6 +522,7 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
         },
         estado: () => status(chatId, arg),
         provincia: () => provinceCmd(chatId, arg),
+        carretera: () => roadCmd(chatId, arg),
         mis: () => mine(chatId),
         dejar: () => drop(chatId, arg),
         parte: () => digestCmd(chatId, arg),

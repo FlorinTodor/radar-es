@@ -3,11 +3,11 @@
 // (altas, bajas, avisos y mensajes por orden), que se guardan con lo demás del bot y siguen tras cada arranque o
 // relevo. Es lo que ve la monitorización (deploy/monitor/, panel «Bot de Telegram»): sin el número de ningún chat
 // ni nada que diga quién sigue qué. Puro: sin red, ni reloj, ni disco.
-import { followKind } from '../seguir.js';
+import { followKind, isRoadKey } from '../seguir.js';
 import { provinceById } from '../provincias.js';
 
-/** Tipos de lo que se sigue, en el orden del panel: los de las claves `follow` y las provincias. */
-export const USAGE_KINDS = Object.freeze(['servicio', 'linea', 'parada', 'provincia']);
+/** Tipos de lo que se sigue, en el orden del panel: los de las claves `follow`, las carreteras y las provincias. */
+export const USAGE_KINDS = Object.freeze(['servicio', 'linea', 'parada', 'carretera', 'provincia']);
 /** Lo más seguido que se enseña, como mucho (cada cosa es una serie en Prometheus). */
 export const USAGE_TOP = 100;
 /** Por qué deja un chat el bot: deja de seguirlo todo, escribe /baja o lo bloquea (o ya no existe). */
@@ -95,7 +95,7 @@ export function usageOf(chats, { top = USAGE_TOP } = {}) {
     total++;
     if (chat.digest) digest++;
     for (const [key, s] of chat.subs) {
-      const kind = followKind(key);
+      const kind = followKind(key) ?? (isRoadKey(key) ? 'carretera' : null);
       if (kind) add(kind, key, s.name, s.guessed === true);
     }
     for (const id of chat.provinces.keys()) add('provincia', `prov-${id}`, provinceById(id)?.name ?? id, false);

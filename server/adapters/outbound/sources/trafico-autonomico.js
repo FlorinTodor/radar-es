@@ -40,6 +40,7 @@ export function createSctSource({ http, now = Date.now }) {
           type,
           severity: lookup(SCT_LEVEL, level) ?? 'media',
           closed: level === 5 || /tallad/i.test(desc),
+          road: road || null, // tal cual: el bot de Telegram avisa por ella
           title: `${label}${road ? ` · ${road}` : ''}${km !== null ? ` km ${km.toFixed(1)}` : ''}`,
           description: [desc, text(f.causa), text(f.cap_a) && `sentido ${text(f.cap_a)}`].filter(Boolean).join(' · '),
           lat,
@@ -91,6 +92,7 @@ export function createTraficoEuskadiSource({ http, now = Date.now }) {
             type: isWork ? 'roadMaintenance' : /accidente/i.test(i.incidenceType) ? 'accident' : 'otro',
             severity: lookup(EUSKADI_LEVEL, i.incidenceLevel) ?? 'media',
             closed: i.incidenceLevel === 'Negro',
+            road: typeof i.road === 'string' && i.road ? i.road : null, // tal cual: el bot de Telegram avisa por ella
             title: `${i.cause || i.incidenceType}${i.road ? ` · ${i.road}` : ''}${km !== null ? ` km ${km.toFixed(1)}` : ''}`,
             description: [i.incidenceType, i.cityTown, i.direction && `sentido ${i.direction}`].filter(Boolean).join(' · '),
             lat,

@@ -3,8 +3,9 @@
 // operador, un aviso naranja de AEMET…), cuáles son nuevos para cada suscripción y el texto de cada mensaje.
 // Vale para cualquier tipo de vehículo: todo sale de las claves `follow` (domain/seguir.js) y del registro de
 // tipos. Puro: sin red, ni reloj, ni disco (la hora llega en `now`).
-import { answersTo, describeFollow, followKind, parseFollowKey, stopCode } from '../seguir.js';
+import { answersTo, describeFollow, followKind, isRoadKey, parseFollowKey, stopCode } from '../seguir.js';
 import { eventInProvince, feltRadiusKm, provinceById } from '../provincias.js';
+import { provinceTrafficStatus, roadStatus, trafficFacts } from './trafico.js';
 import { distanceKm } from '../geo.js';
 import { quakeWhen } from '../sismos.js';
 import { modeNoun } from '../modos.js';
@@ -49,7 +50,7 @@ const clip = (s, n) => cutText(String(s ?? '').replace(/\s+/g, ' ').trim(), n);
  * @typedef {object} Fact
  * @property {string} id       Único para lo que cuenta (una cancelación: su id; un retraso: el vehículo y su escalón).
  * @property {string} kind     'cancelado' | 'parcial' | 'sin-datos' | 'aviso' | 'retraso' | 'meteo' | 'sismo' | 'emergencia' |
- *                             'apagon' | 'incendio'
+ *                             'apagon' | 'incendio' | 'carretera'
  * @property {string} text     Lo que se cuenta, en una o dos frases.
  * @property {string|null} credit  Atribución de su fuente.
  */
@@ -178,6 +179,8 @@ function zoneFact(e, p, creditOf) {
  * - Provincia: avisos naranja y rojo de AEMET, terremotos que pueden sentirse y avisos oficiales (eventInProvince);
  *   los posibles apagones de sus islas, de las alertas (`alerts`), y los focos de calor por satélite (zona.js: se
  *   cuentan sólo a quien los pide, provinceFacts).
+ * - Tráfico (trafico.js): en una carretera seguida, sus cortes, accidentes e incidencias graves; en una provincia,
+ *   sus cortes y accidentes graves.
  * Las cancelaciones que su fuente ya no publica (retiradas) no cuentan: ya se avisó cuando salieron.
  * @param {{ keys: Iterable<string>, provinces?: Iterable<string>, vehicles?: object[], events?: object[], alerts?: object[], now: number,
  *           stationOf?: (code: string) => object|null, creditOf?: (source: string, operator?: string) => string|null,
@@ -225,13 +228,17 @@ export function collectFacts({ keys, provinces = [], vehicles = [], events = [],
     }
   }
   let fires = null; // los focos de calor de la ronda, una vez para todas las provincias
-  for (const id of provinces) {
+  const provinceIds = [...provinces];
+  for (const id of provinceIds) {
     const p = provinceById(id);
     if (!p) continue;
     for (const e of events) if (eventInProvince(e, p, { now })) add(provinceSub(id), zoneFact(e, p, creditOf));
     for (const f of gridFacts(alerts, id)) add(provinceSub(id), f);
     for (const f of fireFacts(fires ??= fireZones(events, now), id, (e) => credited(e, creditOf))) add(provinceSub(id), f);
   }
+  const traffic = trafficFacts({ keys: wanted, provinces: provinceIds, events: live, now, creditOf });
+  for (const [key, facts] of traffic.roads) for (const f of facts) add(key, f);
+  for (const [id, facts] of traffic.provinces) for (const f of facts) add(provinceSub(id), f);
   return out;
 }
 
@@ -324,7 +331,7 @@ export function packBlocks(blocks, { footer = null, max = MESSAGE_MAX, maxMessag
 
 /**
  * Cómo está ahora lo que se sigue, en unas líneas (para /estado, al suscribirse y en el parte diario).
- * @param {string} sub  clave `follow` o provinceSub
+ * @param {string} sub  clave `follow`, de carretera (isRoadKey) o provinceSub
  * @param {{ vehicles?: object[], events?: object[], alerts?: object[], now: number, stationOf?: (code: string) => object|null,
  *           creditOf?: (source: string, operator?: string) => string|null, fires?: boolean }} ctx
  *   fires: en una provincia, también los focos de calor (quien los ha pedido)
@@ -337,8 +344,9 @@ export function statusOf(sub, { vehicles = [], events = [], alerts = [], now, st
   if (sub.startsWith('prov:')) {
     const p = provinceById(sub.slice(5));
     if (!p) return { lines: ['Esa provincia no la conozco.'], credits: [] };
+    // El tráfico, aparte y detrás (provinceTrafficStatus).
     const all = collectFacts({ keys: [], provinces: [p.id], events, alerts, now, creditOf }).get(sub) ?? [];
-    const facts = provinceFacts(all, { fires });
+    const facts = provinceFacts(all, { fires }).filter((f) => f.kind !== 'carretera');
     if (!facts.length) lines.push(`Ahora no hay avisos naranja o rojo de AEMET, terremotos que puedan sentirse ni avisos oficiales en ${p.name}.`);
     for (const f of facts.slice(0, MAX_FACTS_PER_MESSAGE)) {
       lines.push(f.text);
@@ -346,8 +354,12 @@ export function statusOf(sub, { vehicles = [], events = [], alerts = [], now, st
     }
     if (facts.length > MAX_FACTS_PER_MESSAGE) lines.push(`…y ${facts.length - MAX_FACTS_PER_MESSAGE} más.`);
     if (fires && !facts.some((f) => f.kind === 'incendio')) lines.push('Focos de calor por satélite: ahora ninguno de los que aviso (confianza alta y potencia alta).');
+    const traffic = provinceTrafficStatus(p, { events: events.filter((e) => !e.withdrawn), now, creditOf });
+    lines.push(...traffic.lines);
+    traffic.credits.forEach(credit);
     return { lines, credits: [...credits] };
   }
+  if (isRoadKey(sub)) return roadStatus(sub, { events: events.filter((e) => !e.withdrawn), now, creditOf });
   const kind = followKind(sub);
   const tripEvents = events.filter((e) => (e.category === 'cancelacion' || e.category === 'sin-datos') && answersTo(e.trip?.follow, sub));
   if (kind === 'servicio') {

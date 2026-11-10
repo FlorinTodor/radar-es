@@ -125,8 +125,8 @@ test('uso para las métricas: altas, bajas (dejar, /baja, bloqueo), órdenes, av
   say('/provincia Valencia', 2002);
   say('/parte 06:05', 2002);
   assert.deepEqual(bot.usage(), {
-    chats: 2, digest: 1, follows: { servicio: 1, linea: 0, parada: 0, provincia: 1 },
-    distinct: { servicio: 1, linea: 0, parada: 0, provincia: 1 },
+    chats: 2, digest: 1, follows: { servicio: 1, linea: 0, parada: 0, carretera: 0, provincia: 1 },
+    distinct: { servicio: 1, linea: 0, parada: 0, carretera: 0, provincia: 1 },
     top: [{ kind: 'servicio', key: AVANT, name: 'Avant 08058', chats: 1 }, { kind: 'provincia', key: 'prov-valencia', name: 'Valencia', chats: 1 }],
     totals: { since: T0, added: 2, removed: { dejar: 0, baja: 0, bloqueo: 0 }, notices: { aviso: 0, parte: 0 }, commands: { enlace: 1, provincia: 1, parte: 1 } },
   });

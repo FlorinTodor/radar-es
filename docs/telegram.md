@@ -1,7 +1,7 @@
 # Bot de Telegram «Sigue tu tren»
 
 Quien escribe al bot puede seguir cualquier vehículo que publique el radar (un tren, un autobús, un metro, un
-tranvía y los tipos que se añadan), su línea, una estación o una provincia. El bot le avisa:
+tranvía y los tipos que se añadan), su línea, una estación, una provincia o una carretera. El bot le avisa:
 
 - si lo que sigue se cancela o se le suprimen paradas;
 - si va con 15 minutos o más de retraso, y otra vez cada 15 minutos más (cuando empeora; si recupera, no);
@@ -9,10 +9,13 @@ tranvía y los tipos que se añadan), su línea, una estación o una provincia. 
 - de los avisos del operador sobre su línea;
 - en una estación, de los trenes cancelados o sin datos que pasan por ella y de los avisos de Renfe de la estación
   (ascensores fuera de servicio, accesos cerrados…), los mismos que enseña su ficha en la web;
-- en una provincia, de los avisos naranja y rojo de AEMET, los terremotos que pueden sentirse y los avisos
-  oficiales (planes de emergencia y cortes de luz); en Canarias, Ceuta y Melilla, también de los posibles apagones
-  que se ven en la demanda eléctrica de cada isla; y, si los pide (`/provincia Granada incendios`), de los focos de
-  calor por satélite que pueden ser un incendio ([más abajo](#provincias-apagones-y-focos-de-calor)).
+- en una provincia, de los avisos naranja y rojo de AEMET, los terremotos que pueden sentirse, los avisos
+  oficiales (planes de emergencia y cortes de luz) y los cortes de carretera y accidentes graves; en Canarias, Ceuta
+  y Melilla, también de los posibles apagones que se ven en la demanda eléctrica de cada isla; y, si los pide
+  (`/provincia Granada incendios`), de los focos de calor por satélite que pueden ser un incendio
+  ([más abajo](#provincias-apagones-y-focos-de-calor));
+- en una carretera (`/carretera A-7`, o `/carretera A-7 Málaga` para un tramo), de sus cortes, sus accidentes y
+  sus incidencias de gravedad alta o muy alta. Ver [Tráfico](#tráfico).
 
 Con `/parte 07:30` manda cada día un resumen de lo que sigue. El parte y `/estado` cuentan cada cosa entera: si no
 caben en un mensaje, van en varios (hasta 6) y, si ni así, dicen cuántas cosas quedan fuera. Lo que se puede seguir son las claves de
@@ -20,7 +23,8 @@ caben en un mensaje, van en varios (hasta 6) y, si ni así, dicen cuántas cosas
 tipo nuevo funciona sin tocarlo.
 
 Desde la web, la ficha de cada vehículo, cancelación, tren sin datos o estación lleva «Avísame por Telegram»:
-abre el bot con `t.me/<bot>?start=<clave>` y lo sigue con un toque.
+abre el bot con `t.me/<bot>?start=<clave>` y lo sigue con un toque. La de una incidencia de tráfico, igual con
+su carretera entera (`start=c-A7`).
 
 ## Crear el bot (una vez)
 
@@ -34,7 +38,8 @@ otro lee lo que le escribe la gente.
    chat, issue ni commit.
 5. Opcional, también en BotFather:
    - `/setdescription`: «Te aviso de lo que sigas en Radar España: cancelaciones, retrasos, avisos de tu
-     línea y de tu provincia. Datos públicos de los operadores; no es un servicio oficial.»
+     línea y de tu provincia, y cortes y accidentes de tu carretera. Datos públicos de los operadores y de
+     tráfico; no es un servicio oficial.»
    - `/setabouttext`: «Avisos de trenes, autobuses, metro y tranvía de radarespana.es.»
    - `/setuserpic`: el icono de la web.
    - `/setjoingroups` → `Disable`: el bot sólo atiende chats privados.
@@ -44,6 +49,7 @@ otro lee lo que le escribe la gente.
      seguir - Seguir un tren, autobús, metro o línea: /seguir 08058, /seguir C4 Madrid
      estado - Cómo va ahora lo que sigues, o lo que busques
      provincia - Avisos de tu provincia: AEMET, terremotos y emergencias
+     carretera - Cortes y accidentes de una carretera: /carretera A-7, /carretera AP-7 Tarragona
      mis - Lo que sigues
      dejar - Dejar de seguir algo
      parte - Un resumen cada día a la hora que digas: /parte 07:30
@@ -89,7 +95,8 @@ TELEGRAM_BOT_TOKEN` y la web no enseña el botón.
 - **Un enlace se puede inventar** (`t.me/<bot>?start=<clave>`): de lo que no se ve ni está en el directorio no se
   repite el texto de su clave. Se nombra con lo que se puede comprobar (el operador si se conoce su red, el número,
   la hora, un código de línea corto) o con un nombre genérico, y se renueva en cuanto se vuelve a ver. Una estación
-  que no está en el catálogo no se sigue.
+  que no está en el catálogo no se sigue. Una carretera sólo vale si su código lo parece (letras, una cifra y lo
+  que siga) y su provincia existe; se nombra como la escribe su fuente si se ve, o por su código.
 - **Charla**: «hola», «gracias», «vale»… escritos sin orden no se buscan (por el principio de una palabra, «hola»
   encontraba «Naciones-Holanda»). Una búsqueda con más resultados de los que caben en la lista dice cuántos hay
   y pide la ciudad o el operador; a igual encaje, primero trenes, metros y tranvías (orden del registro de tipos).
@@ -117,19 +124,21 @@ TELEGRAM_BOT_TOKEN` y la web no enseña el botón.
   quienes ya seguían algo, desde la primera de ellas; las bajas de antes no constan. Lo único que se pierde
   es lo de un apagón brusco del contenedor (sin cerrarse bien), como mucho el último minuto, igual que lo
   que sigue cada chat. Las gráficas abarcan lo que guarda Prometheus: 30 días.
-- **Topes**: 20.000 chats y 20 cosas por chat, de ellas 5 provincias como mucho. Una cola de 5.000 mensajes:
-  si se llena, se tiran los más viejos y se apunta en el registro.
+- **Topes**: 20.000 chats y 20 cosas por chat (las carreteras cuentan como una más), de ellas 5 provincias como
+  mucho. Una cola de 5.000 mensajes: si se llena, se tiran los más viejos y se apunta en el registro.
 - **Las provincias son círculos aproximados**, uno por isla en Baleares y Canarias
   (`server/domain/provincias.js`). Cerca de un límite puede llegar algún aviso de la vecina, y así se avisa al
-  seguir una. Se puede escribir la isla (`/provincia La Palma`, `/provincia Menorca`): se sigue su provincia.
+  seguir una. Se puede escribir la isla (`/provincia La Palma`, `/provincia Menorca`): se sigue su provincia. El
+  tráfico de la DGT usa la provincia que da ella (con los círculos, una de cada once caía en la vecina); el de
+  Cataluña y Euskadi, que no la dan, el círculo.
 - **Un aviso no se repite en la misma ronda**: si un chat sigue una estación y la línea de la que habla un aviso de
   Renfe, le llega en uno de los dos mensajes. Las cancelaciones sí van en cada cosa a la que afectan, con lo suyo
   (la hora en esa estación).
 
 Código:
 
-- dominio: `server/domain/seguidos/` (lo de las provincias, en `zona.js`; lo de las estaciones, en `estacion.js`),
-  `server/domain/provincias.js` y `server/domain/avisos-estacion.js`;
+- dominio: `server/domain/seguidos/` (lo de las provincias, en `zona.js`; lo de las estaciones, en `estacion.js`;
+  el tráfico, en `trafico.js`), `server/domain/provincias.js` y `server/domain/avisos-estacion.js`;
 - caso de uso: `server/application/use-cases/follow-bot.js`;
 - adaptadores: `server/adapters/inbound/telegram/` y `server/adapters/outbound/telegram/`, más el almacén y el
   turno en `server/adapters/outbound/persistence/`.
@@ -175,3 +184,31 @@ apto para decisiones tácticas».
 
 `/estado` y el parte cuentan los apagones y, a quien los ha pedido, los focos (`/estado Granada incendios` los
 enseña a cualquiera).
+
+## Tráfico
+
+Las incidencias de carretera que ya enseña el mapa: la DGT, el Servei Català de Trànsit y Tráfico de Euskadi
+(category `carretera`, sin los avisos de los autobuses). Hay más de mil a la vez, casi todas obras, así que el bot
+avisa de pocas:
+
+- **En una carretera seguida**: sus cortes, sus accidentes (todos) y lo que su fuente pone de gravedad alta o muy
+  alta (retenciones graves, desprendimientos, viento…). Las obras, sólo si cortan la carretera.
+- **En una provincia seguida**: sólo los cortes de carretera y los accidentes graves (de gravedad alta o muy alta,
+  o que cortan). Los cortes por obras no: están previstos, y algunos vuelven cada noche con otro número; quien los
+  quiera sigue esa carretera. Con los datos del 10-nov a las 22:00, eran 22 en toda España, y casi todos de hace
+  días (los que ya hay al seguir una provincia no se avisan).
+- **Sin repetir**: cada aviso se reconoce por lo que cuenta (su fuente, su título y su descripción), no por el
+  número de su fuente. La DGT publica a veces la misma incidencia dos veces (una por sentido) o la vuelve a
+  publicar con otro número: se avisa una. Si pasa a cortar la carretera, se avisa otra vez; si deja de cortarla,
+  no.
+- **Lo viejo no es nuevo**: una incidencia sin noticias (ni empieza ni su fuente la revisa) desde hace más de 6
+  horas no se avisa aunque se vea por primera vez. Así, si una fuente cae más de tres horas (lo que se recuerda
+  lo ya avisado) y vuelve, no llegan de golpe todos los cortes de la provincia, algunos de hace meses. En
+  `/estado` y el parte sí sale todo lo que hay ahora.
+- **Textos tal cual**: el título y la descripción de cada incidencia van como los da su fuente, juntados con
+  « · » (las licencias de las tres piden no alterar el contenido; la de Open Data Euskadi, expresamente). Detrás,
+  lo que añade el radar: «Carretera cortada.» si la fuente no lo dice en castellano, la gravedad si es alta o muy
+  alta, desde cuándo y hasta cuándo está prevista. Cada mensaje lleva la atribución de su fuente, la misma que
+  la ficha de la web (`license` de cada adaptador).
+- **La clave** de una carretera es `c-<código>[-<provincia>]` (`c-A7`, `c-A7-malaga`), aparte de las de los
+  vehículos: ver [vehiculos.md](vehiculos.md#carreteras-el-bot-de-telegram).

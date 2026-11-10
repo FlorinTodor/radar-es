@@ -175,8 +175,9 @@ test('hechos y estado de una provincia: apagones siempre; focos, sólo a quien l
   assert.deepEqual(provinceFacts(facts.get(sub)).map((f) => f.id), ['red-aislada:la-palma|total'], 'sin focos ni callados');
   assert.equal(provinceFacts(facts.get(sub), { fires: true }).length, 2);
   const plain = statusOf(sub, { events, alerts, now: NOW, creditOf });
-  assert.equal(plain.lines.length, 1);
+  assert.equal(plain.lines.length, 2, 'el apagón y, detrás, el tráfico (trafico.js)');
   assert.match(plain.lines[0], /^Posible apagón total en La Palma/);
+  assert.equal(plain.lines[1], 'Carreteras: ahora no hay cortes ni accidentes graves.');
   assert.deepEqual(plain.credits, ['Fuente: Red Eléctrica']);
   const withFires = statusOf(sub, { events, alerts, now: NOW, creditOf, fires: true });
   assert.match(withFires.lines[1], /^Posible incendio: un foco de calor de 35 MW/);
@@ -185,6 +186,7 @@ test('hechos y estado de una provincia: apagones siempre; focos, sólo a quien l
   assert.deepEqual(quiet.lines, [
     'Ahora no hay avisos naranja o rojo de AEMET, terremotos que puedan sentirse ni avisos oficiales en Granada.',
     'Focos de calor por satélite: ahora ninguno de los que aviso (confianza alta y potencia alta).',
+    'Carreteras: ahora no hay cortes ni accidentes graves.',
   ]);
   assert.equal(FIRE_RULES.clusterKm, DEFAULT_THRESHOLDS.fireClusterKm, 'el mismo grupo que el motor de alertas');
 });

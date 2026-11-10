@@ -10,6 +10,7 @@ export const COMMANDS = [
   ['seguir', 'Seguir un tren, autobús, metro o línea: /seguir 08058, /seguir C4 Madrid'],
   ['estado', 'Cómo va ahora lo que sigues, o lo que busques'],
   ['provincia', 'Avisos de tu provincia: AEMET, terremotos y emergencias'],
+  ['carretera', 'Cortes y accidentes de una carretera: /carretera A-7, /carretera AP-7 Tarragona'],
   ['mis', 'Lo que sigues'],
   ['dejar', 'Dejar de seguir algo'],
   ['parte', 'Un resumen cada día a la hora que digas: /parte 07:30'],
@@ -76,7 +77,7 @@ export function parseHour(text) {
 
 export function helpText({ webUrl, limits }) {
   return [
-    'Te aviso de lo que sigas: cualquier tren, autobús, metro o tranvía que publique el radar, su línea o una estación, y los avisos de tu provincia.',
+    'Te aviso de lo que sigas: cualquier tren, autobús, metro o tranvía que publique el radar, su línea o una estación, los avisos de tu provincia y los cortes y accidentes de una carretera.',
     'Órdenes:',
     COMMANDS.map(([c, d]) => `/${c}: ${d}`).join('\n'),
     'También puedes escribirme sin orden lo que buscas («08058», «C4 Madrid», «27 EMT Málaga»).',

@@ -112,6 +112,28 @@ trenes) debe guardar también su nombre, porque las partes con huella no se pued
   (`/api/stations/<código>`, campo `follow`). La lista `/api/stations` no la lleva, porque sale del código y la
   engordaría un 13 %. Los autobuses aún no tienen catálogo de paradas.
 
+### Carreteras (el bot de Telegram)
+
+Una carretera no es un vehículo, pero el bot la sigue igual (ver [telegram.md](telegram.md#tráfico)). Su clave
+es aparte: `isFollowKey` no la acepta, así que «Mis trenes» y `/api/live/siguiendo` no la ven y nada de lo de
+arriba cambia.
+
+| Qué | Forma | Ejemplo |
+|---|---|---|
+| Una carretera entera | `c-<código>` | `c-A7` (A-7), `c-N121A` (N-121-A o N-121A), `c-NII` (N-II) |
+| Una carretera en una provincia | `c-<código>-<provincia>` | `c-A7-malaga`, `c-TF21-santacruzdetenerife` |
+
+- El código es la carretera en mayúsculas sin guiones, espacios ni puntos: «A-7», «a7» y «A 7» dan `A7`. Así la
+  misma carretera da la misma clave aunque cada fuente (o quien la escribe) la escriba distinto.
+- Sólo vale lo que parece una carretera: de una a cuatro letras, una cifra y lo que siga (hasta 14 caracteres), o
+  una nacional en números romanos. Un enlace se puede inventar, y el código se repite al nombrarla.
+- La provincia es su id de `domain/provincias.js` sin guiones. Que exista lo mira el bot.
+- Cada incidencia de tráfico trae su carretera tal como la escribe su fuente (`road`) y, la de la DGT, su provincia
+  (`province`). Se comparan por el código.
+
+Funciones (en `seguir.js`, así el navegador hace el enlace de la ficha): `roadCode`, `roadKey`, `isRoadKey`,
+`parseRoadKey` y `roadLabel` (cómo se escribe una de la que sólo se sabe el código: `A7` → «A-7»).
+
 ## Cómo está lo que se sigue (`domain/siguiendo.js`)
 
 - **`/api/live/siguiendo?clave=<clave>`** da cómo está ahora lo de una clave, de cualquier tipo de vehículo:

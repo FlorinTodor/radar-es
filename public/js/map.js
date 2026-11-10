@@ -6,7 +6,7 @@ import { STOP_SPACE_PX, stopLabelLayout, stopSpaceLayout, stopTipHtml, stopsColl
 import { followControls } from './siguiendo.js';
 import { modeNoun } from '../../server/domain/modos.js';
 import { punctualitySlot } from './puntualidad.js';
-import { telegramFollow } from './avisar.js';
+import { telegramFollow, telegramRoad } from './avisar.js';
 import { locale, t, tn, tx } from './i18n.js';
 
 const STYLE = 'https://tiles.openfreemap.org/styles/dark';
@@ -1478,7 +1478,9 @@ function eventDetail(e, others = []) {
   const link = url ? `<div class="note"><a href="${esc(url)}" target="_blank" rel="noopener">${t('Ficha oficial')}</a></div>` : '';
   const more = others.length ? `<h4>${t('Otros avisos oficiales en {area}', { area: esc(e.area) })}</h4><ul class="st-list">${others
     .map((o) => `<li><button type="button" class="link" data-event="${esc(o.id)}">${o.power ? `${t('Corte de luz:')} ` : ''}${esc(tx(o.title, o.source))}</button></li>`).join('')}</ul>` : '';
+  // Una incidencia de tráfico: el bot de Telegram puede avisar de lo que pase en su carretera.
+  const road = e.category === 'carretera' && e.type !== 'aviso' ? telegramRoad(e.road) : '';
   // El título y la descripción: los de la fuente tal cual; los que escribe el radar, traducidos (tx).
-  return `<div class="pop"><h3>${esc(tx(e.title, e.source))}</h3>${e.description ? `<p>${esc(tx(e.description, e.source))}</p>` : ''}
+  return `<div class="pop"><h3>${esc(tx(e.title, e.source))}</h3>${road}${e.description ? `<p>${esc(tx(e.description, e.source))}</p>` : ''}
     <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>${link}${more}</div>`;
 }

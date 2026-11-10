@@ -2,7 +2,7 @@
 // del tipo de vehículo del registro; nada que no sea una clave válida.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { setTelegram, telegramFollow, telegramLink } from '../../public/js/avisar.js';
+import { setTelegram, telegramFollow, telegramLink, telegramRoad } from '../../public/js/avisar.js';
 
 const MODES = [{ id: 'av', noun: 'tren' }, { id: 'bus', noun: 'autobús' }];
 
@@ -57,4 +57,14 @@ test('una clave de red entera (sin línea): «toda la red de …», como el bot�
   const html = telegramFollow(['l-metrobilbao'], 'metro', { operator: 'Metro Bilbao' });
   assert.match(html, /<small>de las cancelaciones y avisos de toda la red de Metro Bilbao<\/small>/);
   assert.match(telegramFollow(['s-renfe-00190', 'l-renfe-Alvia'], 'ld', { service: 'Alvia' }), />o de todos los Alvia</, 'una cancelación de Alvia sin `line`: de la clave');
+});
+
+test('una incidencia de tráfico: su carretera entera («c-…»), si se reconoce; sólo con bot', () => {
+  setTelegram({}, MODES);
+  assert.equal(telegramRoad('A-7'), '');
+  setTelegram({ telegram: { bot: 'RadarEspanaBot' } }, MODES);
+  const html = telegramRoad('N-121-A');
+  assert.match(html, /^<div class="tg-cta"><a class="tg-btn" href="https:\/\/t\.me\/RadarEspanaBot\?start=c-N121A" target="_blank" rel="noopener">/);
+  assert.match(html, /<strong>Avísame por Telegram<\/strong><small>de los cortes y accidentes de la N-121-A<\/small>/);
+  for (const road of [null, undefined, '', 'CV privado Iberdrola', '"><script>']) assert.equal(telegramRoad(road), '', String(road));
 });

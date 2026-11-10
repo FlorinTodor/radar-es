@@ -14,6 +14,7 @@
 // Cada parte guarda letras y cifras; lo demás va como «_» y su código en hexadecimal («L-1» → «L_2D1»), y una
 // parte demasiado larga se cambia por «__» y una huella corta (FNV-1a): sigue sirviendo para comparar, pero
 // no para leerla (el nombre se toma del vehículo, de la incidencia o de quien la guardó).
+// Las carreteras que sigue el bot de Telegram tienen su propia clave, «c-…» (al final de este fichero).
 
 export const FOLLOW_KINDS = { servicio: 's', linea: 'l', parada: 'p' };
 const KIND_OF_PREFIX = { s: 'servicio', l: 'linea', p: 'parada' };
@@ -225,4 +226,67 @@ export function mergeFollow(...lists) {
 export function followOf(...keys) {
   const list = mergeFollow(keys);
   return list.length ? list : undefined;
+}
+
+// ---------- Carreteras (el bot de Telegram) ----------
+// Una carretera no es un vehículo: su clave no es de las de arriba (isFollowKey no la acepta, así que ni «Mis
+// trenes» ni /api/live/siguiendo la ven), pero sigue las mismas reglas para ir tal cual en el enlace del bot
+// (t.me/<bot>?start=<clave>): «c-<carretera>[-<provincia>]», sólo [A-Za-z0-9_-] y muy por debajo de 64.
+//   c-A7          la A-7 entera
+//   c-A7-malaga   la A-7 en la provincia de Málaga (su id sin guiones: «santa-cruz-de-tenerife» → «santacruzdetenerife»)
+// <carretera> es su código en mayúsculas sin guiones, espacios ni puntos («A-7», «a7» y «A 7» → «A7»; «N-121-A» y
+// «N-121A» → «N121A»): así cada fuente y quien la escribe dan la misma clave. Sólo vale lo que parece una
+// carretera (de una a cuatro letras, una cifra y lo que siga; o una nacional en números romanos, «N-II»): un enlace
+// se puede inventar, y lo que lleva escrito se repite al nombrarla.
+
+const ROAD_CODE_RE = /^(?:[A-Z]{1,4}\d[A-Z0-9]{0,9}|N(?:I{1,3}|IV|VI?)A?)$/;
+const ROAD_KEY_RE = /^c-([A-Z0-9]{1,14})(?:-([a-z]{2,24}))?$/;
+
+/**
+ * El código de una carretera tal como va en su clave («A-7», «a7», «A 7» → «A7»), o null si no lo parece.
+ * @param {string} text
+ * @returns {string|null}
+ */
+export function roadCode(text) {
+  const code = String(text ?? '').slice(0, 40).normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return ROAD_CODE_RE.test(code) ? code : null;
+}
+
+/**
+ * Cómo se escribe una carretera de la que sólo se sabe su código: sus letras, un guion y lo demás («A7» → «A-7»,
+ * «AP7» → «AP-7», «NII» → «N-II»). Si alguna fuente la publica ahora, mejor como la escribe ella («TE-V-1121»).
+ * @param {string} code
+ */
+export function roadLabel(code) {
+  const m = /^(N)((?:I{1,3}|IV|VI?)A?)$/.exec(code) ?? /^([A-Z]+)(\d.*)$/.exec(code);
+  return m ? `${m[1]}-${m[2]}` : code;
+}
+
+/** ¿Es una clave de carretera bien escrita? (que su provincia exista lo mira quien la usa) */
+export function isRoadKey(key) {
+  const m = typeof key === 'string' && key.length <= FOLLOW_KEY_MAX ? ROAD_KEY_RE.exec(key) : null;
+  return Boolean(m && ROAD_CODE_RE.test(m[1]));
+}
+
+/**
+ * La clave de una carretera, entera o en una provincia (su id, el de domain/provincias.js); null si no lo parece.
+ * @param {string} road  como se escriba («A-7», «a7»)
+ * @param {string|null} [provinceId]
+ * @returns {string|null}
+ */
+export function roadKey(road, provinceId = null) {
+  const code = roadCode(road);
+  if (!code) return null;
+  const key = provinceId ? `c-${code}-${String(provinceId).replaceAll('-', '')}` : `c-${code}`;
+  return isRoadKey(key) ? key : null;
+}
+
+/**
+ * Las partes de una clave de carretera: su código y su provincia (el id sin guiones), o null si no lo es.
+ * @returns {{ road: string, province: string|null }|null}
+ */
+export function parseRoadKey(key) {
+  if (!isRoadKey(key)) return null;
+  const [, road, province = null] = ROAD_KEY_RE.exec(key);
+  return { road, province };
 }

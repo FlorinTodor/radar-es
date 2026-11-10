@@ -3,7 +3,7 @@
 // sus claves `follow`, y el nombre de cada tipo («tren», «autobús»…), del registro de tipos (/api/modes). Sólo si
 // el servidor tiene bot: lo dice /api/about. Va arriba de la ficha y bien visible: es lo que más interesa a quien
 // espera ese tren o ese autobús.
-import { parseFollowKey } from '../../server/domain/seguir.js';
+import { parseFollowKey, roadKey } from '../../server/domain/seguir.js';
 import { esc } from './format.js';
 import { t } from './i18n.js';
 import { followNameText } from './siguiendo.js';
@@ -83,6 +83,18 @@ export function telegramFollow(follow, mode, names = {}) {
   return `<div class="tg-cta"><a class="tg-btn" href="${startUrl(main.key)}" target="_blank" rel="noopener">${PLANE}`
     + `<span class="tg-txt"><strong>${t('Avísame por Telegram')}</strong><small>${esc(main.what)}</small></span></a>`
     + `${alt ? `<a class="tg-alt" href="${startUrl(alt.key)}" target="_blank" rel="noopener">${esc(alt.text)}</a>` : ''}</div>`;
+}
+
+/**
+ * El botón de la ficha de una incidencia de tráfico: sigue su carretera entera (clave «c-…», domain/seguir.js) y el
+ * bot avisa de sus cortes, accidentes e incidencias graves. '' si no hay bot o la carretera no se reconoce.
+ * @param {string|null|undefined} road  la carretera, como la escribe su fuente («A-7»)
+ */
+export function telegramRoad(road) {
+  const key = bot && typeof road === 'string' ? roadKey(road) : null;
+  if (!key) return '';
+  return `<div class="tg-cta"><a class="tg-btn" href="${startUrl(key)}" target="_blank" rel="noopener">${PLANE}`
+    + `<span class="tg-txt"><strong>${t('Avísame por Telegram')}</strong><small>${esc(t('de los cortes y accidentes de la {road}', { road }))}</small></span></a></div>`;
 }
 
 /**
