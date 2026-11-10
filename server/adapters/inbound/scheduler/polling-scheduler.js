@@ -1,7 +1,7 @@
 // Adaptador de entrada temporizado: igual que la API HTTP dispara casos de uso cuando
 // llega una petición, éste los dispara según el reloj: la lectura de cada fuente según su
-// intervalo, la detección de alertas, la recarga de los catálogos estáticos y la copia del historial
-// de posiciones.
+// intervalo, la detección de alertas, la recarga de los catálogos estáticos, la copia del historial
+// de posiciones y el registro del día en cifras.
 const FIRST_RETRY_MS = 30_000;
 const MIN_RETRY_CAP_MS = 10 * 60_000;
 // Cada evaluación de alertas recorre todos los vehículos: tras una lectura se espera un poco por si
@@ -13,6 +13,7 @@ const DETECT_HEARTBEAT_MS = 30_000; // las alertas dependen del tiempo transcurr
 const CATALOG_REFRESH_MS = 3600_000;
 // La copia del historial de posiciones: lo que se pierde en un despliegue es, como mucho, esto.
 const TRACKS_SAVE_MS = 60_000;
+// El día en cifras suma lo que se ve una vez por minuto.
 
 /**
  * Espera hasta la siguiente lectura. Si la fuente ha fallado, se reintenta pronto (30 s, 1, 2,

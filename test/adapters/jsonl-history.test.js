@@ -25,3 +25,20 @@ test('escribe en el fichero del día y borra los diarios de hace más de keepDay
   await history.append('kpis', { n: 2 });
   assert.ok(!(await readdir(dir)).includes('kpis-2026-01-01.jsonl'), 'al día siguiente sí');
 });
+
+test('lee las filas de un día (las que no son JSON se saltan) y dice de qué días hay fichero', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'historial-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await writeFile(join(dir, 'kpis-2026-11-10.jsonl'), '{"t":1}\n{"t":2,"cort\n\n{"t":3}\n');
+  await writeFile(join(dir, 'kpis-2026-11-09.jsonl'), '{"t":0}\n');
+  await writeFile(join(dir, 'alerts-2026-11-10.jsonl'), '{"id":"a"}\n');
+  await writeFile(join(dir, 'kpis-notas.txt'), 'x\n');
+  const history = createJsonlHistory({ dir: pathToFileURL(`${dir}/`), log: { warn: assert.fail } });
+  assert.deepEqual(await history.read('kpis', '2026-11-10'), [{ t: 1 }, { t: 3 }]);
+  assert.deepEqual(await history.read('kpis', '2026-11-11'), [], 'sin fichero, nada (y sin avisar)');
+  assert.deepEqual(await history.days('kpis'), ['2026-11-09', '2026-11-10']);
+  assert.deepEqual(await history.days('alerts'), ['2026-11-10']);
+  for (const [stream, day] of [['../kpis', '2026-11-10'], ['kpis', '../../x'], ['kpis', '2026-11-10.jsonl'], ['KPIS', '2026-11-10']]) {
+    assert.deepEqual(await history.read(stream, day), [], `${stream} ${day}: nombres raros, nada`);
+  }
+});

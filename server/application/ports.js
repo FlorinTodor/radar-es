@@ -132,6 +132,24 @@
  */
 
 /**
+ * Lectura del histórico (el mismo JSONL diario que HistoryPort escribe): el día en cifras lee los KPI y
+ * las alertas de días pasados.
+ * @typedef {object} HistoryReaderPort
+ * @property {(stream: string, day: string) => Promise<object[]>} read  Las filas de ese día («AAAA-MM-DD» de
+ *   Madrid), en orden; [] si no hay. Nunca rechaza: las filas que no se leen se saltan.
+ * @property {(stream: string) => Promise<string[]>} days  Los días de los que hay fichero, en orden.
+ */
+
+/**
+ * El registro de cada día del día en cifras (domain/dia.js), uno por día, que sobrevive a reinicios y
+ * despliegues; se guardan los últimos días que se enseñan y los más viejos se borran.
+ * @typedef {object} DayStorePort
+ * @property {(day: string) => Promise<object|null>} load  El registro guardado de ese día, o null.
+ * @property {(record: { date: string }) => Promise<void>} save  Nunca rechaza: si no puede escribir, lo registra.
+ * @property {() => Promise<string[]>} days  Los días guardados, en orden.
+ */
+
+/**
  * Copia del historial de posiciones que sobrevive a un reinicio o a un despliegue (el caso de uso
  * keep-tracks). Durante un relevo hay dos servidores con la misma copia: cada uno la escribe de golpe,
  * y el que arranca lee la que dejó el otro.
@@ -198,6 +216,8 @@ export const PORT_MEMBERS = {
     'tracks', 'updateTracks', 'activeAlerts', 'updateActiveAlerts', 'addResolved', 'resolvedAlerts', 'setKpis', 'kpis',
     'pushKpiSample', 'kpiHistory'],
   History: ['append'],
+  HistoryReader: ['read', 'days'],
+  DayStore: ['load', 'save', 'days'],
   TrackStore: ['load', 'save'],
   PunctualityStore: ['load', 'save'],
   TileProvider: ['layers', 'cacheControl', 'tile', 'burntAreas'],
