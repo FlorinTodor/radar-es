@@ -76,7 +76,11 @@ test('lo guardado se limpia: claves válidas sin repetir, nombres acotados, tipo
 test('qué se puede seguir de cada ficha, para cualquier tipo de vehículo', () => {
   const avant = { mode: 'av', operator: 'Renfe', service: 'Avant', line: 'Avant', label: '08058', follow: [AVANT, AVANT_LINE] };
   assert.deepEqual(followOptions(avant).map((o) => [o.kind, o.what, o.name]), [
-    ['servicio', 'este tren', 'Avant 08058'], ['linea', 'la línea Avant', 'Tren Avant · Avant · Renfe']]);
+    ['servicio', 'este tren', 'Avant 08058'], ['linea', 'la línea Avant', 'Avant · Renfe']]);
+  const c5 = { mode: 'cercanias', operator: 'Renfe', service: 'Cercanías', line: 'C5', label: '23719', area: 'Móstoles',
+    follow: [numberedServiceKey({ operator: 'Renfe', number: '23719' }), lineKey({ operator: 'Renfe', scope: 'Madrid', line: 'C5' })] };
+  assert.deepEqual(followOptions(c5).map((o) => [o.key, o.what, o.name]), [
+    ['s-renfe-23719', 'este tren', 'Cercanías 23719'], ['l-renfe-Madrid-C5', 'la línea C5', 'Cercanías C5 · Renfe (Madrid)']]);
   const bus = { mode: 'bus', operator: 'EMT Málaga', line: '27', label: '661', follow: [BUS_27] };
   assert.deepEqual(followOptions(bus).map((o) => [o.what, o.name, o.mode]), [['la línea 27', 'Autobús 27 · EMT Málaga', 'bus']],
     'un feed sólo con GPS: sólo la línea');

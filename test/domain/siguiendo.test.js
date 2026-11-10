@@ -7,7 +7,7 @@ import { lineKey, numberedServiceKey, scheduledServiceKey, stopKey } from '../..
 
 const AVANT = numberedServiceKey({ operator: 'Renfe', number: '08058' });
 const AVANT_LINE = lineKey({ operator: 'Renfe', line: 'Avant' });
-const R16 = lineKey({ operator: 'Renfe', scope: '51', line: 'R16' });
+const R16 = lineKey({ operator: 'Renfe', scope: 'Catalunya', line: 'R16' });
 const BUS_27 = lineKey({ operator: 'EMT Málaga', line: '27' });
 const BUS_RUN = scheduledServiceKey({ operator: 'AMB', line: 'V15', origin: '1234', departure: 7 * 3600 + 32 * 60 });
 const METRO = lineKey({ operator: 'Metro Bilbao' });
@@ -30,17 +30,21 @@ test('el nombre de cada clave, con lo que se sabe de quien la lleva', () => {
   assert.equal(followName(BUS_RUN, { mode: 'bus', operator: 'AMB', line: 'V15', origin: 'Pg. Maragall' }), 'Autobús V15 · AMB, el de las 07:32, desde Pg. Maragall');
   assert.equal(followName(METRO, { mode: 'metro', operator: 'Metro Bilbao', service: 'Metro Bilbao' }), 'Metro Bilbao: toda la red');
   assert.equal(followName(stopKey('71801'), { name: 'Valladolid-Campo Grande' }), 'Valladolid-Campo Grande');
-  // Cercanías: con su núcleo; el núcleo no se pone a una línea que no lo lleva en su clave.
-  const c4 = lineKey({ operator: 'Renfe', scope: '10', line: 'C4a' });
-  assert.equal(followName(c4, { mode: 'cercanias', operator: 'Renfe', service: 'Cercanías', line: 'C4a', area: 'Madrid' }), 'Tren C4a · Cercanías · Renfe (Madrid)');
-  assert.equal(followName(AVANT_LINE, avant({ area: 'Orihuela' })), 'Tren Avant · Avant · Renfe');
+  // Cercanías: con el núcleo de su clave, nunca el municipio donde está el vehículo (area).
+  const c4 = lineKey({ operator: 'Renfe', scope: 'Madrid', line: 'C4a' });
+  assert.equal(c4, 'l-renfe-Madrid-C4a');
+  assert.equal(followName(c4, { mode: 'cercanias', operator: 'Renfe', service: 'Cercanías', line: 'C4a', area: 'Getafe' }), 'Cercanías C4a · Renfe (Madrid)');
+  assert.equal(followName(AVANT_LINE, avant({ area: 'Orihuela' })), 'Avant · Renfe', 'la línea es el propio producto: sin repetirlo');
 });
 
-test('un viaje juntado de dos feeds: cada línea con su nombre, no el de la otra', () => {
-  const trip = { mode: 'md', operator: 'Renfe', service: 'Regional Exprés', line: 'R16', number: '18093' };
+test('un viaje juntado de dos feeds: cada línea con su producto, el de la otra sacado de alsoIn', () => {
   const re = lineKey({ operator: 'Renfe', line: 'Regional Exprés' });
-  assert.equal(followName(re, trip), 'Tren Regional Exprés · Renfe');
-  assert.equal(followName(R16, trip), 'Tren R16 · Regional Exprés · Renfe', 'su línea sí lleva su producto');
+  const trip = { mode: 'md', operator: 'Renfe', service: 'Regional Exprés', line: 'R16', number: '18093',
+    alsoIn: [{ as: 'Rodalies R16 18093', follow: ['s-renfe-18093', R16] }] };
+  assert.equal(followName(re, trip), 'Regional Exprés · Renfe');
+  assert.equal(followName(R16, trip), 'Rodalies R16 · Renfe (Catalunya)', 'no «Regional Exprés R16»');
+  // Sin saber de qué feed viene, el tipo de vehículo antes que un producto que no es el suyo.
+  assert.equal(followName(R16, { ...trip, alsoIn: [{ as: 'Otra cosa', follow: [R16] }] }), 'Tren R16 · Renfe (Catalunya)');
   assert.deepEqual(knownFor('no-es-una-clave', trip), {});
 });
 

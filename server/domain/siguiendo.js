@@ -18,10 +18,13 @@ const keysOf = (list) => (Array.isArray(list) ? list : typeof list === 'string' 
 /**
  * Lo que se sabe de un vehículo, del viaje de una incidencia o de una estación para nombrar una de sus
  * claves con describeFollow. Cada clave con lo suyo: el viaje juntado de dos feeds (domain/cancelaciones.js,
- * mergeSameTrain) tiene dos líneas y su `line` es sólo una, así que la línea sale de la clave cuando se puede leer.
+ * mergeSameTrain) tiene dos líneas y sólo un producto, así que la línea sale de la clave cuando se puede leer, y
+ * el producto de la línea del otro feed, de lo que dice de él `alsoIn` («Rodalies R16 18093» → Rodalies). El
+ * ámbito (el núcleo) lo pone describeFollow desde la clave.
  * @param {string} key
  * @param {{ mode?: string, operator?: string, service?: string|null, line?: string|null, label?: string|null,
- *           number?: string|null, origin?: string|null, area?: string|null, name?: string|null }|null} subject
+ *           number?: string|null, origin?: string|null, name?: string|null,
+ *           alsoIn?: Array<{ as?: string, follow?: string[] }> }|null} subject
  */
 export function knownFor(key, subject) {
   const parsed = parseFollowKey(key);
@@ -32,14 +35,12 @@ export function knownFor(key, subject) {
   if (parsed.kind === 'linea') {
     if (!parsed.parts.length) return { ...known, ...(subject.service ? { service: subject.service } : {}) };
     const line = parsed.parts.at(-1) ?? subject.line ?? null;
-    const own = line !== null && line === subject.line;
-    return {
-      ...known,
-      ...(line !== null ? { line } : {}),
-      // El producto (Cercanías, Avant…) y el núcleo sólo si son de esta línea.
-      ...(own && subject.service ? { service: subject.service } : {}),
-      ...(own && parsed.parts.length > 1 && subject.area ? { area: subject.area } : {}),
-    };
+    if (line === null) return known;
+    const other = (subject.alsoIn ?? []).find((o) => o.follow?.includes(key));
+    const otherService = other?.as?.includes(` ${line}`) ? other.as.slice(0, other.as.indexOf(` ${line}`)) : null;
+    // El producto (Cercanías, Rodalies, Avant…) sólo si es el de esta línea.
+    const service = other ? otherService : line === subject.line || line === subject.service ? subject.service : null;
+    return { ...known, line, ...(service ? { service } : {}) };
   }
   return {
     ...known,
