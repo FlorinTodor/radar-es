@@ -75,8 +75,16 @@ button { font: inherit; color: inherit; }
 }
 
 .tabs { display: flex; border-bottom: 1px solid var(--border); }
+/* Seis pestañas: si no caben, la fila se desliza de lado en vez de cortarse (también en el escritorio, y con la
+   rueda del ratón); mientras queden pestañas a la derecha, el borde se desvanece para que se note (ver app.js). */
+.tabs { overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs.more {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+}
 .tabs button {
-  flex: 1 1 auto; padding: 12px 6px; background: none; border: 0; border-bottom: 2px solid transparent;
+  flex: 1 0 auto; padding: 12px 7px; background: none; border: 0; border-bottom: 2px solid transparent;
   color: var(--ink-2); cursor: pointer; font-size: 13px; white-space: nowrap;
 }
 .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
@@ -84,6 +92,8 @@ button { font: inherit; color: inherit; }
   display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px;
   background: var(--surface-2); color: var(--ink-2); font-size: 11px; line-height: 18px;
 }
+/* Algo de lo que se sigue tiene una cancelación o no tiene datos (el número dice cuántas cosas se siguen). */
+.badge.warn { background: var(--st-serious); color: var(--page); font-weight: 600; }
 
 .panel { flex: 1; overflow-y: auto; padding: 8px 12px 16px; }
 .panel[hidden] { display: none; }
@@ -418,9 +428,6 @@ body.doc { overflow: auto; display: block; }
   }
   .sheet-handle span { width: 40px; height: 4px; border-radius: 2px; background: var(--muted); }
   .tabs { flex: none; }
-  /* Cinco pestañas: si no caben, la fila se desliza de lado en vez de cortarse. */
-  .tabs { overflow-x: auto; scrollbar-width: none; }
-  .tabs::-webkit-scrollbar { display: none; }
   .tabs button { height: 43px; padding: 0 8px; }
   .panel { overscroll-behavior: contain; }
   .disclaimer { padding: 6px 12px; font-size: 10.5px; line-height: 1.35; }
@@ -441,3 +448,28 @@ body.doc { overflow: auto; display: block; }
 .trip-stops li.skipped { color: var(--muted); }
 .trip-stops li.skipped .ts-name { text-decoration: line-through; }
 .trip-stops li.skipped::before { background: transparent; box-shadow: 0 0 0 2px #d03b3b; }
+
+/* ---------- Siguiendo: la estrella de las fichas y la lista ---------- */
+.follow { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.follow-btn {
+  padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2);
+  color: var(--ink-2); font-size: 12.5px; line-height: 1.4; cursor: pointer; text-align: left;
+}
+.follow-btn:hover, .follow-btn:focus-visible { border-color: rgba(255, 255, 255, 0.3); color: var(--ink); }
+.follow-btn[aria-pressed="true"] { border-color: var(--accent); background: rgba(110, 168, 254, 0.14); color: var(--ink); }
+.follow-btn[aria-pressed="true"] span { color: var(--accent); }
+.follow-item { cursor: default; }
+.follow-item .row { justify-content: space-between; }
+.follow-kind { font-size: 11px; color: var(--muted); }
+.follow-x { padding: 0 4px; border: 0; background: none; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; }
+.follow-x:hover, .follow-x:focus-visible { color: var(--ink); }
+.follow-open { display: block; width: 100%; margin: 2px 0 0; padding: 0; border: 0; background: none; color: inherit; text-align: left; cursor: pointer; }
+.follow-open:hover .title, .follow-open:focus-visible .title { text-decoration: underline; }
+.follow-events { display: grid; gap: 4px; margin: 6px 0 0; padding: 0; list-style: none; color: var(--ink-2); font-size: 12.5px; line-height: 1.4; }
+.follow-events .link { color: var(--ink); text-align: left; }
+.follow-note, .follow-credit { margin: 10px 2px 0; color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+.follow-credit a { color: var(--ink-2); }
+/* En el móvil, botones más altos para el dedo (como las pastillas de las capas). */
+@media (max-width: 860px) {
+  .follow-btn { min-height: 34px; padding: 5px 12px; font-size: 13px; }
+}

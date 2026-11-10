@@ -3,6 +3,7 @@ import { connect } from './stream.js';
 import { delayClass, esc } from './format.js';
 import * as P from './panels.js';
 import { stationBoard } from './station-board.js';
+import * as S from './siguiendo.js';
 
 // ---------- Estado ----------
 const state = {
@@ -22,6 +23,8 @@ const state = {
   forced: new Set(),    // 'mode:x' / 'group:y': capas que ha encendido lo marcado; se apagan al quitar la selección
   stations: new Map(),  // código → estación de Renfe o de otra red (para su ficha)
   lines: [],            // trazados de las líneas (para saber qué líneas pasan por cada estación)
+  following: new Map(), // clave → cómo está lo que se sigue (/api/live/siguiendo); { error: true } si no se pudo pedir
+  followingAt: 0,       // cuándo se pidió por última vez
 };
 
 const PREFS_KEY = 'radar-es:prefs';
@@ -169,6 +172,7 @@ function flush() {
     document.getElementById('b-alerts').textContent = state.alerts.length;
     if (state.tab === 'alerts') P.renderAlerts(document.getElementById('panel-alerts'), state.alerts, state.resolved, selection('alert'));
   }
+  if (parts.has('following') || parts.has('health')) renderFollowing();
   if (parts.has('kpis') || parts.has('alerts')) P.renderKpis(state.kpis, state.metrics, state.alerts.length);
   if (parts.has('health') && state.tab === 'sources') P.renderSources(document.getElementById('panel-sources'), state.health, state.lineSources);
   if (state.tab === 'stations' && (parts.has('stations') || parts.has('vehicles'))) renderStationsPanel();
@@ -251,6 +255,7 @@ const stream = connect({
     Object.assign(state, { metrics: d.metrics, alerts: d.alerts, resolved: d.resolved, kpis: d.kpis });
     if (state.selected.size) applyFocus(); // quita lo marcado que ya no existe
     render('vehicles', 'alerts', 'kpis');
+    tryPendingFollow();
   },
   events(d) {
     state.events.clear();
@@ -265,6 +270,7 @@ const stream = connect({
     replaceVehicles(true, d ? bySource(d.vehicles, 'bus:') : new Map());
     if (state.selected.size) applyFocus();
     render('vehicles');
+    tryPendingFollow();
   },
   health(h) {
     state.health = h;
@@ -429,6 +435,14 @@ function fitSelection(items, alertsById, vehicleIds, eventIds) {
 
 document.querySelector('.sidebar').addEventListener('click', (ev) => {
   if (ev.target.closest('[data-action=clear-focus]')) return clearFocus();
+  const unfollow = ev.target.closest('[data-follow-remove]');
+  if (unfollow) return setFollowed({ key: unfollow.dataset.followRemove }, false);
+  const followed = ev.target.closest('[data-follow-open]');
+  if (followed) {
+    openFollowed(followed.dataset.followOpen);
+    if (mobile.matches) setSheet('peek');
+    return;
+  }
   const station = ev.target.closest('[data-station]');
   if (station) {
     openStation(station.dataset.station, true);
@@ -450,13 +464,33 @@ document.getElementById('focus-banner').addEventListener('click', (ev) => {
   if (ev.target.closest('[data-action=clear-focus]')) clearFocus();
 });
 
+// Si las pestañas no caben, la fila se desliza: el borde derecho se desvanece mientras quedan más a la
+// derecha, y la rueda del ratón (vertical) también la desliza.
+const tabsEl = document.querySelector('.tabs');
+const markMoreTabs = () => tabsEl.classList.toggle('more', tabsEl.scrollLeft + tabsEl.clientWidth < tabsEl.scrollWidth - 2);
+tabsEl.addEventListener('scroll', markMoreTabs, { passive: true });
+window.addEventListener('resize', markMoreTabs);
+tabsEl.addEventListener('wheel', (ev) => {
+  if (Math.abs(ev.deltaY) <= Math.abs(ev.deltaX) || tabsEl.scrollWidth <= tabsEl.clientWidth) return;
+  tabsEl.scrollLeft += ev.deltaY;
+  ev.preventDefault();
+}, { passive: false });
+
+function showTab(tab) {
+  state.tab = tab;
+  for (const b of document.querySelectorAll('.tabs [data-tab]')) {
+    b.setAttribute('aria-selected', String(b.dataset.tab === tab));
+    if (b.dataset.tab === tab) b.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+  markMoreTabs();
+  for (const p of document.querySelectorAll('.panel')) p.hidden = p.id !== `panel-${tab}`;
+  render(tab === 'sources' ? 'health' : tab);
+  if (tab === 'following') refreshFollowing();
+}
 document.querySelector('.tabs').addEventListener('click', (ev) => {
   const btn = ev.target.closest('[data-tab]');
   if (!btn) return;
-  state.tab = btn.dataset.tab;
-  for (const b of document.querySelectorAll('.tabs [data-tab]')) b.setAttribute('aria-selected', String(b === btn));
-  for (const p of document.querySelectorAll('.panel')) p.hidden = p.id !== `panel-${state.tab}`;
-  render(state.tab === 'sources' ? 'health' : state.tab);
+  showTab(btn.dataset.tab);
   if (mobile.matches && sidebar.dataset.sheet === 'peek') setSheet('half');
 });
 
@@ -610,6 +644,150 @@ try {
   noticeSeen = localStorage.getItem(NOTICE_KEY);
 } catch { /* almacenamiento no disponible */ }
 if (noticeSeen !== NOTICE_VERSION) notice.showModal();
+
+// ---------- Siguiendo (lo que cada cual marca con la estrella; ver siguiendo.js) ----------
+// El estado de cada cosa se pide por su clave a /api/live/siguiendo: así se sabe también el de una línea de
+// autobuses con su capa apagada sin descargarlos todos. Mientras se mira la lista, cada medio minuto; si no,
+// cada dos (para el aviso de la pestaña). Cloudflare guarda cada respuesta unos segundos para todos.
+const FOLLOW_REFRESH_MS = 30_000;
+const FOLLOW_IDLE_MS = 120_000;
+const FOLLOW_PARALLEL = 4;
+const followedVehicles = (key) => allVehicles().filter((v) => v.follow?.includes(key));
+
+function renderFollowing() {
+  const items = S.follows.list();
+  const badge = document.getElementById('b-following');
+  const attention = S.followAttention(items, state.following);
+  badge.textContent = items.length;
+  badge.classList.toggle('warn', attention > 0);
+  markMoreTabs(); // el número cambia el ancho de la pestaña
+  badge.title = attention ? `${attention} con cancelaciones o sin datos` : '';
+  if (state.tab !== 'following') return;
+  document.getElementById('panel-following').innerHTML = S.followingHtml(items, state.following, {
+    sourceCredit: (id, operator) => {
+      const s = state.health.find((h) => h.id === id);
+      return s ? (s.operatorLicenses?.[operator] ?? s.license ?? s.name) : null;
+    },
+    // Sus vehículos no han llegado al navegador porque su capa va aparte y está apagada (los autobuses).
+    needsLayer: (item, status) => {
+      const mode = status?.mode ?? item.mode;
+      if (!status?.vehicles?.total || !mode || followedVehicles(item.key).length || P.modeOn(prefs, mode)) return null;
+      return S.modeInfo(mode)?.label ?? null;
+    },
+  });
+}
+
+async function refreshFollowing({ force = false } = {}) {
+  if (document.hidden && !force) return;
+  if (!force && state.tab !== 'following' && Date.now() - state.followingAt < FOLLOW_IDLE_MS) return;
+  state.followingAt = Date.now();
+  const keys = S.follows.list().filter((i) => i.kind !== 'parada').map((i) => i.key);
+  for (const key of [...state.following.keys()]) if (!keys.includes(key)) state.following.delete(key);
+  const queue = [...keys];
+  const worker = async () => {
+    while (queue.length) {
+      const key = queue.shift();
+      try {
+        const res = await fetch(`/api/live/siguiendo?clave=${encodeURIComponent(key)}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        state.following.set(key, await res.json());
+      } catch {
+        // Se queda lo de la vez anterior; si no había nada, se dice que no se pudo.
+        if (!state.following.has(key)) state.following.set(key, { error: true });
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(FOLLOW_PARALLEL, keys.length) }, worker));
+  render('following');
+}
+setInterval(() => refreshFollowing(), FOLLOW_REFRESH_MS);
+
+/** Sigue o deja de seguir algo y pone igual todos sus botones (en la ficha abierta y en la lista). */
+function setFollowed(item, on) {
+  if (on) S.follows.add(item);
+  else S.follows.remove(item.key);
+  const now = S.follows.has(item.key);
+  for (const b of document.querySelectorAll('[data-follow]')) {
+    if (b.dataset.follow !== item.key) continue;
+    b.setAttribute('aria-pressed', String(now));
+    b.innerHTML = S.followButtonText(b.dataset.followWhat, now);
+    b.title = on && !now && S.follows.full ? `Ya sigues ${S.FOLLOW_MAX} cosas: deja de seguir alguna para añadir otra` : b.dataset.followName;
+  }
+  if (!now) state.following.delete(item.key);
+  render('following');
+  if (now) refreshFollowing({ force: true });
+}
+// Los botones de las fichas del mapa (fuera del panel lateral).
+document.addEventListener('click', (ev) => {
+  const btn = ev.target.closest('[data-follow]');
+  if (!btn) return;
+  setFollowed({ key: btn.dataset.follow, name: btn.dataset.followName, mode: btn.dataset.followMode || null }, !S.follows.has(btn.dataset.follow));
+});
+// Otra pestaña del mismo navegador ha cambiado lo que se sigue.
+window.addEventListener('storage', (ev) => {
+  if (ev.key !== S.FOLLOW_STORE_KEY) return;
+  S.follows.reload();
+  render('following');
+  refreshFollowing({ force: true });
+});
+
+/** El mapa enseña sólo esto (como al pulsarlo en una lista), con sus capas encendidas y encuadrado. */
+function focusOn(items) {
+  state.selected = new Map(items.map((x) => [`${x.kind}|${x.id}`, x]));
+  const alertsById = new Map(state.alerts.map((a) => [a.id, a]));
+  const needed = layersFor(focusIds(items, alertsById));
+  for (const k of state.forced) if (!needed.has(k)) state.forced.delete(k);
+  for (const k of needed) if (!onInPrefs(k)) state.forced.add(k);
+  applyLayerPrefs();
+  applyFocus({ fit: true });
+}
+
+// Lo seguido cuyos vehículos aún no han llegado (se acaba de encender su capa): se enseña cuando lleguen.
+let pendingFollow = null;
+function tryPendingFollow() {
+  if (!pendingFollow) return;
+  if (Date.now() > pendingFollow.until) {
+    pendingFollow = null;
+    return;
+  }
+  const mine = followedVehicles(pendingFollow.key);
+  if (!mine.length) return;
+  pendingFollow = null;
+  focusOn(mine.map((v) => ({ kind: 'vehicle', id: v.id })));
+}
+
+/** Enciende la capa de un tipo de vehículo como si se marcara su casilla (y así llegan sus vehículos). */
+function turnOnLayer(mode) {
+  const input = layersBody.querySelector(`input[data-mode="${CSS.escape(mode)}"]`);
+  if (!input) return false;
+  if (!input.checked) {
+    input.checked = true;
+    layersChanged([input]);
+  }
+  return true;
+}
+
+/** Pulsar algo de la lista: sus vehículos en el mapa; si no se ve ninguno, sus cancelaciones; una estación, su ficha. */
+function openFollowed(key) {
+  const item = S.follows.list().find((i) => i.key === key);
+  if (!item) return;
+  if (item.kind === 'parada') return openStation(S.stopCode(key), true);
+  const mine = followedVehicles(key);
+  if (mine.length) return focusOn(mine.map((v) => ({ kind: 'vehicle', id: v.id })));
+  const status = state.following.get(key);
+  const mode = status?.mode ?? item.mode;
+  if (status?.vehicles?.total && mode && !P.modeOn(prefs, mode) && turnOnLayer(mode)) {
+    pendingFollow = { key, until: Date.now() + 60_000 };
+    return;
+  }
+  const events = (status?.events?.list ?? []).filter((e) => !e.withdrawn && findEvent(e.id));
+  if (events.length) focusOn(events.map((e) => ({ kind: 'event', id: e.id })));
+}
+
+// Quien ya sigue algo entra directamente en su lista.
+if (S.follows.size) showTab('following');
+else render('following');
+refreshFollowing({ force: true });
 
 // Refresca los "hace X min" aunque no lleguen datos nuevos.
 setInterval(() => render('alerts', state.tab === 'sources' ? 'health' : 'kpis'), 15_000);
