@@ -10,6 +10,7 @@ import { makeServeTiles } from './application/use-cases/serve-tiles.js';
 import { makeRefreshCatalogs } from './application/use-cases/refresh-catalogs.js';
 import { makeLinesOnRail } from './application/use-cases/lines-on-rail.js';
 import { makeKeepTracks } from './application/use-cases/keep-tracks.js';
+import { makeDayInFigures } from './application/use-cases/day-in-figures.js';
 import { createHttpClient } from './adapters/outbound/http/http-client.js';
 import { createFileCache } from './adapters/outbound/http/file-cache.js';
 import { createConsoleLogger } from './adapters/outbound/logging/console-logger.js';
@@ -24,6 +25,7 @@ import { createIgnRailNetwork } from './adapters/outbound/network/ign-rail-netwo
 import { createInMemorySituation } from './adapters/outbound/persistence/in-memory-situation.js';
 import { createJsonlHistory } from './adapters/outbound/persistence/jsonl-history.js';
 import { createTrackStore } from './adapters/outbound/persistence/track-store.js';
+import { createDayStore } from './adapters/outbound/persistence/day-store.js';
 import { createSources } from './adapters/outbound/sources/index.js';
 import { startPolling } from './adapters/inbound/scheduler/polling-scheduler.js';
 import { createHttpServer } from './adapters/inbound/http/http-server.js';
@@ -63,6 +65,9 @@ const network = assertPort('NetworkCatalog',
 const situation = assertPort('SituationRepository', createInMemorySituation(), PORT_MEMBERS.SituationRepository);
 const history = assertPort('History', createJsonlHistory({ dir: new URL('history/', config.dataDir), log }), PORT_MEMBERS.History);
 const trackStore = assertPort('TrackStore', createTrackStore({ cache }), PORT_MEMBERS.TrackStore);
+// El mismo histórico se lee para el día en cifras (KPI y alertas de días pasados); su registro de cada día, aparte.
+const historyReader = assertPort('HistoryReader', history, PORT_MEMBERS.HistoryReader);
+const dayStore = assertPort('DayStore', createDayStore({ dir: new URL('dias/', config.dataDir), log }), PORT_MEMBERS.DayStore);
 const tiles = assertPort('TileProvider', createWmsTiles({ http, dir: fileURLToPath(new URL('tiles/', config.dataDir)), log }), PORT_MEMBERS.TileProvider);
 
 // Sitúa los municipios que citan los avisos del 112 (no traen coordenadas). No es un puerto de la
@@ -89,21 +94,25 @@ const query = makeQuerySituation({ situation, stations, networkStations, network
 const serveTiles = makeServeTiles({ tiles });
 const refreshCatalogs = makeRefreshCatalogs({ stations, networkStations, network, railNetwork, railGeometry, log });
 const keepTracks = makeKeepTracks({ situation, store: trackStore, clock, log });
+const dayInFigures = makeDayInFigures({ situation, history: historyReader, store: dayStore, clock, log });
 
 // --- Adaptadores de entrada ------------------------------------------------
 await refreshCatalogs(); // espera a las estaciones; los trazados y la red ferroviaria siguen cargándose detrás
 // Justo antes de la primera lectura: en un relevo, el servidor anterior sigue en marcha y guardando
 // su copia cada minuto, así que la estela de cada tren sigue sin hueco (o casi).
 await keepTracks.restore().catch((err) => log.warn(`[estelas] no se pudo recuperar el historial: ${err.message}`));
+// El registro de hoy del día en cifras: un reinicio no empieza el día de cero.
+await dayInFigures.restore().catch((err) => log.warn(`[día en cifras] no se pudo recuperar el día: ${err.message}`));
 
 const feeds = enabledSources.map(({ id, interval }) => ({ id, interval }));
-const scheduler = startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, saveTracks: keepTracks.save, log });
+const scheduler = startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, saveTracks: keepTracks.save, recordDay: dayInFigures.tick, log });
 
 const server = createHttpServer({
   query,
   log,
   about: config.about,
   serveTiles,
+  days: dayInFigures,
   // Servidor MCP en POST /mcp: los asistentes de IA consultan el directo con herramientas.
   mcp: createMcpHandler({ query, about: config.about, version: pkg.version, now: clock.now }),
   metrics,
@@ -132,7 +141,9 @@ function shutdown() {
   pool.close();
   if (xmlPool !== pool) xmlPool.close();
   // Lo último que se guarda: el historial de posiciones, para que el siguiente arranque lo siga.
-  keepTracks.save().catch((err) => log.warn(`[estelas] ${err.message}`)).finally(() => server.close(() => process.exit(0)));
+  Promise.allSettled([keepTracks.save(), dayInFigures.save()])
+    .then((results) => results.filter((r) => r.status === 'rejected').forEach((r) => log.warn(`[al cerrar] ${r.reason?.message ?? r.reason}`)))
+    .finally(() => server.close(() => process.exit(0)));
   setTimeout(() => process.exit(0), 3000).unref();
 }
 process.on('SIGINT', shutdown);

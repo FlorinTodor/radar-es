@@ -135,3 +135,29 @@ test('el historial de posiciones se guarda cada minuto, sin empezar una copia en
   await flush();
   assert.equal(saves, 2);
 });
+
+test('el día en cifras suma un minuto cada minuto, sin empezar otro si el anterior no ha terminado', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  let runs = 0;
+  let finish;
+  const scheduler = startPolling({
+    feeds: [], ingestSource: async () => true, detectAlerts() {}, log: quietLog,
+    recordDay: () => { runs++; return new Promise((resolve) => { finish = resolve; }); },
+  });
+  t.mock.timers.tick(MIN);
+  await flush();
+  assert.equal(runs, 1);
+  t.mock.timers.tick(MIN);
+  await flush();
+  assert.equal(runs, 1, 'el anterior aún no ha terminado');
+  finish();
+  await flush();
+  t.mock.timers.tick(MIN);
+  await flush();
+  assert.equal(runs, 2);
+  finish();
+  scheduler.stop();
+  t.mock.timers.tick(10 * MIN);
+  await flush();
+  assert.equal(runs, 2);
+});
