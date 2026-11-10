@@ -10,6 +10,9 @@ import { makeServeTiles } from './application/use-cases/serve-tiles.js';
 import { makeRefreshCatalogs } from './application/use-cases/refresh-catalogs.js';
 import { makeLinesOnRail } from './application/use-cases/lines-on-rail.js';
 import { makeKeepTracks } from './application/use-cases/keep-tracks.js';
+import { makeRecordPunctuality } from './application/use-cases/record-punctuality.js';
+import { makeDayInFigures } from './application/use-cases/day-in-figures.js';
+import { makeFollowBot } from './application/use-cases/follow-bot.js';
 import { createHttpClient } from './adapters/outbound/http/http-client.js';
 import { createFileCache } from './adapters/outbound/http/file-cache.js';
 import { createConsoleLogger } from './adapters/outbound/logging/console-logger.js';
@@ -24,9 +27,15 @@ import { createIgnRailNetwork } from './adapters/outbound/network/ign-rail-netwo
 import { createInMemorySituation } from './adapters/outbound/persistence/in-memory-situation.js';
 import { createJsonlHistory } from './adapters/outbound/persistence/jsonl-history.js';
 import { createTrackStore } from './adapters/outbound/persistence/track-store.js';
+import { createPunctualityStore } from './adapters/outbound/persistence/punctuality-store.js';
+import { createDayStore } from './adapters/outbound/persistence/day-store.js';
+import { createFollowStore } from './adapters/outbound/persistence/follow-store.js';
+import { createFileLease } from './adapters/outbound/persistence/file-lease.js';
+import { createTelegramApi } from './adapters/outbound/telegram/telegram-api.js';
+import { createTelegramBot } from './adapters/inbound/telegram/telegram-bot.js';
 import { createSources } from './adapters/outbound/sources/index.js';
 import { startPolling } from './adapters/inbound/scheduler/polling-scheduler.js';
-import { createHttpServer } from './adapters/inbound/http/http-server.js';
+import { createHttpServer, sharedDomainFiles } from './adapters/inbound/http/http-server.js';
 import { createMetricsServer } from './adapters/inbound/http/metrics-server.js';
 import { createMcpHandler } from './adapters/inbound/mcp/mcp.js';
 import pkg from '../package.json' with { type: 'json' };
@@ -63,6 +72,10 @@ const network = assertPort('NetworkCatalog',
 const situation = assertPort('SituationRepository', createInMemorySituation(), PORT_MEMBERS.SituationRepository);
 const history = assertPort('History', createJsonlHistory({ dir: new URL('history/', config.dataDir), log }), PORT_MEMBERS.History);
 const trackStore = assertPort('TrackStore', createTrackStore({ cache }), PORT_MEMBERS.TrackStore);
+const punctualityStore = assertPort('PunctualityStore', createPunctualityStore({ dir: cacheDir, log }), PORT_MEMBERS.PunctualityStore);
+// El mismo histórico se lee para el día en cifras (KPI y alertas de días pasados); su registro de cada día, aparte.
+const historyReader = assertPort('HistoryReader', history, PORT_MEMBERS.HistoryReader);
+const dayStore = assertPort('DayStore', createDayStore({ dir: new URL('dias/', config.dataDir), log }), PORT_MEMBERS.DayStore);
 const tiles = assertPort('TileProvider', createWmsTiles({ http, dir: fileURLToPath(new URL('tiles/', config.dataDir)), log }), PORT_MEMBERS.TileProvider);
 
 // Sitúa los municipios que citan los avisos del 112 (no traen coordenadas). No es un puerto de la
@@ -84,31 +97,74 @@ for (const s of sources) {
 
 // --- Casos de uso ----------------------------------------------------------
 const ingestSource = makeIngestSource({ sources: enabledSources, situation, clock, log, metrics });
-const detectAlerts = makeDetectAlerts({ situation, stations, history, clock });
-const query = makeQuerySituation({ situation, stations, networkStations, network, clock, sources, railNetwork });
+const detectAlerts = makeDetectAlerts({ situation, stations, history, clock, log });
+const recordPunctuality = makeRecordPunctuality({ situation, store: punctualityStore, clock, log });
+const query = makeQuerySituation({ situation, stations, networkStations, network, clock, sources, railNetwork, punctuality: recordPunctuality });
 const serveTiles = makeServeTiles({ tiles });
 const refreshCatalogs = makeRefreshCatalogs({ stations, networkStations, network, railNetwork, railGeometry, log });
 const keepTracks = makeKeepTracks({ situation, store: trackStore, clock, log });
+const dayInFigures = makeDayInFigures({ situation, history: historyReader, store: dayStore, clock, log });
 
 // --- Adaptadores de entrada ------------------------------------------------
 await refreshCatalogs(); // espera a las estaciones; los trazados y la red ferroviaria siguen cargándose detrás
 // Justo antes de la primera lectura: en un relevo, el servidor anterior sigue en marcha y guardando
 // su copia cada minuto, así que la estela de cada tren sigue sin hueco (o casi).
 await keepTracks.restore().catch((err) => log.warn(`[estelas] no se pudo recuperar el historial: ${err.message}`));
+await recordPunctuality.restore().catch((err) => log.warn(`[puntualidad] no se pudo recuperar: ${err.message}`));
+// El registro de hoy del día en cifras: un reinicio no empieza el día de cero.
+await dayInFigures.restore().catch((err) => log.warn(`[día en cifras] no se pudo recuperar el día: ${err.message}`));
 
 const feeds = enabledSources.map(({ id, interval }) => ({ id, interval }));
-const scheduler = startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, saveTracks: keepTracks.save, log });
+// Trabajos periódicos: la puntualidad (sus lecturas cada minuto y una copia cada cuarto de hora, y al apagar:
+// lo que se pierde si el servidor se cae sin apagarse es, como mucho, ese cuarto de hora) y el día en cifras
+// (suma el minuto; guarda su registro cada 5 minutos).
+const tasks = [
+  { name: 'puntualidad', every: 60_000, run: recordPunctuality.tick },
+  { name: 'puntualidad', every: 15 * 60_000, run: recordPunctuality.save },
+  { name: 'día en cifras', every: 60_000, run: dayInFigures.tick },
+];
+const scheduler = startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, saveTracks: keepTracks.save, tasks, log });
+
+// Bot de Telegram «Sigue tu tren» (docs/telegram.md): sin TELEGRAM_BOT_TOKEN en .env, desactivado.
+let telegramBot = null;
+if (!config.telegram) {
+  log.warn('[telegram] bot desactivado: falta TELEGRAM_BOT_TOKEN');
+} else {
+  if (!config.telegram.username) log.warn('[telegram] falta TELEGRAM_BOT_USERNAME: el bot funciona, pero la web no enseña el botón «Avísame por Telegram»');
+  const botDir = new URL('bot/', config.dataDir);
+  // La atribución de cada aviso: la licencia de su fuente (la del operador, si la fuente agrupa a varios).
+  const sourceById = new Map(sources.map((s) => [s.id, s]));
+  const creditOf = (id, operator) => sourceById.get(id)?.operatorLicenses?.[operator] ?? sourceById.get(id)?.license ?? null;
+  const followBot = makeFollowBot({
+    read: { vehicles: () => query.vehicles(), events: () => query.events(), station: (code) => query.station(code) },
+    store: assertPort('FollowStore', createFollowStore({ dir: botDir, log }), PORT_MEMBERS.FollowStore),
+    clock,
+    creditOf,
+    webUrl: config.telegram.webUrl,
+    log,
+  });
+  telegramBot = createTelegramBot({
+    api: assertPort('ChatChannel', createTelegramApi({ http, token: config.telegram.token }), PORT_MEMBERS.ChatChannel),
+    bot: followBot,
+    lease: assertPort('Lease', createFileLease({ dir: botDir }), PORT_MEMBERS.Lease),
+    log,
+  });
+  telegramBot.start();
+}
 
 const server = createHttpServer({
   query,
   log,
   about: config.about,
   serveTiles,
+  days: dayInFigures,
   // Servidor MCP en POST /mcp: los asistentes de IA consultan el directo con herramientas.
   mcp: createMcpHandler({ query, about: config.about, version: pkg.version, now: clock.now }),
   metrics,
   publicDir: fileURLToPath(new URL('../public/', import.meta.url)).replace(/\/$/, ''),
   vendorDirs: { '/vendor/maplibre/': fileURLToPath(new URL('../node_modules/maplibre-gl/dist/', import.meta.url)).replace(/\/$/, '') },
+  // Las claves, el registro de tipos y el estado de lo que se sigue: el navegador usa los mismos módulos.
+  sharedFiles: sharedDomainFiles(fileURLToPath(new URL('./domain/', import.meta.url))),
 });
 
 server.listen(config.port, config.host, () => {
@@ -127,12 +183,17 @@ metricsServer?.listen(config.metricsPort, config.metricsHost, () => {
 function shutdown() {
   log.info('Cerrando…');
   scheduler.stop();
+  // El bot guarda lo suyo y suelta su turno, para que lo coja enseguida el servidor que releva a éste.
+  const botStopped = telegramBot?.stop().catch((err) => log.warn(`[telegram] ${err.message}`));
   metricsServer?.close();
   metrics.close();
   pool.close();
   if (xmlPool !== pool) xmlPool.close();
-  // Lo último que se guarda: el historial de posiciones, para que el siguiente arranque lo siga.
-  keepTracks.save().catch((err) => log.warn(`[estelas] ${err.message}`)).finally(() => server.close(() => process.exit(0)));
+  // Lo último que se guarda: el historial de posiciones, la puntualidad y el día en cifras, para que el
+  // siguiente arranque los siga; y el bot suelta su turno.
+  Promise.allSettled([keepTracks.save(), recordPunctuality.save(), dayInFigures.save(), botStopped])
+    .then((results) => results.filter((r) => r.status === 'rejected').forEach((r) => log.warn(`[al cerrar] ${r.reason?.message ?? r.reason}`)))
+    .finally(() => server.close(() => process.exit(0)));
   setTimeout(() => process.exit(0), 3000).unref();
 }
 process.on('SIGINT', shutdown);

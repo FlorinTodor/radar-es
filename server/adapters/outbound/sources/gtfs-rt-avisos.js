@@ -9,6 +9,7 @@ import { cancellationEvent } from '../../../domain/cancelaciones.js';
 import { distanceKm, round5 } from '../../../domain/geo.js';
 import { createSeenStore } from '../persistence/seen-store.js';
 import { madridClock, madridServiceDay } from './parse.js';
+import { followOf, lineKey } from '../../../domain/seguir.js';
 
 const STOPS_TTL_MS = 24 * 3600_000;
 const SEVERE_EFFECTS = new Set(['NO_SERVICE', 'REDUCED_SERVICE', 'SIGNIFICANT_DELAYS']);
@@ -117,6 +118,7 @@ export function createGtfsRtAlertsSource({ http, cache, log, now = Date.now }, {
             service: 'Autobús',
             line,
             number: null,
+            follow: followOf(lineKey({ operator, line })),
             stops: null,
             skippedNames: suppressed,
             cancelled: false,
@@ -145,6 +147,8 @@ export function createGtfsRtAlertsSource({ http, cache, log, now = Date.now }, {
           ...(near ? { area: near.name } : {}),
           start: period?.start ? +period.start * 1000 : null,
           end: period?.end ? +period.end * 1000 : null,
+          // La línea que nombra: quien la sigue (domain/seguir.js) se entera del aviso.
+          ...(line ? { follow: followOf(lineKey({ operator, line })) } : {}),
         });
       }
       const found = [...cancellations.values()];

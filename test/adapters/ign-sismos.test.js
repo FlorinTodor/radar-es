@@ -107,3 +107,11 @@ test('la localización del IGN, legible (localizaciones reales de un año)', () 
   assert.equal(ignPlace('GOLFO DE CÁDIZ').near, false);
   for (const raw of ['', '   ', null, undefined]) assert.equal(ignPlace(raw), null);
 });
+
+test('IGN: una localización enorme con « DE» repetido no deja colgado el servidor', () => {
+  // Antes, /(?: (?:DE|DEL|…))+$/ volvía a probar desde cada « DE» (cuadrático): con estos ~300 KB tardaba más
+  // de medio minuto. Ahora la localización se recorta (el IGN la da de 30 caracteres) y los artículos finales
+  // se quitan palabra a palabra.
+  assert.equal(ignPlace(`X${' DE'.repeat(100_000)}x`)?.text, 'X');
+  assert.equal(ignPlace(`NE VILLANUEVA DE LA SERENA${' DE LA'.repeat(50_000)}`)?.text, 'al noreste de Villanueva de la Serena');
+});

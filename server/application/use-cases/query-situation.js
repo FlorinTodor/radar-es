@@ -9,12 +9,18 @@ import { withCurrentCuts } from '../../domain/emergencias.js';
 import { withoutRepeatedQuakes } from '../../domain/sismos.js';
 import { GRID_METRICS } from '../../domain/alerts/rules.js';
 import { DEFAULT_THRESHOLDS } from '../../domain/alerts/thresholds.js';
+import { isFollowKey, stopKey } from '../../domain/seguir.js';
+import { followStatus, indexByFollow } from '../../domain/siguiendo.js';
+import { MODES } from '../../domain/modos.js';
 
 // Cálculos por tren que se guardan (recorrido por la vía, ~30 KB cada uno; lo que le queda): el mapa
 // pide los del tren seleccionado cada 15 s, /api/live la flecha de cada Cercanías, y sólo cambian
 // cuando el tren da una posición nueva. Caben todos los trenes de cada memo a la vez, con margen: si
 // fueran menos que los que se miran, cada cálculo nuevo echaría otro y el memo se vaciaría en bucle.
 const TRAIN_MEMO_MAX = 1_000;
+// Índice de vehículos e incidencias por clave (domain/siguiendo.js): se rehace como mucho cada tanto, no en
+// cada consulta. Cada cosa seguida se pide por separado (y Cloudflare guarda cada una unos segundos).
+const FOLLOW_INDEX_TTL_MS = 5_000;
 const SWEEP_MIN = 64; // por debajo de esto no se barre: es poca memoria
 
 /**
@@ -55,8 +61,9 @@ function makeTrainMemo(live) {
  *   networkStations: estaciones de metro, tranvía y las demás redes que no son de Renfe.
  *   railNetwork: sin él, los recorridos de todas las fuentes se unen con rectas.
  *   thresholds: los de las alertas; los avisos de corte de luz usan los de la demanda de las islas.
+ *   punctuality: la puntualidad histórica (caso de uso record-punctuality); sin ella, no hay.
  */
-export function makeQuerySituation({ situation, stations, networkStations, network, clock, sources = [], railNetwork, thresholds = DEFAULT_THRESHOLDS }) {
+export function makeQuerySituation({ situation, stations, networkStations, network, clock, sources = [], railNetwork, thresholds = DEFAULT_THRESHOLDS, punctuality = null }) {
   const withPaths = sources.filter((s) => typeof s.path === 'function');
   const withTripStops = sources.filter((s) => typeof s.tripStops === 'function');
   // Los sucesos en vigor: un aviso oficial que ya pasó de su vigencia no se muestra aunque su fuente
@@ -185,6 +192,17 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
     });
   };
 
+  let followIndex = null;
+  let followIndexAt = -Infinity;
+  const followed = () => {
+    const now = clock.now();
+    if (!followIndex || now - followIndexAt >= FOLLOW_INDEX_TTL_MS) {
+      followIndex = indexByFollow(situation.vehicles(), currentEvents());
+      followIndexAt = now;
+    }
+    return followIndex;
+  };
+
   return {
     vehicles({ mode, source, minDelay } = {}) {
       return situation.vehicles().filter((v) =>
@@ -203,7 +221,17 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
     // Las de otras redes llevan además su red y su modo (metro, tranvía…), para filtrarlas y pintarlas.
     stations: () => [...stations.all(), ...(networkStations?.all() ?? [])].map(({ code, name, place, province, lat, lon, cercanias, metricGauge, accessible, network: net, networkId, mode }) => (
       { code, name, place, province, lat, lon, cercanias, metricGauge, accessible, ...(networkId ? { network: net, networkId, mode } : {}) })),
-    station: (code) => stations.get(code) ?? networkStations?.get(code) ?? null,
+    // Con la clave para seguirla (domain/seguir.js). La lista no la lleva: sale de su código y la engordaría
+    // un 13 %; quien la sigue la toma de aquí (y stopCode, de la clave, vuelve al código).
+    station: (code) => {
+      const station = stations.get(code) ?? networkStations?.get(code) ?? null;
+      const follow = station && stopKey(station.code);
+      return station && follow ? { ...station, follow } : station;
+    },
+    /** Los tipos de vehículo dados de alta (domain/modos.js), en orden: nombres y filtros del cliente salen de aquí. */
+    modes: () => MODES,
+    /** La puntualidad de un servicio o de una línea (su clave de domain/seguir.js); null si no se sabe. */
+    punctuality: (key) => punctuality?.report(key) ?? null,
     lines: () => network.lines(),
     lineSources: () => network.sources(),
     /**
@@ -295,6 +323,15 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
       };
     },
     liveEvents: () => ({ generatedAt: clock.now(), events: currentEvents() }),
+    /**
+     * Cómo está ahora lo que alguien sigue (un servicio, una línea o una parada de cualquier tipo de vehículo,
+     * ver domain/siguiendo.js): también los autobuses aunque su capa no esté encendida, sin descargarlos
+     * todos. null si la clave no es válida.
+     */
+    following(key) {
+      if (!isFollowKey(key)) return null;
+      return { generatedAt: clock.now(), ...followStatus(key, followed().get(key)) };
+    },
     liveBuses: () => ({ generatedAt: clock.now(), vehicles: withHeading(situation.vehicles().filter((v) => v.mode === 'bus')) }),
 
     snapshot({ buses = true } = {}) {

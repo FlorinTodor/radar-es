@@ -3,9 +3,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CANCELLATION_UNCONFIRMED_MS, MISSING_TRAIN_TTL_MS, cancellationEvent, followWithdrawn, missingTrainEvent, noticesAbout, skippedPart, stampSeen, tripChanges,
-  withdrawnCancellation,
+  CANCELLATION_UNCONFIRMED_MS, MISSING_TRAIN_TTL_MS, cancellationEvent, followWithdrawn, mergeSameTrain, missingTrainEvent, noticesAbout, sameTrain,
+  skippedPart, stampSeen, tripChanges, withdrawnCancellation, withoutCancelledTrains,
 } from '../../server/domain/cancelaciones.js';
+
+// «HH:MM» → segundos del día (para volver a armar paradas a partir de una incidencia).
+const minutesOfClock = (hhmm) => Number(hhmm.slice(0, 2)) * 3600 + Number(hhmm.slice(3, 5)) * 60;
 
 const entity = (tripId, relation, skipped = [], extra = {}) => ({
   tripUpdate: { trip: { tripId, scheduleRelationship: relation, ...extra }, stopTimeUpdate: skipped.map((stopId) => ({ stopId, scheduleRelationship: 'SKIPPED' })) },
@@ -228,6 +231,57 @@ test('se siguen de lectura en lectura: la que desaparece se retira hasta mediano
   assert.equal(memory.withdrawn.size, 0, 'pasada la medianoche, fuera');
 });
 
+test('la que desaparece pasada la medianoche era de ayer: no se retira hasta la medianoche siguiente', () => {
+  const NEXT_MIDNIGHT = MIDNIGHT + 86_400_000;
+  // 23:58: se ve; 00:01: la fuente ha vaciado su tiempo real al cambiar de día.
+  let memory = followWithdrawn({ shown: new Map(), withdrawn: new Map() }, [shownOnce], { now: MIDNIGHT - 120_000, clock: '23:58', endOfDay: MIDNIGHT });
+  assert.equal(memory.shownUntil, MIDNIGHT);
+  memory = followWithdrawn(memory, [], { now: MIDNIGHT + 60_000, clock: '00:01', endOfDay: NEXT_MIDNIGHT });
+  assert.equal(memory.withdrawn.size, 0, 'no se da como retirada hoy');
+  assert.equal(memory.shownUntil, NEXT_MIDNIGHT);
+  // La fuente no responde de 23:00 a 01:00: la última vez que se vio fue ayer.
+  memory = followWithdrawn({ shown: new Map(), withdrawn: new Map() }, [shownOnce], { now: MIDNIGHT - 3_600_000, clock: '23:00', endOfDay: MIDNIGHT });
+  memory = followWithdrawn(memory, [], { now: MIDNIGHT + 3_600_000, clock: '01:00', endOfDay: NEXT_MIDNIGHT });
+  assert.equal(memory.withdrawn.size, 0);
+  // Sin el día guardado (lo guardado antes de este cambio), como antes: hasta la medianoche de hoy.
+  memory = followWithdrawn({ shown: new Map([[shownOnce.id, shownOnce]]), withdrawn: new Map() }, [], { now: 20_000, clock: '09:05', endOfDay: MIDNIGHT });
+  assert.equal(memory.withdrawn.get(shownOnce.id).expires, MIDNIGHT);
+});
+
+test('el tren de ayer que la fuente quita de madrugada no sale hoy como retirado; uno de hoy, sí', () => {
+  const NEXT_MIDNIGHT = MIDNIGHT + 86_400_000;
+  const at = (min) => MIDNIGHT + min * 60_000; // minutos desde la medianoche de hoy
+  const ave = (id, seen, departure) => ({ ...shownOnce, id, seen, trip: { ...shownOnce.trip, stops: [{ name: 'Barcelona-Sants', time: departure }, { name: 'Madrid-Puerta de Atocha', time: '21:10' }] } });
+  const yesterday = ave('ld:03180', MIDNIGHT - 10 * 3_600_000, '18:25'); // visto ayer por la tarde, sale a las 18:25
+  // 23:58 y 00:01: Renfe lo sigue publicando; a la 01:49 lo quita (no vacía Larga Distancia a medianoche).
+  let memory = followWithdrawn({ shown: new Map(), withdrawn: new Map() }, [yesterday], { now: MIDNIGHT - 120_000, clock: '23:58', endOfDay: MIDNIGHT });
+  memory = followWithdrawn(memory, [yesterday], { now: at(1), clock: '00:01', endOfDay: NEXT_MIDNIGHT });
+  memory = followWithdrawn(memory, [], { now: at(109), clock: '01:49', endOfDay: NEXT_MIDNIGHT });
+  assert.equal(memory.withdrawn.size, 0, 'el AVE de las 18:25 de ayer no es una cancelación de hoy retirada');
+  // Visto por primera vez hoy (a las 00:30) y quitado a la 01:49: ése sí es de hoy.
+  const today = ave('ld:03181', at(30), '18:25');
+  memory = followWithdrawn({ shown: new Map(), withdrawn: new Map() }, [today], { now: at(30), clock: '00:30', endOfDay: NEXT_MIDNIGHT });
+  memory = followWithdrawn(memory, [], { now: at(109), clock: '01:49', endOfDay: NEXT_MIDNIGHT });
+  assert.equal(memory.withdrawn.size, 1);
+  // Visto ayer, pero ya ha salido hoy (a las 00:40) cuando se quita: lo normal, sale como retirado.
+  const night = ave('ld:00605', MIDNIGHT - 3_600_000, '00:40');
+  memory = followWithdrawn({ shown: new Map(), withdrawn: new Map() }, [night], { now: at(1), clock: '00:01', endOfDay: NEXT_MIDNIGHT });
+  memory = followWithdrawn(memory, [], { now: at(109), clock: '01:49', endOfDay: NEXT_MIDNIGHT });
+  assert.equal(memory.withdrawn.size, 1);
+  // Publicado ayer para hoy y quitado a media mañana, antes de salir: puede que al final circule; sale.
+  memory = followWithdrawn({ shown: new Map(), withdrawn: new Map() }, [yesterday], { now: at(1), clock: '00:01', endOfDay: NEXT_MIDNIGHT });
+  memory = followWithdrawn(memory, [], { now: at(600), clock: '10:00', endOfDay: NEXT_MIDNIGHT });
+  assert.equal(memory.withdrawn.size, 1);
+});
+
+test('el aviso de un tren a la misma hora en sentido contrario no es el de éste (el origen va antes del destino)', () => {
+  const trip = { number: null, departure: '15:50', origin: 'Alicante/Alacant-Terminal', line: 'C1' };
+  const other = { text: 'Tren con salida prevista a las 15:50h de la estación de Murcia del Carmen con destino Alacant Terminal circula con 15 minutos de retraso.', lines: ['C1'] };
+  const own = { text: 'Tren con salida a las 15:50h de Alacant Terminal con destino Murcia del Carmen no presta servicio.', lines: ['C1'] };
+  assert.equal(noticesAbout(trip, [other]).notice, null);
+  assert.equal(noticesAbout(trip, [other, own]).notice, own);
+});
+
 // ---------- Trenes sin datos ----------
 
 test('tren sin datos: qué falta, por dónde iría según su horario y dónde se ve en el mapa', () => {
@@ -247,4 +301,119 @@ test('tren sin datos: qué falta, por dónde iría según su horario y dónde se
   assert.deepEqual(e.trip.stops.map((st) => !!st.passed), [true, true, false, false]);
   assert.equal(e.expires, NOW + MISSING_TRAIN_TTL_MS);
   assert.equal(e.trip.date, '2026-11-05');
+});
+
+// ---------- El mismo tren en dos feeds ----------
+
+const RODALIES = {
+  publisher: 'Renfe', operator: 'Renfe', credit: 'Origen de los datos: Renfe Operadora', cancelled: true, running: false,
+  feed: 'GTFS-RT de Cercanías y Rodalies', feedUrl: 'https://gtfsrt.renfe.com/trip_updates.json',
+};
+const LD = { ...RODALIES, feed: 'GTFS-RT de Alta Velocidad, Larga y Media Distancia', feedUrl: 'https://gtfsrt.renfe.com/trip_updates_LD.json' };
+const h = (hh, mm) => hh * 3600 + mm * 60;
+// El regional 18093 Barcelona → València: Rodalies sólo trae su tramo (hasta Tortosa), con un minuto de diferencia.
+const r16 = (over = {}) => cancellationEvent({
+  ...RODALIES, id: 'renfe-cancelado:5113M18093R16', who: 'Rodalies R16 18093', mode: 'cercanias', service: 'Rodalies', line: 'R16', number: '18093',
+  stops: [{ name: 'Barcelona Estació de França', time: h(9, 15) }, { name: 'Barcelona-Passeig de Gràcia', time: h(9, 26) }, { name: 'Tortosa', time: h(11, 20) }],
+  seen: 2000, lineNotices: [{ id: 'n1', text: 'Huelga de maquinistas: servicios mínimos en la R16.' }], ...over,
+}, NOW);
+const re18093 = (over = {}) => cancellationEvent({
+  ...LD, id: 'renfe-cancelado:ld:18093', who: 'Regional Exprés 18093', mode: 'md', service: 'Regional Exprés', number: '18093',
+  stops: [{ name: 'Barcelona Estació de França', time: h(9, 15) }, { name: 'Barcelona-Passeig de Gràcia', time: h(9, 25) },
+    { name: 'Tortosa', time: h(11, 20) }, { name: 'València-Estació del Nord', time: h(15, 25) }],
+  seen: 3000, ...over,
+}, NOW);
+
+test('el mismo tren: mismo número y una parada común a la misma hora (con unos minutos de margen)', () => {
+  assert.equal(sameTrain(r16(), re18093()), true);
+  assert.equal(sameTrain(re18093(), r16()), true);
+  const otherNumber = re18093({ id: 'x', number: '18095' });
+  assert.equal(sameTrain(r16(), otherNumber), false, 'otro número');
+  const later = re18093({ stops: [{ name: 'Barcelona Estació de França', time: h(15, 15) }, { name: 'Tortosa', time: h(17, 20) }] });
+  assert.equal(sameTrain(r16(), later), false, 'el mismo número a otra hora no es el mismo tren');
+  const nightA = re18093({ stops: [{ name: 'Tortosa', time: h(23, 58) }] });
+  const nightB = r16({ stops: [{ name: 'Tortosa', time: h(0, 1) }] });
+  assert.equal(sameTrain(nightA, nightB), true, 'el margen vale también al pasar la medianoche');
+  assert.equal(sameTrain(r16({ number: null }), re18093({ number: null })), false, 'sin número, nunca');
+});
+
+test('mergeSameTrain: una sola, la de recorrido más completo, con la línea y los avisos de la otra y desde la primera vez que se vio', () => {
+  const unrelated = cancellationEvent({ ...base, stops: STOPS }, NOW);
+  const merged = mergeSameTrain([r16(), unrelated, re18093()]);
+  assert.equal(merged.length, 2);
+  assert.equal(merged[1], unrelated, 'las demás, tal cual');
+  const [one] = merged;
+  assert.equal(one.id, 'renfe-cancelado:5113M18093R16', 'siempre el mismo id (el menor), aunque cambie la que se queda');
+  assert.equal(one.title, 'Regional Exprés 18093 cancelado: Barcelona Estació de França 09:15 → València-Estació del Nord');
+  assert.equal(one.trip.feed, LD.feed);
+  assert.equal(one.trip.line, 'R16');
+  assert.deepEqual(one.trip.lineNotices, [{ text: 'Huelga de maquinistas: servicios mínimos en la R16.' }]);
+  assert.equal(one.seen, 2000);
+  assert.deepEqual(one.trip.alsoIn, [{
+    feed: RODALIES.feed, feedUrl: RODALIES.feedUrl, as: 'Rodalies R16 18093', origin: 'Barcelona Estació de França', destination: 'Tortosa',
+  }]);
+  assert.match(one.description, /Renfe también lo publica en su GTFS-RT de Cercanías y Rodalies, como Rodalies R16 18093 \(Barcelona Estació de França → Tortosa\)\.$/);
+});
+
+test('mergeSameTrain: si un feed ya no lo publica, se queda la del que sí, y se dice', () => {
+  const gone = withdrawnCancellation(re18093(), { now: 9_000, clock: '11:21', endOfDay: MIDNIGHT });
+  const [one, ...rest] = mergeSameTrain([gone, r16()]);
+  assert.equal(rest.length, 0);
+  assert.equal(one.withdrawn, undefined, 'sigue publicado en Rodalies');
+  assert.equal(one.trip.feed, RODALIES.feed);
+  assert.equal(one.id, 'renfe-cancelado:5113M18093R16');
+  assert.equal(one.trip.alsoIn[0].withdrawn, 9_000);
+  assert.match(one.description, /también lo publicaba en su GTFS-RT de Alta Velocidad, Larga y Media Distancia, como Regional Exprés 18093 \(Barcelona Estació de França → València-Estació del Nord\), y allí ya no lo publica\.$/);
+  // Las dos retiradas: una, retirada.
+  const both = mergeSameTrain([gone, withdrawnCancellation(r16(), { now: 8_000, clock: '11:00', endOfDay: MIDNIGHT })]);
+  assert.equal(both.length, 1);
+  assert.equal(both[0].withdrawn, 9_000, 'la de recorrido más completo');
+});
+
+test('mergeSameTrain: si un feed lo cancela y el otro sólo suprime paradas, se dice', () => {
+  const partial = re18093({ cancelled: false, running: true, stops: re18093().trip.stops.map((s, i) => ({
+    name: s.name, time: minutesOfClock(s.time), skipped: i >= 2,
+  })) });
+  assert.equal(partial.type, 'parcial');
+  const [one] = mergeSameTrain([r16(), partial]);
+  assert.equal(one.type, 'parcial', 'la de recorrido más completo');
+  assert.match(one.description, /Allí lo da como cancelado\.$/);
+});
+
+test('withoutCancelledTrains: un tren cancelado (en cualquier feed) no es un tren sin datos', () => {
+  const missing = (number, time) => missingTrainEvent({
+    id: `renfe-sin-datos:${number}`, who: `Regional Exprés ${number}`, operator: 'Renfe', mode: 'md', service: 'Regional Exprés', number,
+    stops: [{ name: 'Barcelona Estació de França', time }, { name: 'Tortosa', time: time + h(2, 5) }], at: 0, date: '2026-11-10',
+    publisher: 'Renfe', feed: LD.feed, feedUrl: LD.feedUrl, seen: 1000,
+  }, NOW);
+  const kept = withoutCancelledTrains([missing('18093', h(9, 15)), missing('18095', h(9, 15)), missing('18093', h(19, 15))], [r16()]);
+  assert.deepEqual(kept.map((e) => [e.trip.number, e.trip.departure]), [['18095', '09:15'], ['18093', '19:15']]);
+});
+
+test('mergeSameTrain: quien siga el número o cualquiera de las dos líneas encuentra la incidencia juntada', () => {
+  const withKeys = (e, follow) => ({ ...e, trip: { ...e.trip, follow } });
+  const a = withKeys(r16(), ['s-renfe-18093', 'l-renfe-Catalunya-R16']);
+  const b = withKeys(re18093(), ['s-renfe-18093', 'l-renfe-Regional_20Expr_C3_A9s']);
+  const [one] = mergeSameTrain([a, b]);
+  assert.deepEqual(one.trip.follow, ['s-renfe-18093', 'l-renfe-Regional_20Expr_C3_A9s', 'l-renfe-Catalunya-R16']);
+  assert.deepEqual(one.trip.alsoIn[0].follow, ['s-renfe-18093', 'l-renfe-Catalunya-R16'], 'y la otra, con las suyas');
+  // Una retirada guardada en disco por una versión anterior no trae claves: se junta igual.
+  const old = withdrawnCancellation(re18093(), { now: 9_000, clock: '11:21', endOfDay: MIDNIGHT });
+  assert.equal(old.trip.follow, undefined);
+  const [mixed] = mergeSameTrain([old, a]);
+  assert.deepEqual(mixed.trip.follow, ['s-renfe-18093', 'l-renfe-Catalunya-R16']);
+  assert.equal(mixed.trip.alsoIn[0].follow, undefined);
+  const [none] = mergeSameTrain([old, withdrawnCancellation(r16(), { now: 8_000, clock: '11:00', endOfDay: MIDNIGHT })]);
+  assert.equal(none.trip.follow, undefined, 'ninguna trae claves: sin lista');
+});
+
+test('cancelación y tren sin datos llevan las claves que les da su fuente', () => {
+  const e = cancellationEvent({ ...base, stops: STOPS, follow: ['s-renfe-291', 'l-renfe-Alvia'] }, NOW);
+  assert.deepEqual(e.trip.follow, ['s-renfe-291', 'l-renfe-Alvia']);
+  assert.equal(cancellationEvent({ ...base, stops: STOPS }, NOW).trip.follow, undefined);
+  const m = missingTrainEvent({
+    id: 'renfe-sin-datos:37090', who: 'Media Distancia 37090', operator: 'Renfe', mode: 'md', service: 'Media Distancia', number: '37090',
+    stops: STOPS, at: 1, date: '2026-11-05', publisher: 'Renfe', feed: 'x', seen: 1000, follow: ['s-renfe-37090', 'l-renfe-Media_20Distancia'],
+  }, NOW);
+  assert.deepEqual(m.trip.follow, ['s-renfe-37090', 'l-renfe-Media_20Distancia']);
 });

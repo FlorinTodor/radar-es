@@ -3,10 +3,15 @@
 // Las cancelaciones tren a tren salen del GTFS-RT de Renfe (fuente renfe-avisos). La API interna de
 // la app de Rodalies no se usa: no está publicada como datos abiertos ni tiene licencia.
 import { arr, text, xmlParser } from './parse.js';
+import { followOf } from '../../../domain/seguir.js';
+import { renfeFollow } from './renfe.js';
 
 const RSS = 'https://www.gencat.cat/rodalies/incidencies_rodalies_rss_es_ES.xml';
 const NORMAL = /normalidad|servicio normal|sin incidencias/i;
 const SEVERE = /suprim|cancel|anul|interrump|cortad|carretera|sin servicio/i;
+// Las líneas de Rodalies son, en el horario y el tiempo real de Renfe, las del núcleo 51: con la misma clave que
+// sus trenes (renfeFollow, domain/seguir.js), un aviso de la R14 llega a quien sigue la R14.
+const RENFE_NUCLEO = '51';
 // Recuadro de Cataluña para buscar la estación que nombra cada aviso.
 const IN_CATALONIA = (s) => s.lat > 40.5 && s.lon > 0.15;
 
@@ -46,6 +51,7 @@ export function createRodaliesSource({ http, stations }) {
         // El título empieza por "Línea R14,R13." y repite el texto recortado.
         const lines = /^L[ií]nea\s+([^.]+)\./i.exec(title)?.[1].split(',').map((l) => l.trim()).filter(Boolean) ?? [];
         const at = locate(description);
+        const follow = followOf(...lines.flatMap((line) => renfeFollow({ line, lineKey: `${RENFE_NUCLEO}|${line}` }) ?? []));
         events.push({
           id: `rodalies:${lines.join('-')}:${norm(description).slice(0, 80)}`,
           category: 'ferroviario',
@@ -56,6 +62,7 @@ export function createRodaliesSource({ http, stations }) {
           lat: at?.lat ?? null,
           lon: at?.lon ?? null,
           start: Date.parse(text(item.pubDate) ?? '') || null,
+          ...(follow ? { follow } : {}),
         });
       }
       return { events, sourceTime: Date.parse(text(channel?.lastBuildDate) ?? '') || null };

@@ -56,6 +56,11 @@ test('tren cancelado: no se coloca en el mapa y sale como cancelación con su ho
   const partial = byId.get('prueba-cancelado:T2:20261101');
   assert.equal(partial.title, 'Euskotren L1 no para en Beta');
   assert.equal(partial.type, 'parcial');
+  // Las mismas claves que el vehículo de ese viaje: quien lo sigue se entera de que no circula.
+  const running = vehicles.find((v) => v.id.split(':')[1] === 'T2');
+  assert.deepEqual(partial.trip.follow, running.follow);
+  assert.match(cancelled.trip.follow[0], /^s-euskotren-L1-[0-9a-z]{7}-1155$/);
+  assert.equal(cancelled.trip.follow[1], 'l-euskotren-L1');
 });
 
 test('autobuses con paradas suprimidas en varias expediciones: una cancelación por línea, con todas las que suprime', async (t) => {
@@ -74,6 +79,7 @@ test('autobuses con paradas suprimidas en varias expediciones: una cancelación 
   assert.equal(line.trip.departure, null, 'ni una hora en concreto');
   assert.deepEqual([line.lon, line.lat], [-6, 37], 'en la primera parada suprimida');
   assert.match(line.description, /estas 2 paradas en 2 expediciones: Alfa; Beta\./);
+  assert.deepEqual(line.trip.follow, ['l-amb-L1'], 'varias expediciones: sólo la línea');
 });
 
 test('sin tiempo real, no hay cancelaciones (ni la lista vacía)', async (t) => {

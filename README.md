@@ -279,7 +279,7 @@ Todas son públicas. Las marcadas con 🔑 necesitan una clave gratuita: casi to
 | Renfe AV/LD/MD (GTFS-RT `vehicle_positions_LD.json` + `trip_updates_LD.json`) | posición y retraso; producto (AVE, Alvia…), origen y destino desde su GTFS | 20 s |
 | Renfe GTFS-RT alerts + trip updates (`alerts.json`, `trip_updates.json`, `trip_updates_LD.json`) | avisos de servicio; trenes cancelados y paradas suprimidas de Cercanías/Rodalies y de AV/LD/MD, con su horario, el aviso que los explica y desde cuándo los ve el radar (las que deja de publicar, hasta medianoche); trenes de AV/LD/MD sin datos (según su horario circulan y Renfe no publica nada de ellos) | 2 min |
 | Estaciones Renfe (lista oficial `estaciones.csv` + paradas de sus GTFS) | nombres y coordenadas de ~1.530 estaciones | 24 h |
-| FGC (`dadesobertes.fgc.cat`, `posicionament-dels-trens`) | posición y si va en hora | 30 s |
+| FGC (`dadesobertes.fgc.cat`, `posicionament-dels-trens`) | posición y si va en hora | 45 s |
 | Rodalies de Catalunya (RSS «Estat del servei» de la Generalitat) | avisos por línea (p. ej. transporte por carretera) | 3 min |
 | Metro Bilbao (GTFS-RT y GTFS, Open Data Euskadi) | posición; nombres de estación, origen, destino y recorrido desde su GTFS | 30 s |
 | 🔑 Euskotren (GTFS del NAP + trip updates de Open Data Euskadi) | **posición estimada** con su **retraso real**; viajes cancelados y paradas suprimidas | 30 s |
@@ -442,6 +442,10 @@ Lo que no se puede dibujar por falta de datos públicos:
 | `GET /api/burnt-areas?bbox=…` | ficha de las áreas quemadas (EFFIS) bajo un punto del mapa |
 | `GET /tiles/<capa>/<z>/<x>/<y>.png` | teselas de la red ferroviaria (IGN) y de las áreas quemadas (EFFIS) |
 | `GET /api/about` | titular y contacto para el aviso legal |
+| `GET /api/modes` | los tipos de vehículo que conoce el radar y cómo se llama cada uno |
+| `GET /api/live/siguiendo?clave=…` | cómo va ahora un servicio, una línea o una estación que se sigue: sus vehículos, su retraso y sus incidencias |
+| `GET /api/puntualidad/:clave` | puntualidad de los últimos días de un servicio o de una línea |
+| `GET /api/dia`, `/api/dia/AAAA-MM-DD` | «El día en cifras» de hoy o de un día pasado |
 | `GET /api/lines/sources` | de dónde sale el trazado de cada red: atribución y fecha de actualización |
 | `POST /mcp` | servidor MCP para asistentes de IA (ver [Servidor MCP](#servidor-mcp)) |
 
@@ -638,6 +642,12 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   circulando y de los que Renfe no publica nada (ni posición, ni retraso, ni cancelación). Salen en gris,
   aparte de las cancelaciones, en la última estación por la que deberían haber pasado: no se sabe si
   circulan.
+- Cada cancelación sale una sola vez: el tren que Renfe publica a la vez en el fichero de Cercanías y en
+  el de Larga Distancia se junta en una (su ficha dice en qué otro fichero sale), un tren cancelado ya
+  no sale además como «sin datos», y las cancelaciones que el operador retiró ayer ya no siguen saliendo
+  al día siguiente (tampoco las de ayer que Renfe quita de su tiempo real de madrugada). El aviso de un
+  tren que sale a la misma hora en sentido contrario ya no se pega a la cancelación de otro, y el número
+  de la pestaña Incidencias cuenta sólo las que siguen publicadas (las retiradas, al pasar por encima).
 - Contexto y emergencias: incidencias de tráfico y obras en carretera (capas separadas), avisos
   meteorológicos, focos de calor por satélite, áreas quemadas con su ficha, terremotos, alertas
   de catástrofes y demanda eléctrica.
@@ -827,8 +837,44 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   estaciones, incidencias, alertas, resumen y fuentes) con herramientas de sólo lectura, citando las
   fuentes. Habla la versión 2026-07-28 del protocolo y las anteriores. Lo propuso y escribió Edgar Milá
   ([DemboNauta](https://github.com/DemboNauta)) en la PR #1.
+- «Siguiendo»: con la estrella de su ficha se sigue un tren, un autobús, un metro o un tranvía concreto,
+  su línea o una estación, y la pestaña Siguiendo dice cómo va cada cosa ahora (si circula, su retraso,
+  si se ha cancelado y los avisos de su línea). Se guarda sólo en el navegador, sin cuentas.
+- Puntualidad de los últimos días en la ficha de cada servicio y de cada línea, para cualquier vehículo
+  cuyo operador publique su retraso: cuántos llegaron tarde, el retraso máximo y las cancelaciones.
+- [El día en cifras](https://radarespana.es/el-dia-en-cifras): el resumen de cada día, con cuántos
+  vehículos circularon a la vez de cada tipo, los retrasos, las cancelaciones por línea, las alertas y los
+  avisos (meteorológicos, terremotos y emergencias), comparado con el mismo día de la semana anterior y
+  con los días pasados para navegar.
+- Avisos por Telegram con el bot [@RadarEspanaBot](https://t.me/RadarEspanaBot): avisa si lo que sigues
+  se cancela, va con retraso, deja de dar datos o tiene avisos del operador en su línea, y de los avisos
+  de tu provincia; y, si se le pide, manda un parte cada día a la hora elegida. Cada ficha lleva arriba
+  el botón «Avísame por Telegram», que lo sigue con un toque, y cada cosa de Siguiendo, el suyo. Guarda
+  sólo lo necesario para avisar, y con `/baja` se borra todo.
+- Todo lo anterior vale para cualquier tipo de vehículo: todos comparten las mismas claves para
+  seguirlos y un registro de tipos, así que un tipo nuevo (barcos, aviones) sólo necesita su entrada en
+  el registro y el adaptador de su fuente.
+- Probado a fondo antes de subirlo, haciendo de distintos tipos de usuario (en el móvil, quien sigue de
+  todo, quien escribe sobre el día, quien usa el bot, quien intenta romperlo y quien revisa las
+  cancelaciones), con los datos reales del entorno de pruebas. De ahí salieron, ya hechos:
+  - las seis pestañas del panel en dos filas de tres, también en el móvil, donde además el panel se puede
+    ocultar para ver el mapa entero;
+  - botones de seguir y de Telegram cómodos para el dedo; un servicio se nombra con su línea («Cercanías
+    C3 20071») y una línea, por el tipo de vehículo que más se ve en ella;
+  - el día en cifras: fechas que no existen, días sin datos con salida, sin porcentajes de retraso en
+    horas con muy pocos vehículos, alertas repetidas agrupadas y hoy siempre al día, aunque se pida con
+    su fecha;
+  - Siguiendo: el número real de cancelaciones de una línea, consultas sin repetir y un reparto justo
+    entre quienes consultan;
+  - el bot: rondas rápidas aunque se sigan muchas estaciones, botones de listas viejas que ya no siguen
+    otra cosa, mensajes largos partidos sin cortar frases, avisos de retraso sólo cuando empeora y
+    nombres que no repiten el texto de enlaces inventados.
 
 **Rendimiento y fiabilidad**
+- Los autobuses de AMB vuelven a leerse aunque su servidor no envíe la cadena completa de su
+  certificado: se completa con el certificado intermedio de su autoridad, sin dejar de verificarla.
+- FGC se lee a un ritmo que no agota su cupo diario de peticiones, sumando la web y el entorno de
+  pruebas.
 - Monitorización privada del servidor, con avisos por Telegram si algo falla: si la web, la API y el
   servidor MCP responden, el tráfico y los errores por ruta, el uso de cada herramienta MCP, el estado
   de cada fuente, la memoria y los registros. Sólo cuenta, sin guardar quién pregunta.
@@ -900,6 +946,19 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Pruebas automáticas que no dependen de la velocidad de la máquina: dan lo mismo en el servidor,
   más lento y ocupado, que en un ordenador rápido.
 - Limpieza automática del servidor, también de las teselas del mapa que ya nadie mira.
+- Revisión de seguridad del código, con cada hallazgo comprobado por separado, y arreglo de lo que
+  podía dejar la web sin servicio:
+  - lo que llega de cada fuente se comprueba al entrar (textos, posiciones y fechas): un registro mal
+    formado se descarta sin dejar sin servicio el mapa, la API ni el servidor MCP;
+  - el texto de las fuentes se analiza en un tiempo proporcional a su tamaño, aunque llegue hecho a
+    propósito para atascarlo;
+  - los horarios descargados tienen un tamaño máximo al descomprimirse, y las frecuencias imposibles
+    se ignoran;
+  - las peticiones que llevan claves no siguen redirecciones a otros sitios, y ninguna pasa de https a
+    http;
+  - el servidor MCP rechaza nada más llegar las peticiones mal formadas;
+  - una regla de alertas que falla no deja sin evaluar las demás y queda en el registro;
+  - el despliegue comprueba lo que lee de los contenedores antes de usarlo.
 - El repositorio público ya no detalla cómo se prepara ni se protege el servidor: esas notas se
   guardan fuera de él.
 - Diagramas de la arquitectura, del camino de cada dato hasta el mapa, de las ramas y del despliegue,
@@ -945,7 +1004,17 @@ Ninguna por ahora.
 - Tiempo real de TMB y posiciones de los autobuses de EMT Madrid desde sus API, cuando EMT apruebe nuestra
   aplicación de MobilityLabs (ver
   *Pendiente y conocido*).
-- Estadísticas de puntualidad por línea y franja horaria.
+- Puntualidad por franja horaria (hoy se da por día), para ver a qué horas llega tarde cada línea.
+- Alertas de retraso más estables: algunas se abren y se cierran muchas veces en el mismo día cuando
+  el retraso de un tren baila alrededor del umbral; darles un margen antes de cerrarlas.
+- Avisos por correo, además de por Telegram, para quien no lo use.
+- Incidencias en días de huelga: un buscador por número de tren o por línea y agrupar por línea o
+  núcleo, porque la lista enseña las primeras 250.
+- Bot: «/estado <provincia>» y «/seguir <provincia>» que ofrezcan la provincia, y ciudades e islas como
+  provincia (Bilbao, Mallorca, Gran Canaria); no avisar de la cancelación de un tren que ya ha salido.
+- Si tras un reinicio falla uno de los ficheros de Renfe en la primera lectura, sus cancelaciones salen
+  un minuto como retiradas y pierden desde cuándo se ven: recordar qué fichero no se ha leído aún.
+- En el móvil, el cuadro de atribuciones del mapa empieza desplegado y tapa parte del mapa.
 - Patrones con el histórico: retrasos o pérdidas de velocidad que se repiten en el mismo tramo, día
   tras día. No prueban un fallo, pero son señales para revisar. Hace falta:
   - guardar las posiciones y los retrasos de cada tren (hoy el histórico solo guarda alertas y KPIs);
@@ -1002,7 +1071,6 @@ Ninguna por ahora.
 - Servir las fotos de las estaciones desde nuestro servidor, con caché, en lugar de enlazarlas en
   Wikimedia Commons: Commons lo permite pero no lo recomienda, y así Wikimedia no recibiría la IP de
   quien abre la ficha.
-- Guía para quien quiera proponer cambios.
 - Servidor MCP:
   - publicarlo en el registro oficial de servidores MCP, para que los asistentes lo encuentren solos;
   - el esquema de lo que devuelve cada herramienta (`outputSchema`), para que el cliente lo compruebe.

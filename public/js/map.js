@@ -3,6 +3,10 @@ import { DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, STATUS, esc, fmtDataTime, fm
 import { PICTOS, pictoFor, vehicleImage } from './icons.js';
 import { headingAlong, matchTrack, pathBetween } from './track-match.js';
 import { STOP_SPACE_PX, stopLabelLayout, stopSpaceLayout, stopTipHtml, stopsCollection, stopsListHtml, tripFramePoints } from './trip-stops.js';
+import { followControls } from './siguiendo.js';
+import { modeNoun } from '../../server/domain/modos.js';
+import { punctualitySlot } from './puntualidad.js';
+import { telegramFollow } from './avisar.js';
 
 const STYLE = 'https://tiles.openfreemap.org/styles/dark';
 // Iconos que el estilo pide y su sprite no tiene (ver styleimagemissing en createMap). Sólo esos: uno de los
@@ -153,7 +157,9 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
   const shapeOf = (v) => (ROUTE_NETWORK[v.source] && v.shape && v.end ? byShape.get(`${ROUTE_NETWORK[v.source]}|${v.shape}`) : undefined);
   const routeShapeOf = (v) => {
     const trip = shapeOf(v);
-    if (trip || !LINE_NETWORK[v.source] || !v.line || !v.end) return trip;
+    // Una línea que no es un texto (la de FGC sale tal cual de su API) no tiene trazado: con ella,
+    // v.line.startsWith lanzaría y dejaría sin pintar los vehículos de todas las fuentes.
+    if (trip || !LINE_NETWORK[v.source] || typeof v.line !== 'string' || !v.line || !v.end) return trip;
     // Se elige otra vez sólo cuando el tren se mueve o cambia su final: la flecha lo pide en cada lectura.
     const key = `${v.lon},${v.lat},${v.end},${v.line}`;
     const memo = lineShapes.get(v.id);
@@ -1144,7 +1150,7 @@ function stationDetail(st, { stopped, arriving, notices, lines, connections = []
     link(st.sheet, 'Ficha técnica de Renfe (PDF, 2019)'),
     link(`https://www.openstreetmap.org/?mlat=${st.lat}&mlon=${st.lon}#map=17/${st.lat}/${st.lon}`, 'OpenStreetMap'),
   ].filter(Boolean);
-  return `<div class="pop">${photo}<h3>${esc(st.name)}</h3>${meta.length ? `<p class="st-meta">${esc(meta.join(' · '))}</p>` : ''}
+  return `<div class="pop">${photo}<h3>${esc(st.name)}</h3>${followControls(st)}${telegramFollow(st.follow)}${meta.length ? `<p class="st-meta">${esc(meta.join(' · '))}</p>` : ''}
     ${lines.length ? chips(lines) : ''}
     <h4>En la estación ahora</h4>${list(stopped.map((v) => train(v)), 'Ningún tren parado ahora mismo.')}
     <h4>Próximos trenes</h4>${list(arriving.map((v) => train(v, when(v))), 'Ningún tren en camino con datos en directo.')}
@@ -1200,8 +1206,13 @@ export function cancellationDetail(e, now = Date.now()) {
     return { html: `${esc(n.text)}${url ? ` <a href="${esc(url)}" target="_blank" rel="noopener">Más información</a>` : ''}` };
   };
   const who = [t.service, t.line, t.number].filter((x, i, all) => x && all.indexOf(x) === i).join(' ');
-  const feed = safeUrl(t.feedUrl);
-  const published = feed ? { html: `${esc(t.publisher)}, en su <a href="${esc(feed)}" target="_blank" rel="noopener">${esc(t.feed)}</a>` } : `${t.publisher}, en su ${t.feed}`;
+  const feedLink = (name, url) => {
+    const safe = safeUrl(url);
+    return safe ? `<a href="${esc(safe)}" target="_blank" rel="noopener">${esc(name)}</a>` : esc(name);
+  };
+  // El mismo tren en otro feed del operador (los regionales de Rodalies también van en el de AV/LD/MD).
+  const also = (t.alsoIn ?? []).map((o) => ` y en su ${feedLink(o.feed, o.feedUrl)} (como ${esc(o.as)}${o.withdrawn ? `; ahí dejó de publicarlo a las ${fmtTime(o.withdrawn)}` : ''})`).join('');
+  const published = { html: `${esc(t.publisher)}, en su ${feedLink(t.feed, t.feedUrl)}${also}` };
   const today = fmtDate(e.seen) === fmtDate(now);
   const at = `${today ? '' : `el ${fmtDate(e.seen)} `}a las ${fmtTime(e.seen)}`;
   const seen = e.seen ? `${t.publisher} no dice cuándo lo publicó. El radar lo vio por primera vez ${at} (${timeAgo(e.seen, now)})`
@@ -1230,8 +1241,9 @@ export function cancellationDetail(e, now = Date.now()) {
     ...sourceRows(e.source).map((r) => (r && r[0] === 'Atribución' && e.credit ? ['Atribución', { html: creditHtml(e.credit) }] : r)),
   ].filter((r) => r && r[1]);
   const list = t.stops?.length > 1 ? cancelledStopsHtml(t.stops, e.type === 'cancelado') : '';
-  return `<div class="pop"><h3>${esc(e.title)}</h3>${e.description ? `<p>${esc(e.description)}</p>` : ''}
-    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>${list}
+  return `<div class="pop"><h3>${esc(e.title)}</h3>${followControls(t)}${telegramFollow(t.follow, t.mode, { line: t.line, service: t.service, operator: t.operator })}${e.description ? `<p>${esc(e.description)}</p>` : ''}
+    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
+    ${punctualitySlot(t.follow)}${list}
     <div class="note">Las horas son las del horario del operador. Si el operador deja de publicarlo, sigue aquí hasta medianoche
     como «ya no lo publica»; si su fuente deja de responder, se muestra como mucho una hora más.</div></div>`;
 }
@@ -1261,8 +1273,9 @@ export function missingTrainDetail(e, now = Date.now()) {
     ...sourceRows(e.source).map((r) => (r && r[0] === 'Atribución' && e.credit ? ['Atribución', { html: creditHtml(e.credit) }] : r)),
   ].filter((r) => r && r[1]);
   const list = t.stops?.length > 1 ? missingStopsHtml(t.stops) : '';
-  return `<div class="pop"><h3>${esc(e.title)}</h3>${e.description ? `<p>${esc(e.description)}</p>` : ''}
-    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>${list}
+  return `<div class="pop"><h3>${esc(e.title)}</h3>${followControls(t)}${telegramFollow(t.follow, t.mode, { line: t.line, service: t.service, operator: t.operator })}${e.description ? `<p>${esc(e.description)}</p>` : ''}
+    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
+    ${punctualitySlot(t.follow)}${list}
     <div class="note">Sale si, según el horario publicado, debería llevar más de 10 minutos circulando y le quedan más de 5 para llegar,
     y su operador no publica ni su posición ni su retraso ni su cancelación. Puede circular sin que se publique, o no circular sin que se
     haya publicado su cancelación.</div></div>`;
@@ -1317,7 +1330,7 @@ function vehicleDetail(v, onRoute = false, stops = null) {
   const aheadText = (how) => `La <strong>línea azul clara continua</strong> (con borde oscuro) es lo que le queda hasta ${esc(v.destination ?? 'su destino')}${how}. `;
   const ahead = onRoute || v.ahead ? aheadText('') : '';
   const note = !v.estimated
-    ? `${ahead}La <strong>línea azul discontinua</strong> es el recorrido de este tren en los últimos 45 min (desde que el radar lo sigue). `
+    ? `${ahead}La <strong>línea azul discontinua</strong> es el recorrido de este ${esc(modeNoun(v.mode))} en los últimos 45 min (desde que el radar lo sigue). `
       + 'La × sólo cierra esta ficha; pulsa en una zona vacía del mapa para quitar el recorrido y «Ver todo» para volver a verlo todo.'
     : (v.delay !== null && v.delay !== undefined
       ? '<strong>Posición estimada</strong> a partir del horario y del retraso real que publica el operador: no es GPS. '
@@ -1332,7 +1345,8 @@ function vehicleDetail(v, onRoute = false, stops = null) {
   const list = stops ? stopsListHtml(stops, { open }) : '';
   const stopsNote = list ? ' Los <strong>puntos</strong> son sus paradas: blancos los que le quedan y grises por los que ya ha pasado.'
     + (v.estimated ? ' Sus horas son las del horario.' : '') : '';
-  return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
+  return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}${followControls(v)}${telegramFollow(v.follow, v.mode, { line: v.line, service: v.service, operator: v.operator })}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
+    ${punctualitySlot(v.follow, { delayKnown: Number.isFinite(v.delay) || typeof v.late === 'boolean' })}
     ${list}<div class="note">${note}${stopsNote}</div></div>`;
 }
 

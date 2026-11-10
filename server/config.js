@@ -1,5 +1,8 @@
 // Configuración a partir de variables de entorno (.env se carga con --env-file-if-exists).
+import { isBotToken, isBotUsername } from './adapters/outbound/telegram/telegram-api.js';
+
 export function loadConfig(env = process.env) {
+  const telegram = telegramConfig(env);
   return {
     port: Number(env.PORT) || 8080,
     // Por defecto sólo escucha en local; HOST=0.0.0.0 para exponerlo en la red.
@@ -18,8 +21,28 @@ export function loadConfig(env = process.env) {
       publicUrl: publicUrl(env.PUBLIC_URL),
       // Contador de visitas sin cookies. Sin esta variable no se carga (así en local no cuenta).
       goatcounter: goatcounterUrl(env.GOATCOUNTER_URL),
+      // El usuario del bot de Telegram, para el botón «Avísame por Telegram» de las fichas (nunca el token).
+      telegram: telegram?.username ? { bot: telegram.username } : null,
     },
+    telegram,
     env,
+  };
+}
+
+/**
+ * El bot de Telegram «Sigue tu tren» (ver docs/telegram.md): su token y su usuario, de .env. Sin un token con
+ * forma de token, no hay bot (null). El usuario (sin la @) sólo hace falta para el botón de la web; sin él, el bot
+ * funciona igual. webUrl: la web que citan sus mensajes.
+ * @returns {{ token: string, username: string|null, webUrl: string }|null}
+ */
+export function telegramConfig(env) {
+  const token = env.TELEGRAM_BOT_TOKEN?.trim();
+  if (!isBotToken(token)) return null;
+  const username = env.TELEGRAM_BOT_USERNAME?.trim().replace(/^@/, '');
+  return {
+    token,
+    username: isBotUsername(username) ? username : null,
+    webUrl: publicUrl(env.TELEGRAM_WEB_URL) ?? 'https://radarespana.es',
   };
 }
 

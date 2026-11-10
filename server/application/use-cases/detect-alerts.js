@@ -15,10 +15,14 @@ const KPI_HISTORY_MAX = 24 * 60;
 
 /**
  * @param {{ situation: import('../ports.js').SituationRepositoryPort, stations: import('../ports.js').StationCatalogPort,
- *           history: import('../ports.js').HistoryPort, clock: import('../ports.js').ClockPort, thresholds?: object }} deps
+ *           history: import('../ports.js').HistoryPort, clock: import('../ports.js').ClockPort,
+ *           log?: import('../ports.js').LoggerPort, thresholds?: object }} deps
+ *   log: con él, una regla que falla no deja sin evaluar las demás y queda en el registro como error (la
+ *   monitorización lo ve, como el fallo de la ronda entera). Sin él, el fallo sube como hasta ahora.
  */
-export function makeDetectAlerts({ situation, stations, history, clock, thresholds = DEFAULT_THRESHOLDS }) {
+export function makeDetectAlerts({ situation, stations, history, clock, log, thresholds = DEFAULT_THRESHOLDS }) {
   let lastSample = 0;
+  const onError = log ? (rule, err) => log.error(`[alertas] regla ${rule}: ${err?.stack ?? err}`) : null;
 
   return function detectAlerts() {
     const now = clock.now();
@@ -43,7 +47,7 @@ export function makeDetectAlerts({ situation, stations, history, clock, threshol
       kpiHistory: situation.kpiHistory(),
       nearestStation: (lat, lon) => stations.nearest(lat, lon),
       thresholds,
-    });
+    }, undefined, onError);
 
     const { opened, escalated, resolved } = situation.updateActiveAlerts((active) => reconcileAlerts(active, candidates, now));
     situation.addResolved(resolved);

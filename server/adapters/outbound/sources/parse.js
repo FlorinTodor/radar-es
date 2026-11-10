@@ -116,13 +116,18 @@ function decodeEntities(s) {
  * Texto de un fragmento HTML (descripción de un RSS, cuerpo de una noticia): sin etiquetas ni
  * comentarios, con las entidades decodificadas (también las escapadas dos veces, «&amp;oacute;») y
  * los espacios juntos. Los párrafos se separan con un salto de línea.
+ *
+ * Lineal en el tamaño del texto: un comentario o un bloque script/style sin cerrar llega hasta el final
+ * (como en un navegador) y una etiqueta sólo empieza por «<» seguido de una letra, «/», «!» o «?»
+ * («Temperaturas < 0 ºC» o «<<» se quedan como texto). Antes, cada apertura sin cerrar volvía a
+ * recorrer el resto del texto, y un feed con miles de «<» paraba el servidor.
  */
 export function htmlText(html) {
   const withBreaks = String(html ?? '')
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, ' ')
+    .replace(/<(script|style)\b[\s\S]*?(?:<\/\1>|$)/gi, ' ')
     .replace(/<\/(p|div|li|h[1-6])>|<br\s*\/?>/gi, '\n')
-    .replace(/<[^>]*>/g, ' ');
+    .replace(/<[a-z!/?][^>]*(?:>|$)/gi, ' ');
   return decodeEntities(decodeEntities(withBreaks))
     .split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n');
 }

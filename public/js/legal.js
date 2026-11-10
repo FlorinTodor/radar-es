@@ -14,6 +14,8 @@ document.querySelectorAll('.doc-body table').forEach(labelCells);
 fetch('/api/about').then((r) => r.json()).then((about) => {
   // El titular y el contacto ya vienen escritos en la página (los pone el servidor; también sin JS).
   for (const el of document.querySelectorAll('[data-analitica]')) el.hidden = (el.dataset.analitica === 'si') !== Boolean(about.goatcounter);
+  // Lo que guarda el bot de Telegram, si el servidor lo tiene.
+  for (const el of document.querySelectorAll('[data-telegram]')) el.hidden = !about.telegram;
 }).catch(() => {});
 
 const json = (url) => fetch(url).then((r) => r.json());

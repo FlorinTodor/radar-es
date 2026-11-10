@@ -54,13 +54,14 @@ test('un ZIP dañado es un error normal y no deja promesas sin capturar que tumb
   }
 });
 
-test('el tamaño descomprimido que declara el ZIP no cambia el contenido aunque venga mal', async () => {
+test('un fichero que da más de lo que declara el ZIP es un error, no más memoria', async () => {
   const content = 'trip_id,stop_id\n' + 'T1,S1\n'.repeat(20000);
   const zip = zipSync({ 'stop_times.txt': [strToU8(content), { level: 6 }] });
   assert.equal(text((await openGtfs(zip, ['stop_times.txt']))['stop_times.txt']), content);
-  // Tamaño descomprimido (bytes 24-27 de la entrada) puesto a 10: zlib sigue con más bloques.
+  // Tamaño descomprimido (bytes 24-27 de la entrada) puesto a 10: así se colaría una bomba por debajo
+  // del tope de descompresión. Ningún GTFS real declara mal sus tamaños.
   const wrong = patchCentral(patchCentral(zip, 'stop_times.txt', 24, 10), 'stop_times.txt', 26, 0);
-  assert.equal(text((await openGtfs(wrong, ['stop_times.txt']))['stop_times.txt']), content);
+  await assert.rejects(openGtfs(wrong, ['stop_times.txt']), /stop_times\.txt: da más de lo que declara el ZIP/);
 });
 
 test('el ritmo cede el hilo en los bucles largos', async () => {

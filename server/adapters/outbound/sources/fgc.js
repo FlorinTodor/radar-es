@@ -3,7 +3,12 @@
 import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
 import { madridLocalToMs } from './parse.js';
 import { tripStopList } from '../../../domain/trip-stops.js';
+import { followOf, lineKey } from '../../../domain/seguir.js';
 
+/** Cada cuánto se lee la API de FGC (ver el cupo diario en la fuente). */
+export const FGC_INTERVAL_MS = 45_000;
+/** Peticiones al día que admite la API de FGC por IP. */
+export const FGC_DAILY_QUOTA = 5000;
 const BASE = 'https://dadesobertes.fgc.cat/api/explore/v2.1/catalog/datasets/posicionament-dels-trens/records?limit=100';
 // Horario GTFS de FGC en el Punto de Acceso Nacional: el mismo fichero del que salen los trazados de
 // sus líneas. Sus stop_id son los códigos que da la posición de cada tren ("PE", "AL"…).
@@ -73,7 +78,10 @@ export function createFgcSource({ http, nap, log }) {
     id: 'fgc',
     name: 'FGC (Ferrocarrils de la Generalitat de Catalunya)',
     kind: 'vehicles',
-    interval: 30_000,
+    // La API de FGC da 5.000 peticiones al día por IP (cabeceras x-ratelimit-*; se renueva a las 00:00 UTC),
+    // y desde el VPS leen producción y pruebas. Cada 30 s eran 5.760 al día entre las dos: el cupo se
+    // agotaba hacia las 22:30 (HTTP 429 hasta la 01:00). Cada 45 s son 3.840, con margen para los relevos.
+    interval: FGC_INTERVAL_MS,
     url: BASE,
     license: 'Ferrocarrils de la Generalitat de Catalunya (CC BY 4.0). Formato adaptado. Nombres de estación y trazados de su '
       + 'horario GTFS del Punto de Acceso Nacional: Powered by MITRAMS (dato explotado)',
@@ -108,6 +116,8 @@ export function createFgcSource({ http, nap, log }) {
             service: 'FGC',
             line: r.lin,
             label: r.ut || r.lin,
+            // Sólo su línea: FGC da la unidad (el tren físico), no un número de servicio que se repita cada día.
+            follow: followOf(lineKey({ operator: 'FGC', line: r.lin })),
             lat: p.lat,
             lon: p.lon,
             delay: null,

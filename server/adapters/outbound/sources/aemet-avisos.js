@@ -26,8 +26,10 @@ function parseCap(xml) {
   const aemetLevel = params['AEMET-Meteoalerta nivel']?.trim().toLowerCase();
   const level = lookup(SEVERITY, aemetLevel) ? aemetLevel : lookup(LEVELS, (params.awareness_level ?? '').split(';')[1]?.trim());
   if (!level) return []; // nivel verde = sin aviso
-  // "Aviso de tormentas de nivel amarillo" → "tormentas"
-  const phenomenon = (text(info.event) ?? 'fenómenos adversos').replace(/^aviso (de|por)\s+/i, '').replace(/\s+de nivel \w+$/i, '');
+  // "Aviso de tormentas de nivel amarillo" → "tormentas". Recortado y con los espacios juntos antes de
+  // quitar el sufijo: con /\s+de nivel \w+$/, un tramo largo de espacios era cuadrático.
+  const phenomenon = String(text(info.event) ?? 'fenómenos adversos').slice(0, 200).replace(/\s+/g, ' ').trim()
+    .replace(/^aviso (de|por) /i, '').replace(/ de nivel \w+$/i, '');
 
   return arr(info.area).flatMap((area, i) => {
     const rings = arr(area.polygon).map((p) => ring(text(p) ?? '')).filter((r) => r.length >= 4);

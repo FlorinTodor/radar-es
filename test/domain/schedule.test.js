@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activeFrequencyOffsets, gtfsTimeToSeconds, scheduledPosition, serviceRuns } from '../../server/domain/schedule.js';
+import {
+  MAX_TRIP_REPETITIONS, activeFrequencyOffsets, gtfsTimeToSeconds, scheduledPosition, serviceRuns, tripFrequencyOffsets,
+} from '../../server/domain/schedule.js';
 import { pointInGeometry } from '../../server/domain/geo.js';
 
 const stops = [
@@ -58,6 +60,26 @@ test('viajes por frecuencia: repeticiones en circulación', () => {
   assert.deepEqual(at(21600), [0]); // sale el primero
   assert.deepEqual(at(22800), [0, 300, 600, 900, 1200]); // 06:20: el primero llega, salen 5
   assert.equal(at(26400).length, 0); // 07:20: el último (06:55) ya llegó a las 07:15
+});
+
+test('viajes por frecuencia: un headway que no vale no da repeticiones, y cada viaje tiene un tope', () => {
+  // Con 1e-300, start + k·headway no avanzaba y el bucle no terminaba nunca; con 1 s, una fila daba
+  // miles de vehículos. El headway tiene que ser un número entero de segundos, de al menos un minuto.
+  for (const headway of [1e-300, 0.5, 1, 59, 0, -600, 600.5, NaN, Infinity]) {
+    assert.deepEqual(activeFrequencyOffsets({ start: 0, end: 172_800, headway }, 0, 3600, 100_000), [], `headway ${headway}`);
+  }
+  // Ventana vacía o al revés.
+  assert.deepEqual(activeFrequencyOffsets({ start: 36_000, end: 36_000, headway: 600 }, 36_000, 600, 36_000), []);
+  assert.deepEqual(activeFrequencyOffsets({ start: 36_000, end: 0, headway: 600 }, 36_000, 600, 36_000), []);
+  // Cada minuto durante 48 h con un viaje de 48 h: el tope, no 2.881 repeticiones a la vez.
+  const everyMinute = { start: 0, end: 172_800, headway: 60 };
+  assert.equal(activeFrequencyOffsets(everyMinute, 0, 172_800, 172_800).length, MAX_TRIP_REPETITIONS);
+  // El tope es del viaje, sumando sus filas.
+  assert.equal(tripFrequencyOffsets([everyMinute, everyMinute, everyMinute], 0, 172_800, 172_800).length, MAX_TRIP_REPETITIONS);
+  // Con filas normales, las de todas en orden: cada 5 min hasta las 07:00 y cada 10 desde entonces;
+  // el viaje dura 20 min y la plantilla sale a las 06:00. A las 07:10 circulan las de 06:50, 06:55, 07:00 y 07:10.
+  const freqs = [{ start: 21_600, end: 25_200, headway: 300 }, { start: 25_200, end: 28_800, headway: 600 }];
+  assert.deepEqual(tripFrequencyOffsets(freqs, 21_600, 1200, 25_800), [3000, 3300, 3600, 4200]);
 });
 
 test('punto dentro de polígono con hueco', () => {

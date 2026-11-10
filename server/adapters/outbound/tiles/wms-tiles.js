@@ -122,7 +122,9 @@ export function createWmsTiles({ http, dir, log }) {
         + `&typename=ms:modis.ba.poly.month&outputformat=geojson&bbox=${minLon},${minLat},${maxLon},${maxLat}`;
       await wfsSlots.take();
       try {
-        return JSON.parse(new TextDecoder().decode(await http.bytes(url, { timeout: 15_000 })));
+        // Sólo redirecciones dentro de EFFIS: este cuerpo se devuelve tal cual al visitante, y una que llevara
+        // a un servicio interno se lo enseñaría.
+        return JSON.parse(new TextDecoder().decode(await http.bytes(url, { timeout: 15_000, sameOrigin: true })));
       } finally {
         wfsSlots.release();
       }
