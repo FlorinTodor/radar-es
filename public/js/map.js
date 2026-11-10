@@ -1147,7 +1147,7 @@ function stationDetail(st, { stopped, arriving, notices, lines, connections = []
     link(st.sheet, 'Ficha técnica de Renfe (PDF, 2019)'),
     link(`https://www.openstreetmap.org/?mlat=${st.lat}&mlon=${st.lon}#map=17/${st.lat}/${st.lon}`, 'OpenStreetMap'),
   ].filter(Boolean);
-  return `<div class="pop">${photo}<h3>${esc(st.name)}</h3>${meta.length ? `<p class="st-meta">${esc(meta.join(' · '))}</p>` : ''}
+  return `<div class="pop">${photo}<h3>${esc(st.name)}</h3>${meta.length ? `<p class="st-meta">${esc(meta.join(' · '))}</p>` : ''}${telegramFollow(st.follow)}
     ${lines.length ? chips(lines) : ''}
     <h4>En la estación ahora</h4>${list(stopped.map((v) => train(v)), 'Ningún tren parado ahora mismo.')}
     <h4>Próximos trenes</h4>${list(arriving.map((v) => train(v, when(v))), 'Ningún tren en camino con datos en directo.')}
@@ -1156,7 +1156,7 @@ function stationDetail(st, { stopped, arriving, notices, lines, connections = []
     ${missing.length ? `<h4>Trenes sin datos que pasan por aquí</h4><ul class="st-list">${missing.map((c) => `<li><button type="button" class="link" data-event="${esc(c.id)}">${esc(c.title)}</button>${c.time ? ` · ${c.passed ? (c.first ? 'salía' : 'pasaba') : c.first ? 'sale' : c.last ? 'llega' : 'pasa'} a las ${esc(c.time)} según su horario` : ''}</li>`).join('')}</ul>` : ''}
     ${connections.length ? `<h4>Conexiones a pie</h4>${chips(connections)}` : ''}
     <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
-    <p class="st-links">${links.join(' · ')}</p>${source}${telegramFollow(st.follow)}
+    <p class="st-links">${links.join(' · ')}</p>${source}
     <div class="note">${st.networkId ? 'Salen los trenes con posición en directo o estimada a partir del horario' : 'Sólo salen los trenes que publican su posición en directo'}; los horarios completos están en la web del operador.
       Pulsa un tren para ver su ficha.</div></div>`;
 }
@@ -1238,8 +1238,8 @@ export function cancellationDetail(e, now = Date.now()) {
     ...sourceRows(e.source).map((r) => (r && r[0] === 'Atribución' && e.credit ? ['Atribución', { html: creditHtml(e.credit) }] : r)),
   ].filter((r) => r && r[1]);
   const list = t.stops?.length > 1 ? cancelledStopsHtml(t.stops, e.type === 'cancelado') : '';
-  return `<div class="pop"><h3>${esc(e.title)}</h3>${e.description ? `<p>${esc(e.description)}</p>` : ''}
-    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>${telegramFollow(t.follow, t.mode)}${list}
+  return `<div class="pop"><h3>${esc(e.title)}</h3>${telegramFollow(t.follow, t.mode, { line: t.line, service: t.service })}${e.description ? `<p>${esc(e.description)}</p>` : ''}
+    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>${list}
     <div class="note">Las horas son las del horario del operador. Si el operador deja de publicarlo, sigue aquí hasta medianoche
     como «ya no lo publica»; si su fuente deja de responder, se muestra como mucho una hora más.</div></div>`;
 }
@@ -1269,8 +1269,8 @@ export function missingTrainDetail(e, now = Date.now()) {
     ...sourceRows(e.source).map((r) => (r && r[0] === 'Atribución' && e.credit ? ['Atribución', { html: creditHtml(e.credit) }] : r)),
   ].filter((r) => r && r[1]);
   const list = t.stops?.length > 1 ? missingStopsHtml(t.stops) : '';
-  return `<div class="pop"><h3>${esc(e.title)}</h3>${e.description ? `<p>${esc(e.description)}</p>` : ''}
-    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>${telegramFollow(t.follow, t.mode)}${list}
+  return `<div class="pop"><h3>${esc(e.title)}</h3>${telegramFollow(t.follow, t.mode, { line: t.line, service: t.service })}${e.description ? `<p>${esc(e.description)}</p>` : ''}
+    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>${list}
     <div class="note">Sale si, según el horario publicado, debería llevar más de 10 minutos circulando y le quedan más de 5 para llegar,
     y su operador no publica ni su posición ni su retraso ni su cancelación. Puede circular sin que se publique, o no circular sin que se
     haya publicado su cancelación.</div></div>`;
@@ -1340,8 +1340,8 @@ function vehicleDetail(v, onRoute = false, stops = null) {
   const list = stops ? stopsListHtml(stops, { open }) : '';
   const stopsNote = list ? ' Los <strong>puntos</strong> son sus paradas: blancos los que le quedan y grises por los que ya ha pasado.'
     + (v.estimated ? ' Sus horas son las del horario.' : '') : '';
-  return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
-    ${telegramFollow(v.follow, v.mode)}${list}<div class="note">${note}${stopsNote}</div></div>`;
+  return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}${telegramFollow(v.follow, v.mode, { line: v.line, service: v.service })}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
+    ${list}<div class="note">${note}${stopsNote}</div></div>`;
 }
 
 
