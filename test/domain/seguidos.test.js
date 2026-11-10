@@ -12,9 +12,9 @@ import { parseCommand, parseHour } from '../../server/domain/seguidos/ordenes.js
 
 const NOW = Date.parse('2026-11-10T11:00:00Z'); // 12:00 en Madrid
 const AVANT = numberedServiceKey({ operator: 'Renfe', number: '08058' });
-const C4A = lineKey({ operator: 'Renfe', scope: '10', line: 'C4a' });
-const C4B = lineKey({ operator: 'Renfe', scope: '10', line: 'C4b' });
-const C1VLC = lineKey({ operator: 'Renfe', scope: '40', line: 'C1' });
+const C4A = lineKey({ operator: 'Renfe', scope: 'Madrid', line: 'C4a' });
+const C4B = lineKey({ operator: 'Renfe', scope: 'Madrid', line: 'C4b' });
+const C1VLC = lineKey({ operator: 'Renfe', scope: 'Valencia', line: 'C1' });
 const EMT27 = lineKey({ operator: 'EMT Málaga', line: '27' });
 const E4 = scheduledServiceKey({ operator: 'Euskotren', line: 'E4', origin: 'stop-matiko', departure: 13 * 3600 + 10 * 60 });
 const E4LINE = lineKey({ operator: 'Euskotren', line: 'E4' });
@@ -29,7 +29,7 @@ const vehicles = [
   { id: 'renfe-c:1013M27100C4a', source: 'renfe-cercanias', mode: 'cercanias', operator: 'Renfe', service: 'Cercanías', line: 'C4a', label: '27100',
     delay: 3, origin: 'Alcobendas-San Sebastián de los Reyes', destination: 'Parla', follow: [numberedServiceKey({ operator: 'Renfe', number: '27100' }), C4A] },
   { id: 'renfe-c:1013M27200C4b', source: 'renfe-cercanias', mode: 'cercanias', operator: 'Renfe', service: 'Cercanías', line: 'C4b', label: '27200',
-    delay: 8, origin: 'Colmenar Viejo', destination: 'Parla', area: 'Madrid', current: 'Madrid-Atocha Cercanías', follow: [numberedServiceKey({ operator: 'Renfe', number: '27200' }), C4B] },
+    delay: 8, origin: 'Colmenar Viejo', destination: 'Parla', follow: [numberedServiceKey({ operator: 'Renfe', number: '27200' }), C4B] },
   { id: 'renfe-c:4013M35401C1', source: 'renfe-cercanias', mode: 'cercanias', operator: 'Renfe', service: 'Cercanías', line: 'C1', label: '35401',
     delay: 0, origin: 'València-Estació del Nord', destination: 'Gandia', follow: [numberedServiceKey({ operator: 'Renfe', number: '35401' }), C1VLC] },
   { id: 'emt-malaga:661', source: 'emt-malaga', mode: 'bus', operator: 'EMT Málaga', line: '27', label: '661', delay: null, follow: [EMT27] },
@@ -54,11 +54,11 @@ const orange = { id: 'aemet:1', source: 'aemet-avisos', category: 'meteo', type:
 test('directorio: lo que se puede seguir de cada vehículo y de cada cancelación, con su nombre; y se olvida lo viejo', () => {
   const dir = updateDirectory(new Map(), { vehicles, events: [cancelled], now: NOW });
   assert.equal(dir.get(AVANT).name, 'Avant 08058');
-  assert.equal(dir.get(AVANT_LINE).name, 'Tren Avant · Renfe', 'el producto de AV/LD/MD no se repite');
-  assert.equal(dir.get(C4A).name, 'Tren C4a · Cercanías · Renfe');
+  assert.equal(dir.get(AVANT_LINE).name, 'Avant · Renfe', 'el producto de AV/LD/MD no se repite');
+  assert.equal(dir.get(C4A).name, 'Cercanías C4a · Renfe (Madrid)', 'con su núcleo');
   assert.equal(dir.get(EMT27).name, 'Autobús 27 · EMT Málaga');
   assert.equal(dir.get(E4).name, 'Tren E4 · Euskotren, el de las 13:10, desde Matiko-Bilbao');
-  assert.equal(entryLabel(dir.get(C4B)), 'Tren C4b · Cercanías · Renfe (Colmenar Viejo – Parla)');
+  assert.equal(entryLabel(dir.get(C4B)), 'Cercanías C4b · Renfe (Madrid) (Colmenar Viejo – Parla)');
   updateDirectory(dir, { vehicles: [], now: NOW + 37 * 3600_000 });
   assert.equal(dir.size, 0);
 });
@@ -67,7 +67,7 @@ test('búsqueda: por número (con o sin ceros), por línea y ciudad u operador, 
   const dir = updateDirectory(new Map(), { vehicles, events: [cancelled], now: NOW });
   assert.deepEqual(searchDirectory(dir, '08058').map((e) => e.key), [AVANT]);
   assert.deepEqual(searchDirectory(dir, '8058').map((e) => e.key), [AVANT]);
-  assert.deepEqual(searchDirectory(dir, 'C4 Madrid').map((e) => e.key), [C4B], 'por dónde se le ha visto pasar, aunque no empiece ni acabe allí');
+  assert.deepEqual(searchDirectory(dir, 'C4 Madrid').map((e) => e.key), [C4A, C4B], 'por el núcleo de su clave, aunque ninguno empiece ni acabe en Madrid');
   assert.deepEqual(searchDirectory(dir, 'C4 Parla').map((e) => e.key).sort(), [C4A, C4B].sort(), 'C4 → C4a y C4b, sin cada tren');
   assert.deepEqual(searchDirectory(dir, '27100').map((e) => e.key), [numberedServiceKey({ operator: 'Renfe', number: '27100' })]);
   assert.deepEqual(searchDirectory(dir, 'C1 valencia').map((e) => e.key), [C1VLC], 'sin tildes: València');

@@ -10,21 +10,20 @@ import { plainName } from '../provincias.js';
 export const DIRECTORY_KEEP_MS = 36 * 3600_000;
 export const DIRECTORY_MAX = 50_000;
 const MAX_PLACES = 6;
-const MAX_TOWNS = 12;
 
 /**
  * @typedef {object} Entry
  * @property {string} key
  * @property {'servicio'|'linea'} kind
- * @property {string} name        Cómo se llama («Avant 08058», «Tren C4b · Cercanías · Renfe»).
+ * @property {string} name        Cómo se llama («Avant 08058», «Cercanías C4b · Renfe (Madrid)»).
  * @property {string|null} mode
  * @property {string|null} operator
  * @property {string|null} line
  * @property {string|null} number  El de un servicio con número propio, sin ceros a la izquierda.
  * @property {string|null} departure  «HH:MM» de un servicio de un horario.
- * @property {string[]} places    Orígenes y destinos vistos (para distinguir dos líneas C1 y para buscar).
- * @property {string[]} towns     Localidades y estaciones por las que se ha visto pasar («Madrid»): para buscar
- *   «C4 Madrid» aunque ningún C4 empiece ni acabe en Madrid.
+ * @property {string[]} places    Orígenes y destinos vistos (para buscar y para distinguir dos líneas en una lista).
+ *   El núcleo de una línea de Cercanías va en su clave y en su nombre («Cercanías C4a · Renfe (Madrid)»): «C4
+ *   Madrid» la encuentra por él.
  * @property {number} seen        Última vez que se vio (epoch ms).
  */
 
@@ -41,8 +40,7 @@ function lineOf(key, known) {
 /**
  * Las entradas de lo que se puede seguir de un vehículo o de un viaje (el de una cancelación).
  * @param {{ follow?: string[], mode?: string, operator?: string, service?: string|null, line?: string|null,
- *           label?: string|null, number?: string|null, origin?: string|null, destination?: string|null,
- *           area?: string|null, current?: string|null, next?: string|null }} x
+ *           label?: string|null, number?: string|null, origin?: string|null, destination?: string|null }} x
  * @param {number} now
  * @returns {Entry[]}
  */
@@ -50,7 +48,6 @@ export function entriesOf(x, now) {
   if (!Array.isArray(x?.follow)) return [];
   const out = [];
   const places = [x.origin, x.destination].filter((p) => typeof p === 'string' && p);
-  const towns = [x.area, x.current, x.next].filter((p) => typeof p === 'string' && p);
   for (const key of x.follow) {
     const kind = followKind(key);
     const parsed = parseFollowKey(key);
@@ -70,24 +67,20 @@ export function entriesOf(x, now) {
         number: numbered ? parsed.number : null,
         departure: parsed.departure ?? null,
         places,
-        towns,
         seen: now,
       });
     } else {
       const line = lineOf(key, x.line ?? null);
-      // El producto de AV/LD/MD es a la vez su línea: «Tren AVE · Renfe», no «Tren AVE · AVE · Renfe».
-      const service = x.service && plainName(x.service) !== plainName(line ?? '') ? x.service : undefined;
       out.push({
         key,
         kind,
-        name: describeFollow(key, { operator: x.operator, service, line: line ?? undefined, modeLabel }),
+        name: describeFollow(key, { operator: x.operator, service: x.service ?? undefined, line: line ?? undefined, modeLabel }),
         mode: x.mode ?? null,
         operator: x.operator ?? null,
         line,
         number: null,
         departure: null,
         places,
-        towns,
         seen: now,
       });
     }
@@ -117,7 +110,6 @@ export function updateDirectory(dir, { vehicles = [], events = [], now, max = DI
       }
       old.seen = now;
       for (const p of [x.origin, x.destination]) if (p && old.places.length < MAX_PLACES && !old.places.includes(p)) old.places.push(p);
-      for (const t of [x.area, x.current, x.next]) if (t && old.towns.length < MAX_TOWNS && !old.towns.includes(t)) old.towns.push(t);
     }
   };
   for (const v of vehicles) visit(v);
@@ -142,10 +134,10 @@ const TIME_RE = /^(\d{1,2})[:.h]?(\d{2})$/;
 // nombre ni sus lugares: buscar es mirar si contiene «␠token» (empieza una palabra) o «␠token␠» (la palabra entera).
 const HAYSTACK = new WeakMap();
 function haystackOf(e) {
-  const sig = `${e.name}|${e.places.length}|${e.towns?.length ?? 0}`;
+  const sig = `${e.name}|${e.places.length}`;
   const cached = HAYSTACK.get(e);
   if (cached?.sig === sig) return cached;
-  const prepared = { sig, text: ` ${plainName([e.name, e.operator, ...e.places, ...(e.towns ?? [])].join(' '))} `, line: plainName(e.line ?? '') };
+  const prepared = { sig, text: ` ${plainName([e.name, e.operator, ...e.places].join(' '))} `, line: plainName(e.line ?? '') };
   HAYSTACK.set(e, prepared);
   return prepared;
 }
@@ -153,9 +145,9 @@ function haystackOf(e) {
 /**
  * Lo que mejor encaja con un texto: un número de servicio («08058», «8058»), una línea con su operador o su
  * ciudad («C4 Madrid», «27 EMT Málaga», «R2 Sants»), una hora («E4 13:10»)… Todas las palabras tienen que
- * encajar con algo de la entrada: su número, su línea, su hora o las palabras de su nombre, su operador, sus
- * extremos y por dónde pasa. Un servicio sólo sale si encaja su número o su hora: buscando una línea salen las
- * líneas, no cada tren que va por ella.
+ * encajar con algo de la entrada: su número, su línea, su hora o las palabras de su nombre (con el núcleo de una
+ * línea de Cercanías), su operador y sus extremos. Un servicio sólo sale si encaja su número o su hora: buscando
+ * una línea salen las líneas, no cada tren que va por ella.
  * @param {Map<string, Entry>|Entry[]} dir
  * @param {string} text
  * @returns {Entry[]}

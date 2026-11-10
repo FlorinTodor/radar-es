@@ -198,6 +198,8 @@ test('avisos de Rodalies (RSS de la Generalitat): las claves de sus líneas, las
     </channel></rss>`;
   const source = createRodaliesSource({ http: { text: async () => rss }, stations: { all: () => [] } });
   const { events } = await source.fetch();
-  assert.deepEqual(events[0].follow, ['l-renfe-51-R14', 'l-renfe-51-R13']);
+  assert.deepEqual(events[0].follow, ['l-renfe-Catalunya-R14', 'l-renfe-Catalunya-R13']);
+  const r14 = renfeFollow({ number: '28001', line: 'R14', lineKey: '51|R14', tripId: '5113M28001R14' });
+  assert.equal(events[0].follow[0], r14[1], 'la misma clave que los trenes de la R14 de Renfe');
   assert.equal(events[1].follow, undefined, 'sin líneas, sin claves');
 });

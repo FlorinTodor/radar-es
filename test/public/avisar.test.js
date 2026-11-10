@@ -15,7 +15,7 @@ test('sin bot, nada', () => {
 
 test('con bot: el servicio y la línea (el primero de cada), la estación; nombres del registro de tipos', () => {
   setTelegram({ telegram: { bot: 'RadarEspanaBot' } }, MODES);
-  assert.equal(telegramFollow(['s-renfe-8058', 'l-renfe-Avant', 'l-renfe-51-R16'], 'av'),
+  assert.equal(telegramFollow(['s-renfe-8058', 'l-renfe-Avant', 'l-renfe-Catalunya-R16'], 'av'),
     '<p class="tg-follow">Avisarme por Telegram <a href="https://t.me/RadarEspanaBot?start=s-renfe-8058" target="_blank" rel="noopener">de este tren</a>'
     + ' · <a href="https://t.me/RadarEspanaBot?start=l-renfe-Avant" target="_blank" rel="noopener">de su línea</a></p>');
   assert.match(telegramFollow(['l-emtmalaga-27'], 'bus'), /start=l-emtmalaga-27" target="_blank" rel="noopener">de su línea</);

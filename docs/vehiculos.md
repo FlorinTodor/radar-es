@@ -104,8 +104,9 @@ trenes) debe guardar también su nombre, porque las partes con huella no se pued
   la línea, toda la red (`l-metrobilbao`). Los avisos de AUVASA y EMT Málaga que suprimen paradas llevan la
   línea.
 - **Avisos de los operadores** (incidencias con `type: 'aviso'`): llevan en `follow` las claves de las líneas que
-  nombran, para que le lleguen a quien sigue una de ellas. Los de Renfe, por las rutas que citan (con su núcleo);
-  los de Rodalies (RSS de la Generalitat), con el núcleo 51 de Renfe, que es el de sus trenes; los de AUVASA y EMT
+  nombran, para que le lleguen a quien sigue una de ellas. Las de Renfe y Rodalies salen de `renfeFollow`, como las
+  de sus trenes: los de Renfe, por las rutas que citan (con el nombre de su núcleo, `l-renfe-Madrid-C5`); los de
+  Rodalies (RSS de la Generalitat), con el núcleo de Catalunya (`l-renfe-Catalunya-R14`); los de AUVASA y EMT
   Málaga, por la línea que dicen («Línea 16»). Para AUVASA, ver la nota de abajo: aún no casan con sus vehículos.
 - **Estaciones** (de Renfe y de las redes de metro y tranvía): su clave va en su ficha
   (`/api/stations/<código>`, campo `follow`). La lista `/api/stations` no la lleva, porque sale del código y la

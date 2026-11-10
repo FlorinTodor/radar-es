@@ -8,8 +8,8 @@ import { lineKey, numberedServiceKey, stopKey } from '../../server/domain/seguir
 const T0 = Date.parse('2026-11-10T05:00:00Z'); // 06:00 en Madrid
 const AVANT = numberedServiceKey({ operator: 'Renfe', number: '08058' });
 const AVANT_LINE = lineKey({ operator: 'Renfe', line: 'Avant' });
-const C4A = lineKey({ operator: 'Renfe', scope: '10', line: 'C4a' });
-const C4B = lineKey({ operator: 'Renfe', scope: '10', line: 'C4b' });
+const C4A = lineKey({ operator: 'Renfe', scope: 'Madrid', line: 'C4a' });
+const C4B = lineKey({ operator: 'Renfe', scope: 'Madrid', line: 'C4b' });
 const EMT27 = lineKey({ operator: 'EMT Málaga', line: '27' });
 const CHAT = 1001;
 
@@ -69,10 +69,10 @@ test('buscar: uno, varios con botones (y el botón sigue), nada; texto sin orden
   const [many] = say('/seguir C4');
   assert.equal(many.text, 'He encontrado varias cosas. ¿Cuál quieres seguir?');
   assert.deepEqual(many.buttons.map((row) => row[0].data), ['a:0', 'a:1']);
-  assert.match(many.buttons[0][0].text, /^Tren C4a · Cercanías · Renfe \(Alcobendas – Parla\)$/);
+  assert.match(many.buttons[0][0].text, /^Cercanías C4a · Renfe \(Madrid\) \(Alcobendas – Parla\)$/);
   const pressed = press('a:1');
   assert.equal(pressed.answer, 'Hecho');
-  assert.match(pressed.replies[0].text, /^Hecho: te aviso de Tren C4b · Cercanías · Renfe\./);
+  assert.match(pressed.replies[0].text, /^Hecho: te aviso de Cercanías C4b · Renfe \(Madrid\)\./);
   assert.match(press('a:0').replies[0].text, /^Esa lista ya no vale/, 'cada lista se usa una vez');
   const [ask] = say('27 EMT Málaga');
   assert.equal(ask.text, '¿Quieres seguir esto?');

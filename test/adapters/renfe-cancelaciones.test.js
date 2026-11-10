@@ -195,8 +195,10 @@ test('el aviso de Renfe que nombra el tren cancelado (por su hora y su origen) y
   const avisos = avisosOf(createRenfeSources({ http: httpWith(feeds({ 'alerts.json': alerts })), cache: memoryCache(), stations, log }));
   const { events } = await avisos.fetch();
   const cerc = events.find((e) => e.id === 'renfe-cancelado:4006J20109C2');
-  assert.deepEqual(events.find((e) => e.id === 'renfe-aviso:a2').follow, ['l-renfe-40-C2'], 'el aviso lleva la clave de su línea, con su núcleo');
-  assert.deepEqual(events.find((e) => e.id === 'renfe-aviso:a4').follow, ['l-renfe-40-C1']);
+  assert.deepEqual(events.find((e) => e.id === 'renfe-aviso:a2').follow, ['l-renfe-Valencia-C2'], 'el aviso lleva la clave de su línea, con su núcleo: la misma que sus trenes');
+  assert.deepEqual(events.find((e) => e.id === 'renfe-aviso:a4').follow, ['l-renfe-Valencia-C1']);
+  assert.ok(cerc.trip.follow.includes(events.find((e) => e.id === 'renfe-aviso:a2').follow[0]),
+    'la clave del aviso es la misma que la de los trenes de su línea: quien sigue la línea se entera');
   assert.equal(cerc.trip.notice.text, alerts.entity[0].alert.descriptionText.translation[0].text);
   assert.match(cerc.description, /Aviso de Renfe sobre este viaje: Línea C2\. Tren con salida prevista a las 08:00h/);
   assert.deepEqual(cerc.trip.lineNotices.map((n) => n.text), ['Por obras en la infraestructura entre Moixent y Xàtiva, algunos trenes circulan con retraso.'],
