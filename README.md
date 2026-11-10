@@ -867,14 +867,14 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   de tu provincia; y, si se le pide, manda un parte cada día a la hora elegida. Cada ficha lleva arriba
   el botón «Avísame por Telegram», que lo sigue con un toque, y cada cosa de Siguiendo, el suyo. Guarda
   sólo lo necesario para avisar, y con `/baja` se borra todo.
+- Todo lo anterior vale para cualquier tipo de vehículo: todos comparten las mismas claves para
+  seguirlos y un registro de tipos, así que un tipo nuevo (barcos, aviones) sólo necesita su entrada en
+  el registro y el adaptador de su fuente.
 - «Mi trayecto» en el bot: `/trayecto Alcalá de Henares > Atocha 7:00-9:00 L-V` avisa de los trenes que van
   de una estación a otra y salen en esa franja esos días, sin saber su número: si se cancelan o no paran en
   alguna de las dos, si van con retraso y si su operador no publica nada de ellos. `/estado` y el parte
   dicen cómo van los próximos. Las estaciones se eligen del catálogo, con una lista si hay varias con ese
   nombre.
-- Todo lo anterior vale para cualquier tipo de vehículo: todos comparten las mismas claves para
-  seguirlos y un registro de tipos, así que un tipo nuevo (barcos, aviones) sólo necesita su entrada en
-  el registro y el adaptador de su fuente.
 - Probado a fondo antes de subirlo, haciendo de distintos tipos de usuario (en el móvil, quien sigue de
   todo, quien escribe sobre el día, quien usa el bot, quien intenta romperlo y quien revisa las
   cancelaciones), con los datos reales del entorno de pruebas. De ahí salieron, ya hechos:

@@ -10,9 +10,6 @@ tranvía y los tipos que se añadan), su línea, una estación o una provincia. 
 - en una provincia, de los avisos naranja y rojo de AEMET, los terremotos que pueden sentirse y los avisos
   oficiales (planes de emergencia y cortes de luz).
 
-También sigue el trayecto de cada día, de una estación a otra en una franja horaria y unos días, sin saber el
-número del tren: ver [Mi trayecto](#mi-trayecto).
-
 Con `/parte 07:30` manda cada día un resumen de lo que sigue. El parte y `/estado` cuentan cada cosa entera: si no
 caben en un mensaje, van en varios (hasta 6) y, si ni así, dicen cuántas cosas quedan fuera. Lo que se puede seguir son las claves de
 [`docs/vehiculos.md`](vehiculos.md): el bot no sabe de qué fuente ni de qué tipo es cada vehículo, así que un
@@ -76,6 +73,7 @@ TELEGRAM_BOT_TOKEN` y la web no enseña el botón.
 
 ## Mi trayecto
 
+Además de un tren, una línea o una estación, el bot sigue el trayecto de cada día:
 `/trayecto Alcalá de Henares > Atocha 7:00-9:00 L-V` sigue los trenes que **paran en el origen y luego en el
 destino** y **salen del origen en esa franja**, uno de esos días. No hace falta saber su número.
 
@@ -120,10 +118,16 @@ destino** y **salen del origen en esa franja**, uno de esos días. No hace falta
   Los autobuses no entran: aún no hay catálogo de sus paradas.
 - **Como lo demás que se sigue**: cuenta en el tope de cosas por chat, sale en `/mis`, `/dejar` y `/datos`, y en
   el panel del bot es un tipo más («Trayectos», y `/trayecto` entre las órdenes).
+- **Lo que guarda** de un trayecto es lo mismo que de lo demás: su clave (el código de sus dos estaciones, la franja
+  y los días; ver [vehiculos.md](vehiculos.md)) y su nombre, que los dice («Alcalá de Henares → Madrid-Atocha
+  Cercanías (07:00-09:00, de lunes a viernes)»). La política de privacidad de `/legal` lo dice.
 - **Cuánto cuesta**: en cada ronda sólo se miran las paradas de los trenes que van con retraso, y las
   cancelaciones salen del mismo índice de paradas que las estaciones seguidas. Para `/estado` y el parte se miran
   las de todos los que no van por carretera: como mucho una vez por minuto (y una sola vez para los partes de
   todos los chats de esa ronda).
+- **Código**: `server/domain/seguidos/trayectos.js` (qué se escribe, qué trenes son, qué se avisa y cómo van) y
+  `server/domain/seguidos/estaciones.js` (buscar una estación del catálogo por su nombre); en el caso de uso, la
+  orden `/trayecto` y lo que pide a `query-situation` (las paradas de cada viaje y el catálogo de estaciones).
 
 ## Cómo funciona por dentro
 
@@ -148,8 +152,6 @@ destino** y **salen del origen en esa franja**, uno de esos días. No hace falta
   `data/bot/turno.json` decide cuál atiende el bot. El que se apaga lo suelta y el nuevo lo coge.
 - **Lo que guarda**, en `data/bot/seguidos.v1.json`:
   - el número de cada chat, lo que sigue (con su nombre), desde cuándo y la hora de su parte;
-  - de un trayecto, lo mismo que de lo demás: su clave (el código de sus dos estaciones, la franja y los días) y
-    su nombre, que los dice («Alcalá de Henares → Madrid-Atocha Cercanías (07:00-09:00, de lunes a viernes)»);
   - para no repetir avisos tras un reinicio, qué se ha avisado ya;
   - y los totales de uso (`totals`), sin ningún número de chat: altas, bajas por motivo, avisos y partes, y
     mensajes por orden, desde que se cuentan.
@@ -177,8 +179,7 @@ destino** y **salen del origen en esa franja**, uno de esos días. No hace falta
 
 Código:
 
-- dominio: `server/domain/seguidos/` (los trayectos, en `trayectos.js`, y la búsqueda de estaciones, en
-  `estaciones.js`) y `server/domain/provincias.js`;
+- dominio: `server/domain/seguidos/` y `server/domain/provincias.js`;
 - caso de uso: `server/application/use-cases/follow-bot.js`;
 - adaptadores: `server/adapters/inbound/telegram/` y `server/adapters/outbound/telegram/`, más el almacén y el
   turno en `server/adapters/outbound/persistence/`.
