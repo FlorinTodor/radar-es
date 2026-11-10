@@ -87,6 +87,7 @@ export function createSources(deps) {
     createGtfsScheduleSource(deps, {
       id: 'ouigo-horario', name: 'Ouigo (posición estimada según horario)', operator: 'Ouigo', ficheroId: 1766, dataset: 1515, mode: 'av',
       label: (trip) => trip.label?.replace(/^TGV\s*/i, '') ?? trip.id,
+      numberedService: true, // su número de tren es el mismo todos los días
     }),
     createGtfsScheduleSource(deps, {
       id: 'euskotren', name: 'Euskotren (horario + retraso en tiempo real)', operator: 'Euskotren', ficheroId: 1263, dataset: 1062,

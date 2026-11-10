@@ -22,12 +22,13 @@ TUNEL=/etc/cloudflared/config.yml
 mkdir -p "$DIR/data"
 chown 1000:1000 "$DIR/data"
 
-# Las visitas a pruebas no cuentan en GoatCounter. Si cambia el .env de producción, se borra
-# éste y se relanza el script.
+# Las visitas a pruebas no cuentan en GoatCounter, y pruebas no lleva el bot de Telegram de producción: con
+# el mismo token, Telegram corta a uno de los dos (409) y los avisos saldrían repetidos (docs/telegram.md).
+# Si cambia el .env de producción, se borra éste y se relanza el script.
 if [[ ! -f $DIR/.env ]]; then
   (
     umask 077
-    grep -v '^GOATCOUNTER_URL=' "$PRODUCCION/.env" > "$DIR/.env"
+    grep -v -E '^(GOATCOUNTER_URL|TELEGRAM_BOT_TOKEN|TELEGRAM_BOT_USERNAME)=' "$PRODUCCION/.env" > "$DIR/.env"
     printf 'RADAR_IMAGEN=radar-es-pruebas\nRADAR_PUERTO=%s\n' "$PUERTO" >> "$DIR/.env"
   )
 fi

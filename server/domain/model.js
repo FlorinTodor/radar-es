@@ -1,7 +1,8 @@
 // Modelo del dominio. No importa nada de infraestructura: sólo tipos y reglas puras.
 
 /**
- * @typedef {'av'|'ld'|'md'|'cercanias'|'metro'|'tranvia'|'bus'|'otros'} Mode
+ * @typedef {'av'|'ld'|'md'|'cercanias'|'metro'|'tranvia'|'bus'|'otros'} Mode  Tipo de vehículo: los que hay
+ *   dados de alta en domain/modos.js (MODES), con su nombre y su familia. Uno nuevo se da de alta allí.
  * @typedef {'baja'|'media'|'alta'|'muy alta'} Severity
  * @typedef {'ferroviario'|'cancelacion'|'sin-datos'|'carretera'|'sismo'|'meteo'|'incendio'|'catastrofe'|'emergencia'} EventCategory
  *   sin-datos: trenes que según su horario deberían estar circulando y de los que su operador no publica nada.
@@ -17,6 +18,9 @@
  * @property {string} [service]       Producto comercial (AVE, Alvia, Cercanías...).
  * @property {string|null} line
  * @property {string} label           Número de tren o unidad.
+ * @property {string[]} [follow]      Lo que se puede seguir de él, como claves estables entre días (servicio, línea;
+ *   ver domain/seguir.js). Las pone el adaptador de su fuente, que es el que sabe qué es estable en sus datos:
+ *   todas traen al menos su línea (o toda la red de su operador, si la fuente no la dice).
  * @property {number} lat
  * @property {number} lon
  * @property {number|null} delay      Minutos; null si la fuente no lo publica.
@@ -69,6 +73,9 @@
  *   (el centro de la isla, del municipio…): los avisos oficiales no traen coordenadas.
  * @property {string} [group]    Mismo aviso publicado para varios lugares (un evento por lugar).
  * @property {string} [credit]   Atribución que pide la licencia de su fuente, para mostrarla junto al dato.
+ * @property {string[]} [follow]  Avisos de un operador (type 'aviso'): las claves de las líneas que nombra
+ *   (domain/seguir.js), para que le lleguen a quien sigue una de ellas (el bot de Telegram). Las cancelaciones
+ *   las llevan en `trip.follow`.
  * @property {number} [expires]  Epoch ms a partir del cual deja de estar en vigor aunque su fuente no
  *   vuelva a responder (avisos oficiales: lo que dura uno sin noticias de su fin, ver domain/emergencias.js;
  *   terremotos: dos días, domain/sismos.js; tráfico: su fin o una hora sin leerlo, domain/carreteras.js;
@@ -77,8 +84,9 @@
  * @property {object} [trip]     Cancelaciones (category 'cancelacion', type 'cancelado' o 'parcial') y trenes sin
  *   datos (category 'sin-datos'): el viaje, con su operador, producto, línea, número, origen, destino, día (si se
  *   sabe), salida y llegada y la hora de cada parada según el horario, las paradas suprimidas, su motivo y los
- *   avisos del operador sobre él o su línea, por dónde iría (sin datos), quién lo publica y en qué fichero (ver
- *   domain/cancelaciones.js, cancellationEvent y missingTrainEvent).
+ *   avisos del operador sobre él o su línea, por dónde iría (sin datos), quién lo publica y en qué fichero, y
+ *   en qué otros ficheros publica el mismo tren (`alsoIn`; ver domain/cancelaciones.js, cancellationEvent,
+ *   mergeSameTrain y missingTrainEvent).
  * @property {number} [seen]     Cancelaciones y trenes sin datos: epoch ms en que el radar la vio (o lo echó en
  *   falta) por primera vez (sus fuentes no dicen cuándo la publicaron).
  * @property {number} [withdrawn]  Cancelaciones que su fuente ha dejado de publicar: epoch ms en que lo hizo. Se

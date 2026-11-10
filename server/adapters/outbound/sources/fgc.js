@@ -3,6 +3,7 @@
 import { csvRows, openGtfs } from '../gtfs/gtfs-reader.js';
 import { madridLocalToMs } from './parse.js';
 import { tripStopList } from '../../../domain/trip-stops.js';
+import { followOf, lineKey } from '../../../domain/seguir.js';
 
 const BASE = 'https://dadesobertes.fgc.cat/api/explore/v2.1/catalog/datasets/posicionament-dels-trens/records?limit=100';
 // Horario GTFS de FGC en el Punto de Acceso Nacional: el mismo fichero del que salen los trazados de
@@ -108,6 +109,8 @@ export function createFgcSource({ http, nap, log }) {
             service: 'FGC',
             line: r.lin,
             label: r.ut || r.lin,
+            // Sólo su línea: FGC da la unidad (el tren físico), no un número de servicio que se repita cada día.
+            follow: followOf(lineKey({ operator: 'FGC', line: r.lin })),
             lat: p.lat,
             lon: p.lon,
             delay: null,

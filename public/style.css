@@ -75,8 +75,16 @@ button { font: inherit; color: inherit; }
 }
 
 .tabs { display: flex; border-bottom: 1px solid var(--border); }
+/* Seis pestañas: si no caben, la fila se desliza de lado en vez de cortarse (también en el escritorio, y con la
+   rueda del ratón); mientras queden pestañas a la derecha, el borde se desvanece para que se note (ver app.js). */
+.tabs { overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs.more {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+}
 .tabs button {
-  flex: 1 1 auto; padding: 12px 6px; background: none; border: 0; border-bottom: 2px solid transparent;
+  flex: 1 0 auto; padding: 12px 7px; background: none; border: 0; border-bottom: 2px solid transparent;
   color: var(--ink-2); cursor: pointer; font-size: 13px; white-space: nowrap;
 }
 .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
@@ -84,6 +92,8 @@ button { font: inherit; color: inherit; }
   display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px;
   background: var(--surface-2); color: var(--ink-2); font-size: 11px; line-height: 18px;
 }
+/* Algo de lo que se sigue tiene una cancelación o no tiene datos (el número dice cuántas cosas se siguen). */
+.badge.warn { background: var(--st-serious); color: var(--page); font-weight: 600; }
 
 .panel { flex: 1; overflow-y: auto; padding: 8px 12px 16px; }
 .panel[hidden] { display: none; }
@@ -259,6 +269,37 @@ button { font: inherit; color: inherit; }
 .pop dt { color: var(--muted); }
 .pop dd { margin: 0; min-width: 0; overflow-wrap: anywhere; } /* las direcciones largas de un aviso no ensanchan la ficha */
 .pop .note { margin-top: 8px; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+/* «Avísame por Telegram» (avisar.js): botón grande en azul Telegram arriba de la ficha, para que se vea sin
+   buscarlo. El azul es más oscuro que el de la marca (#2aabee) para que el texto blanco se lea bien (4,6:1); el
+   de la marca queda en el borde y el brillo. */
+.pop .tg-cta { display: grid; gap: 6px; margin: 2px 0 12px; }
+.pop .tg-btn {
+  display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 9px 16px 9px 10px; border-radius: 12px;
+  background: #1479c0; color: #fff; text-decoration: none;
+  box-shadow: 0 0 0 1px #2aabee, 0 6px 18px rgba(42, 171, 238, 0.28);
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+.pop .tg-btn:hover { background: #0f68a6; transform: translateY(-1px); }
+.pop .tg-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.pop .tg-btn .tg-icon { flex: none; width: 32px; height: 32px; padding: 6px; border-radius: 50%; background: #fff; color: #1479c0; }
+.pop .tg-txt { display: grid; gap: 1px; line-height: 1.25; }
+.pop .tg-txt strong { font-size: 15px; font-weight: 700; }
+.pop .tg-txt small { font-size: 12.5px; color: #fff; }
+.pop .tg-alt { justify-self: start; padding: 2px 4px; color: var(--accent); font-size: 12.5px; }
+/* La lista de «Siguiendo»: un botón pequeño en el mismo azul junto a cada cosa. */
+.tg-mini {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 4px 10px 4px 4px; border-radius: 999px;
+  background: #1479c0; color: #fff; font-size: 12.5px; font-weight: 600; text-decoration: none;
+}
+.tg-mini:hover { background: #0f68a6; }
+.tg-mini:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.tg-mini .tg-icon { width: 22px; height: 22px; padding: 4px; border-radius: 50%; background: #fff; color: #1479c0; }
+@media (max-width: 860px) {
+  .pop .tg-btn { min-height: 56px; }
+  .pop .tg-txt strong { font-size: 16px; }
+  .pop .tg-alt { font-size: 14px; padding: 6px 4px; }
+  .tg-mini { padding: 6px 12px 6px 6px; font-size: 13.5px; }
+}
 /* Aviso de posición estimada por horario: en la ficha y en la lista de trenes. */
 .est-badge { display: inline-block; margin: 0 0 8px; padding: 2px 8px; border: 1px dashed var(--st-warning); border-radius: 4px;
   color: var(--st-warning); font-size: 11.5px; font-weight: 600; }
@@ -375,6 +416,73 @@ body.doc { overflow: auto; display: block; }
   .doc-body td[data-label]:not(:first-child)::before { content: attr(data-label) ": "; color: var(--muted); }
 }
 
+/* ---------- El día en cifras (/el-dia-en-cifras) ----------
+   Gráficas con las reglas de la casa: una serie en azul (#3987e5, el paso oscuro de la paleta), la
+   referencia (el mismo día de la semana anterior) en gris, rejilla de un pelo y el texto en sus tintas. */
+.dia { --series-1: #3987e5; --series-ref: #898781; --grid: rgba(255, 255, 255, 0.10); }
+.dia-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 16px 0 8px; }
+.dia-nav select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--ink); font: inherit; font-size: 13px; }
+.dia-nav button:disabled { opacity: .45; cursor: default; }
+.dia-today { font-size: 13px; }
+.dia .dia-date { margin-top: 20px; text-transform: none; }
+.dia-date::first-letter { text-transform: uppercase; }
+.dia-live { color: var(--muted); font-weight: 400; font-size: 15px; }
+.dia-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin: 12px 0 8px; }
+.tile { padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.tile .t-label { font-size: 12px; color: var(--muted); }
+.tile .t-value { margin-top: 2px; font-size: 26px; font-weight: 600; color: var(--ink); line-height: 1.2; }
+.tile .t-sub { margin-top: 4px; font-size: 12px; color: var(--ink-2); line-height: 1.4; }
+.tile .t-unknown { font-size: 18px; font-weight: 400; color: var(--muted); }
+.tile.hero { grid-column: span 2; }
+.tile.hero .t-value { font-size: 48px; }
+.dia-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.dia-grid.one { grid-template-columns: 1fr; }
+.chart-card { position: relative; min-width: 0; padding: 10px 12px 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.chart-card h3 { margin: 0; font-size: 14px; }
+.chart-card .c-sub { margin: 2px 0 4px; font-size: 12px; color: var(--muted); }
+.chart-card .plot { width: 100%; }
+/* Se dibuja a la medida de su caja; si la caja cambia antes de volver a dibujarla, se ajusta sin salirse. */
+.chart { display: block; width: 100%; max-width: 100%; height: auto; touch-action: pan-y; }
+.chart:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.chart .grid { stroke: var(--grid); stroke-width: 1; }
+.chart .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart .end { fill: var(--ink); font-size: 11px; font-weight: 600; }
+.chart .line-today { fill: none; stroke: var(--series-1); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .line-compare { fill: none; stroke: var(--series-ref); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .dot-today { fill: var(--series-1); stroke: var(--surface); stroke-width: 2; }
+.chart .col { fill: var(--series-1); }
+.chart .crosshair { stroke: var(--ink-2); stroke-width: 1; }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 4px 0 10px; font-size: 12px; color: var(--ink-2); }
+.legend i, .tip-r i { display: inline-block; width: 14px; height: 2px; margin-right: 6px; vertical-align: middle; border-radius: 1px; background: var(--series-1); }
+.legend i.k-compare, .tip-r.compare i { background: var(--series-ref); }
+.tip { position: absolute; top: 34px; z-index: 2; min-width: 120px; padding: 6px 9px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface-2); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4); font-size: 12px; color: var(--ink-2); pointer-events: none; }
+.tip-h { color: var(--muted); margin-bottom: 2px; }
+.tip-r strong { color: var(--ink); }
+.dia-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 8px 24px; }
+.dia-cols h3 { margin-top: 12px; }
+.hbars { list-style: none; margin: 6px 0 0; padding: 0; }
+.hbars li { margin: 0 0 9px; }
+.hb-label { font-size: 13px; color: var(--ink); line-height: 1.35; }
+.hb-sub { color: var(--muted); font-size: 12px; }
+.hb-row { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
+.hb-bar { display: block; height: 12px; min-width: 2px; border-radius: 0 4px 4px 0; background: var(--series-1); }
+.hb-val { flex: none; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.dia-list { padding-left: 18px; }
+.pill-sev { display: inline-block; padding: 0 6px; border: 1px solid var(--border); border-radius: 10px; font-size: 11px; color: var(--ink-2); text-transform: capitalize; }
+.dia-table { margin: 24px 0 8px; }
+.dia-table summary { cursor: pointer; color: var(--accent); }
+.dia-table .scroll { overflow-x: auto; margin-top: 8px; }
+.dia-table td, .dia-table th { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dia-credits { font-size: 12.5px; padding-left: 18px; }
+.dia-notes li { margin: 6px 0; }
+@media (max-width: 640px) {
+  .tile.hero { grid-column: 1 / -1; }
+  .tile.hero .t-value { font-size: 40px; }
+  .dia-grid { grid-template-columns: 1fr; }
+  .dia-nav .btn-ghost { flex: 1; }
+}
+
 .sheet-handle { display: none; }
 
 /* ---------- Móvil ----------
@@ -418,9 +526,6 @@ body.doc { overflow: auto; display: block; }
   }
   .sheet-handle span { width: 40px; height: 4px; border-radius: 2px; background: var(--muted); }
   .tabs { flex: none; }
-  /* Cinco pestañas: si no caben, la fila se desliza de lado en vez de cortarse. */
-  .tabs { overflow-x: auto; scrollbar-width: none; }
-  .tabs::-webkit-scrollbar { display: none; }
   .tabs button { height: 43px; padding: 0 8px; }
   .panel { overscroll-behavior: contain; }
   .disclaimer { padding: 6px 12px; font-size: 10.5px; line-height: 1.35; }
@@ -441,3 +546,54 @@ body.doc { overflow: auto; display: block; }
 .trip-stops li.skipped { color: var(--muted); }
 .trip-stops li.skipped .ts-name { text-decoration: line-through; }
 .trip-stops li.skipped::before { background: transparent; box-shadow: 0 0 0 2px #d03b3b; }
+
+/* ---------- Siguiendo: la estrella de las fichas y la lista ---------- */
+.follow { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.follow-btn {
+  padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2);
+  color: var(--ink-2); font-size: 12.5px; line-height: 1.4; cursor: pointer; text-align: left;
+}
+.follow-btn:hover, .follow-btn:focus-visible { border-color: rgba(255, 255, 255, 0.3); color: var(--ink); }
+.follow-btn[aria-pressed="true"] { border-color: var(--accent); background: rgba(110, 168, 254, 0.14); color: var(--ink); }
+.follow-btn[aria-pressed="true"] span { color: var(--accent); }
+.follow-item { cursor: default; }
+.follow-item .row { justify-content: space-between; }
+.follow-kind { font-size: 11px; color: var(--muted); }
+.follow-x { padding: 0 4px; border: 0; background: none; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; }
+.follow-x:hover, .follow-x:focus-visible { color: var(--ink); }
+.follow-open { display: block; width: 100%; margin: 2px 0 0; padding: 0; border: 0; background: none; color: inherit; text-align: left; cursor: pointer; }
+.follow-open:hover .title, .follow-open:focus-visible .title { text-decoration: underline; }
+.follow-events { display: grid; gap: 4px; margin: 6px 0 0; padding: 0; list-style: none; color: var(--ink-2); font-size: 12.5px; line-height: 1.4; }
+.follow-events .link { color: var(--ink); text-align: left; }
+.follow-note, .follow-credit { margin: 10px 2px 0; color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+.follow-credit a { color: var(--ink-2); }
+/* En el móvil, botones más altos para el dedo (como las pastillas de las capas). */
+@media (max-width: 860px) {
+  .follow-btn { min-height: 34px; padding: 5px 12px; font-size: 13px; }
+}
+
+/* ---------- Puntualidad en la ficha (public/js/puntualidad.js) ---------- */
+/* Cada día lleva su signo además del color de estado: nunca se lee sólo por el color. */
+.pblock { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+.ptitle { color: var(--muted); }
+.psum { margin: 2px 0 0; line-height: 1.4; }
+.pstrip, .pbars { display: flex; gap: 2px; margin: 6px 0 2px; padding: 0; list-style: none; }
+.pd { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 3px;
+  font-size: 11px; font-weight: 700; line-height: 1; font-style: normal; color: var(--page); background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border); flex: none; }
+.pd-a-tiempo { background: var(--st-good); box-shadow: none; }
+.pd-tarde { background: var(--st-serious); box-shadow: none; }
+.pd-cancelado { background: var(--st-critical); box-shadow: none; color: var(--ink); }
+.pd-parcial { background: var(--st-warning); box-shadow: none; }
+.pd-en-curso { color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.pbars-wrap { display: flex; align-items: flex-start; gap: 6px; }
+.pbars { height: 32px; align-items: flex-end; border-bottom: 1px solid var(--border); }
+.ptop { color: var(--muted); font-size: 10px; line-height: 1; margin-top: 6px; }
+.pb { width: 14px; height: 100%; display: flex; align-items: flex-end; flex: none; }
+.pb span { display: block; width: 100%; background: var(--st-serious); border-radius: 2px 2px 0 0; }
+.pb-none { background: linear-gradient(var(--border), var(--border)) bottom / 100% 2px no-repeat; }
+.plegend { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--muted); font-size: 11px; }
+.plegend span { display: inline-flex; align-items: center; gap: 4px; }
+.plegend .pd { width: 12px; height: 12px; font-size: 9px; }
+.pnote { margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.follow-tg-hint { margin: 0 2px 10px; color: var(--ink-2); font-size: 12.5px; line-height: 1.4; }

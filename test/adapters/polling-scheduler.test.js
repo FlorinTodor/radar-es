@@ -135,3 +135,59 @@ test('el historial de posiciones se guarda cada minuto, sin empezar una copia en
   await flush();
   assert.equal(saves, 2);
 });
+
+test('los trabajos periódicos (la puntualidad): cada uno a su ritmo, sin empezar uno encima de otro; si fallan, se apunta y siguen', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const runs = { lecturas: 0, copias: 0 };
+  let finish;
+  const warnings = [];
+  const scheduler = startPolling({
+    feeds: [], ingestSource: async () => true, detectAlerts() {}, log: { ...quietLog, warn: (m) => warnings.push(m) },
+    tasks: [
+      { name: 'puntualidad', every: MIN, run: () => { runs.lecturas++; if (runs.lecturas === 2) throw new Error('fallo'); } },
+      { name: 'puntualidad', every: 15 * MIN, run: () => { runs.copias++; return new Promise((resolve) => { finish = resolve; }); } },
+    ],
+  });
+  const minutes = async (n) => {
+    for (let i = 0; i < n; i++) {
+      t.mock.timers.tick(MIN);
+      await flush();
+    }
+  };
+  await minutes(15);
+  assert.deepEqual(runs, { lecturas: 15, copias: 1 });
+  assert.deepEqual(warnings, ['[puntualidad] fallo']);
+  await minutes(15);
+  assert.equal(runs.copias, 1, 'la copia anterior aún no ha terminado');
+  finish();
+  await flush();
+  scheduler.stop();
+  await minutes(60);
+  assert.deepEqual(runs, { lecturas: 30, copias: 1 });
+});
+
+test('el día en cifras, como trabajo periódico: suma un minuto cada minuto, sin empezar otro si el anterior no ha terminado', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  let runs = 0;
+  let finish;
+  const scheduler = startPolling({
+    feeds: [], ingestSource: async () => true, detectAlerts() {}, log: quietLog,
+    tasks: [{ name: 'día en cifras', every: MIN, run: () => { runs++; return new Promise((resolve) => { finish = resolve; }); } }],
+  });
+  t.mock.timers.tick(MIN);
+  await flush();
+  assert.equal(runs, 1);
+  t.mock.timers.tick(MIN);
+  await flush();
+  assert.equal(runs, 1, 'el anterior aún no ha terminado');
+  finish();
+  await flush();
+  t.mock.timers.tick(MIN);
+  await flush();
+  assert.equal(runs, 2);
+  finish();
+  scheduler.stop();
+  t.mock.timers.tick(10 * MIN);
+  await flush();
+  assert.equal(runs, 2);
+});

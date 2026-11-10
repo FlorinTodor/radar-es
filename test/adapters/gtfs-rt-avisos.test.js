@@ -48,6 +48,7 @@ test('paradas suprimidas por un desvío: cancelación parcial de la línea, en l
   assert.match(l7.description, /^Desvío línea 7: .* AUVASA da como suprimidas en su tiempo real \(GTFS-RT de avisos de servicio\) esta parada: Plaza Uruguay esquina Honduras\.$/);
   assert.equal(l7.credit, 'Fuente: AUVASA (CC BY 3.0 ES)');
   assert.equal(l7.trip.feedUrl, 'http://ejemplo/alert');
+  assert.deepEqual(l7.trip.follow, ['l-auvasa-7'], 'quien siga la línea se entera');
   assert.equal(l7.seen, NOW);
 
   const notices = events.filter((e) => e.category === 'carretera');
@@ -55,6 +56,8 @@ test('paradas suprimidas por un desvío: cancelación parcial de la línea, en l
   assert.deepEqual([notices[0].lon, notices[0].lat], [-4.7466, 41.65], 'en la parada que cita');
   assert.equal(notices[0].area, 'Calle Barbecho frente Arado');
   assert.equal(notices[1].lat, null, 'sin parada: sin ubicación');
+  assert.deepEqual(notices[0].follow, ['l-auvasa-3'], 'quien siga la línea que nombra se entera del aviso');
+  assert.equal(notices[1].follow, undefined, 'sin línea, sin clave');
 });
 
 test('cuando el desvío acaba, la cancelación sigue hasta medianoche como retirada', async (t) => {

@@ -162,8 +162,19 @@
           para no contar dos veces la misma visita, y después se descartan. GoatCounter almacena los datos en la Unión
           Europea (Finlandia y Alemania). Lo hacemos por interés legítimo en conocer el uso del servicio; si bloqueas el
           contador, la web funciona igual.</li>
-        <li>Tu navegador guarda en su almacenamiento local (localStorage) tus preferencias de capas y si ya has visto
-          el aviso inicial. No sale de tu dispositivo y puedes borrarlo desde el navegador.</li>
+        <li>Tu navegador guarda en su almacenamiento local (localStorage) tus preferencias de capas, si ya has visto
+          el aviso inicial y lo que sigues en «Siguiendo» (los vehículos, líneas o estaciones que marcas con la estrella,
+          con su nombre). No sale de tu dispositivo y puedes borrarlo desde el navegador o quitando cada cosa de la lista.
+          Para enseñarte cómo está lo que sigues, tu navegador pide su estado al servidor por su clave, como cualquier otra
+          consulta del mapa: sin cookies ni identificador, y el radar no guarda quién pide qué.</li>
+        <li data-telegram="si" hidden><strong>Bot de Telegram (opcional).</strong> Si escribes a nuestro bot de Telegram para que te
+          avise de un vehículo, una línea, una estación o una provincia, guardamos sólo el número de ese chat, lo que sigues (con su
+          nombre), desde cuándo y, si lo pides, la hora de tu parte diario. No guardamos tu nombre, tu usuario ni tu teléfono, ni el
+          texto de tus mensajes. Lo usamos únicamente para mandarte los avisos que pides, porque tú lo pides, y se guarda mientras
+          sigas algo: si dejas de seguirlo todo, si escribes /baja o si bloqueas el bot, se borra. Con /datos ves todo lo que
+          guardamos de tu chat. Los mensajes los transporta Telegram, un tercero con su propia
+          <a href="https://telegram.org/privacy" target="_blank" rel="noopener">política de privacidad</a>, que trata tus datos
+          como usuario de Telegram.</li>
         <li>La web pasa por Cloudflare, que actúa como intermediario de red y de seguridad. Cloudflare trata tu dirección
           IP para servir la página y protegerla de ataques, y puede usar cookies técnicas de seguridad.</li>
         <li>Para dibujar el mapa, tu navegador descarga directamente el mapa base de OpenFreeMap, que como cualquier web
@@ -187,7 +198,7 @@
     <nav aria-label="Más información">
       <a href="/">Mapa en directo</a> · <a href="/que-es-radar-espana">Qué es Radar España</a> ·
       <a href="/trenes-en-tiempo-real">Trenes en tiempo real</a> · <a href="/metro-tranvia-autobus">Metro, tranvía y autobús</a> ·
-      <a href="/incidencias-y-emergencias">Incidencias y emergencias</a>
+      <a href="/incidencias-y-emergencias">Incidencias y emergencias</a> · <a href="/el-dia-en-cifras">El día en cifras</a>
     </nav>
     <p class="credit">Radar España es un proyecto independiente de <a href="https://florintodor.dev" rel="author">Florin Emanuel Todor Gliga</a>.</p>
   </footer>

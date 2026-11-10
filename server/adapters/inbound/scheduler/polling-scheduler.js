@@ -1,7 +1,7 @@
 // Adaptador de entrada temporizado: igual que la API HTTP dispara casos de uso cuando
 // llega una petición, éste los dispara según el reloj: la lectura de cada fuente según su
-// intervalo, la detección de alertas, la recarga de los catálogos estáticos y la copia del historial
-// de posiciones.
+// intervalo, la detección de alertas, la recarga de los catálogos estáticos, la copia del historial
+// de posiciones y el registro del día en cifras.
 const FIRST_RETRY_MS = 30_000;
 const MIN_RETRY_CAP_MS = 10 * 60_000;
 // Cada evaluación de alertas recorre todos los vehículos: tras una lectura se espera un poco por si
@@ -13,6 +13,7 @@ const DETECT_HEARTBEAT_MS = 30_000; // las alertas dependen del tiempo transcurr
 const CATALOG_REFRESH_MS = 3600_000;
 // La copia del historial de posiciones: lo que se pierde en un despliegue es, como mucho, esto.
 const TRACKS_SAVE_MS = 60_000;
+// El día en cifras suma lo que se ve una vez por minuto.
 
 /**
  * Espera hasta la siguiente lectura. Si la fuente ha fallado, se reintenta pronto (30 s, 1, 2,
@@ -32,8 +33,11 @@ export function nextDelay(interval, failures) {
  *   feeds: qué fuentes leer y cada cuánto (ms). El planificador sólo conoce su id: leerlas es
  *   cosa del caso de uso ingestSource.
  *   saveTracks: guarda el historial de posiciones (caso de uso keep-tracks), cada minuto.
+ *   tasks: otros trabajos periódicos, cada uno con su nombre (para el registro), cada cuánto (ms) y qué hace
+ *   (la puntualidad: sus lecturas cada minuto y su copia cada cuarto de hora). Si uno tarda más que su
+ *   intervalo, no se empieza otro encima; si falla, se apunta y sigue.
  */
-export function startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, saveTracks, log }) {
+export function startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, saveTracks, tasks = [], log }) {
   const timers = new Map();
   let pending = null;
   let stopped = false;
@@ -79,10 +83,19 @@ export function startPolling({ feeds, ingestSource, detectAlerts, refreshCatalog
     saving = true;
     Promise.resolve().then(saveTracks).catch((err) => log.warn(`[estelas] ${err.message}`)).finally(() => { saving = false; });
   }, TRACKS_SAVE_MS);
+  const taskTimers = tasks.map(({ name, every, run }) => {
+    let busy = false;
+    return setInterval(() => {
+      if (busy) return;
+      busy = true;
+      Promise.resolve().then(run).catch((err) => log.warn(`[${name}] ${err?.message ?? err}`)).finally(() => { busy = false; });
+    }, every);
+  });
 
   return {
     stop() {
       stopped = true;
+      for (const t of taskTimers) clearInterval(t);
       clearInterval(heartbeat);
       clearInterval(catalogs);
       clearInterval(tracksTimer);

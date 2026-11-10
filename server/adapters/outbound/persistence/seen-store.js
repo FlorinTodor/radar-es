@@ -17,6 +17,8 @@ export function createSeenStore({ cache, name, now = Date.now }) {
   // Las cancelaciones de la última lectura y las retiradas hoy (id → incidencia).
   let shown = new Map();
   let withdrawn = new Map();
+  // La medianoche que cierra el día de la lectura de `shown`: las que desaparecen después eran de ese día.
+  let shownUntil = null;
 
   const events = (list) => new Map(Array.isArray(list) ? list.filter((e) => typeof e?.id === 'string').map((e) => [e.id, e]) : []);
   async function load() {
@@ -26,8 +28,11 @@ export function createSeenStore({ cache, name, now = Date.now }) {
     atStart = new Set(Array.isArray(saved?.atStart) ? saved.atStart.filter((id) => seen.has(id)) : []);
     shown = events(saved?.shown);
     withdrawn = events(saved?.withdrawn);
+    shownUntil = Number.isFinite(saved?.shownUntil) ? saved.shownUntil : null;
   }
-  const save = () => cache?.writeValue?.(name, { seen: [...seen], atStart: [...atStart], shown: [...shown.values()], withdrawn: [...withdrawn.values()] });
+  const save = () => cache?.writeValue?.(name, {
+    seen: [...seen], atStart: [...atStart], shown: [...shown.values()], withdrawn: [...withdrawn.values()], shownUntil,
+  });
 
   return {
     /**
@@ -56,9 +61,10 @@ export function createSeenStore({ cache, name, now = Date.now }) {
      */
     async withdrawn(current, { clock, endOfDay }) {
       await load();
-      const before = { shown: [...shown.keys()].join('\n'), withdrawn: [...withdrawn.keys()].join('\n') };
-      ({ shown, withdrawn } = followWithdrawn({ shown, withdrawn }, current, { now: now(), clock, endOfDay }));
-      if ([...shown.keys()].join('\n') !== before.shown || [...withdrawn.keys()].join('\n') !== before.withdrawn) await save();
+      const before = { shown: [...shown.keys()].join('\n'), withdrawn: [...withdrawn.keys()].join('\n'), shownUntil };
+      ({ shown, withdrawn, shownUntil } = followWithdrawn({ shown, withdrawn, shownUntil }, current, { now: now(), clock, endOfDay }));
+      if ([...shown.keys()].join('\n') !== before.shown || [...withdrawn.keys()].join('\n') !== before.withdrawn
+        || shownUntil !== before.shownUntil) await save();
       return [...withdrawn.values()];
     },
   };

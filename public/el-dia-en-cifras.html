@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>El día en cifras: trenes, retrasos y cancelaciones de hoy</title>
+  <meta name="description" content="Balance del día en España: vehículos vistos en tiempo real por horas, retrasos, cancelaciones, trenes sin datos y avisos de emergencia, con sus fuentes.">
+  <link rel="canonical" href="https://xn--radarespaa-19a.es/el-dia-en-cifras">
+  <meta name="author" content="Florin Emanuel Todor Gliga">
+  <meta name="theme-color" content="#1a1a19">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Radar España">
+  <meta property="og:locale" content="es_ES">
+  <meta property="og:title" content="El día en cifras · Radar España">
+  <meta property="og:description" content="Cuántos trenes, metros, tranvías y autobuses se han visto hoy en tiempo real, con qué retraso, qué se ha cancelado y qué avisos ha habido.">
+  <meta property="og:url" content="https://xn--radarespaa-19a.es/el-dia-en-cifras">
+  <meta property="og:image" content="https://xn--radarespaa-19a.es/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/favicon.ico" sizes="48x48">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="stylesheet" href="/style.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Radar España", "item": "https://xn--radarespaa-19a.es/" },
+      { "@type": "ListItem", "position": 2, "name": "El día en cifras", "item": "https://xn--radarespaa-19a.es/el-dia-en-cifras" }
+    ]
+  }
+  </script>
+</head>
+<body class="doc">
+  <header class="topbar">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="5.5" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".6"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>
+      <span>Radar España</span>
+    </a>
+    <a class="back" href="/">Abrir el mapa en directo →</a>
+  </header>
+
+  <main class="doc-body dia">
+    <nav class="crumbs" aria-label="Estás en"><a href="/">Radar España</a> › El día en cifras</nav>
+    <h1>El día en cifras</h1>
+    <p class="lead">Lo que el radar ha visto en tiempo real a lo largo del día: cuántos trenes, metros, tranvías y autobuses
+      circulaban, con qué retraso, qué se ha cancelado y qué avisos de emergencia ha habido. El día en curso se actualiza
+      cada minuto.</p>
+
+    <nav class="dia-nav" aria-label="Elegir el día">
+      <button type="button" class="btn-ghost" id="dia-prev" disabled>← Día anterior</button>
+      <label class="dia-pick"><span class="sr-only">Día</span><select id="dia-select" disabled></select></label>
+      <button type="button" class="btn-ghost" id="dia-next" disabled>Día siguiente →</button>
+      <a class="dia-today" id="dia-today" href="/el-dia-en-cifras" hidden>Volver a hoy</a>
+    </nav>
+
+    <div id="dia" aria-live="polite" aria-busy="true">
+      <p class="muted">Cargando el día…</p>
+      <noscript><p>Esta página necesita JavaScript para dibujar las cifras. Los mismos datos están en
+        <a href="/api/dia">/api/dia</a> (JSON).</p></noscript>
+    </div>
+
+    <h2 id="como-se-cuenta">Cómo se cuenta</h2>
+    <ul class="dia-notes">
+      <li><strong>Vehículos vistos en tiempo real</strong>: los que publican su posición en ese momento las fuentes que lee
+        el radar, de media en cada hora. No son todos los que circulan: hay operadores que no publican nada, y los que sólo
+        se dibujan con su horario (posición estimada) no cuentan. Tampoco dice si se han cumplido unos servicios mínimos ni
+        qué parte del servicio programado ha circulado.</li>
+      <li><strong>Mismo día de la semana anterior</strong>: la línea gris, para comparar con un día parecido. Antes de que el
+        radar guardara este resumen sólo hay datos de los trenes, metros y tranvías con posición real.</li>
+      <li><strong>Retraso</strong>: sólo de los vehículos cuyo operador publica su retraso. «Con retraso» es 5 minutos o
+        más, como en el resto del radar. Cada vehículo cuenta una vez por cada minuto que se ve.</li>
+      <li><strong>Cancelaciones</strong>: los viajes que su operador da como cancelados o con paradas suprimidas en su tiempo
+        real a lo largo del día, también los que después ha dejado de publicar. Cada viaje cuenta una vez.</li>
+      <li><strong>Trenes sin datos</strong>: los que según su horario debían circular y de los que su operador no publicaba
+        nada en algún momento del día. No es una cancelación.</li>
+      <li><strong>Avisos</strong>: los meteorológicos naranja y rojo de AEMET, los terremotos del día, los avisos oficiales
+        de emergencias y cortes de luz y las alertas de GDACS que estuvieron en vigor. Ante una emergencia, llama al
+        <strong>112</strong>.</li>
+    </ul>
+    <p class="muted">Radar España no es una web oficial: muestra los datos que publican sus fuentes, que pueden tener
+      errores o faltar. Las fuentes y sus licencias están en <a href="/legal#fuentes">fuentes y licencias</a>.</p>
+  </main>
+
+  <footer class="doc-foot">
+    <nav aria-label="Más información">
+      <a href="/">Mapa en directo</a> · <a href="/que-es-radar-espana">Qué es Radar España</a> ·
+      <a href="/trenes-en-tiempo-real">Trenes en tiempo real</a> · <a href="/metro-tranvia-autobus">Metro, tranvía y autobús</a> ·
+      <a href="/incidencias-y-emergencias">Incidencias y emergencias</a> ·
+      <a href="/legal">Aviso legal, privacidad y fuentes</a>
+    </nav>
+    <p class="credit">Radar España es un proyecto independiente de <a href="https://florintodor.dev" rel="author">Florin Emanuel Todor Gliga</a>.</p>
+  </footer>
+
+  <script type="module" src="/js/dia.js"></script>
+  <script type="module" src="/js/analytics.js"></script>
+</body>
+</html>

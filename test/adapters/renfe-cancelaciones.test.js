@@ -141,6 +141,30 @@ test('desde cuándo: se guarda y otro arranque no la da por nueva; las nuevas de
   assert.equal(byId.get('renfe-cancelado:ld:05152').withdrawn, undefined, 'vuelve a publicarse: ya no está retirada');
 });
 
+test('Renfe vacía su tiempo real a medianoche: las cancelaciones de ayer no se ven hoy como retiradas, ni tras un reinicio', async (t) => {
+  const T0 = Date.parse('2026-11-09T22:58:00Z'); // 23:58 en Madrid
+  t.mock.timers.enable({ apis: ['Date'], now: T0 });
+  const cache = memoryCache();
+  let current = feeds();
+  const http = { json: (url) => httpWith(current).json(url) };
+  const cancelled = async (source) => (await source.fetch()).events.filter((e) => e.category === 'cancelacion');
+  assert.equal((await cancelled(avisosOf(createRenfeSources({ http, cache, stations, log })))).length, 3);
+  // 00:01: el feed ya no trae las de ayer. El servidor se ha reiniciado entretanto (la misma caché).
+  t.mock.timers.tick(3 * 60_000);
+  current = feeds({ 'trip_updates.json': { entity: [] }, 'trip_updates_LD.json': { entity: [] } });
+  const restarted = avisosOf(createRenfeSources({ http, cache, stations, log }));
+  assert.deepEqual(await cancelled(restarted), [], 'eran de ayer');
+  // Hoy, una que se ve y luego se deja de publicar sí sigue hasta la medianoche de hoy.
+  t.mock.timers.tick(9 * 3600_000);
+  current = feeds();
+  await restarted.fetch();
+  t.mock.timers.tick(2 * 60_000);
+  current = feeds({ 'trip_updates_LD.json': { entity: [] } });
+  const gone = (await cancelled(restarted)).find((e) => e.id === 'renfe-cancelado:ld:05152');
+  assert.equal(gone.withdrawn, T0 + 3 * 60_000 + 9 * 3600_000 + 2 * 60_000);
+  assert.equal(gone.expires, Date.parse('2026-11-10T23:00:00Z'), 'hasta la medianoche de hoy en Madrid');
+});
+
 test('si un feed falla, sus cancelaciones siguen (una hora desde la última lectura buena) y no se dan por nuevas', async (t) => {
   const T0 = Date.parse('2026-11-05T08:00:00Z');
   t.mock.timers.enable({ apis: ['Date'], now: T0 });
@@ -169,7 +193,12 @@ test('el aviso de Renfe que nombra el tren cancelado (por su hora y su origen) y
     { id: 'a4', alert: { informedEntity: [{ routeId: '40T0002C1' }], descriptionText: text('Por una avería, los trenes de la C1 circulan con retraso.') } },
   ] };
   const avisos = avisosOf(createRenfeSources({ http: httpWith(feeds({ 'alerts.json': alerts })), cache: memoryCache(), stations, log }));
-  const cerc = (await avisos.fetch()).events.find((e) => e.id === 'renfe-cancelado:4006J20109C2');
+  const { events } = await avisos.fetch();
+  const cerc = events.find((e) => e.id === 'renfe-cancelado:4006J20109C2');
+  assert.deepEqual(events.find((e) => e.id === 'renfe-aviso:a2').follow, ['l-renfe-Valencia-C2'], 'el aviso lleva la clave de su línea, con su núcleo: la misma que sus trenes');
+  assert.deepEqual(events.find((e) => e.id === 'renfe-aviso:a4').follow, ['l-renfe-Valencia-C1']);
+  assert.ok(cerc.trip.follow.includes(events.find((e) => e.id === 'renfe-aviso:a2').follow[0]),
+    'la clave del aviso es la misma que la de los trenes de su línea: quien sigue la línea se entera');
   assert.equal(cerc.trip.notice.text, alerts.entity[0].alert.descriptionText.translation[0].text);
   assert.match(cerc.description, /Aviso de Renfe sobre este viaje: Línea C2\. Tren con salida prevista a las 08:00h/);
   assert.deepEqual(cerc.trip.lineNotices.map((n) => n.text), ['Por obras en la infraestructura entre Moixent y Xàtiva, algunos trenes circulan con retraso.'],
@@ -227,4 +256,47 @@ test('trenes sin datos: según su horario circulan ahora y Renfe no publica ni s
   t.mock.timers.tick(5 * 60_000); // 07:28: le quedan menos de 5 minutos para llegar
   await ld.fetch();
   assert.deepEqual(await missing(), []);
+});
+
+// Rodalies con el tramo de su red del MD 18000 (el mismo tren, con un minuto de diferencia en su horario).
+const rodaliesZip = zipSync({
+  'routes.txt': strToU8(`route_id,route_short_name,route_long_name,route_type\n51T0016R16,R16,${pad('València Nord')}-Massanassa,2\n`),
+  'trips.txt': strToU8('route_id,service_id,trip_id,shape_id\n51T0016R16,S,5113M18000R16,51_R16\n'),
+  'stops.txt': strToU8('stop_id,stop_name,stop_lat,stop_lon\n65000,València Nord,39.4669,-0.3772\n64103,Massanassa,39.41,-0.39\n'),
+  'stop_times.txt': strToU8('trip_id,arrival_time,departure_time,stop_id,stop_sequence\n5113M18000R16,06:01:00,06:01:00,65000,1\n5113M18000R16,06:21:00,06:21:00,64103,2\n'),
+});
+
+test('el mismo tren en los feeds de Rodalies y de AV/LD/MD: una sola cancelación, y no es un tren sin datos', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-02T06:20:00Z') }); // 07:20 en Madrid
+  const cache = { ...memoryCache(), bytes: async (url, name) => (name === 'renfe-fomento_transit.zip' ? rodaliesZip : ldWithCalendar) };
+  const positions = { entity: [{ vehicle: {
+    trip: { tripId: '0515212026-11-02' }, vehicle: { id: '05152' }, position: { latitude: 39.2, longitude: -0.5 }, stopId: '64200', currentStatus: 'IN_TRANSIT_TO',
+  } }] };
+  let byFile = { 'trip_updates.json': { entity: [entity('5113M18000R16', 'CANCELED')] }, 'trip_updates_LD.json': { entity: [entity('1800012026-11-02', 'CANCELED')] } };
+  const http = { json: async (url) => {
+    const file = url.split('/').pop();
+    return file === 'vehicle_positions_LD.json' ? positions : byFile[file] ?? { entity: [] };
+  } };
+  const sources = createRenfeSources({ http, cache, stations, log });
+  const ld = sources.find((s) => s.id === 'renfe-ld');
+  await ld.fetch();
+  const avisos = avisosOf(sources);
+  let events = (await avisos.fetch()).events;
+  const cancelled = events.filter((e) => e.category === 'cancelacion');
+  assert.equal(cancelled.length, 1, 'una sola');
+  const [md] = cancelled;
+  assert.equal(md.title, 'Media Distancia 18000 cancelado: València-Estació del Nord 06:00 → Moixent', 'la de recorrido más completo');
+  assert.equal(md.trip.line, 'R16');
+  assert.deepEqual(md.trip.alsoIn.map((o) => [o.as, o.feedUrl]), [['Rodalies R16 18000', 'https://gtfsrt.renfe.com/trip_updates.json']]);
+  assert.equal(events.some((e) => e.category === 'sin-datos'), false);
+
+  // Sólo lo cancela Rodalies; en AV/LD/MD, ni su posición ni nada: tampoco es un tren sin datos. La del
+  // feed de AV/LD/MD, que ya no lo publica, se cita en la que sigue (la de Rodalies), con el mismo id.
+  byFile = { 'trip_updates.json': byFile['trip_updates.json'] };
+  await ld.fetch();
+  events = (await avisos.fetch()).events;
+  assert.deepEqual(events.map((e) => [e.category, e.id]), [['cancelacion', md.id]]);
+  assert.equal(events[0].withdrawn, undefined);
+  assert.equal(events[0].trip.feedUrl, 'https://gtfsrt.renfe.com/trip_updates.json');
+  assert.ok(events[0].trip.alsoIn[0].withdrawn);
 });

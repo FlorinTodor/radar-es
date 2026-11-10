@@ -14,6 +14,8 @@
 // que usa el mapa: así el asistente y la web cuentan los mismos trenes parados y en camino.
 import { stationBoard } from '../../../../public/js/station-board.js';
 import { isStationCode, SEVERITY_RANK } from '../../../domain/model.js';
+import { followKind } from '../../../domain/seguir.js';
+import { KEEP_DAYS } from '../../../domain/puntualidad.js';
 
 /** Versiones del protocolo que entiende, de la más nueva a la más antigua. */
 export const PROTOCOL_VERSIONS = ['2026-07-28', '2025-11-25', '2025-06-18', '2025-03-26'];
@@ -170,6 +172,8 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
     origin: v.origin, destination: v.destination, current: v.current, stopped: v.stopped, next: v.next,
     nextEta: v.nextEta, nextInMinutes: v.nextInMinutes, platform: v.platform, delay: v.delay, late: v.late,
     lat: v.lat, lon: v.lon, fixTime: iso(v.fixTime), estimated: v.estimated,
+    // Claves para seguirlo (servicio, línea; ver domain/seguir.js): las mismas en la web y en el bot.
+    follow: v.follow?.length ? v.follow : null,
   });
   // Las descripciones largas se recortan (el texto entero está en `url`) y se dice que se han recortado.
   const described = (d) => ({ description: clip(d, MAX_DESCRIPTION), descriptionTruncated: typeof d === 'string' && d.length > MAX_DESCRIPTION });
@@ -182,7 +186,11 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
     date: t.date, departure: t.departure, arrival: t.arrival, endsAt: t.endsAt, startsAt: t.startsAt, between: t.between,
     skipped: t.skipped?.length ? t.skipped : null, trips: t.trips, reason: t.reason, notice: t.notice ? noticeOut(t.notice) : null,
     lineNotices: t.lineNotices?.length ? t.lineNotices.map(noticeOut) : null,
-    publisher: t.publisher, feed: t.feed, feedUrl: t.feedUrl,
+    publisher: t.publisher, feed: t.feed, feedUrl: t.feedUrl, follow: t.follow?.length ? t.follow : null,
+    // El mismo tren en otro feed del operador (y si ahí ya no lo publica, desde cuándo).
+    alsoPublishedIn: t.alsoIn?.length
+      ? t.alsoIn.map((o) => compact({ feed: o.feed, feedUrl: o.feedUrl, as: o.as, origin: o.origin, destination: o.destination, withdrawnBySource: iso(o.withdrawn) }))
+      : null,
   });
   const eventOut = (e) => compact({
     id: e.id, category: e.category, type: e.type, severity: e.severity, level: e.level, title: e.title,
@@ -402,6 +410,29 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
           datasetUpdated: iso(h.datasetUpdated), datasetValidUntil: h.datasetValidUntil,
         }));
         return { generatedAt: iso(now()), sources, note: NOTE, moreInfo: `${site}/legal#fuentes` };
+      },
+    },
+
+    puntualidad: {
+      title: 'Puntualidad de un servicio o de una línea',
+      ttl: 60_000, // lo de hoy cambia cada minuto
+      description: 'Puntualidad de los últimos días de un servicio (un tren o un autobús concreto que se repite cada día) o de una línea, '
+        + 'de cualquier operador que publique su retraso. De un servicio, cada día: a tiempo, con 5 minutos o más de retraso (su último '
+        + 'retraso conocido, que es el de su llegada) o cancelado, y cuántos de los últimos 10 días en que circuló llegó tarde. De una línea, '
+        + 'cada día: qué parte de las lecturas iba con 5 minutos o más, cuántos servicios acabaron tarde y cuántas cancelaciones hubo. '
+        + 'La clave sale del campo «follow» de buscar_trenes o de incidencias: empieza por «s-» la de un servicio y por «l-» la de una línea.',
+      inputSchema: {
+        type: 'object',
+        properties: { key: { type: 'string', maxLength: 64, description: 'Clave de un servicio («s-renfe-8058») o de una línea («l-renfe-Madrid-C5»).' } },
+        required: ['key'],
+        additionalProperties: false,
+      },
+      run({ key }) {
+        const kind = followKind(key);
+        if (kind !== 'servicio' && kind !== 'linea') throw new ToolError('No es la clave de un servicio («s-…») ni de una línea («l-…»): sale del campo «follow» de buscar_trenes o de incidencias.');
+        const report = query.punctuality?.(key) ?? null;
+        if (!report) throw new ToolError(`Radar España no tiene datos de puntualidad de «${key}»: no se ha visto con su retraso en los últimos ${KEEP_DAYS} días, o su operador no publica el retraso.`);
+        return envelope({ punctuality: report }, [{ source: report.source, operator: report.operator }]);
       },
     },
   };
