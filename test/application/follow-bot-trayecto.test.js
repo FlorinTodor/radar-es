@@ -85,7 +85,9 @@ test('/trayecto con varias estaciones posibles (dos Atocha): una lista, y el bot
   assert.match(pressed.replies[0].text, new RegExp(`^Hecho: te aviso de ${NAME.replace(/[()]/g, '\\$&')}\\.`));
   // Sin orden: «origen > destino franja» es un trayecto, no una búsqueda.
   assert.match(say('Guadalajara > Madrid-Atocha Cercanías 7-8')[0].text, /^Hecho: te aviso de Guadalajara → Madrid-Atocha Cercanías \(07:00-08:00, todos los días\)\./);
-  assert.deepEqual(bot.stats(), { chats: 1, subs: 2 });
+  assert.match(say('/seguir Guadalajara > Madrid-Atocha Cercanías 18-20 L-V')[0].text, /^Hecho: te aviso de Guadalajara → Madrid-Atocha Cercanías \(18:00-20:00/,
+    'con /seguir, también');
+  assert.deepEqual(bot.stats(), { chats: 1, subs: 3 });
 });
 
 test('/trayecto: lo que no se entiende o no se encuentra se explica, sin seguir nada', () => {

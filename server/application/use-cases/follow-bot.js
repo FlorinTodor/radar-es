@@ -510,7 +510,8 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
       note('orden', command === 'start' && (isFollowKey(arg) || /^prov-/.test(arg)) ? 'enlace' : command);
       const run = {
         start: () => start(chatId, arg),
-        seguir: () => search(chatId, arg),
+        // «/seguir Alcalá > Atocha 7-9» es un trayecto.
+        seguir: () => (looksLikeTrayecto(arg) ? trayectoCmd(chatId, arg) : search(chatId, arg)),
         // Texto sin orden: una búsqueda, salvo que sea charla («hola», «gracias», «vale»).
         buscar: () => {
           if (looksLikeTrayecto(arg)) return trayectoCmd(chatId, arg);
