@@ -176,10 +176,12 @@ export function followStatusText(item, status) {
         ? `${fmtNum(total)} ${nouns(mode, total)} circulando${withDelayInfo
           ? ` · ${fmtNum(delayed)} con ${FOLLOW_DELAYED_MIN} min de retraso o más` : ' · su operador no publica retrasos'}`
         : `Ningún ${modeNoun(mode)} circula ahora o su operador no lo publica`;
-      const notices = active.length - cancellations.length;
-      const incidents = [cancellations.length && `${fmtNum(cancellations.length)} ${cancellations.length === 1 ? 'cancelación' : 'cancelaciones'}`,
+      // Los totales del servidor: la lista viene recortada (como mucho 20) y contar sobre ella se quedaba corto.
+      const nCancelled = status.events?.cancellations ?? cancellations.length;
+      const notices = Math.max(0, (status.events?.active ?? active.length) - nCancelled);
+      const incidents = [nCancelled && `${fmtNum(nCancelled)} ${nCancelled === 1 ? 'cancelación' : 'cancelaciones'}`,
         notices && `${fmtNum(notices)} ${notices === 1 ? 'aviso' : 'avisos'}`].filter(Boolean).join(' y ');
-      const sev = cancellations.length ? 'alta' : delayed ? 'media' : 'baja';
+      const sev = nCancelled ? 'alta' : delayed ? 'media' : 'baja';
       return { text: `${moving}${incidents ? ` · ${incidents}` : ''}.`, sev };
     }
     default: return { text: 'Sin datos de su estado.', sev: 'baja' };

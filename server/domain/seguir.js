@@ -196,7 +196,12 @@ export function describeFollow(key, known = {}) {
     const name = kind === line ? line : `${kind} ${line}`;
     return `${name} · ${operator}${scope ? ` (${scope})` : ''}`;
   }
-  if (parsed.number !== undefined) return `${known.service ?? operator} ${known.number ?? known.label ?? parsed.number}`;
+  if (parsed.number !== undefined) {
+    // Con su línea si la tiene y no es el propio producto: «Cercanías C3 20071», «Rodalies R2S 25535», «AVE 05742».
+    const service = known.service ?? operator;
+    const withLine = known.line && known.line !== service && !service.split(' ').includes(known.line) ? `${service} ${known.line}` : service;
+    return `${withLine} ${known.number ?? known.label ?? parsed.number}`;
+  }
   const line = known.line ?? parsed.parts[0];
   const departure = known.departure ?? parsed.departure;
   return [`${line ? `${known.modeLabel ?? 'Línea'} ${line}` : 'Servicio'} · ${operator}`, departure && `el de las ${departure}`,

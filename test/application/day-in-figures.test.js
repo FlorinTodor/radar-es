@@ -64,7 +64,8 @@ test('al arrancar sigue con el registro de hoy (un reinicio no empieza de cero)'
 test('un día pasado: «cargando» mientras se lee y luego su resumen; los KPI y alertas del histórico y la semana anterior', async () => {
   const s = setup('2026-11-10T12:00:00');
   s.rows.set('kpis 2026-11-09', [{ t: at('2026-11-09T08:00:00'), vehicles: 7, byMode: { cercanias: 7 }, delayed: 1, withDelayInfo: 7 }]);
-  s.rows.set('kpis 2026-11-02', [{ t: at('2026-11-02T08:00:00'), vehicles: 9, byMode: { cercanias: 9 } }]);
+  // De la semana anterior, horas suficientes para dibujarla al lado (de 6 a 11).
+  s.rows.set('kpis 2026-11-02', ['06', '07', '08', '09', '10', '11'].map((hh) => ({ t: at(`2026-11-02T${hh}:00:00`), vehicles: 9, byMode: { cercanias: 9 } })));
   s.rows.set('alerts 2026-11-09', [{ id: 'a', event: 'nueva', severity: 'alta', title: 'Tren detenido' }]);
   await s.uc.restore();
   assert.deepEqual(s.uc.summary('2026-11-09'), { date: '2026-11-09', loading: true });

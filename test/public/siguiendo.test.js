@@ -80,7 +80,7 @@ test('qué se puede seguir de cada ficha, para cualquier tipo de vehículo', () 
   const c5 = { mode: 'cercanias', operator: 'Renfe', service: 'Cercanías', line: 'C5', label: '23719', area: 'Móstoles',
     follow: [numberedServiceKey({ operator: 'Renfe', number: '23719' }), lineKey({ operator: 'Renfe', scope: 'Madrid', line: 'C5' })] };
   assert.deepEqual(followOptions(c5).map((o) => [o.key, o.what, o.name]), [
-    ['s-renfe-23719', 'este tren', 'Cercanías 23719'], ['l-renfe-Madrid-C5', 'la línea C5', 'Cercanías C5 · Renfe (Madrid)']]);
+    ['s-renfe-23719', 'este tren', 'Cercanías C5 23719'], ['l-renfe-Madrid-C5', 'la línea C5', 'Cercanías C5 · Renfe (Madrid)']]);
   const bus = { mode: 'bus', operator: 'EMT Málaga', line: '27', label: '661', follow: [BUS_27] };
   assert.deepEqual(followOptions(bus).map((o) => [o.what, o.name, o.mode]), [['la línea 27', 'Autobús 27 · EMT Málaga', 'bus']],
     'un feed sólo con GPS: sólo la línea');
@@ -170,4 +170,11 @@ test('lista de «Siguiendo»: el botón de Telegram de cada cosa y la explicaci�
   const con = followingHtml(items, new Map(), { telegram: (item) => `<a class="tg-mini" data-k="${item.key}">Avisos en Telegram</a>` });
   assert.match(con, /<a class="tg-mini" data-k="l-emtmalaga-27">Avisos en Telegram<\/a>/);
   assert.match(con, /follow-tg-hint/);
+});
+
+test('una línea con muchas cancelaciones: el número de todas (del servidor), no el de la lista recortada', () => {
+  const item = { key: lineKey({ operator: 'Renfe', line: 'Regional' }), kind: 'linea', mode: 'md' };
+  const list = Array.from({ length: 20 }, (_, i) => ({ id: `c${i}`, category: 'cancelacion', type: 'cancelado', title: `Regional ${i}` }));
+  const status = { state: 'ninguno', mode: 'md', vehicles: { total: 0, list: [] }, events: { total: 104, active: 102, cancellations: 92, list } };
+  assert.match(followStatusText(item, status).text, /· 92 cancelaciones y 10 avisos\.$/);
 });

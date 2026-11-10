@@ -74,3 +74,23 @@ test('los módulos compartidos sólo importan otros compartidos (el navegador no
     assert.doesNotMatch(source, /\bimport\s*\(|\bprocess\.|\brequire\(/, `${f} no usa nada sólo de Node`);
   }
 });
+
+test('presupuesto por cliente: uno que pide claves inventadas sin parar no deja sin consultas a los demás', async () => {
+  let t = 1_000_000; // reloj parado: el presupuesto no se rellena durante la prueba
+  const query = { following: (key) => ({ generatedAt: 1, key, kind: 'linea', state: 'no-se-ve', vehicles: { total: 0, list: [] }, events: { total: 0, list: [] } }) };
+  const own = createHttpServer({ query, log: { error() {}, info() {}, warn() {} }, publicDir: '/nonexistent', vendorDirs: {}, now: () => t });
+  await new Promise((resolve) => own.listen(0, '127.0.0.1', resolve));
+  const url = (n) => `http://127.0.0.1:${own.address().port}/api/live/siguiendo?clave=l-inventada-${n}`;
+  try {
+    const statuses = [];
+    for (let n = 0; n < 70; n++) statuses.push((await fetch(url(n), { headers: { 'CF-Connecting-IP': '203.0.113.7' } })).status);
+    assert.equal(statuses.filter((s) => s === 200).length, 60, 'la ráfaga de un cliente: 60 claves nuevas');
+    assert.equal(statuses.at(-1), 503);
+    assert.equal((await fetch(url(0), { headers: { 'CF-Connecting-IP': '203.0.113.7' } })).status, 200, 'lo que ya está en el memo no gasta');
+    assert.equal((await fetch(url(500), { headers: { 'CF-Connecting-IP': '198.51.100.2' } })).status, 200, 'otro cliente sigue pudiendo');
+    t += 1_000;
+    assert.equal((await fetch(url(71), { headers: { 'CF-Connecting-IP': '203.0.113.7' } })).status, 200, 'pasado un segundo, vuelve a tener');
+  } finally {
+    own.close();
+  }
+});

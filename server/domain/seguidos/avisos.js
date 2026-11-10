@@ -4,10 +4,11 @@
 // Vale para cualquier tipo de vehículo: todo sale de las claves `follow` (domain/seguir.js) y del registro de
 // tipos. Puro: sin red, ni reloj, ni disco (la hora llega en `now`).
 import { answersTo, describeFollow, followKind, parseFollowKey, stopCode } from '../seguir.js';
-import { eventInProvince, feltRadiusKm, plainName, provinceById } from '../provincias.js';
+import { eventInProvince, feltRadiusKm, provinceById } from '../provincias.js';
 import { distanceKm } from '../geo.js';
 import { quakeWhen } from '../sismos.js';
 import { modeNoun } from '../modos.js';
+import { cutText } from './texto.js';
 
 /** Retraso (min) a partir del cual se avisa, y cada cuánto más se vuelve a avisar si empeora. */
 export const DELAY_MIN = 15;
@@ -19,8 +20,12 @@ export const SEEN_MAX = 100_000;
 const MAX_FACTS_PER_MESSAGE = 8;
 /** Telegram admite 4.096 caracteres por mensaje: con margen. */
 export const MESSAGE_MAX = 3800;
-/** Una parada de una cancelación es esta estación si se llama igual y está a menos de esto (como en station-board.js). */
-const STATION_KM = 2;
+/** Mensajes, como mucho, de un /estado o un parte (cada cosa seguida, entera, en uno de ellos): con 20 cosas y sus
+ * atribuciones caben casi siempre; si no, se dice cuántas faltan. */
+export const MAX_MESSAGES = 6;
+/** Una parada de una cancelación es esta estación si se llama igual y está a menos de esto (como en la ficha de
+ * la estación de la web, public/js/station-board.js: así el bot y la web cuentan lo mismo). */
+const STATION_KM = 3;
 
 /** La suscripción a una provincia, en el mismo espacio que las claves `follow` (que nunca empiezan así). */
 export const provinceSub = (id) => `prov:${id}`;
@@ -35,10 +40,7 @@ export const madridHourMinute = (ms) => MADRID_TIME.format(ms);
 /** «AAAA-MM-DD» de un instante en hora de Madrid. */
 export const madridDay = (ms) => MADRID_DAY.format(ms);
 
-const clip = (s, n) => {
-  const t = String(s ?? '').replace(/\s+/g, ' ').trim();
-  return t.length > n ? `${t.slice(0, n - 1).trimEnd()}…` : t;
-};
+const clip = (s, n) => cutText(String(s ?? '').replace(/\s+/g, ' ').trim(), n);
 
 /**
  * @typedef {object} Fact
@@ -48,12 +50,62 @@ const clip = (s, n) => {
  * @property {string|null} credit  Atribución de su fuente.
  */
 
+/** Un nombre de parada para compararlo, como en la ficha de la estación de la web: sin tildes, mayúsculas ni espacios dobles. */
+const plainStop = (s) => String(s ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
+const isTripEvent = (e) => e?.category === 'cancelacion' || e?.category === 'sin-datos';
+const nearStation = (s, station) => !Number.isFinite(s.lat) || !Number.isFinite(station.lat)
+  || distanceKm(station.lat, station.lon, s.lat, s.lon) <= STATION_KM;
+
 /** ¿Pasa esta cancelación (o tren sin datos) por esta estación? Su parada allí, o null. */
 export function stopAt(e, station) {
   if (!station?.name) return null;
-  const name = plainName(station.name);
-  return (e.trip?.stops ?? []).find((s) => plainName(s.name) === name
-    && (!Number.isFinite(s.lat) || !Number.isFinite(station.lat) || distanceKm(station.lat, station.lon, s.lat, s.lon) <= STATION_KM)) ?? null;
+  const name = plainStop(station.name);
+  return (e.trip?.stops ?? []).find((s) => plainStop(s.name) === name && nearStation(s, station)) ?? null;
+}
+
+// Las paradas de los viajes cancelados y sin datos, por su nombre, una vez por lista de sucesos (la de una
+// ronda): con cientos de estaciones seguidas, recorrer todos los viajes y normalizar cada parada para cada una
+// costaba segundos en cada ronda. Se rehace si la lista cambia de tamaño (alguien la ha cambiado). Los nombres
+// ya normalizados se guardan con cada suceso mientras viva (cada lista nueva trae los mismos objetos).
+const TRIP_STOPS = new WeakMap();
+const STOP_NAMES = new WeakMap();
+const stopNamesOf = (e) => {
+  let names = STOP_NAMES.get(e);
+  if (!names) STOP_NAMES.set(e, (names = (e.trip?.stops ?? []).map((stop) => [plainStop(stop.name), stop])));
+  return names;
+};
+function tripStopIndex(events) {
+  const cached = TRIP_STOPS.get(events);
+  if (cached?.size === events.length) return cached.index;
+  const index = new Map(); // nombre → [{ e, stop }], en el orden de los sucesos y de sus paradas
+  for (const e of events) {
+    if (!isTripEvent(e)) continue;
+    for (const [name, stop] of stopNamesOf(e)) {
+      if (!name) continue;
+      let list = index.get(name);
+      if (!list) index.set(name, (list = []));
+      list.push({ e, stop });
+    }
+  }
+  TRIP_STOPS.set(events, { size: events.length, index });
+  return index;
+}
+
+/**
+ * Las cancelaciones y trenes sin datos que pasan por una estación, con su parada allí (la primera que encaja,
+ * como stopAt), en el orden de los sucesos. Una búsqueda en el índice de la ronda, no un recorrido de todos.
+ * @returns {Array<{ e: object, here: object }>}
+ */
+export function tripsAt(events, station) {
+  if (!station?.name || !Array.isArray(events)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const { e, stop } of tripStopIndex(events).get(plainStop(station.name)) ?? []) {
+    if (seen.has(e) || !nearStation(stop, station)) continue;
+    seen.add(e);
+    out.push({ e, here: stop });
+  }
+  return out;
 }
 
 function tripFact(e, credit, here = null) {
@@ -75,16 +127,23 @@ export function vehicleName(v, key) {
   return describeFollow(key, { operator: v.operator, line: v.line ?? undefined, origin: v.origin ?? undefined, modeLabel: noun[0].toUpperCase() + noun.slice(1) });
 }
 
-function delayFact(v, key, delayMin, creditOf) {
+/**
+ * El retraso de un vehículo: un hecho por su escalón (cada DELAY_STEP desde `delayMin`) y, callados (`silent`), los
+ * escalones de debajo. Los callados no se avisan, pero cuentan como vistos: si el retraso baja a uno de ellos no es
+ * nuevo (se avisa cuando empeora, no cuando mejora; quien empieza a seguir un tren que ya va con 50 min no recibe
+ * «va con 20 min» cuando recupera).
+ */
+function delayFacts(v, key, delayMin, creditOf) {
   const level = Math.floor((v.delay - delayMin) / DELAY_STEP);
   const route = v.origin && v.destination ? ` (de ${v.origin} a ${v.destination})` : v.destination ? ` (hacia ${v.destination})` : '';
   const next = v.next ? ` Próxima parada: ${v.next}.` : '';
-  return {
+  const fact = {
     id: `${v.id}|retraso|${level}`,
     kind: 'retraso',
     text: `${vehicleName(v, key)} va con ${v.delay} min de retraso${route}.${next}`,
     credit: creditOf(v.source, v.operator) ?? null,
   };
+  return [fact, ...Array.from({ length: level }, (_, l) => ({ ...fact, id: `${v.id}|retraso|${l}`, silent: true }))];
 }
 
 function zoneFact(e, p, creditOf) {
@@ -107,7 +166,8 @@ function zoneFact(e, p, creditOf) {
 /**
  * Lo que pasa ahora con cada cosa seguida.
  * - Servicio: sus cancelaciones o paradas suprimidas, si su operador deja de publicarlo («sin datos») y su
- *   retraso desde `delayMin` (un hecho por escalón de DELAY_STEP: se vuelve a avisar si empeora).
+ *   retraso desde `delayMin` (un hecho por escalón de DELAY_STEP: se vuelve a avisar si empeora; los escalones de
+ *   debajo van callados, `silent`, para no avisar si mejora).
  * - Línea: sus cancelaciones y paradas suprimidas, y los avisos de su operador que la nombran (`follow` del aviso).
  * - Parada: las cancelaciones y trenes sin datos que pasaban por ella.
  * - Provincia: avisos naranja y rojo de AEMET, terremotos que pueden sentirse y avisos oficiales (eventInProvince).
@@ -145,17 +205,15 @@ export function collectFacts({ keys, provinces = [], vehicles = [], events = [],
     }
     for (const v of vehicles) {
       if (!Array.isArray(v.follow) || !(v.delay >= delayMin)) continue;
-      for (const key of v.follow) if (wanted.has(key) && followKind(key) === 'servicio') add(key, delayFact(v, key, delayMin, creditOf));
+      for (const key of v.follow) {
+        if (wanted.has(key) && followKind(key) === 'servicio') for (const f of delayFacts(v, key, delayMin, creditOf)) add(key, f);
+      }
     }
     for (const key of wanted) {
       if (followKind(key) !== 'parada') continue;
       const station = stationOf(stopCode(key));
       if (!station) continue;
-      for (const e of live) {
-        if (e.category !== 'cancelacion' && e.category !== 'sin-datos') continue;
-        const here = stopAt(e, station);
-        if (here) add(key, tripFact(e, credited(e, creditOf), here));
-      }
+      for (const { e, here } of tripsAt(events, station)) if (!e.withdrawn) add(key, tripFact(e, credited(e, creditOf), here));
     }
   }
   for (const id of provinces) {
@@ -188,9 +246,9 @@ export function trackFacts(seen, factsBySub, now, { forgetMs = FACT_FORGET_MS, m
   return next;
 }
 
-/** Los hechos de una suscripción que han salido después de la última vez que se le avisó (`checkedAt`). */
+/** Los hechos de una suscripción que han salido después de la última vez que se le avisó (`checkedAt`); los callados, nunca. */
 export function newFacts(sub, facts, seen, checkedAt) {
-  return (facts ?? []).filter((f) => (seen.get(`${sub}|${f.id}`)?.first ?? -Infinity) > checkedAt);
+  return (facts ?? []).filter((f) => !f.silent && (seen.get(`${sub}|${f.id}`)?.first ?? -Infinity) > checkedAt);
 }
 
 /**
@@ -214,8 +272,43 @@ export function factsMessage(title, facts, { webUrl }) {
   return fitMessage(text);
 }
 
-/** Un mensaje que no pase del tope de Telegram (con sus saltos de línea). */
-export const fitMessage = (text) => (text.length > MESSAGE_MAX ? `${text.slice(0, MESSAGE_MAX - 1).trimEnd()}…` : text);
+/** Un mensaje que no pase del tope de Telegram (con sus saltos de línea), sin partir un carácter. */
+export const fitMessage = (text, max = MESSAGE_MAX) => cutText(text, max);
+
+/**
+ * Bloques enteros (lo de cada cosa seguida) repartidos en mensajes que no pasan de `max`, en vez de un mensaje
+ * recortado a media frase. Un bloque que por sí solo no cabe se recorta. Como mucho `maxMessages`: de lo que no
+ * quepa se dice cuántos son (`more`). `footer` (la web) va al final del último.
+ * @param {string[]} blocks
+ * @param {{ footer?: string|null, max?: number, maxMessages?: number, more?: (n: number) => string }} [opts]
+ * @returns {string[]}
+ */
+export function packBlocks(blocks, { footer = null, max = MESSAGE_MAX, maxMessages = MAX_MESSAGES, more = (n) => `…y ${n} más que no caben aquí.` } = {}) {
+  const SEP = '\n\n';
+  const size = (list) => list.reduce((n, b, i) => n + b.length + (i ? SEP.length : 0), 0);
+  const messages = [[]];
+  for (const block of blocks.map((b) => fitMessage(b, max))) {
+    const last = messages.at(-1);
+    if (last.length && size(last) + SEP.length + block.length > max) messages.push([block]);
+    else last.push(block);
+  }
+  const shown = messages.slice(0, maxMessages);
+  let left = blocks.length - shown.reduce((n, m) => n + m.length, 0);
+  const tail = () => [left ? more(left) : null, footer].filter(Boolean);
+  const fits = (list) => size([...list, ...tail()]) <= max;
+  if (!fits(shown.at(-1))) {
+    if (shown.length < maxMessages) shown.push([]);
+    else {
+      const last = shown.at(-1);
+      while (last.length && !fits(last)) {
+        last.pop();
+        left++;
+      }
+    }
+  }
+  shown.at(-1).push(...tail());
+  return shown.map((m) => fitMessage(m.join(SEP), max)).filter(Boolean);
+}
 
 /**
  * Cómo está ahora lo que se sigue, en unas líneas (para /estado, al suscribirse y en el parte diario).
@@ -284,15 +377,25 @@ export function statusOf(sub, { vehicles = [], events = [], now, stationOf = () 
   } else if (kind === 'parada') {
     const station = stationOf(stopCode(sub));
     if (!station) return { lines: ['Esa estación no la encuentro ahora en el catálogo del radar.'], credits: [] };
-    const passing = events.filter((e) => (e.category === 'cancelacion' || e.category === 'sin-datos') && stopAt(e, station));
-    if (!passing.length) lines.push(`Hoy no hay cancelaciones ni trenes sin datos que pasen por ${station.name}.`);
-    else lines.push(`Pasaban hoy por ${station.name} y están cancelados, con paradas suprimidas o sin datos: ${passing.length}.`);
-    for (const e of passing.slice(0, 5)) {
-      const here = stopAt(e, station);
-      lines.push(`- ${e.title}${here?.time ? ` (aquí a las ${here.time})` : ''}`);
+    // Como la ficha de la estación en la web: las vigentes por su hora allí; las que su operador ya no publica
+    // (retiradas: puede que al final circulen), aparte y sin contarlas como canceladas.
+    const passing = tripsAt(events, station);
+    const live = passing.filter(({ e }) => !e.withdrawn).sort((a, b) => (a.here.time ?? '99').localeCompare(b.here.time ?? '99'));
+    const gone = passing.length - live.length;
+    const cancelled = live.filter(({ e }) => e.category === 'cancelacion').length;
+    const missing = live.length - cancelled;
+    if (!live.length) lines.push(`Hoy no hay cancelaciones en vigor ni servicios sin datos que pasen por ${station.name}.`);
+    else if (!cancelled) lines.push(`Pasaban hoy por ${station.name} y su operador no publica nada de ellos (sin datos): ${missing}.`);
+    else lines.push(`Pasaban hoy por ${station.name} y están cancelados o con paradas suprimidas: ${cancelled}${missing ? `; sin datos: ${missing}` : ''}.`);
+    for (const { e, here } of live.slice(0, 5)) {
+      lines.push(`- ${e.title}${here.time ? ` (aquí a las ${here.time})` : ''}`);
       credit(credited(e, creditOf));
     }
-    if (passing.length > 5) lines.push(`…y ${passing.length - 5} más.`);
+    if (live.length > 5) lines.push(`…y ${live.length - 5} más.`);
+    if (gone) {
+      lines.push(gone === 1 ? 'Además, 1 que se había cancelado y su operador ya no publica: puede que al final circule.'
+        : `Además, ${gone} que se habían cancelado y su operador ya no publica: puede que al final circulen.`);
+    }
   }
   return { lines, credits: [...credits] };
 }

@@ -168,7 +168,13 @@ function flush() {
   if (parts.has('events')) {
     const events = allEvents();
     map.setEvents(events);
-    document.getElementById('b-events').textContent = P.filterEvents(events, prefs).length;
+    // El número de la pestaña, sin las que su fuente ya no publica (se ven desvaídas hasta medianoche): con ellas,
+    // un día de huelga parecía el doble. Cuántas son, al pasar por encima.
+    const shownEvents = P.filterEvents(events, prefs);
+    const gone = shownEvents.filter((e) => e.withdrawn).length;
+    const badge = document.getElementById('b-events');
+    badge.textContent = shownEvents.length - gone;
+    badge.title = gone ? `Y ${gone} que su fuente ya no publica (se ven desvaídas hasta medianoche)` : '';
     if (state.tab === 'events') P.renderEvents(document.getElementById('events-list'), P.filterEvents(events, prefs), selection('event'));
   }
   if (parts.has('alerts')) {
@@ -494,12 +500,13 @@ document.querySelector('.tabs').addEventListener('click', (ev) => {
   const btn = ev.target.closest('[data-tab]');
   if (!btn) return;
   showTab(btn.dataset.tab);
-  if (mobile.matches && sidebar.dataset.sheet === 'peek') setSheet('half');
+  if (mobile.matches && (sidebar.dataset.sheet === 'peek' || sidebar.dataset.sheet === 'hidden')) setSheet('half');
 });
 
 // ---------- Móvil: el panel es una hoja que sube desde abajo ----------
-// Tres alturas: sólo las pestañas, media pantalla y pantalla completa. Se cambia tocando el asa
-// o una pestaña, o arrastrando el asa; en el escritorio no hace nada (el CSS la ignora).
+// Cuatro alturas: oculto (sólo «Mostrar el panel», para ver el mapa entero), sólo las pestañas, media
+// pantalla y pantalla completa. Se cambia tocando el asa, «Ocultar» o una pestaña, o arrastrando el asa;
+// en el escritorio no hace nada (el CSS lo ignora).
 const mobile = window.matchMedia('(max-width: 860px)');
 const sidebar = document.querySelector('.sidebar');
 const sheetHandle = document.getElementById('sheet-handle');
@@ -507,10 +514,14 @@ const SHEET_HALF = 0.55; // fracción de la zona bajo la barra superior; igual q
 
 function setSheet(stop) {
   sidebar.dataset.sheet = stop;
-  sheetHandle.setAttribute('aria-expanded', String(stop !== 'peek'));
-  sheetHandle.setAttribute('aria-label', stop === 'peek' ? 'Abrir el panel' : 'Bajar el panel');
+  sidebar.parentElement.classList.toggle('sheet-hidden', stop === 'hidden');
+  sheetHandle.setAttribute('aria-expanded', String(stop !== 'peek' && stop !== 'hidden'));
+  sheetHandle.setAttribute('aria-label', stop === 'hidden' ? 'Mostrar el panel' : stop === 'peek' ? 'Abrir el panel' : 'Bajar el panel');
 }
 setSheet('peek');
+document.getElementById('sheet-hide').addEventListener('click', () => setSheet('hidden'));
+// Las alturas fijas, del CSS (no del min-height de la hoja, que cambia con el estado).
+const cssPx = (name) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || 0;
 
 let sheetDrag = null;
 let sheetDragEnd = 0;
@@ -534,7 +545,7 @@ const endSheetDrag = () => {
   if (!moved) return; // ha sido un toque: lo resuelve el evento click
   const h = sidebar.offsetHeight;
   const max = sidebar.parentElement.clientHeight;
-  const stops = { peek: parseFloat(getComputedStyle(sidebar).minHeight) || 0, half: max * SHEET_HALF, full: max };
+  const stops = { hidden: cssPx('--sheet-min'), peek: cssPx('--peek'), half: max * SHEET_HALF, full: max };
   const nearest = Object.keys(stops).reduce((a, b) => (Math.abs(stops[b] - h) < Math.abs(stops[a] - h) ? b : a));
   sidebar.classList.remove('dragging');
   sidebar.style.height = '';
@@ -545,7 +556,8 @@ sheetHandle.addEventListener('pointerup', endSheetDrag);
 sheetHandle.addEventListener('pointercancel', endSheetDrag);
 sheetHandle.addEventListener('click', () => {
   if (Date.now() - sheetDragEnd < 400) return; // el click que sigue a soltar un arrastre
-  setSheet(sidebar.dataset.sheet === 'peek' ? 'half' : 'peek');
+  const now = sidebar.dataset.sheet;
+  setSheet(now === 'hidden' ? 'peek' : now === 'peek' ? 'half' : 'peek');
 });
 // Al escribir en un buscador el teclado tapa media pantalla: se sube la hoja entera.
 for (const id of ['vehicle-search', 'station-search']) {
@@ -681,9 +693,30 @@ function renderFollowing() {
   });
 }
 
-async function refreshFollowing({ force = false } = {}) {
+// Una consulta a la vez (al cargar, abrir la pestaña y el arranque la pedían dos veces): si llega otra forzada
+// mientras tanto (se acaba de seguir algo), se repite al terminar.
+let followingBusy = null;
+let followingAgain = false;
+const FOLLOW_MIN_MS = 15_000; // entrar y salir de la pestaña no lo vuelve a pedir todo cada vez
+
+function refreshFollowing({ force = false } = {}) {
+  if (followingBusy) {
+    if (force) followingAgain = true;
+    return followingBusy;
+  }
   if (document.hidden && !force) return;
-  if (!force && state.tab !== 'following' && Date.now() - state.followingAt < FOLLOW_IDLE_MS) return;
+  if (!force && Date.now() - state.followingAt < (state.tab === 'following' ? FOLLOW_MIN_MS : FOLLOW_IDLE_MS)) return;
+  followingBusy = fetchFollowing().finally(() => {
+    followingBusy = null;
+    if (followingAgain) {
+      followingAgain = false;
+      refreshFollowing({ force: true });
+    }
+  });
+  return followingBusy;
+}
+
+async function fetchFollowing() {
   state.followingAt = Date.now();
   const keys = S.follows.list().filter((i) => i.kind !== 'parada').map((i) => i.key);
   for (const key of [...state.following.keys()]) if (!keys.includes(key)) state.following.delete(key);
@@ -716,6 +749,11 @@ function setFollowed(item, on) {
     b.setAttribute('aria-pressed', String(now));
     b.innerHTML = S.followButtonText(b.dataset.followWhat, now);
     b.title = on && !now && S.follows.full ? `Ya sigues ${S.FOLLOW_MAX} cosas: deja de seguir alguna para añadir otra` : b.dataset.followName;
+    // En el móvil no hay `title`: el aviso del tope, también escrito debajo de los botones.
+    const group = b.closest('.follow');
+    if (group && on && !now && S.follows.full && !group.querySelector('.follow-full')) {
+      group.insertAdjacentHTML('beforeend', `<p class="follow-full" role="status">Ya sigues ${S.FOLLOW_MAX} cosas: deja de seguir alguna en «★ Siguiendo» para añadir otra.</p>`);
+    }
   }
   if (!now) state.following.delete(item.key);
   render('following');

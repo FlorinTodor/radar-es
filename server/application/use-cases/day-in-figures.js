@@ -126,6 +126,9 @@ export function makeDayInFigures({ situation, history, store, clock, log, keepDa
      * { date, loading: true } si es un día pasado que aún se está leyendo.
      * @param {string|null} [day]
      */
+    /** El día de hoy en Madrid («AAAA-MM-DD»): pedido con su fecha, hoy es hoy (se renueva, no se guarda como cerrado). */
+    today: () => madridDay(clock.now()),
+
     summary(day = null) {
       const now = clock.now();
       const today = madridDay(now);

@@ -17,13 +17,19 @@ const RETRY_MS = 2000;
 const SEVERITY = { 'muy alta': 'Muy alta', alta: 'Alta', media: 'Media', baja: 'Baja' };
 
 let data = null;
+// Hoy en Madrid, «AAAA-MM-DD»: la lista de días de un día pasado puede ser de antes de medianoche.
+const TODAY_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit' });
+const madridToday = () => TODAY_FMT.format(new Date());
 let timer = null;
 let asked = null; // el día que se ha pedido (null: hoy)
 
+// La fecha de la URL tal cual si tiene forma AAAA-MM-DD (aunque no exista: se dice); si no, hoy.
 const dayParam = () => {
   const d = new URLSearchParams(location.search).get('dia');
   return /^\d{4}-\d{2}-\d{2}$/.test(d ?? '') ? d : null;
 };
+/** ¿Existe esa fecha? (el 30 de febrero, no: `new Date` lo pasaría al 2 de marzo) */
+const realDay = (d) => { const t = new Date(`${d}T12:00:00Z`); return !Number.isNaN(t.getTime()) && t.toISOString().slice(0, 10) === d; };
 
 async function load(day, { quiet = false } = {}) {
   clearTimeout(timer);
@@ -38,8 +44,11 @@ async function load(day, { quiet = false } = {}) {
     }
     if (res.status === 404 || res.status === 400) {
       data = null;
-      el.innerHTML = `<p class="muted">No hay datos de ${day ? esc(dayTitle(day)) : 'hoy todavía'}. El radar guarda los últimos 90 días.</p>`;
+      el.innerHTML = day && !realDay(day)
+        ? `<p class="muted">La fecha ${esc(day)} no existe.</p>`
+        : `<p class="muted">No hay datos de ${day ? esc(dayTitle(day)) : 'hoy todavía'}. El radar guarda los últimos 90 días.</p>`;
       el.setAttribute('aria-busy', 'false');
+      navWithout(day);
       return;
     }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -57,7 +66,7 @@ async function load(day, { quiet = false } = {}) {
 
 function go(day) {
   const url = new URL(location.href);
-  if (day && day !== data?.days?.[0]) url.searchParams.set('dia', day);
+  if (day && day !== madridToday()) url.searchParams.set('dia', day);
   else url.searchParams.delete('dia');
   history.pushState(null, '', url);
   load(dayParam());
@@ -68,11 +77,32 @@ next.addEventListener('click', () => data?.next && go(data.next));
 select.addEventListener('change', () => go(select.value));
 addEventListener('popstate', () => load(dayParam()));
 
+/** Sin datos del día pedido: «Volver a hoy» y la lista de días que sí hay (la de hoy), para no quedarse sin salida. */
+async function navWithout(day) {
+  todayLink.hidden = !day;
+  try {
+    const res = await fetch('/api/dia');
+    if (!res.ok || asked !== day) return;
+    const days = (await res.json()).days ?? [];
+    if (asked !== day) return;
+    const before = days.find((d) => d < day) ?? null;           // los días van del más reciente al más antiguo
+    const after = [...days].reverse().find((d) => d > day) ?? null;
+    prev.disabled = !before;
+    next.disabled = !after;
+    prev.onclick = before ? () => go(before) : null;
+    next.onclick = after ? () => go(after) : null;
+    select.disabled = !days.length;
+    select.innerHTML = `<option value="" selected disabled>Elige un día</option>${days.map((d) => `<option value="${esc(d)}">${esc(dayShort(d))}${d === madridToday() ? ' (hoy)' : ''}</option>`).join('')}`;
+  } catch { /* sin lista de días: queda «Volver a hoy» */ }
+}
+
 function renderNav() {
+  prev.onclick = null;
+  next.onclick = null;
   prev.disabled = !data.prev;
   next.disabled = !data.next;
   select.disabled = !data.days.length;
-  select.innerHTML = data.days.map((d, i) => `<option value="${esc(d)}"${d === data.date ? ' selected' : ''}>${esc(dayShort(d))}${i === 0 ? ' (hoy)' : ''}</option>`).join('');
+  select.innerHTML = data.days.map((d) => `<option value="${esc(d)}"${d === data.date ? ' selected' : ''}>${esc(dayShort(d))}${d === madridToday() ? ' (hoy)' : ''}</option>`).join('');
   todayLink.hidden = data.today;
 }
 
@@ -118,7 +148,7 @@ function delaySection(d) {
   if (!d.delay.hourly.some(Number.isFinite)) return '';
   const rows = d.vehicles.modes.filter((m) => m.delay);
   return `<h2>Retraso</h2>
-    <div class="dia-grid one">${chartCard('delay', 'Con 5 min o más de retraso, por horas', 'Porcentaje de los vehículos que publican su retraso')}</div>
+    <div class="dia-grid one">${chartCard('delay', 'Con 5 min o más de retraso, por horas', 'Porcentaje de los vehículos que publican su retraso. Sin barra, las horas con muy pocos (menos de 5 de media): con tan pocos, el porcentaje no dice nada')}</div>
     ${rows.length ? `<ul class="dia-list">${rows.map((m) => `<li><strong>${esc(m.label)}</strong>: ${fmt(m.delay.lateShare)} % con 5 min o más${medianPhrase(m.delay.median) ? `; ${esc(medianPhrase(m.delay.median))}` : ''}</li>`).join('')}</ul>` : ''}`;
 }
 
@@ -147,8 +177,8 @@ function alertsSection(d) {
   const a = d.alerts;
   if (!a?.total) return '';
   return `<h2>Alertas del radar</h2>
-    <p class="muted">${fmt(a.total)} alertas (trenes detenidos, saltos de retraso, fuentes caídas, avisos…). Las de más gravedad:</p>
-    <ul class="dia-list">${a.top.map((x) => `<li><span class="pill-sev">${esc(SEVERITY[x.severity] ?? x.severity ?? '')}</span> ${esc(x.title)}${x.since ? ` <span class="muted">· ${esc(fmtTime(x.since))}</span>` : ''}</li>`).join('')}</ul>`;
+    <p class="muted">${fmt(a.total)} alertas (trenes detenidos, saltos de retraso, fuentes caídas, avisos…)${Number.isFinite(a.situations) && a.situations < a.total ? `, de ${fmt(a.situations)} situaciones distintas: una misma situación se cuenta cada vez que vuelve a abrirse` : ''}. Las de más gravedad:</p>
+    <ul class="dia-list">${a.top.map((x) => `<li><span class="pill-sev">${esc(SEVERITY[x.severity] ?? x.severity ?? '')}</span> ${esc(x.title)}${x.since ? ` <span class="muted">· ${x.times > 1 ? 'desde las ' : ''}${esc(fmtTime(x.since))}</span>` : ''}${x.times > 1 ? ` <span class="muted">· ${fmt(x.times)} veces</span>` : ''}</li>`).join('')}</ul>`;
 }
 
 function emergenciesSection(d) {

@@ -24,6 +24,12 @@ const MAX_TEXT = 200;
 const TOP_LINES = 10;
 const TOP_OPERATORS = 8;
 const TOP_ALERTS = 8;
+// Una hora en la que, de media, menos vehículos que éstos dieron su retraso no tiene porcentaje: con tres o cuatro
+// trenes de madrugada, uno solo cambia el resultado de 25 en 25 puntos y una barra al 100 % engaña.
+export const MIN_LATE_SAMPLE = 5;
+// La semana anterior se dibuja al lado sólo si de ese día hay al menos estas horas: con una o dos, en la gráfica
+// queda una raya gris suelta que parece un error.
+const MIN_COMPARE_HOURS = 6;
 const TOP_EMERGENCIES = 6;
 
 // ---------- Días y horas de Madrid ----------
@@ -424,8 +430,16 @@ function alertsOf(rows) {
   }
   const list = [...opened.values()];
   const bySeverity = Object.fromEntries(['muy alta', 'alta', 'media', 'baja'].map((s) => [s, list.filter((a) => a.severity === s).length]).filter(([, n]) => n));
-  const top = list.sort((a, b) => b.rank - a.rank || (a.since ?? 0) - (b.since ?? 0)).slice(0, TOP_ALERTS).map(({ title, severity, since }) => ({ title, severity, since }));
-  return { total: list.length, bySeverity, top };
+  // Una misma situación (mismo título) que se abre y se cierra varias veces sale una vez, con cuántas: si no, las
+  // más graves serían ocho veces el mismo tren detenido.
+  const same = new Map();
+  for (const a of list.sort((x, y) => y.rank - x.rank || (x.since ?? 0) - (y.since ?? 0))) {
+    const prev = same.get(a.title);
+    if (prev) prev.times++;
+    else same.set(a.title, { title: a.title, severity: a.severity, since: a.since, times: 1 });
+  }
+  const top = [...same.values()].slice(0, TOP_ALERTS);
+  return { total: list.length, situations: same.size, bySeverity, top };
 }
 
 function emergenciesOf(entries) {
@@ -514,7 +528,7 @@ export function summarizeDay({ date, now, today, record, kpiRows = [], alertRows
     return {
       id, label: info?.label ?? id, noun: info?.noun ?? 'vehículo', nounPlural: info?.nounPlural ?? 'vehículos', family: info?.family ?? 'otros',
       max, hourly: series(hours, id, 'avg'),
-      compare: compareHours.size ? series(compareHours, id, 'avg') : null,
+      compare: compareHours.size >= MIN_COMPARE_HOURS ? series(compareHours, id, 'avg') : null,
       delay: withDelay ? { lateShare: share(delayed, withDelay), median: medianDelay(ownDelays) } : null,
     };
   });
@@ -528,7 +542,7 @@ export function summarizeDay({ date, now, today, record, kpiRows = [], alertRows
     const x = hours.get(h);
     if (!x || h > lastHour) return null;
     const d = hourDelay(x);
-    return d.withDelay ? share(d.delayed, d.withDelay) : null;
+    return d.withDelay && d.withDelay / Math.max(1, x.n) >= MIN_LATE_SAMPLE ? share(d.delayed, d.withDelay) : null;
   });
   const dayDelay = [...hours.values()].reduce((a, x) => {
     const d = hourDelay(x);
@@ -556,7 +570,7 @@ export function summarizeDay({ date, now, today, record, kpiRows = [], alertRows
     vehicles: {
       peak: record?.peak ?? peakFromKpis(kpiRows),
       modes: vehicleModes,
-      compareDate: compare?.date ?? null,
+      compareDate: compareHours.size >= MIN_COMPARE_HOURS ? compare?.date ?? null : null,
     },
     delay: {
       lateMin: LATE_MIN,

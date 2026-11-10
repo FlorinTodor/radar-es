@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { isStationCode } from '../../../domain/model.js';
 import { followKind, isFollowKey } from '../../../domain/seguir.js';
+import { isDay } from '../../../domain/dia.js';
 import { McpBusy, PROTOCOL_VERSIONS, RPC, idOf, isModernVersion, versionOf } from '../mcp/mcp.js';
 
 const MIME = {
@@ -59,6 +60,10 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     '/api/live/siguiendo': {
       fn: (p) => query.following(p.get('clave')), key: (p) => p.get('clave'), ttl: 10_000, cache: liveCache(15), stableEtag: true,
       own: { max: 2_000, maxBytes: 8 * 1024 * 1024, perSecond: 50, burst: 100 },
+      // Y por cliente: las claves inventadas son válidas y no las guarda Cloudflare (cada URL es otra), así que
+      // uno solo podría gastar el de todos y echar del memo lo que siguen los demás. Lo que ya está en el memo
+      // no gasta nada; la ráfaga deja cargar de una vez todo lo que sigue una persona.
+      perClient: { perSecond: 5, burst: 60 },
     },
     // Catálogos: cambian unas pocas veces al día.
     // Vacíos mientras el servidor los carga al arrancar: entonces no se guardan (ver isEmpty).
@@ -119,6 +124,17 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
   // Y otro por cliente, para que uno solo no gaste el de todos. Se guardan los de los últimos
   // MCP_CLIENTS_MAX clientes: si alguien llena la lista con direcciones nuevas, sigue el de todos.
   const mcpClients = new Map();
+  // Presupuestos por cliente de las rutas con `perClient` (los de los últimos MCP_CLIENTS_MAX clientes de cada una).
+  const routeClients = new Map();
+  const routeClientBudget = (path, { perSecond, burst }, ip) => {
+    let clients = routeClients.get(path);
+    if (!clients) routeClients.set(path, (clients = new Map()));
+    const budget = clients.get(ip) ?? createBudget({ perSecond, burst, now });
+    clients.delete(ip);
+    clients.set(ip, budget);
+    if (clients.size > MCP_CLIENTS_MAX) clients.delete(clients.keys().next().value);
+    return budget;
+  };
   const clientBudget = (ip) => {
     const budget = mcpClients.get(ip) ?? createBudget({ perSecond: MCP_CLIENT_BUDGET.perSecond, burst: MCP_CLIENT_BUDGET.burst, now });
     mcpClients.delete(ip);
@@ -194,7 +210,8 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
       }
       if (days && (url.pathname === '/api/dia' || url.pathname.startsWith('/api/dia/'))) {
         const date = url.pathname === '/api/dia' ? null : decodeOrNull(url.pathname.slice('/api/dia/'.length));
-        if (date !== null && !DAY_PATH.test(date)) return send(res, 400, { error: 'Fecha inválida: AAAA-MM-DD' });
+        // Con forma de fecha y que exista: el 30 de febrero o el mes 13 también son inválidos (400), no «sin datos».
+        if (date !== null && !isDay(date)) return send(res, 400, { error: 'Fecha inválida: AAAA-MM-DD' });
         return sendDay(req, res, date);
       }
       if (url.pathname.startsWith('/api/tracks/')) {
@@ -235,7 +252,12 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     else if (route.few) entry = memo(`${path}?${route.key(params)}`, route.ttl, () => route.fn(params), route);
     else {
       const compute = () => {
-        if (!budgets.get(path).take()) throw new Busy();
+        const mine = route.perClient ? routeClientBudget(path, route.perClient, clientAddress(req)) : null;
+        if (mine && !mine.take()) throw new Busy();
+        if (!budgets.get(path).take()) {
+          mine?.refund();
+          throw new Busy();
+        }
         return route.fn(params);
       };
       try {
@@ -266,7 +288,10 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
    * pasado se guarda más (ya no cambia). Mientras un día pasado se lee del disco, 503 con Retry-After, sin
    * guardar nada: la página vuelve a pedirlo sola. Sin datos de ese día, 404.
    */
-  function sendDay(req, res, date) {
+  function sendDay(req, res, asked) {
+    // Hoy pedido con su fecha (un enlace compartido) es hoy: se renueva cada minuto y no se guarda como un día
+    // cerrado, ni aquí ni en Cloudflare (un día pasado se guarda horas).
+    const date = asked !== null && asked === days.today?.() ? null : asked;
     const entry = memoDays(date ?? 'hoy', date ? DAY_PAST_TTL_MS : DAY_TODAY_TTL_MS, () => days.summary(date) ?? { missing: true },
       { isEmpty: (b) => b?.loading === true || b?.missing === true });
     if (entry.empty) {
@@ -464,7 +489,6 @@ const CATALOG_CACHE = 'public, max-age=600, s-maxage=3600';
 const PUNCTUALITY_CACHE = 'public, max-age=60, s-maxage=120';
 
 // El día en cifras (sendDay): el de hoy, cada minuto; uno pasado ya no cambia.
-const DAY_PATH = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_TODAY_TTL_MS = 60_000;
 const DAY_PAST_TTL_MS = 3600_000;
 const DAY_PAST_CACHE = 'public, max-age=3600, s-maxage=86400';

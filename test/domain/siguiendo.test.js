@@ -103,3 +103,23 @@ test('acotado: una línea con cientos de vehículos da sólo los primeros; una c
   assert.equal(followStatus('x-nada'), null);
   assert.equal(followStatus(stopKey('71801')).state, 'parada');
 });
+
+test('una línea de tren con un autobús que la sustituye en un tramo (misma clave): se llama y es de tipo tren', () => {
+  const C3 = lineKey({ operator: 'Renfe', scope: 'Valencia', line: 'C3' });
+  const train = (label) => ({ id: `t${label}`, mode: 'cercanias', operator: 'Renfe', service: 'Cercanías', line: 'C3', label, delay: 0, follow: [C3] });
+  const bus = { id: 'b1', mode: 'bus', operator: 'Renfe', service: 'Autobús de Renfe', line: 'C3', label: '9001', delay: null, follow: [C3] };
+  const s = followStatus(C3, { vehicles: [bus, train('35001'), train('35003')], events: [] });
+  assert.equal(s.mode, 'cercanias');
+  assert.equal(s.name, 'Cercanías C3 · Renfe (Valencia)');
+  assert.equal(s.vehicles.total, 3, 'el autobús sigue contando entre los de la línea');
+  assert.equal(followStatus(C3, { vehicles: [bus], events: [] }).mode, 'bus', 'si sólo se ve el autobús, es lo que hay');
+});
+
+test('el número de cancelaciones es el de todas, aunque la lista vaya recortada', () => {
+  const C = lineKey({ operator: 'Renfe', line: 'Regional' });
+  const events = Array.from({ length: FOLLOW_LIST_MAX + 15 }, (_, i) => ({ id: `c${i}`, category: 'cancelacion', type: 'cancelado', title: `Regional ${i}` }));
+  events.push({ id: 'aviso', category: 'ferroviario', title: 'Obras' }, { id: 'vieja', category: 'cancelacion', type: 'cancelado', title: 'Ya no', withdrawn: 1 });
+  const s = followStatus(C, { vehicles: [], events });
+  assert.equal(s.events.list.length, FOLLOW_LIST_MAX);
+  assert.deepEqual([s.events.total, s.events.active, s.events.cancellations], [FOLLOW_LIST_MAX + 17, FOLLOW_LIST_MAX + 16, FOLLOW_LIST_MAX + 15]);
+});
