@@ -9,7 +9,8 @@ import { withCurrentCuts } from '../../domain/emergencias.js';
 import { withoutRepeatedQuakes } from '../../domain/sismos.js';
 import { GRID_METRICS } from '../../domain/alerts/rules.js';
 import { DEFAULT_THRESHOLDS } from '../../domain/alerts/thresholds.js';
-import { stopKey } from '../../domain/seguir.js';
+import { isFollowKey, stopKey } from '../../domain/seguir.js';
+import { followStatus, indexByFollow } from '../../domain/siguiendo.js';
 import { MODES } from '../../domain/modos.js';
 
 // Cálculos por tren que se guardan (recorrido por la vía, ~30 KB cada uno; lo que le queda): el mapa
@@ -17,6 +18,9 @@ import { MODES } from '../../domain/modos.js';
 // cuando el tren da una posición nueva. Caben todos los trenes de cada memo a la vez, con margen: si
 // fueran menos que los que se miran, cada cálculo nuevo echaría otro y el memo se vaciaría en bucle.
 const TRAIN_MEMO_MAX = 1_000;
+// Índice de vehículos e incidencias por clave (domain/siguiendo.js): se rehace como mucho cada tanto, no en
+// cada consulta. Cada cosa seguida se pide por separado (y Cloudflare guarda cada una unos segundos).
+const FOLLOW_INDEX_TTL_MS = 5_000;
 const SWEEP_MIN = 64; // por debajo de esto no se barre: es poca memoria
 
 /**
@@ -187,6 +191,17 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
     });
   };
 
+  let followIndex = null;
+  let followIndexAt = -Infinity;
+  const followed = () => {
+    const now = clock.now();
+    if (!followIndex || now - followIndexAt >= FOLLOW_INDEX_TTL_MS) {
+      followIndex = indexByFollow(situation.vehicles(), currentEvents());
+      followIndexAt = now;
+    }
+    return followIndex;
+  };
+
   return {
     vehicles({ mode, source, minDelay } = {}) {
       return situation.vehicles().filter((v) =>
@@ -305,6 +320,15 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
       };
     },
     liveEvents: () => ({ generatedAt: clock.now(), events: currentEvents() }),
+    /**
+     * Cómo está ahora lo que alguien sigue (un servicio, una línea o una parada de cualquier tipo de vehículo,
+     * ver domain/siguiendo.js): también los autobuses aunque su capa no esté encendida, sin descargarlos
+     * todos. null si la clave no es válida.
+     */
+    following(key) {
+      if (!isFollowKey(key)) return null;
+      return { generatedAt: clock.now(), ...followStatus(key, followed().get(key)) };
+    },
     liveBuses: () => ({ generatedAt: clock.now(), vehicles: withHeading(situation.vehicles().filter((v) => v.mode === 'bus')) }),
 
     snapshot({ buses = true } = {}) {

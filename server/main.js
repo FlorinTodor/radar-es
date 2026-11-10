@@ -26,7 +26,7 @@ import { createJsonlHistory } from './adapters/outbound/persistence/jsonl-histor
 import { createTrackStore } from './adapters/outbound/persistence/track-store.js';
 import { createSources } from './adapters/outbound/sources/index.js';
 import { startPolling } from './adapters/inbound/scheduler/polling-scheduler.js';
-import { createHttpServer } from './adapters/inbound/http/http-server.js';
+import { createHttpServer, sharedDomainFiles } from './adapters/inbound/http/http-server.js';
 import { createMetricsServer } from './adapters/inbound/http/metrics-server.js';
 import { createMcpHandler } from './adapters/inbound/mcp/mcp.js';
 import pkg from '../package.json' with { type: 'json' };
@@ -109,6 +109,8 @@ const server = createHttpServer({
   metrics,
   publicDir: fileURLToPath(new URL('../public/', import.meta.url)).replace(/\/$/, ''),
   vendorDirs: { '/vendor/maplibre/': fileURLToPath(new URL('../node_modules/maplibre-gl/dist/', import.meta.url)).replace(/\/$/, '') },
+  // Las claves, el registro de tipos y el estado de lo que se sigue: el navegador usa los mismos módulos.
+  sharedFiles: sharedDomainFiles(fileURLToPath(new URL('./domain/', import.meta.url))),
 });
 
 server.listen(config.port, config.host, () => {

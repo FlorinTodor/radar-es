@@ -201,3 +201,23 @@ test('Cercanías cuyo trazado no llega a su destino: lo que falta va por la vía
   const byShape = make(undefined).ahead('renfe-c:A');
   assert.ok(km(byShape.at(-1), ESQUINA) < 0.05, 'sin red, se corta donde acaba el trazado');
 });
+
+test('following: el estado de una clave de cualquier vehículo (también autobuses), con un índice que se rehace cada pocos segundos', () => {
+  let now = T0;
+  const key = 'l-emtmalaga-27';
+  const vehicles = [{ id: 'emt-malaga:661', mode: 'bus', operator: 'EMT Málaga', line: '27', delay: 7, follow: [key] }];
+  let calls = 0;
+  const situation = { ...fakeSituation({ vehicles }), vehicles: () => { calls++; return vehicles; } };
+  const query = makeQuerySituation({ situation, stations: {}, network: {}, clock: { now: () => now } });
+  const first = query.following(key);
+  assert.equal(first.generatedAt, T0);
+  assert.equal(first.state, 'circulan');
+  assert.deepEqual([first.vehicles.total, first.vehicles.delayed], [1, 1]);
+  query.following('l-otra');
+  assert.equal(calls, 1, 'el mismo índice para todas las claves');
+  vehicles.push({ id: 'emt-malaga:662', mode: 'bus', operator: 'EMT Málaga', line: '27', delay: 0, follow: [key] });
+  assert.equal(query.following(key).vehicles.total, 1, 'aún el índice de antes');
+  now += 5_000;
+  assert.equal(query.following(key).vehicles.total, 2);
+  assert.equal(query.following('no vale'), null);
+});

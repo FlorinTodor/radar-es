@@ -5,11 +5,12 @@ import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream';
-import { extname, join, resolve, sep } from 'node:path';
+import { basename, dirname, extname, join, resolve, sep } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { isStationCode } from '../../../domain/model.js';
+import { isFollowKey } from '../../../domain/seguir.js';
 import { McpBusy, PROTOCOL_VERSIONS, RPC, idOf, isModernVersion, versionOf } from '../mcp/mcp.js';
 
 const MIME = {
@@ -24,15 +25,18 @@ const MIME = {
  * @param {{ query: ReturnType<typeof import('../../../application/use-cases/query-situation.js').makeQuerySituation>,
  *           serveTiles?: ReturnType<typeof import('../../../application/use-cases/serve-tiles.js').makeServeTiles>,
  *           log: import('../../../application/ports.js').LoggerPort,
- *           publicDir: string, vendorDirs: Record<string, string>, about?: object, now?: () => number,
+ *           publicDir: string, vendorDirs: Record<string, string>, sharedFiles?: Record<string, string>, about?: object, now?: () => number,
  *           mcp?: ReturnType<typeof import('../mcp/mcp.js').createMcpHandler>,
  *           metrics?: Pick<import('../../../application/ports.js').MetricsPort, 'request'|'mcp'> }} deps
  *   now: reloj de los memos y de los presupuestos de cálculo (los tests lo fijan: no pueden depender de
  *   lo rápida que sea la máquina).
+ *   sharedFiles: módulos puros del dominio que el navegador usa tal cual (ruta pública → fichero), para que
+ *   las reglas (las claves de domain/seguir.js, el registro de tipos…) no estén escritas dos veces. Sólo esos:
+ *   nada más de server/ se sirve.
  *   mcp: quien atiende los mensajes del servidor MCP en POST /mcp; sin él, /mcp no existe.
  *   metrics: cuenta cada petición (por ruta, sin parámetros) y cada mensaje MCP, para la monitorización.
  */
-export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs, about = {}, now = Date.now, mcp, metrics = NO_METRICS }) {
+export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs, sharedFiles = {}, about = {}, now = Date.now, mcp, metrics = NO_METRICS }) {
   // Todas las respuestas JSON se calculan, comprimen y firman (ETag) como mucho una vez cada `ttl`,
   // así que pedirlas mil veces cuesta lo mismo que pedirlas una. Sin esto, /api/lines (1 MB)
   // saturaba un núcleo con unas 20 peticiones por segundo. `key` separa las variantes por parámetros.
@@ -47,6 +51,14 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     '/api/live/events': { fn: () => query.liveEvents(), ttl: 15_000, cache: liveCache(30), stableEtag: true },
     '/api/live/buses': { fn: () => query.liveBuses(), ttl: 8_000, cache: liveCache(15), stableEtag: true },
     '/api/health': { fn: () => query.health(), ttl: 15_000, cache: liveCache(30), stableEtag: true },
+    // Cómo está lo que alguien sigue (?clave=<clave de domain/seguir.js>): una consulta por clave, igual para
+    // todo el mundo, así que Cloudflare guarda cada una como el resto del directo. Una búsqueda en un índice
+    // (query-situation): memo y presupuesto propios, para que muchas claves distintas no echen del memo a las
+    // demás rutas ni las dejen sin presupuesto. Una clave que no es válida ni llega aquí (400).
+    '/api/live/siguiendo': {
+      fn: (p) => query.following(p.get('clave')), key: (p) => p.get('clave'), ttl: 10_000, cache: liveCache(15), stableEtag: true,
+      own: { max: 2_000, maxBytes: 8 * 1024 * 1024, perSecond: 50, burst: 100 },
+    },
     // Catálogos: cambian unas pocas veces al día.
     // Vacíos mientras el servidor los carga al arrancar: entonces no se guardan (ver isEmpty).
     '/api/stations': { fn: () => query.stations(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.length },
@@ -80,7 +92,10 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
   // Una variante de /api/vehicles pesa unos 3 MB entre JSON y gzip: con el tope de bytes, por muchas
   // que se pidan nunca ocupan más de PARAMS_MEMO_BYTES (el montón de Node es de unos 500 MB).
   const memoParams = createJsonMemo({ max: 100, maxBytes: PARAMS_MEMO_BYTES, now });
-  const budgets = new Map(Object.keys(routes).filter((path) => routes[path].key && !routes[path].few).map((path) => [path, createBudget({ now })]));
+  const budgets = new Map(Object.keys(routes).filter((path) => routes[path].key && !routes[path].few)
+    .map((path) => [path, createBudget({ now, ...(routes[path].own && { perSecond: routes[path].own.perSecond, burst: routes[path].own.burst }) })]));
+  const ownMemos = new Map(Object.entries(routes).filter(([, r]) => r.own)
+    .map(([path, r]) => [path, createJsonMemo({ max: r.own.max, maxBytes: r.own.maxBytes, now })]));
   // Recorrido y lo que le queda de cada vehículo (/api/tracks/<id>, /api/ahead/<id>). Cada uno puede
   // costar un cálculo por la vía o por las paradas, y hay cientos de vehículos: memo propio, que guarda
   // todos los que se miran a la vez, y un presupuesto que sólo se gasta al calcular. Quien pide otra vez
@@ -139,6 +154,9 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
       // La API y las teselas no son páginas: fuera de los resultados de búsqueda.
       if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/tiles/')) res.setHeader('X-Robots-Tag', 'noindex');
 
+      if (url.pathname === '/api/live/siguiendo' && !isFollowKey(url.searchParams.get('clave'))) {
+        return send(res, 400, { error: 'Clave no válida: ver docs/vehiculos.md' });
+      }
       if (routes[url.pathname]) return sendRoute(req, res, url.pathname, url.searchParams);
       // `return await`: sin el await, un fallo de las funciones asíncronas se saltaría este try y,
       // sin nadie que lo recoja, Node cerraría el proceso entero.
@@ -168,6 +186,11 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
       }
       if (url.pathname.startsWith('/api/')) return send(res, 404, { error: 'Ruta no encontrada' });
 
+      // Módulos del dominio que el navegador usa tal cual (sólo los de la lista), con la caché de lo nuestro.
+      if (Object.hasOwn(sharedFiles, url.pathname)) {
+        const file = sharedFiles[url.pathname];
+        return await serveFile(req, res, dirname(file), basename(file), OWN_CACHE);
+      }
       for (const [prefix, dir] of Object.entries(vendorDirs)) {
         if (url.pathname.startsWith(prefix)) return await serveFile(req, res, dir, url.pathname.slice(prefix.length), VENDOR_CACHE);
       }
@@ -198,7 +221,7 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
         return route.fn(params);
       };
       try {
-        entry = memoParams(`${path}?${route.key(params)}`, route.ttl, compute, route);
+        entry = (ownMemos.get(path) ?? memoParams)(`${path}?${route.key(params)}`, route.ttl, compute, route);
       } catch (err) {
         if (!(err instanceof Busy)) throw err;
         res.setHeader('Retry-After', '2');
@@ -424,6 +447,17 @@ const idParam = (p, name) => {
 };
 
 const NO_METRICS = { request() {}, mcp() {} };
+
+/**
+ * Módulos puros del dominio que también usa el navegador, tal cual: las claves de lo que se puede seguir
+ * (seguir.js), el registro de tipos de vehículo (modos.js) y el estado de lo que se sigue (siguiendo.js).
+ * Se sirven en /server/domain/<fichero>, la misma ruta relativa que tienen desde public/js en el repositorio,
+ * así que el cliente los importa igual en el navegador y en los tests de Node. Sólo pueden importarse entre
+ * ellos (test/adapters/http-siguiendo.test.js lo comprueba).
+ */
+export const SHARED_DOMAIN_MODULES = Object.freeze(['seguir.js', 'modos.js', 'siguiendo.js']);
+/** @param {string} domainDir  carpeta server/domain @returns {Record<string, string>} ruta pública → fichero */
+export const sharedDomainFiles = (domainDir) => Object.fromEntries(SHARED_DOMAIN_MODULES.map((f) => [`/server/domain/${f}`, join(domainDir, f)]));
 
 /**
  * Ruta de una petición para las métricas: las de la API, sin lo que se ha pedido
