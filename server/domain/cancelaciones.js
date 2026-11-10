@@ -245,6 +245,9 @@ const plain = (s) => (s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerC
 // La hora de salida de un tren en un aviso: «salida a las 15:40h», «salida prevista a las 17:13h», «eixida
 // prevista a les 17:03h» (en valenciano), «14.15 h».
 const DEPARTURE_RE = /(?:salida|eixida|sortida)[^.;]{0,25}?\ba l[ae]s ?(\d{1,2})[:.,h](\d{2})/gi;
+// Dónde empieza el destino en un aviso (ya en minúsculas y sin tildes): «con destino», «direccion», «hacia»,
+// «amb destinacio».
+const TOWARD_RE = /\b(?:destino|destinacio|direccion|hacia)\b/;
 const TRAIN_NUMBER_RE = /\btren(?:es)? (?:n[ºo°.]* ?)?0*(\d{3,6})\b/gi;
 // Avisos de una estación (ascensores, accesos…), no de los trenes.
 const FACILITIES_RE = /ascensor|escaler|aseos?\b|accesib|\bpmr\b|taquill|m[aá]quinas? (?:de )?(?:venta|autoventa)|vest[ií]bulo|acceso|aparcamiento|parking|igogailu|eskailera/i;
@@ -274,8 +277,12 @@ export function noticesAbout(trip, notices) {
     if (!trip.departure || !words.length) return false;
     for (const m of n.text.matchAll(DEPARTURE_RE)) {
       if (`${m[1].padStart(2, '0')}:${m[2]}` !== trip.departure) continue;
+      // El origen va entre la hora y el destino: «salida a las 15:50h de Murcia del Carmen con destino Alacant
+      // Terminal» es el tren de Murcia, no el de Alicante de la misma hora.
       const after = plain(n.text.slice(m.index + m[0].length, m.index + m[0].length + 80));
-      if (words.some((w) => after.includes(w))) return true;
+      const toward = after.search(TOWARD_RE);
+      const from = toward >= 0 ? after.slice(0, toward) : after;
+      if (words.some((w) => from.includes(w))) return true;
     }
     return false;
   };
@@ -328,7 +335,8 @@ export function withdrawnCancellation(e, { now, clock, endOfDay }) {
  * Sigue las cancelaciones de lectura en lectura: las que estaban en la anterior y ya no están se retiran
  * (withdrawnCancellation) y se guardan hasta el final del día en que se vieron por última vez; si una
  * vuelve a publicarse, vuelve a ser de esta lectura. Las fuentes vacían su tiempo real al cambiar de día:
- * las que desaparecen pasada la medianoche eran de ayer y no se muestran hoy como retiradas.
+ * las que desaparecen pasada la medianoche eran de ayer y no se muestran hoy como retiradas; tampoco las de ayer
+ * que la fuente quita de madrugada, antes de su hora de salida de hoy (leftoverFromYesterday).
  * @param {{ shown: Map<string, import('./model.js').IncidentEvent>, withdrawn: Map<string, import('./model.js').IncidentEvent>,
  *           shownUntil?: number|null }} memory
  *   shownUntil: la medianoche que cierra el día de la lectura en que se vieron las de `shown` (sin ella, la de hoy)
@@ -337,13 +345,29 @@ export function withdrawnCancellation(e, { now, clock, endOfDay }) {
  * @returns {{ shown: Map<string, import('./model.js').IncidentEvent>, withdrawn: Map<string, import('./model.js').IncidentEvent>,
  *             shownUntil: number }}
  */
+// Hasta esta hora (minutos desde medianoche), lo que ya se veía ayer y desaparece antes de su hora de salida de
+// hoy es el tren de ayer: Renfe no vacía su tiempo real de Larga Distancia a medianoche, sino hacia la 1 o las 2.
+const LEFTOVER_UNTIL_MIN = 5 * 60;
+
+/** ¿Es el tren de ayer, que la fuente quita de madrugada (y no uno de hoy que deja de dar por cancelado)? */
+export function leftoverFromYesterday(e, { now, clock }) {
+  const minutes = minutesOf(clock);
+  if (minutes === null || minutes >= LEFTOVER_UNTIL_MIN) return false;
+  if (!Number.isFinite(e?.seen) || e.seen > now - minutes * 60_000) return false; // visto por primera vez hoy
+  const departure = minutesOf((e.trip?.stops ?? []).find((s) => minutesOf(s.time) !== null)?.time);
+  return departure !== null && departure > minutes;
+}
+
 export function followWithdrawn(memory, current, when) {
   const shown = new Map(current.map((e) => [e.id, e]));
   const withdrawn = new Map();
   for (const [id, e] of memory.withdrawn) if (!shown.has(id) && e.expires > when.now) withdrawn.set(id, e);
   const until = Number.isFinite(memory.shownUntil) ? Math.min(memory.shownUntil, when.endOfDay) : when.endOfDay;
   if (until > when.now) {
-    for (const [id, e] of memory.shown) if (!shown.has(id) && !withdrawn.has(id)) withdrawn.set(id, withdrawnCancellation(e, { ...when, endOfDay: until }));
+    for (const [id, e] of memory.shown) {
+      if (shown.has(id) || withdrawn.has(id) || leftoverFromYesterday(e, when)) continue;
+      withdrawn.set(id, withdrawnCancellation(e, { ...when, endOfDay: until }));
+    }
   }
   return { shown, withdrawn, shownUntil: when.endOfDay };
 }

@@ -248,6 +248,40 @@ test('la que desaparece pasada la medianoche era de ayer: no se retira hasta la 
   assert.equal(memory.withdrawn.get(shownOnce.id).expires, MIDNIGHT);
 });
 
+test('el tren de ayer que la fuente quita de madrugada no sale hoy como retirado; uno de hoy, sí', () => {
+  const NEXT_MIDNIGHT = MIDNIGHT + 86_400_000;
+  const at = (min) => MIDNIGHT + min * 60_000; // minutos desde la medianoche de hoy
+  const ave = (id, seen, departure) => ({ ...shownOnce, id, seen, trip: { ...shownOnce.trip, stops: [{ name: 'Barcelona-Sants', time: departure }, { name: 'Madrid-Puerta de Atocha', time: '21:10' }] } });
+  const yesterday = ave('ld:03180', MIDNIGHT - 10 * 3_600_000, '18:25'); // visto ayer por la tarde, sale a las 18:25
+  // 23:58 y 00:01: Renfe lo sigue publicando; a la 01:49 lo quita (no vacía Larga Distancia a medianoche).
+  let memory = followWithdrawn({ shown: new Map(), withdrawn: new Map() }, [yesterday], { now: MIDNIGHT - 120_000, clock: '23:58', endOfDay: MIDNIGHT });
+  memory = followWithdrawn(memory, [yesterday], { now: at(1), clock: '00:01', endOfDay: NEXT_MIDNIGHT });
+  memory = followWithdrawn(memory, [], { now: at(109), clock: '01:49', endOfDay: NEXT_MIDNIGHT });
+  assert.equal(memory.withdrawn.size, 0, 'el AVE de las 18:25 de ayer no es una cancelación de hoy retirada');
+  // Visto por primera vez hoy (a las 00:30) y quitado a la 01:49: ése sí es de hoy.
+  const today = ave('ld:03181', at(30), '18:25');
+  memory = followWithdrawn({ shown: new Map(), withdrawn: new Map() }, [today], { now: at(30), clock: '00:30', endOfDay: NEXT_MIDNIGHT });
+  memory = followWithdrawn(memory, [], { now: at(109), clock: '01:49', endOfDay: NEXT_MIDNIGHT });
+  assert.equal(memory.withdrawn.size, 1);
+  // Visto ayer, pero ya ha salido hoy (a las 00:40) cuando se quita: lo normal, sale como retirado.
+  const night = ave('ld:00605', MIDNIGHT - 3_600_000, '00:40');
+  memory = followWithdrawn({ shown: new Map(), withdrawn: new Map() }, [night], { now: at(1), clock: '00:01', endOfDay: NEXT_MIDNIGHT });
+  memory = followWithdrawn(memory, [], { now: at(109), clock: '01:49', endOfDay: NEXT_MIDNIGHT });
+  assert.equal(memory.withdrawn.size, 1);
+  // Publicado ayer para hoy y quitado a media mañana, antes de salir: puede que al final circule; sale.
+  memory = followWithdrawn({ shown: new Map(), withdrawn: new Map() }, [yesterday], { now: at(1), clock: '00:01', endOfDay: NEXT_MIDNIGHT });
+  memory = followWithdrawn(memory, [], { now: at(600), clock: '10:00', endOfDay: NEXT_MIDNIGHT });
+  assert.equal(memory.withdrawn.size, 1);
+});
+
+test('el aviso de un tren a la misma hora en sentido contrario no es el de éste (el origen va antes del destino)', () => {
+  const trip = { number: null, departure: '15:50', origin: 'Alicante/Alacant-Terminal', line: 'C1' };
+  const other = { text: 'Tren con salida prevista a las 15:50h de la estación de Murcia del Carmen con destino Alacant Terminal circula con 15 minutos de retraso.', lines: ['C1'] };
+  const own = { text: 'Tren con salida a las 15:50h de Alacant Terminal con destino Murcia del Carmen no presta servicio.', lines: ['C1'] };
+  assert.equal(noticesAbout(trip, [other]).notice, null);
+  assert.equal(noticesAbout(trip, [other, own]).notice, own);
+});
+
 // ---------- Trenes sin datos ----------
 
 test('tren sin datos: qué falta, por dónde iría según su horario y dónde se ve en el mapa', () => {

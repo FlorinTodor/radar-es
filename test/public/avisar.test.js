@@ -21,7 +21,12 @@ test('con bot: un botón grande para el servicio y la línea como segunda opció
   assert.match(html, /<a class="tg-alt" href="https:\/\/t\.me\/RadarEspanaBot\?start=l-renfe-Avant" target="_blank" rel="noopener">o de todos los Avant<\/a>/,
     'la primera línea; cuando la «línea» es el producto, «todos los Avant»');
   assert.match(telegramFollow(['s-renfe-23065', 'l-renfe-Madrid-C5'], 'cercanias', { line: 'C5', service: 'Cercanías' }), />o de toda la línea C5</);
-  assert.match(telegramFollow(['s-renfe-23065', 'l-renfe-Madrid-C5'], 'cercanias'), />o de toda su línea</, 'sin nombre de línea');
+  assert.match(telegramFollow(['s-renfe-23065', 'l-renfe-Madrid-C5'], 'cercanias'), />o de toda la línea C5</, 'el nombre sale de la clave');
+  // El mismo tren en dos feeds (cancelación juntada): la ficha dice «R16» (de la otra), pero la primera clave de
+  // línea es la de Regional Exprés; el enlace la nombra por su clave, como el botón «Seguir la línea …».
+  const merged = telegramFollow(['s-renfe-18054', 'l-renfe-Regional_20Expr_C3_A9s', 'l-renfe-Catalunya-R16'], 'md', { line: 'R16', service: 'Regional Exprés' });
+  assert.match(merged, /start=l-renfe-Regional_20Expr_C3_A9s" target="_blank" rel="noopener">o de todos los Regional Exprés</);
+  assert.doesNotMatch(merged, /R16/);
 });
 
 test('sólo línea (autobús sin servicio estable), una estación, un tipo que el registro aún no tiene', () => {

@@ -3,6 +3,7 @@
 // sus claves `follow`, y el nombre de cada tipo («tren», «autobús»…), del registro de tipos (/api/modes). Sólo si
 // el servidor tiene bot: lo dice /api/about. Va arriba de la ficha y bien visible: es lo que más interesa a quien
 // espera ese tren o ese autobús.
+import { parseFollowKey } from '../../server/domain/seguir.js';
 import { esc } from './format.js';
 
 const KEY_RE = /^[slp]-[A-Za-z0-9_-]{1,62}$/;
@@ -56,7 +57,9 @@ export function telegramFollow(follow, mode, names = {}) {
   const service = first('s');
   const line = first('l');
   const stop = first('p');
-  const words = lineWords(names);
+  // La línea, por su propia clave (como el botón «Seguir la línea …»): en una cancelación que junta el mismo tren
+  // de dos feeds, la línea de la ficha (R16) puede ser de la otra clave (Regional Exprés).
+  const words = lineWords({ line: line ? parseFollowKey(line)?.parts.at(-1) ?? null : null, service: names.service ?? null });
   let main = null;
   let alt = null;
   if (service) {

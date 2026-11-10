@@ -168,7 +168,13 @@ function flush() {
   if (parts.has('events')) {
     const events = allEvents();
     map.setEvents(events);
-    document.getElementById('b-events').textContent = P.filterEvents(events, prefs).length;
+    // El número de la pestaña, sin las que su fuente ya no publica (se ven desvaídas hasta medianoche): con ellas,
+    // un día de huelga parecía el doble. Cuántas son, al pasar por encima.
+    const shownEvents = P.filterEvents(events, prefs);
+    const gone = shownEvents.filter((e) => e.withdrawn).length;
+    const badge = document.getElementById('b-events');
+    badge.textContent = shownEvents.length - gone;
+    badge.title = gone ? `Y ${gone} que su fuente ya no publica (se ven desvaídas hasta medianoche)` : '';
     if (state.tab === 'events') P.renderEvents(document.getElementById('events-list'), P.filterEvents(events, prefs), selection('event'));
   }
   if (parts.has('alerts')) {
