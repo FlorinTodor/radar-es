@@ -514,6 +514,7 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
         start: () => start(chatId, arg),
         // «/seguir Alcalá > Atocha 7-9» es un trayecto.
         seguir: () => (looksLikeTrayecto(arg) ? trayectoCmd(chatId, arg) : search(chatId, arg)),
+        trayecto: () => trayectoCmd(chatId, arg),
         // Texto sin orden: una búsqueda, salvo que sea charla («hola», «gracias», «vale»).
         buscar: () => {
           if (looksLikeTrayecto(arg)) return trayectoCmd(chatId, arg);
@@ -523,7 +524,6 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
         },
         estado: () => status(chatId, arg),
         provincia: () => provinceCmd(chatId, arg),
-        trayecto: () => trayectoCmd(chatId, arg),
         mis: () => mine(chatId),
         dejar: () => drop(chatId, arg),
         parte: () => digestCmd(chatId, arg),
