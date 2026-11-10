@@ -441,3 +441,28 @@ body.doc { overflow: auto; display: block; }
 .trip-stops li.skipped { color: var(--muted); }
 .trip-stops li.skipped .ts-name { text-decoration: line-through; }
 .trip-stops li.skipped::before { background: transparent; box-shadow: 0 0 0 2px #d03b3b; }
+
+/* ---------- Puntualidad en la ficha (public/js/puntualidad.js) ---------- */
+/* Cada día lleva su signo además del color de estado: nunca se lee sólo por el color. */
+.pblock { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+.ptitle { color: var(--muted); }
+.psum { margin: 2px 0 0; line-height: 1.4; }
+.pstrip, .pbars { display: flex; gap: 2px; margin: 6px 0 2px; padding: 0; list-style: none; }
+.pd { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 3px;
+  font-size: 11px; font-weight: 700; line-height: 1; font-style: normal; color: var(--page); background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border); flex: none; }
+.pd-a-tiempo { background: var(--st-good); box-shadow: none; }
+.pd-tarde { background: var(--st-serious); box-shadow: none; }
+.pd-cancelado { background: var(--st-critical); box-shadow: none; color: var(--ink); }
+.pd-parcial { background: var(--st-warning); box-shadow: none; }
+.pd-en-curso { color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.pbars-wrap { display: flex; align-items: flex-start; gap: 6px; }
+.pbars { height: 32px; align-items: flex-end; border-bottom: 1px solid var(--border); }
+.ptop { color: var(--muted); font-size: 10px; line-height: 1; margin-top: 6px; }
+.pb { width: 14px; height: 100%; display: flex; align-items: flex-end; flex: none; }
+.pb span { display: block; width: 100%; background: var(--st-serious); border-radius: 2px 2px 0 0; }
+.pb-none { background: linear-gradient(var(--border), var(--border)) bottom / 100% 2px no-repeat; }
+.plegend { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--muted); font-size: 11px; }
+.plegend span { display: inline-flex; align-items: center; gap: 4px; }
+.plegend .pd { width: 12px; height: 12px; font-size: 9px; }
+.pnote { margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.4; }

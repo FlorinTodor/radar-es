@@ -3,6 +3,7 @@ import { DELAY_CLASSES, MODE_LABEL, SEVERITY_LABEL, STATUS, esc, fmtDataTime, fm
 import { PICTOS, pictoFor, vehicleImage } from './icons.js';
 import { headingAlong, matchTrack, pathBetween } from './track-match.js';
 import { STOP_SPACE_PX, stopLabelLayout, stopSpaceLayout, stopTipHtml, stopsCollection, stopsListHtml, tripFramePoints } from './trip-stops.js';
+import { punctualitySlot } from './puntualidad.js';
 
 const STYLE = 'https://tiles.openfreemap.org/styles/dark';
 // Iconos que el estilo pide y su sprite no tiene (ver styleimagemissing en createMap). Sólo esos: uno de los
@@ -1238,7 +1239,8 @@ export function cancellationDetail(e, now = Date.now()) {
   ].filter((r) => r && r[1]);
   const list = t.stops?.length > 1 ? cancelledStopsHtml(t.stops, e.type === 'cancelado') : '';
   return `<div class="pop"><h3>${esc(e.title)}</h3>${e.description ? `<p>${esc(e.description)}</p>` : ''}
-    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>${list}
+    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
+    ${punctualitySlot(t.follow)}${list}
     <div class="note">Las horas son las del horario del operador. Si el operador deja de publicarlo, sigue aquí hasta medianoche
     como «ya no lo publica»; si su fuente deja de responder, se muestra como mucho una hora más.</div></div>`;
 }
@@ -1269,7 +1271,8 @@ export function missingTrainDetail(e, now = Date.now()) {
   ].filter((r) => r && r[1]);
   const list = t.stops?.length > 1 ? missingStopsHtml(t.stops) : '';
   return `<div class="pop"><h3>${esc(e.title)}</h3>${e.description ? `<p>${esc(e.description)}</p>` : ''}
-    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>${list}
+    <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
+    ${punctualitySlot(t.follow)}${list}
     <div class="note">Sale si, según el horario publicado, debería llevar más de 10 minutos circulando y le quedan más de 5 para llegar,
     y su operador no publica ni su posición ni su retraso ni su cancelación. Puede circular sin que se publique, o no circular sin que se
     haya publicado su cancelación.</div></div>`;
@@ -1340,6 +1343,7 @@ function vehicleDetail(v, onRoute = false, stops = null) {
   const stopsNote = list ? ' Los <strong>puntos</strong> son sus paradas: blancos los que le quedan y grises por los que ya ha pasado.'
     + (v.estimated ? ' Sus horas son las del horario.' : '') : '';
   return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
+    ${punctualitySlot(v.follow, { delayKnown: Number.isFinite(v.delay) || typeof v.late === 'boolean' })}
     ${list}<div class="note">${note}${stopsNote}</div></div>`;
 }
 
