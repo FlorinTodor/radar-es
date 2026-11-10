@@ -118,6 +118,78 @@ test('/mis, /dejar (con número, por nombre y con botones), /datos y /baja; quie
   assert.match(say('/baja')[0].text, /^De este chat no tenía nada guardado/);
 });
 
+test('uso para las métricas: altas, bajas (dejar, /baja, bloqueo), órdenes, avisos y partes, sin el número del chat', () => {
+  const { say, press, bot, world, tick } = setup();
+  const totals = () => bot.usage().totals;
+  say(`/start ${AVANT}`);
+  say('/provincia Valencia', 2002);
+  say('/parte 06:05', 2002);
+  assert.deepEqual(bot.usage(), {
+    chats: 2, digest: 1, follows: { servicio: 1, linea: 0, parada: 0, provincia: 1 },
+    distinct: { servicio: 1, linea: 0, parada: 0, provincia: 1 },
+    top: [{ kind: 'servicio', key: AVANT, name: 'Avant 08058', chats: 1 }, { kind: 'provincia', key: 'prov-valencia', name: 'Valencia', chats: 1 }],
+    totals: { since: T0, added: 2, removed: { dejar: 0, baja: 0, bloqueo: 0 }, notices: { aviso: 0, parte: 0 }, commands: { enlace: 1, provincia: 1, parte: 1 } },
+  });
+  say('/start');
+  say('hola');
+  say('/inventada');
+  assert.deepEqual(totals().commands, { enlace: 1, provincia: 1, parte: 1, start: 1, buscar: 1, desconocida: 1 });
+  world.events = [cancellation()];
+  const out = [];
+  for (let i = 0; i < 5; i++) out.push(...tick());
+  assert.equal(out.length, 2);
+  assert.deepEqual(totals().notices, { aviso: 1, parte: 1 });
+  const [menu] = say('/dejar');
+  press(menu.buttons[0][0].data);
+  say('/baja', 2002);
+  say('/baja', 2002);
+  say(`/start ${AVANT}`, 3003);
+  bot.forget(3003);
+  bot.forget(3003);
+  assert.equal(totals().added, 3);
+  assert.deepEqual(totals().removed, { dejar: 1, baja: 1, bloqueo: 1 }, 'la segunda /baja y el segundo bloqueo no tenían nada que borrar');
+  for (let i = 0; i < 22; i++) say('/mis', 4004);
+  assert.equal(totals().commands.limite, 2, 'lo que pasa del tope por minuto, aparte');
+  assert.equal(totals().commands.boton, 1);
+  assert.equal(bot.usage().chats, 0);
+  assert.doesNotMatch(JSON.stringify(bot.usage()), /1001|2002|3003|4004/);
+});
+
+test('los totales no se pierden al arrancar ni en un relevo: se guardan con lo demás y siguen contando', async () => {
+  const a = setup();
+  a.say(`/start ${AVANT}`);
+  a.say('/provincia Valencia', 2002);
+  a.say('/baja', 2002);
+  await a.bot.save({ always: true });
+  assert.deepEqual(a.disk.value.totals, a.bot.usage().totals);
+  // Otro servidor (o el mismo, tras reiniciarse) con el mismo disco, una hora después.
+  const b = setup();
+  b.disk.value = a.disk.value;
+  assert.equal(b.bot.usage().totals.added, 0, 'antes de cargar, nada');
+  await b.bot.load();
+  assert.deepEqual(b.bot.usage().totals, a.bot.usage().totals);
+  b.say(`/start ${C4A}`, 5005);
+  assert.equal(b.bot.usage().totals.added, 3);
+  assert.equal(b.bot.usage().totals.since, T0, 'cuenta desde la primera vez, no desde el arranque');
+  // Un fichero de antes (sin totales) empieza a contar al cargarlo; lo que llegue mal se descarta.
+  const c = setup();
+  c.disk.value = { ...structuredClone(a.disk.value), totals: { since: 'ayer', added: -4, removed: { baja: 2.5 }, commands: { mis: 3, 'no vale': 9 } } };
+  await c.bot.load();
+  assert.deepEqual(c.bot.usage().totals, { since: T0, added: 0, removed: { dejar: 0, baja: 0, bloqueo: 0 }, notices: { aviso: 0, parte: 0 }, commands: { mis: 3 } });
+  // Un fichero de antes de los totales (el de producción hasta esta versión): quienes ya siguen algo son altas,
+  // desde la primera de ellas.
+  const d = setup();
+  d.tick(3 * 3600_000);
+  const { totals: _, ...old } = structuredClone(a.disk.value);
+  d.disk.value = old;
+  await d.bot.load();
+  assert.deepEqual(d.bot.usage().totals, { ...emptyAt(T0), added: 1 });
+  await d.bot.save({ force: true });
+  assert.equal(d.disk.value.totals.added, 1, 'y se guarda');
+});
+
+const emptyAt = (since) => ({ since, added: 0, removed: { dejar: 0, baja: 0, bloqueo: 0 }, notices: { aviso: 0, parte: 0 }, commands: {} });
+
 test('topes: cosas por chat y chats en total', () => {
   const { say } = setup({ limits: { subsPerChat: 2, chats: 1 } });
   say(`/start ${AVANT}`);

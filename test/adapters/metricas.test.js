@@ -105,6 +105,38 @@ test('etiquetas escapadas y, si un fallo metiera valores sin fin, como mucho 2.0
   }
 });
 
+test('el bot de Telegram: su uso y sus totales (los guardados por el bot), sólo si este servidor lo atiende', () => {
+  const m = createPrometheusMetrics({ now: () => T });
+  try {
+    assert.doesNotMatch(m.render({ now: T }), /radar_bot_/, 'sin el uso: lo da el servidor que atiende el bot');
+    const text = m.render({
+      now: T,
+      bot: {
+        chats: 3, digest: 1, follows: { servicio: 1, linea: 3, parada: 0, provincia: 2 }, distinct: { servicio: 1, linea: 1, parada: 0, provincia: 1 },
+        top: [{ kind: 'linea', key: 'l-renfe-Madrid-C4a', name: 'C4a Cercanías "Madrid"', chats: 3 }, { kind: 'provincia', key: 'prov-valencia', name: 'Valencia', chats: 2 }],
+        totals: { since: T - 86_400_000, added: 57, removed: { dejar: 4, baja: 2, bloqueo: 1 }, notices: { aviso: 120, parte: 9 }, commands: { enlace: 40, mis: 7 } },
+      },
+    });
+    for (const line of text.trim().split('\n')) {
+      if (!line.startsWith('#')) assert.match(line, SAMPLE, line);
+    }
+    assert.equal(value(text, 'radar_bot_chats'), 3);
+    assert.equal(value(text, 'radar_bot_digest_chats'), 1);
+    assert.equal(value(text, 'radar_bot_follows{kind="linea"}'), 3);
+    assert.equal(value(text, 'radar_bot_follow_items{kind="provincia"}'), 1);
+    assert.equal(value(text, 'radar_bot_follow_top{kind="linea",key="l-renfe-Madrid-C4a",name="C4a Cercanías \\"Madrid\\""}'), 3);
+    assert.equal(value(text, 'radar_bot_follow_top{kind="provincia",key="prov-valencia",name="Valencia"}'), 2);
+    assert.equal(value(text, 'radar_bot_totals_since_seconds'), (T - 86_400_000) / 1000);
+    assert.equal(value(text, 'radar_bot_chats_added_total'), 57);
+    assert.equal(value(text, 'radar_bot_chats_removed_total{reason="bloqueo"}'), 1);
+    assert.equal(value(text, 'radar_bot_notices_total{kind="parte"}'), 9);
+    assert.equal(value(text, 'radar_bot_commands_total{command="enlace"}'), 40);
+    assert.match(text, /# TYPE radar_bot_chats_added_total counter\n/);
+  } finally {
+    m.close();
+  }
+});
+
 test('memoria del contenedor según su cgroup; fuera de un contenedor con límite, nada', () => {
   const dir = mkdtempSync(join(tmpdir(), 'cgroup-'));
   try {
