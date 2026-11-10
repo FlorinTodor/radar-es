@@ -154,7 +154,7 @@
     {
       "type": "stat",
       "title": "Cosas distintas",
-      "description": "Trenes, líneas, estaciones y provincias distintos que sigue alguien.",
+      "description": "Trenes, líneas, estaciones, trayectos y provincias distintos que sigue alguien.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -493,6 +493,18 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "trayecto"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Trayectos"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "provincia"
             },
             "properties": [
@@ -603,6 +615,9 @@
                       },
                       "parada": {
                         "text": "Estaciones y paradas"
+                      },
+                      "trayecto": {
+                        "text": "Trayectos"
                       },
                       "provincia": {
                         "text": "Provincias"
@@ -1145,6 +1160,18 @@
               {
                 "id": "displayName",
                 "value": "/seguir"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trayecto"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "/trayecto"
               }
             ]
           },

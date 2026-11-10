@@ -867,6 +867,11 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   de tu provincia; y, si se le pide, manda un parte cada día a la hora elegida. Cada ficha lleva arriba
   el botón «Avísame por Telegram», que lo sigue con un toque, y cada cosa de Siguiendo, el suyo. Guarda
   sólo lo necesario para avisar, y con `/baja` se borra todo.
+- «Mi trayecto» en el bot: `/trayecto Alcalá de Henares > Atocha 7:00-9:00 L-V` avisa de los trenes que van
+  de una estación a otra y salen en esa franja esos días, sin saber su número: si se cancelan o no paran en
+  alguna de las dos, si van con retraso y si su operador no publica nada de ellos. `/estado` y el parte
+  dicen cómo van los próximos. Las estaciones se eligen del catálogo, con una lista si hay varias con ese
+  nombre.
 - Todo lo anterior vale para cualquier tipo de vehículo: todos comparten las mismas claves para
   seguirlos y un registro de tipos, así que un tipo nuevo (barcos, aviones) sólo necesita su entrada en
   el registro y el adaptador de su fuente.
@@ -1033,6 +1038,8 @@ Ninguna por ahora.
   aparte, para ver cómo crece a lo largo de meses.
 - Incidencias en días de huelga: un buscador por número de tren o por línea y agrupar por línea o
   núcleo, porque la lista enseña las primeras 250.
+- Bot, «Mi trayecto»: la hora de cada tren de Cercanías en el origen sale de por dónde va (Renfe no la
+  publica en su tiempo real); con la de su horario, el aviso de retraso llegaría antes y sin aproximar.
 - Bot: «/estado <provincia>» y «/seguir <provincia>» que ofrezcan la provincia, y ciudades e islas como
   provincia (Bilbao, Mallorca, Gran Canaria); no avisar de la cancelación de un tren que ya ha salido.
 - Si tras un reinicio falla uno de los ficheros de Renfe en la primera lectura, sus cancelaciones salen
