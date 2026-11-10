@@ -90,6 +90,7 @@
     ]
   }
   </script>
+  <script src="/js/idioma.js"></script>
   <link rel="stylesheet" href="/vendor/maplibre/maplibre-gl.css">
   <link rel="stylesheet" href="/style.css">
 </head>
@@ -100,30 +101,31 @@
       <span>Radar España</span>
     </h1>
     <div id="live" class="live" data-state="connecting" role="status" aria-live="polite">
-      <span class="dot"></span><span class="txt">Conectando…</span>
+      <span class="dot"></span><span class="txt" data-i18n>Conectando…</span>
     </div>
+    <div class="lang-switch" role="group" aria-label="Idioma · Language"><button type="button" data-lang="es" lang="es" title="Ver en español">ES</button><button type="button" data-lang="en" lang="en" title="View in English">EN</button></div>
     <div class="author">
-      <a class="author-link" href="https://florintodor.dev" target="_blank" rel="author noopener" title="Portafolio de Florin Todor">
+      <a class="author-link" href="https://florintodor.dev" target="_blank" rel="author noopener" title="Portafolio de Florin Todor" data-i18n-attr="title">
         <img src="/img/florin-todor.webp" width="32" height="32" alt="">
-        <span class="author-txt"><span class="author-by">Creado por</span> <span class="author-name">Florin Todor</span></span>
+        <span class="author-txt"><span class="author-by" data-i18n>Creado por</span> <span class="author-name">Florin Todor</span></span>
       </a>
-      <a class="author-gh" href="https://github.com/FlorinTodor/radar-es" target="_blank" rel="noopener" title="Código en GitHub">
+      <a class="author-gh" href="https://github.com/FlorinTodor/radar-es" target="_blank" rel="noopener" title="Código en GitHub" data-i18n-attr="title">
         <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-        <span class="sr-only">Código de Radar España en GitHub</span>
+        <span class="sr-only" data-i18n>Código de Radar España en GitHub</span>
       </a>
     </div>
     <div class="kpis">
-      <div class="kpi"><span class="label">Trenes con GPS</span><span class="value" id="k-vehicles">–</span></div>
-      <div class="kpi"><span class="label">Con retraso de 5 min o más</span><span class="value" id="k-delayed">–</span><span class="sub" id="k-delayed-sub"></span></div>
-      <div class="kpi"><span class="label">Retraso mediano</span><span class="value" id="k-median">–</span></div>
-      <div class="kpi"><span class="label">Alertas activas</span><span class="value" id="k-alerts">–</span></div>
-      <div class="kpi"><span class="label">Demanda eléctrica</span><span class="value" id="k-grid">–</span><span class="sub" id="k-grid-sub"></span></div>
+      <div class="kpi"><span class="label" data-i18n>Trenes con GPS</span><span class="value" id="k-vehicles">–</span></div>
+      <div class="kpi"><span class="label" data-i18n>Con retraso de 5 min o más</span><span class="value" id="k-delayed">–</span><span class="sub" id="k-delayed-sub"></span></div>
+      <div class="kpi"><span class="label" data-i18n>Retraso mediano</span><span class="value" id="k-median">–</span></div>
+      <div class="kpi"><span class="label" data-i18n>Alertas activas</span><span class="value" id="k-alerts">–</span></div>
+      <div class="kpi"><span class="label" data-i18n>Demanda eléctrica</span><span class="value" id="k-grid">–</span><span class="sub" id="k-grid-sub"></span></div>
     </div>
   </header>
 
   <main class="layout">
     <section class="map-wrap">
-      <div id="map" aria-label="Mapa de España con trenes e incidencias"></div>
+      <div id="map" aria-label="Mapa de España con trenes e incidencias" data-i18n-attr="aria-label"></div>
       <noscript>
         <p class="noscript">Radar España es un mapa en tiempo real de los trenes, metros, tranvías y autobuses de España,
           con incidencias de tráfico, avisos meteorológicos, incendios y terremotos. Para verlo hace falta activar
@@ -131,28 +133,28 @@
       </noscript>
       <div class="card updating-banner" id="updating" role="status" hidden>
         <span class="dot" aria-hidden="true"></span>
-        <span>Estamos actualizando Radar España. Los datos vuelven en unos segundos, sin recargar la página.</span>
+        <span data-i18n>Estamos actualizando Radar España. Los datos vuelven en unos segundos, sin recargar la página.</span>
       </div>
       <div class="card focus-banner" id="focus-banner" hidden>
         <span class="txt"></span>
-        <button type="button" class="btn" data-action="clear-focus">Ver todo</button>
+        <button type="button" class="btn" data-action="clear-focus" data-i18n>Ver todo</button>
       </div>
       <div class="card layers" id="layers">
-        <button class="layers-toggle" id="layers-toggle" aria-expanded="true">Capas</button>
+        <button class="layers-toggle" id="layers-toggle" aria-expanded="true" data-i18n>Capas</button>
         <div class="layers-body" id="layers-body"></div>
       </div>
     </section>
 
     <aside class="sidebar">
-      <button type="button" class="sheet-handle" id="sheet-handle" aria-expanded="false" aria-label="Abrir el panel"><span class="sheet-grip"></span><span class="sheet-label">▴ Mostrar el panel</span></button>
-      <button type="button" class="sheet-hide" id="sheet-hide" aria-label="Ocultar el panel para ver el mapa entero">Ocultar ▾</button>
+      <button type="button" class="sheet-handle" id="sheet-handle" aria-expanded="false" aria-label="Abrir el panel" data-i18n-attr="aria-label"><span class="sheet-grip"></span><span class="sheet-label" data-i18n>▴ Mostrar el panel</span></button>
+      <button type="button" class="sheet-hide" id="sheet-hide" aria-label="Ocultar el panel para ver el mapa entero" data-i18n-attr="aria-label" data-i18n>Ocultar ▾</button>
       <nav class="tabs" role="tablist">
-        <button role="tab" data-tab="following" aria-selected="false" title="Lo que sigues: vehículos, líneas o estaciones">★ Siguiendo <span class="badge" id="b-following">0</span></button>
-        <button role="tab" data-tab="alerts" aria-selected="true">Alertas <span class="badge" id="b-alerts">0</span></button>
-        <button role="tab" data-tab="events" aria-selected="false">Incidencias <span class="badge" id="b-events">0</span></button>
-        <button role="tab" data-tab="vehicles" aria-selected="false">Vehículos</button>
-        <button role="tab" data-tab="stations" aria-selected="false">Estaciones</button>
-        <button role="tab" data-tab="sources" aria-selected="false">Fuentes</button>
+        <button role="tab" data-tab="following" aria-selected="false" title="Lo que sigues: vehículos, líneas o estaciones" data-i18n-attr="title">★ <span data-i18n>Siguiendo</span> <span class="badge" id="b-following">0</span></button>
+        <button role="tab" data-tab="alerts" aria-selected="true"><span data-i18n>Alertas</span> <span class="badge" id="b-alerts">0</span></button>
+        <button role="tab" data-tab="events" aria-selected="false"><span data-i18n>Incidencias</span> <span class="badge" id="b-events">0</span></button>
+        <button role="tab" data-tab="vehicles" aria-selected="false" data-i18n>Vehículos</button>
+        <button role="tab" data-tab="stations" aria-selected="false" data-i18n>Estaciones</button>
+        <button role="tab" data-tab="sources" aria-selected="false" data-i18n>Fuentes</button>
       </nav>
 
       <div class="panel" id="panel-following" role="tabpanel" hidden></div>
@@ -165,14 +167,14 @@
       </div>
 
       <div class="panel" id="panel-vehicles" role="tabpanel" hidden>
-        <input type="search" id="vehicle-search" placeholder="Buscar vehículo, línea o estación…" autocomplete="off">
+        <input type="search" id="vehicle-search" placeholder="Buscar vehículo, línea o estación…" autocomplete="off" data-i18n-attr="placeholder">
         <div class="list" id="vehicles-list"></div>
       </div>
 
       <div class="panel" id="panel-stations" role="tabpanel" hidden>
         <div class="station-filters">
-          <input type="search" id="station-search" placeholder="Buscar estación o población…" autocomplete="off">
-          <select id="station-network" aria-label="Red"><option value="">Todas las redes</option></select>
+          <input type="search" id="station-search" placeholder="Buscar estación o población…" autocomplete="off" data-i18n-attr="placeholder">
+          <select id="station-network" aria-label="Red" data-i18n-attr="aria-label"><option value="" data-i18n>Todas las redes</option></select>
         </div>
         <div class="list" id="stations-list"></div>
       </div>
@@ -180,11 +182,11 @@
       <div class="panel" id="panel-sources" role="tabpanel" hidden></div>
 
       <footer class="disclaimer">
-        Web no oficial, sin relación con los organismos cuyos datos públicos reúne. Sus datos sirven para informarse,
-        no para decisiones operativas ni de seguridad.
-        <a class="link" href="/legal">Aviso legal, privacidad y fuentes</a> ·
-        <button type="button" class="link" id="open-notice">Qué datos faltan</button>
-        <nav class="site-links" aria-label="Más información">
+        <span data-i18n>Web no oficial, sin relación con los organismos cuyos datos públicos reúne. Sus datos sirven para informarse,
+        no para decisiones operativas ni de seguridad.</span>
+        <a class="link" href="/legal" data-i18n>Aviso legal, privacidad y fuentes</a> ·
+        <button type="button" class="link" id="open-notice" data-i18n>Qué datos faltan</button>
+        <nav class="site-links" aria-label="Más información" data-i18n-attr="aria-label" data-i18n>
           <a href="/que-es-radar-espana">Qué es Radar España</a> ·
           <a href="/trenes-en-tiempo-real">Trenes en tiempo real</a> ·
           <a href="/metro-tranvia-autobus">Metro, tranvía y autobús</a> ·
@@ -197,10 +199,10 @@
   </main>
 
   <dialog class="notice" id="notice" aria-labelledby="notice-title">
-    <h2 id="notice-title">Aviso: todavía faltan datos</h2>
-    <p>Radar España reúne los datos públicos que existen hoy: en directo cuando el operador los publica así y, si no,
+    <h2 id="notice-title" data-i18n>Aviso: todavía faltan datos</h2>
+    <p data-i18n>Radar España reúne los datos públicos que existen hoy: en directo cuando el operador los publica así y, si no,
       estimados a partir del horario. Pero hay tres huecos importantes:</p>
-    <ul>
+    <ul data-i18n>
       <li><strong>Adif</strong>, el gestor de la red ferroviaria, no publica en un formato reutilizable el estado de la red,
         las incidencias ni las circulaciones de todos los operadores, incluidos los trenes de mercancías.</li>
       <li><strong>Iryo</strong> no publica la posición ni los retrasos de sus trenes, así que no aparecen en el mapa.</li>
@@ -208,14 +210,14 @@
         con una <strong>posición estimada</strong> a partir del horario (placa hueca y la marca "estimada"), no con GPS,
         y sin retrasos.</li>
     </ul>
-    <p><strong>Vamos a solicitar acceso formal a estas entidades</strong> para poder mostrarlo todo. Mientras tanto, ten en
+    <p data-i18n><strong>Vamos a solicitar acceso formal a estas entidades</strong> para poder mostrarlo todo. Mientras tanto, ten en
       cuenta que las circulaciones e incidencias de Adif, los trenes de Iryo y los de mercancías no están en el mapa, y
       que las posiciones estimadas pueden no coincidir con la real.</p>
-    <p><strong>Radar España no es una web oficial</strong> y ninguno de los organismos cuyos datos usa la respalda. Los datos
+    <p data-i18n><strong>Radar España no es una web oficial</strong> y ninguno de los organismos cuyos datos usa la respalda. Los datos
       llegan con retraso, algunos depurados o convertidos en posiciones estimadas (se indica en cada fuente), y
       <strong>no sirven para tomar decisiones operativas ni de seguridad</strong>.
       <a href="/legal">Fuentes, licencias y aviso legal</a>.</p>
-    <form method="dialog" class="actions"><button class="btn" value="ok" autofocus>Entendido</button></form>
+    <form method="dialog" class="actions"><button class="btn" value="ok" autofocus data-i18n>Entendido</button></form>
   </dialog>
 
   <script type="module" src="/js/app.js"></script>

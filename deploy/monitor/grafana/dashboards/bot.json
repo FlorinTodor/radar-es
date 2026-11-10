@@ -1,0 +1,1321 @@
+{
+  "uid": "radar-bot",
+  "title": "Radar · Bot de Telegram",
+  "description": "Cuánta gente usa el bot «Sigue tu tren», qué sigue y qué hace, en conjunto: sin el número de ningún chat.",
+  "tags": [
+    "radar"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "refresh": "5m",
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "entorno",
+        "label": "Entorno",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(radar_info, entorno)",
+          "refId": "v"
+        },
+        "definition": "label_values(radar_info, entorno)",
+        "refresh": 2,
+        "current": {
+          "text": "produccion",
+          "value": "produccion"
+        },
+        "includeAll": false,
+        "multi": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Cuánta gente",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "id": 1
+    },
+    {
+      "type": "stat",
+      "title": "Personas",
+      "description": "Chats que siguen algo ahora. El bot sólo atiende chats privados: cada chat es una persona. Quien escribe sin llegar a seguir nada no se guarda, así que no cuenta.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(radar_bot_chats{entorno=\"$entorno\"})",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 5,
+        "h": 4
+      },
+      "id": 2
+    },
+    {
+      "type": "stat",
+      "title": "Cosas seguidas",
+      "description": "Todo lo que siguen, sumando: algo que siguen tres personas cuenta tres.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(max by (kind) (radar_bot_follows{entorno=\"$entorno\"}))",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value"
+      },
+      "gridPos": {
+        "x": 5,
+        "y": 1,
+        "w": 5,
+        "h": 4
+      },
+      "id": 3
+    },
+    {
+      "type": "stat",
+      "title": "Cosas distintas",
+      "description": "Trenes, líneas, estaciones y provincias distintos que sigue alguien.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(max by (kind) (radar_bot_follow_items{entorno=\"$entorno\"}))",
+          "refId": "C",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value"
+      },
+      "gridPos": {
+        "x": 10,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "id": 4
+    },
+    {
+      "type": "stat",
+      "title": "Con parte diario",
+      "description": "Personas que han pedido el resumen de cada día (/parte).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(radar_bot_digest_chats{entorno=\"$entorno\"})",
+          "refId": "D",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value"
+      },
+      "gridPos": {
+        "x": 14,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "id": 5
+    },
+    {
+      "type": "stat",
+      "title": "Altas (24 h)",
+      "description": "Personas que han empezado a seguir algo en las últimas 24 horas.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "clamp_min(max(radar_bot_chats_added_total{entorno=\"$entorno\"}) - (max(radar_bot_chats_added_total{entorno=\"$entorno\"} offset 24h) or vector(0)), 0)",
+          "refId": "E",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 1,
+        "w": 3,
+        "h": 4
+      },
+      "id": 6
+    },
+    {
+      "type": "stat",
+      "title": "Bajas (24 h)",
+      "description": "Personas que lo han dejado en las últimas 24 horas: dejan de seguirlo todo, /baja o bloquean el bot.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(clamp_min(max by (reason) (radar_bot_chats_removed_total{entorno=\"$entorno\"}) - (max by (reason) (radar_bot_chats_removed_total{entorno=\"$entorno\"} offset 24h) or max by (reason) (radar_bot_chats_removed_total{entorno=\"$entorno\"}) * 0), 0))",
+          "refId": "F",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value"
+      },
+      "gridPos": {
+        "x": 21,
+        "y": 1,
+        "w": 3,
+        "h": 4
+      },
+      "id": 7
+    },
+    {
+      "type": "timeseries",
+      "title": "Personas y cosas seguidas",
+      "description": "Cómo crece el bot. Prometheus guarda 30 días.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(radar_bot_chats{entorno=\"$entorno\"})",
+          "refId": "G",
+          "legendFormat": "Personas"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(max by (kind) (radar_bot_follows{entorno=\"$entorno\"}))",
+          "refId": "H",
+          "legendFormat": "Cosas seguidas"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(radar_bot_digest_chats{entorno=\"$entorno\"})",
+          "refId": "I",
+          "legendFormat": "Con parte diario"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 12,
+        "h": 9
+      },
+      "id": 8
+    },
+    {
+      "type": "timeseries",
+      "title": "Lo que siguen, por tipo",
+      "description": "Cosas seguidas de cada tipo (sumando: algo que siguen tres personas cuenta tres).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (kind) (radar_bot_follows{entorno=\"$entorno\"})",
+          "refId": "J",
+          "legendFormat": "{{kind}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 15,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "servicio"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Servicios (un tren o un recorrido)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "linea"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Líneas"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "parada"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Estaciones y paradas"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "provincia"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Provincias"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 12,
+        "h": 9
+      },
+      "id": 9
+    },
+    {
+      "type": "row",
+      "title": "Qué siguen",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 24,
+        "h": 1
+      },
+      "id": 10
+    },
+    {
+      "type": "table",
+      "title": "Lo más seguido",
+      "description": "Cada cosa que sigue alguien y cuántas personas la siguen (las 100 más seguidas). Sin el número de ningún chat: no dice quién sigue qué.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (kind, name, key) (radar_bot_follow_top{entorno=\"$entorno\"})",
+          "refId": "K",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "key": true
+            },
+            "indexByName": {
+              "kind": 0,
+              "name": 1,
+              "Value": 2
+            },
+            "renameByName": {
+              "kind": "Tipo",
+              "name": "Nombre",
+              "Value": "Personas"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "noValue": "Nadie sigue nada todavía"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Tipo"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "servicio": {
+                        "text": "Servicios (un tren o un recorrido)"
+                      },
+                      "linea": {
+                        "text": "Líneas"
+                      },
+                      "parada": {
+                        "text": "Estaciones y paradas"
+                      },
+                      "provincia": {
+                        "text": "Provincias"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 260
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Personas"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "sortBy": [
+          {
+            "displayName": "Personas",
+            "desc": true
+          }
+        ],
+        "showHeader": true
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 24,
+        "h": 14
+      },
+      "id": 11
+    },
+    {
+      "type": "row",
+      "title": "Qué hacen",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 24,
+        "h": 1
+      },
+      "id": 12
+    },
+    {
+      "type": "stat",
+      "title": "Altas desde el principio",
+      "description": "Personas que han empezado a seguir algo desde que se cuenta. Lo guarda el propio bot: no vuelve a 0 al reiniciar ni al desplegar.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(radar_bot_chats_added_total{entorno=\"$entorno\"})",
+          "refId": "L",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 6,
+        "h": 4
+      },
+      "id": 13
+    },
+    {
+      "type": "stat",
+      "title": "Bajas desde el principio",
+      "description": "Personas que lo han dejado desde que se cuenta (dejan de seguirlo todo, /baja o bloquean el bot).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(max by (reason) (radar_bot_chats_removed_total{entorno=\"$entorno\"}))",
+          "refId": "M",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 30,
+        "w": 6,
+        "h": 4
+      },
+      "id": 14
+    },
+    {
+      "type": "stat",
+      "title": "Avisos mandados",
+      "description": "Avisos de lo que siguen y partes diarios, desde que se cuenta.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(max by (kind) (radar_bot_notices_total{entorno=\"$entorno\"}))",
+          "refId": "N",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 30,
+        "w": 6,
+        "h": 4
+      },
+      "id": 15
+    },
+    {
+      "type": "stat",
+      "title": "Contando desde",
+      "description": "Desde cuándo cuentan los totales del bot (altas, bajas, avisos y mensajes).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(radar_bot_totals_since_seconds{entorno=\"$entorno\"}) * 1000",
+          "refId": "O",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsLocal",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 30,
+        "w": 6,
+        "h": 4
+      },
+      "id": 16
+    },
+    {
+      "type": "timeseries",
+      "title": "Altas y bajas por día",
+      "description": "Personas que empiezan a seguir algo y que lo dejan, cada día (días contados en hora UTC). El día de hoy, que aún no ha acabado, está arriba en «Altas (24 h)» y «Bajas (24 h)». El primer día cuenta como altas a quienes ya seguían algo.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "clamp_min(max(radar_bot_chats_added_total{entorno=\"$entorno\"}) - (max(radar_bot_chats_added_total{entorno=\"$entorno\"} offset 1d) or vector(0)), 0)",
+          "refId": "P",
+          "legendFormat": "Altas",
+          "interval": "1d"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "clamp_min(max by (reason) (radar_bot_chats_removed_total{entorno=\"$entorno\"}) - (max by (reason) (radar_bot_chats_removed_total{entorno=\"$entorno\"} offset 1d) or max by (reason) (radar_bot_chats_removed_total{entorno=\"$entorno\"}) * 0), 0)",
+          "refId": "Q",
+          "legendFormat": "{{reason}}",
+          "interval": "1d"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            },
+            "drawStyle": "bars",
+            "barAlignment": -1
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dejar"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Bajas: dejan de seguirlo todo"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "baja"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Bajas: /baja"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bloqueo"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Bajas: bloquean el bot"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Altas"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 34,
+        "w": 12,
+        "h": 9
+      },
+      "id": 17,
+      "interval": "1d"
+    },
+    {
+      "type": "timeseries",
+      "title": "Avisos mandados por día",
+      "description": "Avisos de lo que siguen (cancelaciones, retrasos, incidencias…) y partes diarios, cada día (en hora UTC; hoy aún no sale).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "clamp_min(max by (kind) (radar_bot_notices_total{entorno=\"$entorno\"}) - (max by (kind) (radar_bot_notices_total{entorno=\"$entorno\"} offset 1d) or max by (kind) (radar_bot_notices_total{entorno=\"$entorno\"}) * 0), 0)",
+          "refId": "R",
+          "legendFormat": "{{kind}}",
+          "interval": "1d"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal"
+            },
+            "drawStyle": "bars",
+            "barAlignment": -1
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "aviso"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Avisos"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "parte"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Partes diarios"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 34,
+        "w": 12,
+        "h": 9
+      },
+      "id": 18,
+      "interval": "1d"
+    },
+    {
+      "type": "timeseries",
+      "title": "Mensajes al bot por día, por orden",
+      "description": "Lo que escribe la gente: órdenes, búsquedas sin orden y botones de las listas, cada día (en hora UTC; hoy aún no sale).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "clamp_min(max by (command) (radar_bot_commands_total{entorno=\"$entorno\"}) - (max by (command) (radar_bot_commands_total{entorno=\"$entorno\"} offset 1d) or max by (command) (radar_bot_commands_total{entorno=\"$entorno\"}) * 0), 0) > 0",
+          "refId": "S",
+          "legendFormat": "{{command}}",
+          "interval": "1d"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal"
+            },
+            "drawStyle": "bars",
+            "barAlignment": -1
+          },
+          "noValue": "Nadie ha escrito todavía"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "enlace"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Desde la web (/start con enlace)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "start"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "/start"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "seguir"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "/seguir"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "buscar"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Texto sin orden"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "boton"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Botón de una lista"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "estado"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "/estado"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "provincia"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "/provincia"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "mis"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "/mis"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dejar"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "/dejar"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "parte"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "/parte"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "datos"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "/datos"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "baja"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "/baja"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ayuda"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "/ayuda"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "desconocida"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Orden que no existe"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "limite"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Pasado del tope por minuto"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 43,
+        "w": 24,
+        "h": 10
+      },
+      "id": 19,
+      "interval": "1d"
+    }
+  ],
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "radar"
+      ],
+      "asDropdown": false,
+      "title": "Paneles",
+      "includeVars": true,
+      "keepTime": true
+    }
+  ]
+}

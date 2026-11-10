@@ -127,6 +127,9 @@ const scheduler = startPolling({ feeds, ingestSource, detectAlerts, refreshCatal
 
 // Bot de Telegram «Sigue tu tren» (docs/telegram.md): sin TELEGRAM_BOT_TOKEN en .env, desactivado.
 let telegramBot = null;
+// Cuánto se usa, para las métricas (con sus totales, que se guardan con lo demás del bot y no vuelven a 0 al
+// arrancar): sólo del servidor que atiende el bot; en un relevo, el otro no dice nada.
+let botUsage = () => null;
 if (!config.telegram) {
   log.warn('[telegram] bot desactivado: falta TELEGRAM_BOT_TOKEN');
 } else {
@@ -150,6 +153,7 @@ if (!config.telegram) {
     log,
   });
   telegramBot.start();
+  botUsage = () => (telegramBot.active ? followBot.usage() : null);
 }
 
 const server = createHttpServer({
@@ -174,7 +178,7 @@ server.listen(config.port, config.host, () => {
 
 // Métricas en un puerto aparte, que no pasa por nginx ni por el túnel (sólo si METRICS_PORT lo dice).
 const metricsServer = config.metricsPort
-  ? createMetricsServer({ render: () => metrics.render({ sources: query.health(), now: clock.now() }), log })
+  ? createMetricsServer({ render: () => metrics.render({ sources: query.health(), bot: botUsage(), now: clock.now() }), log })
   : null;
 metricsServer?.listen(config.metricsPort, config.metricsHost, () => {
   log.info(`Métricas en http://${config.metricsHost}:${config.metricsPort}/metrics`);

@@ -5,6 +5,7 @@ import * as P from './panels.js';
 import { stationBoard } from './station-board.js';
 import * as S from './siguiendo.js';
 import { loadTelegram, telegramLink } from './avisar.js';
+import { mountLangSwitch, t, tn } from './i18n.js';
 
 // ---------- Estado ----------
 const state = {
@@ -174,7 +175,7 @@ function flush() {
     const gone = shownEvents.filter((e) => e.withdrawn).length;
     const badge = document.getElementById('b-events');
     badge.textContent = shownEvents.length - gone;
-    badge.title = gone ? `Y ${gone} que su fuente ya no publica (se ven desvaídas hasta medianoche)` : '';
+    badge.title = gone ? tn('Y {n} que su fuente ya no publica (se ve desvaída hasta medianoche)', 'Y {n} que su fuente ya no publica (se ven desvaídas hasta medianoche)', gone) : '';
     if (state.tab === 'events') P.renderEvents(document.getElementById('events-list'), P.filterEvents(events, prefs), selection('event'));
   }
   if (parts.has('alerts')) {
@@ -251,10 +252,10 @@ const stream = connect({
   status(s, ageMs) {
     const el = document.getElementById('live');
     el.dataset.state = s;
-    el.querySelector('.txt').textContent = s === 'live' ? 'En directo'
-      : s === 'stale' ? `Datos de hace ${Math.round(ageMs / 60_000)} min`
-        : s === 'updating' ? 'Actualizando…'
-          : s === 'error' ? 'Sin conexión' : 'Reconectando…';
+    el.querySelector('.txt').textContent = s === 'live' ? t('En directo')
+      : s === 'stale' ? t('Datos de hace {n} min', { n: Math.round(ageMs / 60_000) })
+        : s === 'updating' ? t('Actualizando…')
+          : s === 'error' ? t('Sin conexión') : t('Reconectando…');
     // Una actualización del servidor (unos segundos): que nadie se asuste, vuelve solo.
     document.getElementById('updating').hidden = s !== 'updating';
   },
@@ -314,7 +315,12 @@ function selectEvent(id) {
 // las capas que necesita; clic en otro lo sustituye y en el mismo vuelve a tus capas. Lo que se
 // cambie en Capas mientras tanto se aplica sin perder la selección y se guarda. Con "Varias a la
 // vez" cada clic suma o quita, y se pueden mezclar alertas, incidencias y trenes. Todo con clics.
-const KIND_LABEL = { alert: ['alerta', 'alertas'], event: ['incidencia', 'incidencias'], vehicle: ['vehículo', 'vehículos'], bus: ['autobús', 'autobuses'] };
+const KIND_LABEL = {
+  alert: (n) => tn('{n} alerta', '{n} alertas', n),
+  event: (n) => tn('{n} incidencia', '{n} incidencias', n),
+  vehicle: (n) => tn('{n} vehículo', '{n} vehículos', n),
+  bus: (n) => tn('{n} autobús', '{n} autobuses', n),
+};
 
 function selection(kind) {
   const ids = new Set([...state.selected.values()].filter((x) => x.kind === kind).map((x) => x.id));
@@ -409,10 +415,10 @@ function applyFocus({ fit = false } = {}) {
     const k = kind === 'vehicle' && findVehicle(id)?.mode === 'bus' ? 'bus' : kind;
     counts[k] = (counts[k] ?? 0) + 1;
   }
-  const summary = Object.entries(counts).map(([k, n]) => `${n} ${KIND_LABEL[k][n === 1 ? 0 : 1]}`).join(', ');
+  const summary = Object.entries(counts).map(([k, n]) => KIND_LABEL[k](n)).join(', ');
   const banner = document.getElementById('focus-banner');
   banner.hidden = !items.length;
-  banner.querySelector('.txt').textContent = `Mostrando sólo: ${summary}`;
+  banner.querySelector('.txt').textContent = t('Mostrando sólo: {summary}', { summary });
 
   if (!items.length) {
     state.forced.clear();
@@ -516,7 +522,7 @@ function setSheet(stop) {
   sidebar.dataset.sheet = stop;
   sidebar.parentElement.classList.toggle('sheet-hidden', stop === 'hidden');
   sheetHandle.setAttribute('aria-expanded', String(stop !== 'peek' && stop !== 'hidden'));
-  sheetHandle.setAttribute('aria-label', stop === 'hidden' ? 'Mostrar el panel' : stop === 'peek' ? 'Abrir el panel' : 'Bajar el panel');
+  sheetHandle.setAttribute('aria-label', stop === 'hidden' ? t('Mostrar el panel') : stop === 'peek' ? t('Abrir el panel') : t('Bajar el panel'));
 }
 setSheet('peek');
 document.getElementById('sheet-hide').addEventListener('click', () => setSheet('hidden'));
@@ -676,7 +682,7 @@ function renderFollowing() {
   badge.textContent = items.length;
   badge.classList.toggle('warn', attention > 0);
   markMoreTabs(); // el número cambia el ancho de la pestaña
-  badge.title = attention ? `${attention} con cancelaciones o sin datos` : '';
+  badge.title = attention ? t('{n} con cancelaciones o sin datos', { n: attention }) : '';
   if (state.tab !== 'following') return;
   document.getElementById('panel-following').innerHTML = S.followingHtml(items, state.following, {
     sourceCredit: (id, operator) => {
@@ -748,11 +754,11 @@ function setFollowed(item, on) {
     if (b.dataset.follow !== item.key) continue;
     b.setAttribute('aria-pressed', String(now));
     b.innerHTML = S.followButtonText(b.dataset.followWhat, now);
-    b.title = on && !now && S.follows.full ? `Ya sigues ${S.FOLLOW_MAX} cosas: deja de seguir alguna para añadir otra` : b.dataset.followName;
+    b.title = on && !now && S.follows.full ? t('Ya sigues {n} cosas: deja de seguir alguna para añadir otra', { n: S.FOLLOW_MAX }) : b.dataset.followName;
     // En el móvil no hay `title`: el aviso del tope, también escrito debajo de los botones.
     const group = b.closest('.follow');
     if (group && on && !now && S.follows.full && !group.querySelector('.follow-full')) {
-      group.insertAdjacentHTML('beforeend', `<p class="follow-full" role="status">Ya sigues ${S.FOLLOW_MAX} cosas: deja de seguir alguna en «★ Siguiendo» para añadir otra.</p>`);
+      group.insertAdjacentHTML('beforeend', `<p class="follow-full" role="status">${t('Ya sigues {n} cosas: deja de seguir alguna en «★ Siguiendo» para añadir otra.', { n: S.FOLLOW_MAX })}</p>`);
     }
   }
   if (!now) state.following.delete(item.key);
@@ -826,9 +832,30 @@ function openFollowed(key) {
   if (events.length) focusOn(events.map((e) => ({ kind: 'event', id: e.id })));
 }
 
-// Quien ya sigue algo entra directamente en su lista.
-if (S.follows.size) showTab('following');
-else render('following');
+// ---------- Idioma (ES/EN, ver i18n.js) ----------
+// Cambiar de idioma recarga la página: antes se guarda dónde estaba el mapa y la pestaña abierta, y al
+// volver a cargar se deja igual (sólo esa vez: sessionStorage, y se borra al leerlo).
+const VIEW_KEY = 'radar-es:vista-al-cambiar-de-idioma';
+mountLangSwitch(() => {
+  try {
+    const center = map.raw.getCenter();
+    sessionStorage.setItem(VIEW_KEY, JSON.stringify({ lon: center.lng, lat: center.lat, zoom: map.raw.getZoom(), tab: state.tab }));
+  } catch { /* sin almacenamiento: se vuelve a la vista inicial */ }
+});
+let savedView = null;
+try {
+  savedView = JSON.parse(sessionStorage.getItem(VIEW_KEY));
+  sessionStorage.removeItem(VIEW_KEY);
+} catch { /* nada guardado */ }
+if ([savedView?.lon, savedView?.lat, savedView?.zoom].every(Number.isFinite)) {
+  map.raw.jumpTo({ center: [savedView.lon, savedView.lat], zoom: savedView.zoom });
+}
+
+// Quien ya sigue algo entra directamente en su lista (o en la que tenía abierta al cambiar de idioma).
+const TABS = ['following', 'alerts', 'events', 'vehicles', 'stations', 'sources'];
+if (TABS.includes(savedView?.tab)) showTab(savedView.tab);
+else if (S.follows.size) showTab('following');
+if (state.tab !== 'following') render('following');
 refreshFollowing({ force: true });
 
 // Refresca los "hace X min" aunque no lleguen datos nuevos.

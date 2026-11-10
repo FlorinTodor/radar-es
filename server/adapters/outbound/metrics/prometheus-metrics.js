@@ -3,7 +3,8 @@
 // contadores e histogramas en memoria, y el estado de las fuentes y del proceso en el momento de leerlas.
 //
 // Nada de quién pregunta: las etiquetas son rutas sin parámetros, métodos, códigos y nombres de
-// fuentes o herramientas, todos de una lista corta. Aun así, cada métrica admite como mucho
+// fuentes o herramientas, todos de una lista corta; del bot de Telegram, cuántos chats y qué se sigue, en
+// conjunto (domain/seguidos/uso.js), nunca el número de un chat. Aun así, cada métrica admite como mucho
 // MAX_SERIES combinaciones: si un fallo metiera valores sin fin, se descartan (y se cuentan).
 import { readFileSync } from 'node:fs';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
@@ -31,9 +32,10 @@ const DEFINITIONS = {
  * @param {{ version?: string, now?: () => number, startedAt?: number, cgroupDir?: string }} [options]
  *   cgroupDir: carpeta del cgroup del contenedor, de donde sale su memoria (la que cuenta para su límite).
  * @returns {import('../../../application/ports.js').MetricsPort & {
- *   render(snapshot?: { sources?: object[], now?: number }): string, close(): void }}
- *   render: el texto para /metrics, con el estado de las fuentes (`sources`, lo que da /api/health)
- *   y del proceso en este momento. close: deja de medir el retraso del bucle de eventos.
+ *   render(snapshot?: { sources?: object[], bot?: object|null, now?: number }): string, close(): void }}
+ *   render: el texto para /metrics, con el estado de las fuentes (`sources`, lo que da /api/health),
+ *   el uso del bot de Telegram (`bot`, si este servidor lo atiende) y el del proceso en este momento.
+ *   close: deja de medir el retraso del bucle de eventos.
  */
 export function createPrometheusMetrics({ version = '0.0.0', now = Date.now, startedAt = now(), cgroupDir = '/sys/fs/cgroup' } = {}) {
   /** @type {Map<string, Map<string, { labels: object, value?: number, counts?: number[], sum?: number, count?: number }>>} */
@@ -87,12 +89,9 @@ export function createPrometheusMetrics({ version = '0.0.0', now = Date.now, sta
     logged(level) {
       add('radar_log_messages_total', { level });
     },
-    render({ sources = [], now: at = now() } = {}) {
+    render({ sources = [], bot = null, now: at = now() } = {}) {
       const out = [];
-      const gauge = (name, help, rows) => {
-        out.push(`# HELP ${name} ${help}`, `# TYPE ${name} gauge`);
-        for (const [labels, value] of rows) out.push(`${name}${labelText(labels)} ${num(value)}`);
-      };
+      const gauge = (name, help, rows) => writeRows(out, name, 'gauge', help, rows);
       gauge('radar_info', 'Versión del servidor.', [[{ version }, 1]]);
       processMetrics(out, { startedAt, loopDelay });
       containerMemory(out, cgroupDir);
@@ -111,6 +110,7 @@ export function createPrometheusMetrics({ version = '0.0.0', now = Date.now, sta
       // Desde el arranque si aún no ha habido ninguna buena: así también avisa la que nunca ha funcionado.
       gauge('radar_source_seconds_since_ok', 'Segundos desde la última lectura buena (o desde el arranque, si no ha habido ninguna).',
         enabled.map((s) => [{ source: s.id }, Math.max(0, (at - (Number.isFinite(s.lastOk) ? s.lastOk : startedAt)) / 1000)]));
+      if (bot) botMetrics(out, bot);
 
       for (const [name, all] of series) {
         const { type, help, buckets } = DEFINITIONS[name];
@@ -132,6 +132,41 @@ export function createPrometheusMetrics({ version = '0.0.0', now = Date.now, sta
       loopDelay.disable();
     },
   };
+}
+
+/** Una métrica entera: su ayuda, su tipo y una línea por cada fila [etiquetas, valor]. */
+function writeRows(out, name, type, help, rows) {
+  out.push(`# HELP ${name} ${help}`, `# TYPE ${name} ${type}`);
+  for (const [labels, value] of rows) out.push(`${name}${labelText(labels)} ${num(value)}`);
+}
+
+/**
+ * Cuánto se usa el bot de Telegram (follow-bot usage()). Sólo lo escribe el servidor que atiende el bot: en un
+ * relevo, el otro no escribe nada, y en los paneles no se cuenta dos veces. Los contadores (_total) son los totales
+ * que el bot guarda en su disco con lo demás: no vuelven a 0 al arrancar ni al pasar a otro contenedor, así que en
+ * Prometheus son la misma cifra antes y después de un despliegue (en los paneles, max y no increase).
+ */
+function botMetrics(out, { chats = 0, digest = 0, follows = {}, distinct = {}, top = [], totals = null }) {
+  const g = (name, help, rows) => writeRows(out, name, 'gauge', help, rows);
+  const c = (name, help, rows) => writeRows(out, name, 'counter', help, rows);
+  g('radar_bot_chats', 'Chats que siguen algo en el bot de Telegram (cada uno, una persona: sólo atiende chats privados).', [[{}, chats]]);
+  g('radar_bot_digest_chats', 'Chats del bot de Telegram con parte diario.', [[{}, digest]]);
+  g('radar_bot_follows', 'Cosas seguidas en el bot de Telegram, por tipo (una que siguen tres chats cuenta tres).',
+    Object.entries(follows).map(([kind, n]) => [{ kind }, n]));
+  g('radar_bot_follow_items', 'Cosas distintas seguidas en el bot de Telegram, por tipo.',
+    Object.entries(distinct).map(([kind, n]) => [{ kind }, n]));
+  g('radar_bot_follow_top', 'Chats que siguen cada una de las cosas más seguidas en el bot de Telegram.',
+    top.map((t) => [{ kind: t.kind, key: t.key, name: t.name }, t.chats]));
+  if (!totals) return;
+  g('radar_bot_totals_since_seconds', 'Desde cuándo cuentan los totales del bot de Telegram (segundos desde 1970).',
+    [[{}, Math.floor(totals.since / 1000)]]);
+  c('radar_bot_chats_added_total', 'Chats que han empezado a seguir algo en el bot de Telegram.', [[{}, totals.added]]);
+  c('radar_bot_chats_removed_total', 'Chats que han dejado el bot de Telegram: dejan de seguirlo todo (dejar), escriben /baja (baja) o lo bloquean (bloqueo).',
+    Object.entries(totals.removed ?? {}).map(([reason, n]) => [{ reason }, n]));
+  c('radar_bot_notices_total', 'Avisos del bot de Telegram: de algo seguido (aviso) y partes diarios (parte).',
+    Object.entries(totals.notices ?? {}).map(([kind, n]) => [{ kind }, n]));
+  c('radar_bot_commands_total', 'Mensajes al bot de Telegram, por orden (enlace: /start desde la web; boton: un botón de una lista; limite: pasado del tope por minuto).',
+    Object.entries(totals.commands ?? {}).map(([command, n]) => [{ command }, n]));
 }
 
 /** Memoria, CPU y retraso del bucle de eventos (desde la lectura anterior) del proceso de Node. */
