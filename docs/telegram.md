@@ -121,7 +121,7 @@ TELEGRAM_BOT_TOKEN` y la web no enseña el botón.
   si se llena, se tiran los más viejos y se apunta en el registro.
 - **Las provincias son círculos aproximados**, uno por isla en Baleares y Canarias
   (`server/domain/provincias.js`). Cerca de un límite puede llegar algún aviso de la vecina, y así se avisa al
-  seguir una.
+  seguir una. Se puede escribir la isla (`/provincia La Palma`, `/provincia Menorca`): se sigue su provincia.
 - **Un aviso no se repite en la misma ronda**: si un chat sigue una estación y la línea de la que habla un aviso de
   Renfe, le llega en uno de los dos mensajes. Las cancelaciones sí van en cada cosa a la que afectan, con lo suyo
   (la hora en esa estación).

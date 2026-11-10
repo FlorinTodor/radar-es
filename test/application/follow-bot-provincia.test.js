@@ -146,6 +146,13 @@ test('estación seguida: los avisos de Renfe de la estación, con su texto tal c
   assert.match(say('/estado')[0].text, /Avisos de Renfe en la estación:\n- Aviso Renfe: Acceso por la calle Doctor Calero cerrado\.\n- Aviso Renfe: Ascensor de la estación Majadahonda/);
 });
 
+test('una isla es su provincia: «/provincia La Palma» sigue Santa Cruz de Tenerife, y «Menorca», Illes Balears', () => {
+  const { say } = setup();
+  assert.match(say('/provincia La Palma')[0].text, /^Hecho: te aviso en Santa Cruz de Tenerife de los avisos naranja y rojo de AEMET/);
+  assert.match(say('/provincia menorca incendios')[0].text, /^Hecho: te aviso en Illes Balears de los avisos/);
+  assert.match(say('/mis')[0].text, /1\. Avisos en Santa Cruz de Tenerife\n2\. Avisos en Illes Balears \(con focos de calor\)/);
+});
+
 test('el parte de la mañana cuenta los apagones, los focos (si se piden) y los avisos de la estación', () => {
   const { say, world, tick, at } = setup();
   say('/provincia Las Palmas incendios');
