@@ -4,7 +4,7 @@
 import { mkdir, readFile, stat } from 'node:fs/promises';
 import { writeFileAtomic } from '../http/file-cache.js';
 import { createPacer, csvColumns, csvRows, gtfsBudget, openGtfs, own } from '../gtfs/gtfs-reader.js';
-import { modeOf } from '../gtfs/gtfs-modes.js';
+import { modeFixNote, modeOf } from '../gtfs/gtfs-modes.js';
 import { round5 } from '../../../domain/geo.js';
 import { madridLocalToMs } from '../sources/parse.js';
 
@@ -91,9 +91,10 @@ export async function buildNetwork(zip, network) {
   const budget = gtfsBudget();
   const files = await openGtfs(zip, ['routes.txt', 'trips.txt', 'shapes.txt'], budget);
 
+  const ficheroId = NETWORKS.find(([, n]) => n === network)?.[0] ?? null;
   const routes = new Map();
   for (const r of csvRows(files['routes.txt'])) {
-    const mode = modeOf(r.route_type);
+    const mode = modeOf(r.route_type, ficheroId);
     if (!mode) continue;
     const color = /^[0-9a-f]{6}$/i.test(r.route_color) ? readableColor(`#${r.route_color}`, mode) : DEFAULT_COLOR[mode];
     routes.set(r.route_id, { mode, color, name: r.route_short_name || r.route_long_name || r.route_id });
@@ -208,7 +209,7 @@ function buildTenerife(bytes) {
  */
 export function createGtfsNetworkCatalog({ nap, cache, cacheDir, log, pool, now = Date.now }) {
   // Nombre nuevo para no reutilizar una caché sin los shape_id de cada trazado ni los colores aclarados.
-  const cacheFile = new URL('trazados-red-v3.json', cacheDir);
+  const cacheFile = new URL('trazados-red-v4.json', cacheDir); // v4: TRAM con todas sus líneas como tranvía
   let collection = { type: 'FeatureCollection', features: [] };
   let builtAt = 0;
   // Redes que fallaron en la última construcción: se reintentan en la siguiente recarga (cada hora)
@@ -302,8 +303,8 @@ export function createGtfsNetworkCatalog({ nap, cache, cacheDir, log, pool, now 
      * NAP (ms; null si aún no se sabe). El de Tenerife no viene del NAP y su licencia no pide fecha: no la lleva.
      */
     sources: () => [
-      ...NETWORKS.map(([, name, , credit]) => ({
-        name, credit: `Powered by MITRAMS (Punto de Acceso Nacional) · ${credit} · Trazado simplificado (dato explotado)`,
+      ...NETWORKS.map(([ficheroId, name, , credit]) => ({
+        name, credit: `Powered by MITRAMS (Punto de Acceso Nacional) · ${credit} · Trazado simplificado (dato explotado)${modeFixNote(ficheroId)}`,
         updated: madridLocalToMs(updated[name]),
       })),
       { name: TENERIFE, credit: 'Metropolitano de Tenerife, S.A. · Portal de Datos Abiertos del Cabildo de Tenerife (CC BY) · Trazado simplificado' },

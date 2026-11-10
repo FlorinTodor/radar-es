@@ -27,7 +27,7 @@ const titleCase = (s) => (/[a-z]/.test(s) ? s : s.toLowerCase().replace(/(^|[\s(
  *   que ya llegan por otra fuente, para no pintar dos veces el mismo vehículo.
  * @param {{ left: number }} [budget]  Lo que se puede descomprimir en esta lectura (gtfsBudget).
  */
-export async function parseSchedule(zip, forcedMode, days, { excludeAgency, excludeRoute } = {}, budget = gtfsBudget()) {
+export async function parseSchedule(zip, forcedMode, days, { excludeAgency, excludeRoute, ficheroId = null } = {}, budget = gtfsBudget()) {
   const pace = createPacer(); // horarios de millones de filas: sin bloquear el servidor mientras se leen
   // stop_times.txt y shapes.txt (los grandes: hasta 100 MB) se descomprimen cada uno sólo mientras se
   // recorre: con varios hilos leyendo a la vez, cada uno tiene así un solo fichero grande en memoria.
@@ -39,7 +39,7 @@ export async function parseSchedule(zip, forcedMode, days, { excludeAgency, excl
   const routes = new Map();
   for (const r of csvRows(f['routes.txt'])) {
     if (excludeAgency?.test(agencies.get(r.agency_id) ?? '') || excludeRoute?.test(r.route_short_name)) continue;
-    const mode = forcedMode === 'bus' ? (isBusRoute(r.route_type) ? 'bus' : null) : forcedMode ?? modeOf(r.route_type);
+    const mode = forcedMode === 'bus' ? (isBusRoute(r.route_type) ? 'bus' : null) : forcedMode ?? modeOf(r.route_type, ficheroId);
     if (mode) routes.set(r.route_id, { mode, line: r.route_short_name || r.route_long_name || null });
   }
 
