@@ -18,6 +18,9 @@ tipo nuevo funciona sin tocarlo.
 Desde la web, la ficha de cada vehículo, cancelación, tren sin datos o estación lleva «Avísame por Telegram»:
 abre el bot con `t.me/<bot>?start=<clave>` y lo sigue con un toque.
 
+Habla español y, si cada chat lo elige, inglés (ver [Idioma](#idioma)): con `/idioma` (o `/language`), con el botón
+que ofrece al primer `/start` a quien tiene Telegram en otro idioma, o abriéndolo desde la web en inglés.
+
 ## Crear el bot (una vez)
 
 Tiene que ser **un bot nuevo**, distinto del que manda las alertas de la monitorización: ése sólo envía, y este
@@ -29,23 +32,32 @@ otro lee lo que le escribe la gente.
 4. BotFather contesta con el **token** (`123456789:AA…`). Es la contraseña del bot: no lo pegues en ningún
    chat, issue ni commit.
 5. Opcional, también en BotFather:
-   - `/setdescription`: «Te aviso de lo que sigas en Radar España: cancelaciones, retrasos, avisos de tu
-     línea y de tu provincia. Datos públicos de los operadores; no es un servicio oficial.»
-   - `/setabouttext`: «Avisos de trenes, autobuses, metro y tranvía de radarespana.es.»
    - `/setuserpic`: el icono de la web.
    - `/setjoingroups` → `Disable`: el bot sólo atiende chats privados.
-   - `/setcommands`: no hace falta, porque el servidor pone el menú al arrancar. Si quieres ponerlo a mano:
+   - `/setdescription`, `/setabouttext` y `/setcommands`: no hace falta. El servidor pone al arrancar, en español
+     (para todos) y en inglés (para quien tiene Telegram en inglés, con el `language_code` de la API), el menú de
+     órdenes (`setMyCommands`), la descripción que se ve antes de escribirle (`setMyDescription`) y la de su perfil
+     (`setMyShortDescription`). Lo que se ponga a mano en BotFather lo cambia el siguiente arranque. Los textos están
+     en `server/domain/seguidos/ordenes.js` (`botProfiles`) y su traducción, en `server/domain/seguidos/en.js`:
+
+     | | Español | English |
+     |---|---|---|
+     | Descripción | Te aviso de lo que sigas en Radar España: cancelaciones, retrasos, avisos de tu línea y de tu provincia. Datos públicos de los operadores; no es un servicio oficial. | I alert you about what you follow on Radar España: cancellations, delays, notices for your line and alerts for your province. Public data from the operators; not an official service. |
+     | Perfil | Avisos de trenes, autobuses, metro y tranvía de radarespana.es. | Train, bus, metro and tram alerts from radarespana.es. |
+
+     El menú en español usa las órdenes de siempre y, en inglés, sus nombres en inglés (las dos formas valen siempre):
 
      ```
-     seguir - Seguir un tren, autobús, metro o línea: /seguir 08058, /seguir C4 Madrid
-     estado - Cómo va ahora lo que sigues, o lo que busques
-     provincia - Avisos de tu provincia: AEMET, terremotos y emergencias
-     mis - Lo que sigues
-     dejar - Dejar de seguir algo
-     parte - Un resumen cada día a la hora que digas: /parte 07:30
-     datos - Qué guardo de este chat
-     baja - Borrar todo lo de este chat
-     ayuda - Cómo funciona
+     seguir    · follow     Seguir un tren, autobús, metro o línea: /seguir 08058, /seguir C4 Madrid
+     estado    · status     Cómo va ahora lo que sigues, o lo que busques
+     provincia · province   Avisos de tu provincia: AEMET, terremotos y emergencias
+     mis       · following  Lo que sigues
+     dejar     · unfollow   Dejar de seguir algo
+     parte     · summary    Un resumen cada día a la hora que digas: /parte 07:30
+     datos     · data       Qué guardo de este chat
+     baja      · stop       Borrar todo lo de este chat
+     idioma    · language   Cambiar de idioma: español o inglés
+     ayuda     · help       Cómo funciona
      ```
 
 ## Ponerlo en marcha
@@ -92,7 +104,8 @@ TELEGRAM_BOT_TOKEN` y la web no enseña el botón.
 - **Atiende un solo servidor a la vez.** Durante un relevo hay dos contenedores, y un turno en
   `data/bot/turno.json` decide cuál atiende el bot. El que se apaga lo suelta y el nuevo lo coge.
 - **Lo que guarda**, en `data/bot/seguidos.v1.json`:
-  - el número de cada chat, lo que sigue (con su nombre), desde cuándo y la hora de su parte;
+  - el número de cada chat, lo que sigue (con su nombre), desde cuándo, la hora de su parte y su idioma (`lang`,
+    sólo si no es el español);
   - para no repetir avisos tras un reinicio, qué se ha avisado ya;
   - y los totales de uso (`totals`), sin ningún número de chat: altas, bajas por motivo, avisos y partes, y
     mensajes por orden, desde que se cuentan.
@@ -118,9 +131,48 @@ TELEGRAM_BOT_TOKEN` y la web no enseña el botón.
   (`server/domain/provincias.js`). Cerca de un límite puede llegar algún aviso de la vecina, y así se avisa al
   seguir una.
 
-Código:
+## Idioma
 
-- dominio: `server/domain/seguidos/` y `server/domain/provincias.js`;
+Cada chat tiene su idioma: español por defecto e inglés si lo elige. Mismo criterio que la web en inglés
+(`public/js/i18n.js`).
+
+- **Cómo se elige**:
+  - `/idioma` (o `/language`) con sus botones «Español» / «English», o con el idioma escrito (`/idioma inglés`,
+    `/language english`). Al cambiarlo, el bot pone también el menú de órdenes de ese chat en su idioma;
+  - al primer `/start`, si el Telegram de quien escribe está en otro idioma (su `language_code`, que Telegram manda
+    con cada mensaje) que no es de España (ni `es`, ni `ca`, `eu` o `gl`), se le ofrece el inglés con un botón, una
+    vez y sin imponerlo;
+  - desde la web en inglés: el botón «Alert me on Telegram» abre `t.me/<bot>?start=en-<clave>` y el bot sigue lo
+    elegido y contesta ya en inglés. Ninguna clave ni provincia empieza por un idioma (las claves son `s-`, `l-` o
+    `p-`), así que los enlaces de siempre, sin idioma, siguen igual. Si con `en-` la clave pasara de los 64
+    caracteres que admite Telegram, la web la manda sin él.
+- **Dónde se guarda**: con lo demás del chat (`lang`, sólo si no es el español). De quien no sigue nada no se guarda
+  nada, así que su idioma sólo queda en memoria hasta que se reinicia el servidor; al seguir algo, pasa a su chat.
+  `/datos` lo enseña.
+- **Cómo se traduce**: las frases en español del código son la clave y `server/domain/seguidos/en.js`, su traducción
+  (inglés británico, con el glosario de la web). Todo lo que escribe el bot pasa por `t('…')` (o `frase('…')` si se
+  traduce más tarde, como las descripciones de las órdenes). `test/domain/bot-idioma.test.js` recorre el código del
+  bot y falla si una frase no está en el diccionario, si sobra una que ya no se dice, si no lleva las mismas
+  `{variables}` o las mismas órdenes (`/seguir` → `/follow`) o si hay **una frase escrita sin pasar por `t()`**: una
+  orden o un aviso nuevo no se puede subir sin traducir. Las órdenes tienen nombre en inglés (`/follow`, `/status`,
+  `/unfollow`, `/summary`, `/stop`…) y las dos formas valen siempre.
+- **Qué se queda tal cual**, como en la web: los nombres (estaciones, líneas, operadores, provincias, lugares), lo que
+  publica cada fuente (avisos de Renfe, de AEMET, de protección civil, motivos de las cancelaciones…) y las
+  atribuciones con su fórmula («Origen de los datos: Renfe Operadora», «© AEMET», «Powered by MITRAMS»): varias
+  licencias piden no alterarlos.
+- **Lo que escribe nuestro servidor** (títulos de cancelaciones, terremotos, avisos sin título) se traduce con las
+  mismas plantillas que la web (`server/domain/en-servidor.js`, que la web carga tal cual). Los nombres de lo que se
+  sigue se guardan en español («Autobús 27 · EMT Málaga») y se enseñan con nuestras palabras traducidas («Bus 27 · EMT
+  Málaga»).
+- **Fechas y horas**: día/mes y 24 h en hora peninsular («10/11, 15:00»); `/parte` entiende también «7pm». La web que
+  citan los mensajes en inglés lleva `?lang=en`.
+- **En las rondas**, los hechos se buscan una vez para todos (en español, que da sus ids) y otra sólo con lo que siguen
+  los chats en inglés, si hay alguno.
+
+## Código
+
+- dominio: `server/domain/seguidos/` (el idioma, en `idioma.js` y `en.js`), `server/domain/en-servidor.js` y
+  `server/domain/provincias.js`;
 - caso de uso: `server/application/use-cases/follow-bot.js`;
 - adaptadores: `server/adapters/inbound/telegram/` y `server/adapters/outbound/telegram/`, más el almacén y el
   turno en `server/adapters/outbound/persistence/`.

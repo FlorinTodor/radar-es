@@ -867,6 +867,10 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   de tu provincia; y, si se le pide, manda un parte cada día a la hora elegida. Cada ficha lleva arriba
   el botón «Avísame por Telegram», que lo sigue con un toque, y cada cosa de Siguiendo, el suyo. Guarda
   sólo lo necesario para avisar, y con `/baja` se borra todo.
+- El bot de Telegram también en inglés, por chat: se elige con `/idioma` (o `/language`), lo ofrece la
+  primera vez a quien tiene Telegram en otro idioma y lo abre ya en inglés el botón de la web en inglés.
+  Traduce lo que escribe el bot, con sus órdenes en inglés, y deja tal cual los nombres, los avisos de
+  cada fuente y las atribuciones, como la web.
 - Todo lo anterior vale para cualquier tipo de vehículo: todos comparten las mismas claves para
   seguirlos y un registro de tipos, así que un tipo nuevo (barcos, aviones) sólo necesita su entrada en
   el registro y el adaptador de su fuente.
@@ -1021,7 +1025,7 @@ Ninguna por ahora.
 
 ## Posibles mejoras
 
-- El aviso legal y el bot de Telegram también en inglés (hoy sólo en español; la web en inglés lo indica).
+- El aviso legal también en inglés (hoy sólo en español; la web en inglés lo indica).
 - Tiempo real de TMB y posiciones de los autobuses de EMT Madrid desde sus API, cuando EMT apruebe nuestra
   aplicación de MobilityLabs (ver
   *Pendiente y conocido*).
