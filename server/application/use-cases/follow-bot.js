@@ -10,8 +10,8 @@ import { isFollowKey, isRoadKey, followKind, stopCode } from '../../domain/segui
 import { PROVINCE_TRAFFIC_TEXT, asksForRoad, parseRoadRequest, roadFollowedText, roadName, roadRequestHelp, roadSeen, roadSub, roadTitle } from '../../domain/seguidos/trafico.js';
 import { entryLabel, guessedName, knownNames, searchDirectory, updateDirectory } from '../../domain/seguidos/directorio.js';
 import {
-  DELAY_MIN, SEEN_MAX, collectFacts, factsMessage, fitMessage, madridDay, madridHourMinute, newFacts, packBlocks, provinceSub,
-  statusOf, trackFacts,
+  DELAY_MIN, SEEN_HARD_MAX, SEEN_MAX, capSeen, collectFacts, factsMessage, fitMessage, madridDay, madridHourMinute, newFacts, packBlocks,
+  provinceSub, statusOf, trackFacts,
 } from '../../domain/seguidos/avisos.js';
 import {
   LANG_NAMES, botProfiles, commandsFor, dataText, helpText, langLabel, parseCommand, parseHour, smallTalk, smallTalkText, welcomeText,
@@ -41,6 +41,8 @@ const SAVE_EVERY_MS = 10 * 60_000;
 const DIRECTORY_EVERY_MS = 5 * 60_000;
 const BUTTON_MAX = 60;
 const EN = translator('en');
+// Cada cuánto, como mucho, se apunta en el registro que lo recordado de lo avisado pasa del tope.
+const SEEN_WARN_EVERY_MS = 3600_000;
 
 const num = (x) => (Number.isFinite(x) ? x : 0);
 const clipLabel = (s) => cutText(s, BUTTON_MAX);
@@ -101,6 +103,7 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
   let directoryAt = -Infinity;
   let known = null; // operadores y ámbitos del directorio (knownNames), hasta que cambie
   let menuSeq = 0;
+  let seenWarnedAt = -Infinity;
   const webs = Object.fromEntries(BOT_LANGS.map((l) => [l, webIn(webUrl, l)]));
   /** La web que se cita a un chat, en su idioma. */
   const web = (tr) => webs[tr.lang] ?? webUrl;
@@ -648,9 +651,15 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
           lang: isBotLang(c.lang) ? c.lang : DEFAULT_LANG,
         });
       }
-      for (const row of Array.isArray(saved.seen) ? saved.seen.slice(0, SEEN_MAX) : []) {
-        if (Array.isArray(row) && typeof row[0] === 'string' && Number.isFinite(row[1]) && Number.isFinite(row[2])) seen.set(row[0], { first: row[1], last: row[2] });
+      let lastRound = -Infinity;
+      for (const row of Array.isArray(saved.seen) ? saved.seen.slice(0, SEEN_HARD_MAX) : []) {
+        if (Array.isArray(row) && typeof row[0] === 'string' && Number.isFinite(row[1]) && Number.isFinite(row[2])) {
+          seen.set(row[0], { first: row[1], last: row[2] });
+          if (row[2] > lastRound) lastRound = row[2];
+        }
       }
+      // Como en cada ronda: lo de la última que se guardó no se olvida por el tope.
+      capSeen(seen, { keepFrom: lastRound });
       dirty = false;
       if (saved.totals === undefined && chats.size) {
         // Un fichero de antes de los totales: quienes ya siguen algo cuentan como altas, desde la primera (las bajas de
@@ -796,6 +805,11 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
       if (!allKeys.size && !allProvinces.size) return [];
       const facts = factsOf(allKeys, allProvinces, c);
       seen = trackFacts(seen, facts, now);
+      // Lo de esta ronda no se olvida por el tope (avisos perdidos o repetidos): si sólo eso ya pasa, se dice.
+      if (seen.size > SEEN_MAX && now - seenWarnedAt >= SEEN_WARN_EVERY_MS) {
+        seenWarnedAt = now;
+        log?.warn(`[telegram] lo avisado que se recuerda pasa del tope (${SEEN_MAX}): ${seen.size} pares, de esta ronda; la válvula, ${SEEN_HARD_MAX}`);
+      }
       const factsIn = new Map([[DEFAULT_LANG, facts]]);
       /** Los hechos nuevos de una suscripción, con su texto en el idioma del chat (los mismos ids, en el mismo orden). */
       const sayIn = (lang, sub, fresh) => {

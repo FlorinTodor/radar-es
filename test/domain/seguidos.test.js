@@ -7,7 +7,7 @@ import { lineKey, numberedServiceKey, scheduledServiceKey, stopKey } from '../..
 import { entryLabel, guessedName, knownNames, searchDirectory, updateDirectory } from '../../server/domain/seguidos/directorio.js';
 import {
   DELAY_MIN, MESSAGE_MAX, collectFacts, factsMessage, fitMessage, madridDay, madridHourMinute, newFacts, packBlocks, provinceSub, statusOf,
-  stopAt, trackFacts, tripsAt,
+  capSeen, stopAt, trackFacts, tripsAt,
 } from '../../server/domain/seguidos/avisos.js';
 import { parseCommand, parseHour, smallTalk } from '../../server/domain/seguidos/ordenes.js';
 import { cutText } from '../../server/domain/seguidos/texto.js';
@@ -115,6 +115,24 @@ test('nuevos: sólo lo que sale después de la última vez; lo que ya estaba al 
   const today = collectFacts({ keys: [sub], vehicles, events: [], now: tomorrow });
   seen = trackFacts(seen, today, tomorrow);
   assert.equal(seen.get(`${sub}|renfe-ld:08058|retraso|0`).first, tomorrow);
+});
+
+test('tope de lo recordado: lo visto en la ronda nunca se olvida por el tope (ni se pierde ni se repite); lo viejo, primero', () => {
+  // 30 suscripciones con el mismo hecho y un tope de 10: antes se borraban 20 de la ronda (unos avisos se perdían y
+  // otros se repetían cada minuto).
+  const facts = new Map(Array.from({ length: 30 }, (_, i) => [`t-${i}`, [{ id: 'renfe-c:cancel:1', kind: 'cancelado', text: 'x' }]]));
+  const old = new Map([['t-viejo|renfe-c:cancel:0', { first: NOW - 120_000, last: NOW - 60_000 }]]);
+  const first = trackFacts(old, facts, NOW, { max: 10 });
+  assert.equal(first.size, 30, 'crece por encima del tope con lo de la ronda');
+  assert.ok(!first.has('t-viejo|renfe-c:cancel:0'), 'lo que ya no se ve sale antes');
+  for (const [sub, list] of facts) assert.equal(newFacts(sub, list, first, NOW - 60_000).length, 1, `${sub}: nuevo en la primera ronda`);
+  const second = trackFacts(first, facts, NOW + 60_000, { max: 10 });
+  for (const [sub, list] of facts) assert.deepEqual(newFacts(sub, list, second, NOW), [], `${sub}: en la siguiente ya no es nuevo`);
+  // La válvula: si lo de la ronda pasa de hardMax, se recorta (para no comerse la memoria).
+  assert.equal(trackFacts(first, facts, NOW + 60_000, { max: 10, hardMax: 25 }).size, 25);
+  // Al cargar lo guardado: lo de la última ronda guardada se queda entero; lo de antes, hasta el tope.
+  const saved = new Map([...second, ['t-viejo|a', { first: 1, last: 2 }]]);
+  assert.equal(capSeen(saved, { max: 10, keepFrom: NOW + 60_000 }).size, 30);
 });
 
 test('mensaje: título, lo que pasa (como mucho 8 y cuántos más), fuentes sin repetir y la web', () => {

@@ -21,7 +21,14 @@ export const DELAY_MIN = 15;
 export const DELAY_STEP = 15;
 /** Un hecho que deja de verse tanto tiempo se olvida: si vuelve, es nuevo (el mismo tren, otro día). */
 export const FACT_FORGET_MS = 3 * 3600_000;
+/**
+ * Lo que se recuerda de lo avisado (pares «suscripción|hecho», unos 230 bytes cada uno): de lo que ya no se ve, como
+ * mucho hasta llegar a SEEN_MAX. Lo que se ve en la ronda no se olvida nunca por el tope (unos avisos se perderían y
+ * otros se repetirían cada minuto): si sólo eso ya pasa de SEEN_MAX, se deja crecer (y se avisa en el registro) hasta
+ * SEEN_HARD_MAX, unos 115 MB, la válvula para que no se coma la memoria del servidor.
+ */
 export const SEEN_MAX = 100_000;
+export const SEEN_HARD_MAX = 500_000;
 /** Hechos que se cuentan en un mensaje; del resto, cuántos son. */
 const MAX_FACTS_PER_MESSAGE = 8;
 /** Telegram admite 4.096 caracteres por mensaje: con margen. */
@@ -272,14 +279,32 @@ export function collectFacts({
 }
 
 /**
+ * Recorta lo recordado a `max` (en el sitio): fuera lo más viejo, pero nunca lo visto desde `keepFrom` (la ronda
+ * actual), salvo que eso solo pase de `hardMax`. Al cargar lo guardado, `keepFrom` es la última ronda que se guardó.
+ * @param {Map<string, { first: number, last: number }>} seen
+ */
+export function capSeen(seen, { max = SEEN_MAX, hardMax = SEEN_HARD_MAX, keepFrom = Infinity } = {}) {
+  if (seen.size <= max) return seen;
+  const old = [];
+  for (const [k, v] of seen) if (v.last < keepFrom) old.push([k, v.last]);
+  old.sort((a, b) => a[1] - b[1]);
+  for (const [k] of old.slice(0, seen.size - max)) seen.delete(k);
+  // La válvula: sólo si lo de la ronda pasa de hardMax (fuera, también entonces, lo más viejo primero).
+  if (seen.size > hardMax) for (const k of [...seen.keys()].slice(0, seen.size - hardMax)) seen.delete(k);
+  return seen;
+}
+
+/**
  * Desde cuándo se ve cada hecho de cada suscripción (`<sub>|<id del hecho>` → { first, last }): los que siguen
  * guardan su primera vez; los que no se ven desde hace `forgetMs`, fuera (los de un día, como los focos de calor de
- * una zona, no antes de que acabe su día: zona.js, isDayFact); como mucho `max`, los más recientes.
+ * una zona, no antes de que acabe su día: zona.js, isDayFact). Como mucho `max` (capSeen): lo visto en esta ronda
+ * nunca sale por el tope.
  * @param {Map<string, { first: number, last: number }>} seen
  * @param {Map<string, Fact[]>} factsBySub
+ * @param {{ forgetMs?: number, max?: number, hardMax?: number }} [opts]
  * @returns {Map<string, { first: number, last: number }>}  otro mapa (el de antes no cambia)
  */
-export function trackFacts(seen, factsBySub, now, { forgetMs = FACT_FORGET_MS, max = SEEN_MAX } = {}) {
+export function trackFacts(seen, factsBySub, now, { forgetMs = FACT_FORGET_MS, max = SEEN_MAX, hardMax = SEEN_HARD_MAX } = {}) {
   const next = new Map();
   for (const [k, v] of seen) if (now - v.last <= (isDayFact(k) ? Math.max(forgetMs, DAY_FACT_FORGET_MS) : forgetMs)) next.set(k, v);
   for (const [sub, facts] of factsBySub) {
@@ -288,10 +313,7 @@ export function trackFacts(seen, factsBySub, now, { forgetMs = FACT_FORGET_MS, m
       next.set(k, { first: next.get(k)?.first ?? now, last: now });
     }
   }
-  if (next.size > max) {
-    for (const [k] of [...next].sort((a, b) => a[1].last - b[1].last).slice(0, next.size - max)) next.delete(k);
-  }
-  return next;
+  return capSeen(next, { max, hardMax, keepFrom: now });
 }
 
 /** Los hechos de una suscripción que han salido después de la última vez que se le avisó (`checkedAt`); los callados, nunca. */

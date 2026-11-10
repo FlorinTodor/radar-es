@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeFollowBot } from '../../server/application/use-cases/follow-bot.js';
 import { lineKey, numberedServiceKey, stopKey } from '../../server/domain/seguir.js';
-import { MAX_MESSAGES } from '../../server/domain/seguidos/avisos.js';
+import { MAX_MESSAGES, SEEN_MAX } from '../../server/domain/seguidos/avisos.js';
 
 const T0 = Date.parse('2026-11-10T05:00:00Z'); // 06:00 en Madrid
 const AVANT = numberedServiceKey({ operator: 'Renfe', number: '08058' });
@@ -416,4 +416,18 @@ test('charla y búsquedas ambiguas: «hola» no busca; con más de las que caben
   const [r] = say('/seguir C4a');
   assert.match(r.text, /^He encontrado 11; aquí van las 8 primeras\. Si no está la que buscas, añade la ciudad o el operador/);
   assert.equal(r.buttons[0][0].text.split(' (')[0], 'Cercanías C4a · Renfe', 'a igual encaje, los trenes primero');
+});
+
+test('lo recordado de lo avisado, al cargarlo: lo de la última ronda guardada entero aunque pase del tope; lo de antes, hasta el tope', async () => {
+  const a = setup();
+  const last = T0 - 60_000;
+  const rows = [
+    ...Array.from({ length: 10 }, (_, i) => [`${AVANT}|viejo-${i}`, last - 3600_000, last - 3600_000]),
+    ...Array.from({ length: SEEN_MAX + 5 }, (_, i) => [`${AVANT}|hecho-${i}`, last, last]),
+  ];
+  a.disk.value = { version: 1, offset: 0, chats: [{ id: CHAT, since: T0, subs: [{ key: AVANT, name: 'Avant 08058', since: T0, checkedAt: last }] }], seen: rows };
+  await a.bot.load();
+  const seen = a.bot.snapshot().seen;
+  assert.equal(seen.length, SEEN_MAX + 5, 'antes se recortaba a SEEN_MAX y lo olvidado se volvía a avisar tras un reinicio');
+  assert.ok(!seen.some(([k]) => k.includes('|viejo-')), 'lo más viejo sale primero');
 });

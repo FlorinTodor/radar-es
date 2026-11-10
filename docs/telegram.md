@@ -196,7 +196,9 @@ destino** y **salen del origen en esa franja**, uno de esos días. No hace falta
   es lo de un apagón brusco del contenedor (sin cerrarse bien), como mucho el último minuto, igual que lo
   que sigue cada chat. Las gráficas abarcan lo que guarda Prometheus: 30 días.
 - **Topes**: 20.000 chats y 20 cosas por chat (las carreteras cuentan como una más), de ellas 5 provincias como
-  mucho. Una cola de 5.000 mensajes: si se llena, se tiran los más viejos y se apunta en el registro.
+  mucho. Una cola de 5.000 mensajes: si se llena, se tiran los más viejos y se apunta en el registro. De lo ya
+  avisado se recuerda, como mucho, lo de las últimas horas que quepa en un tope, y nunca se olvida por él lo que se
+  ve en la ronda (se perderían unos avisos y se repetirían otros): si eso solo ya no cabe, se apunta en el registro.
 - **Las provincias son círculos aproximados**, uno por isla en Baleares y Canarias
   (`server/domain/provincias.js`). Cerca de un límite puede llegar algún aviso de la vecina, y así se avisa al
   seguir una. Se puede escribir la isla (`/provincia La Palma`, `/provincia Menorca`): se sigue su provincia. El
