@@ -45,14 +45,14 @@ test('cada red lleva la atribución y la fecha de su horario en el NAP', async (
     { name: ligero, credit: 'Powered by MITRAMS (Punto de Acceso Nacional) · Powered by CRTM · Trazado simplificado (dato explotado)', updated: null },
   ], 'sólo las redes que se dibujan; sin fecha, null');
   assert.ok(asked.some(([dataset, id]) => dataset === cercaniasDataset && id === cercaniasId), 'pregunta por su conjunto de datos');
-  const saved = JSON.parse(await readFile(join(dir, 'trazados-red-v3.json'), 'utf8'));
+  const saved = JSON.parse(await readFile(join(dir, 'trazados-red-v4.json'), 'utf8'));
   assert.equal(saved.updated[cercanias], '2026-11-02T06:21:27', 'la fecha se guarda con los trazados');
 });
 
 test('una copia guardada sin fechas las pide al NAP sin rehacer los trazados', async (t) => {
   const dir = await tempDir(t);
   const feature = { type: 'Feature', geometry: { type: 'LineString', coordinates: [[-3.7, 40.4], [-3.6, 40.5]] }, properties: { network: cercanias, line: 'C1' } };
-  await writeFile(join(dir, 'trazados-red-v3.json'), JSON.stringify({ type: 'FeatureCollection', features: [feature], builtAt: NOW - 3600_000, failed: [] }));
+  await writeFile(join(dir, 'trazados-red-v4.json'), JSON.stringify({ type: 'FeatureCollection', features: [feature], builtAt: NOW - 3600_000, failed: [] }));
   const nap = {
     enabled: true,
     gtfs: async () => { throw new Error('no debería descargar nada'); },
@@ -61,7 +61,7 @@ test('una copia guardada sin fechas las pide al NAP sin rehacer los trazados', a
   const catalog = createGtfsNetworkCatalog({ nap, cache: {}, cacheDir: pathToFileURL(`${dir}/`), log: quiet, now });
   await catalog.load();
   assert.deepEqual(catalog.sources().map((s) => [s.name, s.updated]), [[cercanias, madridLocalToMs('2026-10-30T10:00:00')]]);
-  const saved = JSON.parse(await readFile(join(dir, 'trazados-red-v3.json'), 'utf8'));
+  const saved = JSON.parse(await readFile(join(dir, 'trazados-red-v4.json'), 'utf8'));
   assert.equal(saved.updated[cercanias], '2026-10-30T10:00:00', 'y se guardan, sin esperar a rehacer los trazados');
 });
 
