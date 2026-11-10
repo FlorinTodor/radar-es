@@ -189,13 +189,23 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
   // clave, que se puede inventar (guessedName); se renueva cuando se vuelve a ver (tick).
   const nameOf = (key) => knownName(key) ?? guessedName(key, knownOf()) ?? (followKind(key) === 'parada' ? frase('esa estación') : frase('eso'));
 
-  /** Cómo está ahora, en texto: sus líneas y sus fuentes. */
-  /** `fires`: en una provincia, también sus focos de calor (quien los ha pedido). */
+  // Cómo está cada cosa, una vez por consulta (`c`) e idioma: en la ronda del parte, miles de chats piden las
+  // mismas provincias y carreteras, y cada una cuesta recorrer todas las incidencias.
+  const statusMemo = new WeakMap(); // ctx → «idioma|focos|sub» → texto
+  /** Cómo está ahora, en texto: sus líneas y sus fuentes. `fires`: en una provincia, también sus focos de calor (quien los ha pedido). */
   function statusText(sub, c, tr, fires = false) {
-    const { lines, credits } = followKind(sub) === 'trayecto'
-      ? trayectoStatus(sub, { ...c, stopsOf, index: passingOf(c), tr })
-      : statusOf(sub, { ...c, fires, tr });
-    return [lines.join('\n'), credits.length ? credits.join(' · ') : null].filter(Boolean).join('\n\n');
+    let memo = statusMemo.get(c);
+    if (!memo) statusMemo.set(c, (memo = new Map()));
+    const k = `${tr.lang}|${fires && sub.startsWith('prov:') ? 1 : 0}|${sub}`;
+    let text = memo.get(k);
+    if (text === undefined) {
+      const { lines, credits } = followKind(sub) === 'trayecto'
+        ? trayectoStatus(sub, { ...c, stopsOf, index: passingOf(c), tr })
+        : statusOf(sub, { ...c, fires, tr });
+      text = [lines.join('\n'), credits.length ? credits.join(' · ') : null].filter(Boolean).join('\n\n');
+      memo.set(k, text);
+    }
+    return text;
   }
 
   /** Lo que ya se ve de algo al empezar a seguirlo no se avisa: se cuenta en la respuesta. */

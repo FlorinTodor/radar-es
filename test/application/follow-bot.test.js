@@ -431,3 +431,24 @@ test('lo recordado de lo avisado, al cargarlo: lo de la última ronda guardada e
   assert.equal(seen.length, SEEN_MAX + 5, 'antes se recortaba a SEEN_MAX y lo olvidado se volvía a avisar tras un reinicio');
   assert.ok(!seen.some(([k]) => k.includes('|viejo-')), 'lo más viejo sale primero');
 });
+
+test('el parte de muchos chats a la vez: cada uno, lo suyo en su idioma y con sus focos (lo de cada cosa se calcula una vez por ronda)', () => {
+  const { say, world, tick, bot } = setup();
+  const orange = { id: 'aemet:1', source: 'aemet-avisos', category: 'meteo', type: 'lluvias', level: 'naranja', title: 'Aviso naranja por lluvias · Litoral sur de Valencia',
+    lat: 39.0, lon: -0.2, issued: T0 - 3600_000, start: T0, end: T0 + 6 * 3600_000 };
+  world.events = [orange];
+  for (const chat of [1, 2, 3]) {
+    say('/provincia Valencia', chat);
+    say('/parte 06:05', chat);
+  }
+  say('/language english', 3);
+  say('/provincia Valencia incendios', 2);
+  const out = [];
+  for (let i = 0; i < 6; i++) out.push(...tick());
+  const parte = (chat) => out.filter((m) => m.chatId === chat).map((m) => m.text).join('\n');
+  assert.match(parte(1), /^Parte de las 06:05:\n\nAvisos en Valencia:\nAviso naranja por lluvias · Litoral sur de Valencia/);
+  assert.equal(parte(1).includes('Focos de calor'), false);
+  assert.match(parte(2), /Avisos en Valencia \(con focos de calor\):\n.*\nFocos de calor por satélite: ahora ninguno/);
+  assert.match(parte(3), /^Daily summary, 06:05:\n\nAlerts in Valencia:\nAviso naranja por lluvias · Litoral sur de Valencia/);
+  assert.equal(bot.stats().chats, 3);
+});

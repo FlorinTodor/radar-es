@@ -62,14 +62,56 @@ export function provinceWorthy(e) {
 
 const BY_COMPACT = new Map(PROVINCIAS_ES.map((p) => [p.id.replaceAll('-', ''), p]));
 
+// Lo de cada incidencia que no cambia mientras viva su objeto (cada lectura de una fuente trae objetos nuevos): su
+// carretera y su provincia, una vez. Antes se normalizaba el nombre (NFD) de cada incidencia en cada llamada: con el
+// parte de cientos de chats, millones de veces por ronda.
+const CODES = new WeakMap();
+const PROVINCE_IDS = new WeakMap();
+const memo = (cache, e, f) => {
+  if (!e || typeof e !== 'object') return f(e);
+  if (!cache.has(e)) cache.set(e, f(e));
+  return cache.get(e);
+};
+/** El código de la carretera de una incidencia («A7»), o null. */
+const codeOf = (e) => memo(CODES, e, (x) => (typeof x?.road === 'string' ? roadCode(x.road) : null));
+
 /**
  * La provincia de una incidencia de tráfico: la que dice su fuente (la DGT: «València/Valencia», «Araba/Álava») o,
  * si no la dice, la de su punto (los círculos aproximados de domain/provincias.js).
  * @returns {string|null}  su id
  */
-export function trafficProvinceId(e) {
-  const named = typeof e?.province === 'string' ? e.province.split('/').map((n) => findProvince(n)).find(Boolean) : null;
-  return (named ?? provinceOfPoint(e?.lat, e?.lon))?.id ?? null;
+export const trafficProvinceId = (e) => memo(PROVINCE_IDS, e, (x) => {
+  const named = typeof x?.province === 'string' ? x.province.split('/').map((n) => findProvince(n)).find(Boolean) : null;
+  return (named ?? provinceOfPoint(x?.lat, x?.lon))?.id ?? null;
+});
+
+const latest = (a, b) => (Number.isFinite(b.start) ? b.start : -Infinity) - (Number.isFinite(a.start) ? a.start : -Infinity);
+const pushTo = (map, k, v) => {
+  let list = map.get(k);
+  if (!list) map.set(k, (list = []));
+  list.push(v);
+};
+
+// Las incidencias de tráfico de cada lista de sucesos (la de una ronda o una consulta), una vez: por carretera las
+// que se avisan a quien la sigue y las más leves, por provincia las que se avisan a quien la sigue, lo más reciente
+// primero, y cómo escribe cada carretera su fuente. Las retiradas no cuentan. Se rehace si la lista cambia de tamaño.
+const INDEX = new WeakMap();
+function trafficIndex(events) {
+  const cached = INDEX.get(events);
+  if (cached?.size === events.length) return cached;
+  const live = events.filter((e) => isTrafficIncident(e) && !e.withdrawn).sort(latest);
+  const index = { size: events.length, byCode: new Map(), minorByCode: new Map(), byProvince: new Map(), names: new Map() };
+  for (const e of events) {
+    const code = isTrafficIncident(e) ? codeOf(e) : null;
+    if (code && !index.names.has(code)) index.names.set(code, e.road);
+  }
+  for (const e of live) {
+    const code = codeOf(e);
+    if (code) pushTo(roadWorthy(e) ? index.byCode : index.minorByCode, code, e);
+    if (provinceWorthy(e)) pushTo(index.byProvince, trafficProvinceId(e), e);
+  }
+  if (Array.isArray(events)) INDEX.set(events, index);
+  return index;
 }
 
 /**
@@ -87,8 +129,7 @@ export function roadSub(key) {
 
 /** Cómo se escribe una carretera: como la publica ahora su fuente («TE-V-1121», «N-340a») o, si no, por su código («A-7»). */
 export function roadName(code, events = []) {
-  for (const e of events) if (isTrafficIncident(e) && typeof e.road === 'string' && roadCode(e.road) === code) return e.road;
-  return roadLabel(code);
+  return trafficIndex(events).names.get(code) ?? roadLabel(code);
 }
 
 /**
@@ -131,7 +172,7 @@ export function parseRoadRequest(text) {
 /** ¿Tiene ahora alguna incidencia, aunque sea leve? Una que no tiene ninguna puede estar mal escrita (no hay lista de carreteras). */
 export function roadSeen(key, events = []) {
   const sub = roadSub(key);
-  return Boolean(sub) && events.some((e) => isTrafficIncident(e) && typeof e.road === 'string' && roadCode(e.road) === sub.road);
+  return Boolean(sub) && trafficIndex(events).names.has(sub.road);
 }
 
 /**
@@ -200,7 +241,6 @@ export function trafficFact(e, credit, now, tr = ES) {
   };
 }
 
-const latest = (a, b) => (Number.isFinite(b.start) ? b.start : -Infinity) - (Number.isFinite(a.start) ? a.start : -Infinity);
 const push = (map, k, v) => {
   let list = map.get(k);
   if (!list) map.set(k, (list = []));
@@ -209,7 +249,7 @@ const push = (map, k, v) => {
 
 /**
  * Lo que pasa ahora en cada carretera seguida (roadWorthy) y en cada provincia seguida (provinceWorthy), lo más
- * reciente primero.
+ * reciente primero. Las retiradas no cuentan.
  * @param {{ keys?: Iterable<string>, provinces?: Iterable<string>, events?: object[], now: number,
  *           creditOf?: (source: string) => string|null }} ctx  keys: las claves seguidas (las que no son de
  *   carretera no cuentan); provinces: ids de provincia
@@ -220,32 +260,18 @@ export function trafficFacts({ keys = [], provinces = [], events = [], now, cred
   const subs = [...keys].map(roadSub).filter(Boolean);
   const wanted = new Set(provinces);
   if (!subs.length && !wanted.size) return out;
+  const index = trafficIndex(events);
   const facts = new Map(); // incidencia → su hecho, una vez aunque vaya a varias cosas seguidas
   const factOf = (e) => {
     if (!facts.has(e)) facts.set(e, trafficFact(e, e.credit ?? creditOf(e.source) ?? null, now, tr));
     return facts.get(e);
   };
-  const provinceIds = new Map();
-  const provinceOf = (e) => {
-    if (!provinceIds.has(e)) provinceIds.set(e, trafficProvinceId(e));
-    return provinceIds.get(e);
-  };
-  if (subs.length) {
-    const byCode = new Map();
-    for (const e of events.filter(roadWorthy).sort(latest)) {
-      const code = typeof e.road === 'string' ? roadCode(e.road) : null;
-      if (code) push(byCode, code, e);
-    }
-    for (const sub of subs) {
-      for (const e of byCode.get(sub.road) ?? []) if (!sub.province || provinceOf(e) === sub.province.id) push(out.roads, sub.key, factOf(e));
+  for (const sub of subs) {
+    for (const e of index.byCode.get(sub.road) ?? []) {
+      if (!sub.province || trafficProvinceId(e) === sub.province.id) push(out.roads, sub.key, factOf(e));
     }
   }
-  if (wanted.size) {
-    for (const e of events.filter(provinceWorthy).sort(latest)) {
-      const id = provinceOf(e);
-      if (wanted.has(id)) push(out.provinces, id, factOf(e));
-    }
-  }
+  for (const id of wanted) for (const e of index.byProvince.get(id) ?? []) push(out.provinces, id, factOf(e));
   return out;
 }
 
@@ -278,8 +304,7 @@ export function roadStatus(key, { events = [], now, creditOf = () => null, tr = 
       facts.length, { road: name }));
     listed(facts, lines, credits, tr);
   }
-  const minor = events.filter((e) => isTrafficIncident(e) && !roadWorthy(e) && typeof e.road === 'string' && roadCode(e.road) === sub.road
-    && (!sub.province || trafficProvinceId(e) === sub.province.id)).length;
+  const minor = (trafficIndex(events).minorByCode.get(sub.road) ?? []).filter((e) => !sub.province || trafficProvinceId(e) === sub.province.id).length;
   if (minor) {
     lines.push(tn('Además, 1 incidencia más leve (obras sin corte, retenciones…), en el mapa.',
       'Además, {n} incidencias más leves (obras sin corte, retenciones…), en el mapa.', minor));
@@ -293,8 +318,12 @@ export function roadStatus(key, { events = [], now, creditOf = () => null, tr = 
  * @returns {{ lines: string[], credits: string[] }}
  */
 export function provinceTrafficStatus(p, { events = [], now, creditOf = () => null, tr = ES }) {
+  return provinceTrafficLines(trafficFacts({ provinces: [p.id], events, now, creditOf, tr }).provinces.get(p.id) ?? [], tr);
+}
+
+/** Las líneas de tráfico de una provincia con sus hechos ya buscados (los de trafficFacts, o los de collectFacts). */
+export function provinceTrafficLines(facts, tr = ES) {
   const { t, tn } = tr;
-  const facts = trafficFacts({ provinces: [p.id], events, now, creditOf, tr }).provinces.get(p.id) ?? [];
   if (!facts.length) return { lines: [t('Carreteras: ahora no hay cortes ni accidentes graves.')], credits: [] };
   const lines = [tn('Carreteras: 1 corte o accidente grave.', 'Carreteras: {n} cortes o accidentes graves.', facts.length)];
   const credits = new Set();

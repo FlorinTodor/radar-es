@@ -6,7 +6,7 @@
 // lo que publica cada fuente, tal cual. Puro: sin red, ni reloj, ni disco (la hora llega en `now`).
 import { answersTo, describeFollow, followKind, isRoadKey, parseFollowKey, stopCode } from '../seguir.js';
 import { eventInProvince, feltRadiusKm, provinceById } from '../provincias.js';
-import { provinceTrafficStatus, roadStatus, trafficFacts } from './trafico.js';
+import { provinceTrafficLines, roadStatus, trafficFacts } from './trafico.js';
 import { distanceKm } from '../geo.js';
 import { quakeWhen } from '../sismos.js';
 import { modeNoun } from '../modos.js';
@@ -141,6 +141,17 @@ function tripFact(e, credit, here = null, tr = ES) {
 
 const credited = (e, creditOf) => e.credit ?? creditOf(e.source, e.trip?.operator) ?? null;
 
+// Los sucesos en vigor (sin los retirados) de cada lista, una vez: /estado y el parte de muchos chats piden lo suyo
+// con la misma lista de la ronda.
+const LIVE = new WeakMap();
+function liveOf(events) {
+  const cached = LIVE.get(events);
+  if (cached?.size === events.length) return cached.live;
+  const live = events.filter((e) => !e.withdrawn);
+  if (Array.isArray(events)) LIVE.set(events, { size: events.length, live });
+  return live;
+}
+
 /** Cómo se llama el vehículo por esta clave («Avant 08058», «Autobús 27 · EMT Málaga, el de las 07:32»). */
 export function vehicleName(v, key) {
   const parsed = parseFollowKey(key);
@@ -230,7 +241,7 @@ export function collectFacts({
     if (!list) out.set(sub, (list = []));
     if (!list.some((f) => f.id === fact.id)) list.push(fact);
   };
-  const live = events.filter((e) => !e.withdrawn);
+  const live = liveOf(events);
   if (wanted.size) {
     for (const e of live) {
       const tripKeys = e.trip?.follow;
@@ -272,7 +283,8 @@ export function collectFacts({
     for (const f of gridFacts(alerts, id, tr)) add(provinceSub(id), f);
     for (const f of fireFacts(fires ??= fireZones(events, now), id, (e) => credited(e, creditOf), tr)) add(provinceSub(id), f);
   }
-  const traffic = trafficFacts({ keys: wanted, provinces: provinceIds, events: live, now, creditOf, tr });
+  // Las retiradas no cuentan (trafficFacts las deja fuera): con la lista de siempre, su índice es el de toda la ronda.
+  const traffic = trafficFacts({ keys: wanted, provinces: provinceIds, events, now, creditOf, tr });
   for (const [key, facts] of traffic.roads) for (const f of facts) add(key, f);
   for (const [id, facts] of traffic.provinces) for (const f of facts) add(provinceSub(id), f);
   return out;
@@ -399,7 +411,7 @@ export function statusOf(sub, { vehicles = [], events = [], alerts = [], now, st
   if (sub.startsWith('prov:')) {
     const p = provinceById(sub.slice(5));
     if (!p) return { lines: [t('Esa provincia no la conozco.')], credits: [] };
-    // El tráfico, aparte y detrás (provinceTrafficStatus).
+    // Todo de una pasada; el tráfico, aparte y detrás (provinceTrafficLines), también lo que no tiene noticias hace horas.
     const all = collectFacts({ keys: [], provinces: [p.id], events, alerts, now, creditOf, tr }).get(sub) ?? [];
     const facts = provinceFacts(all, { fires }).filter((f) => f.kind !== 'carretera');
     if (!facts.length) lines.push(t('Ahora no hay avisos naranja o rojo de AEMET, terremotos que puedan sentirse ni avisos oficiales en {province}.', { province: p.name }));
@@ -409,12 +421,12 @@ export function statusOf(sub, { vehicles = [], events = [], alerts = [], now, st
     }
     if (facts.length > MAX_FACTS_PER_MESSAGE) lines.push(t('…y {n} más.', { n: facts.length - MAX_FACTS_PER_MESSAGE }));
     if (fires && !facts.some((f) => f.kind === 'incendio')) lines.push(t('Focos de calor por satélite: ahora ninguno de los que aviso (confianza alta y potencia alta).'));
-    const traffic = provinceTrafficStatus(p, { events: events.filter((e) => !e.withdrawn), now, creditOf, tr });
+    const traffic = provinceTrafficLines(all.filter((f) => f.kind === 'carretera'), tr);
     lines.push(...traffic.lines);
     traffic.credits.forEach(credit);
     return { lines, credits: [...credits] };
   }
-  if (isRoadKey(sub)) return roadStatus(sub, { events: events.filter((e) => !e.withdrawn), now, creditOf, tr });
+  if (isRoadKey(sub)) return roadStatus(sub, { events, now, creditOf, tr });
   const kind = followKind(sub);
   const tripEvents = events.filter((e) => (e.category === 'cancelacion' || e.category === 'sin-datos') && answersTo(e.trip?.follow, sub));
   if (kind === 'servicio') {

@@ -196,3 +196,20 @@ test('estado: la carretera (lo que se avisa y cuántas más leves) y, en la prov
   assert.equal(long.lines.at(-1), '…y 2 más.');
   assert.equal(long.lines.length, 7);
 });
+
+test('las incidencias de una lista se miran una vez (índice por lista): las retiradas no cuentan, y si la lista cambia, se rehace', () => {
+  const cut = dgt({ id: 'dgt:5', closed: true, description: 'Marbella, Málaga · Carretera cortada' });
+  const gone = dgt({ id: 'dgt:6', type: 'accident', severity: 'alta', title: 'Accidente · A-7 km 990.0', withdrawn: true });
+  const events = [cut, gone, dgt({ id: 'dgt:7', type: 'roadMaintenance', title: 'Obras · A-7 km 1.0' })];
+  const status = (list) => roadStatus('c-A7', { events: list, now: NOW, creditOf }).lines;
+  assert.deepEqual(status(events).map((l) => l.slice(0, 40)), [
+    'Ahora hay 1 corte, accidente o incidenci',
+    '- Accidente · A-7 km 1012.0 · Marbella, ',
+    'Además, 1 incidencia más leve (obras sin',
+  ], 'la retirada no sale');
+  assert.equal(trafficFacts({ provinces: ['malaga'], events, now: NOW }).provinces.get('malaga').length, 1);
+  events.push(dgt({ id: 'dgt:8', closed: true, title: 'Accidente · A-7 km 1100.0' }));
+  assert.equal(trafficFacts({ provinces: ['malaga'], events, now: NOW }).provinces.get('malaga').length, 2, 'la lista ha cambiado: se rehace');
+  assert.equal(statusOf(provinceSub('malaga'), { events, now: NOW, creditOf }).lines.filter((l) => l.startsWith('- Accidente')).length, 2,
+    'en /estado de la provincia, el tráfico de la misma pasada');
+});
