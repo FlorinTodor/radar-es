@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { X509Certificate } from 'node:crypto';
 import { FGC_DAILY_QUOTA, FGC_INTERVAL_MS } from '../../server/adapters/outbound/sources/fgc.js';
 
@@ -21,8 +22,15 @@ test('los intermedios siguen vigentes (si caduca uno, hay que cambiarlo)', () =>
 });
 
 test('la imagen y el arranque local cargan los intermedios', () => {
-  assert.match(readFileSync(new URL('Dockerfile', root), 'utf8'), /^ENV NODE_EXTRA_CA_CERTS=\/app\/server\/certs\/intermedios\.pem$/m);
   assert.match(JSON.parse(readFileSync(new URL('package.json', root), 'utf8')).scripts.start, /NODE_EXTRA_CA_CERTS=server\/certs\/intermedios\.pem /);
+  // Los tests también se pasan al construir la imagen, y en ella no está el Dockerfile (sólo se copian server,
+  // public y test): allí se comprueba que la variable está puesta de verdad y apunta a este fichero.
+  const dockerfile = new URL('Dockerfile', root);
+  if (existsSync(dockerfile)) {
+    assert.match(readFileSync(dockerfile, 'utf8'), /^ENV NODE_EXTRA_CA_CERTS=\/app\/server\/certs\/intermedios\.pem$/m);
+  } else {
+    assert.equal(process.env.NODE_EXTRA_CA_CERTS, fileURLToPath(new URL('server/certs/intermedios.pem', root)));
+  }
 });
 
 test('FGC: producción y pruebas juntas no agotan su cupo diario', () => {
