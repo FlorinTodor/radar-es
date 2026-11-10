@@ -77,8 +77,9 @@
  * @property {object} [trip]     Cancelaciones (category 'cancelacion', type 'cancelado' o 'parcial') y trenes sin
  *   datos (category 'sin-datos'): el viaje, con su operador, producto, línea, número, origen, destino, día (si se
  *   sabe), salida y llegada y la hora de cada parada según el horario, las paradas suprimidas, su motivo y los
- *   avisos del operador sobre él o su línea, por dónde iría (sin datos), quién lo publica y en qué fichero (ver
- *   domain/cancelaciones.js, cancellationEvent y missingTrainEvent).
+ *   avisos del operador sobre él o su línea, por dónde iría (sin datos), quién lo publica y en qué fichero, y
+ *   en qué otros ficheros publica el mismo tren (`alsoIn`; ver domain/cancelaciones.js, cancellationEvent,
+ *   mergeSameTrain y missingTrainEvent).
  * @property {number} [seen]     Cancelaciones y trenes sin datos: epoch ms en que el radar la vio (o lo echó en
  *   falta) por primera vez (sus fuentes no dicen cuándo la publicaron).
  * @property {number} [withdrawn]  Cancelaciones que su fuente ha dejado de publicar: epoch ms en que lo hizo. Se
