@@ -10,6 +10,7 @@ import { makeServeTiles } from './application/use-cases/serve-tiles.js';
 import { makeRefreshCatalogs } from './application/use-cases/refresh-catalogs.js';
 import { makeLinesOnRail } from './application/use-cases/lines-on-rail.js';
 import { makeKeepTracks } from './application/use-cases/keep-tracks.js';
+import { makeRecordPunctuality } from './application/use-cases/record-punctuality.js';
 import { createHttpClient } from './adapters/outbound/http/http-client.js';
 import { createFileCache } from './adapters/outbound/http/file-cache.js';
 import { createConsoleLogger } from './adapters/outbound/logging/console-logger.js';
@@ -24,6 +25,7 @@ import { createIgnRailNetwork } from './adapters/outbound/network/ign-rail-netwo
 import { createInMemorySituation } from './adapters/outbound/persistence/in-memory-situation.js';
 import { createJsonlHistory } from './adapters/outbound/persistence/jsonl-history.js';
 import { createTrackStore } from './adapters/outbound/persistence/track-store.js';
+import { createPunctualityStore } from './adapters/outbound/persistence/punctuality-store.js';
 import { createSources } from './adapters/outbound/sources/index.js';
 import { startPolling } from './adapters/inbound/scheduler/polling-scheduler.js';
 import { createHttpServer } from './adapters/inbound/http/http-server.js';
@@ -63,6 +65,7 @@ const network = assertPort('NetworkCatalog',
 const situation = assertPort('SituationRepository', createInMemorySituation(), PORT_MEMBERS.SituationRepository);
 const history = assertPort('History', createJsonlHistory({ dir: new URL('history/', config.dataDir), log }), PORT_MEMBERS.History);
 const trackStore = assertPort('TrackStore', createTrackStore({ cache }), PORT_MEMBERS.TrackStore);
+const punctualityStore = assertPort('PunctualityStore', createPunctualityStore({ dir: cacheDir, log }), PORT_MEMBERS.PunctualityStore);
 const tiles = assertPort('TileProvider', createWmsTiles({ http, dir: fileURLToPath(new URL('tiles/', config.dataDir)), log }), PORT_MEMBERS.TileProvider);
 
 // Sitúa los municipios que citan los avisos del 112 (no traen coordenadas). No es un puerto de la
@@ -85,7 +88,8 @@ for (const s of sources) {
 // --- Casos de uso ----------------------------------------------------------
 const ingestSource = makeIngestSource({ sources: enabledSources, situation, clock, log, metrics });
 const detectAlerts = makeDetectAlerts({ situation, stations, history, clock, log });
-const query = makeQuerySituation({ situation, stations, networkStations, network, clock, sources, railNetwork });
+const recordPunctuality = makeRecordPunctuality({ situation, store: punctualityStore, clock, log });
+const query = makeQuerySituation({ situation, stations, networkStations, network, clock, sources, railNetwork, punctuality: recordPunctuality });
 const serveTiles = makeServeTiles({ tiles });
 const refreshCatalogs = makeRefreshCatalogs({ stations, networkStations, network, railNetwork, railGeometry, log });
 const keepTracks = makeKeepTracks({ situation, store: trackStore, clock, log });
@@ -95,9 +99,16 @@ await refreshCatalogs(); // espera a las estaciones; los trazados y la red ferro
 // Justo antes de la primera lectura: en un relevo, el servidor anterior sigue en marcha y guardando
 // su copia cada minuto, así que la estela de cada tren sigue sin hueco (o casi).
 await keepTracks.restore().catch((err) => log.warn(`[estelas] no se pudo recuperar el historial: ${err.message}`));
+await recordPunctuality.restore().catch((err) => log.warn(`[puntualidad] no se pudo recuperar: ${err.message}`));
 
 const feeds = enabledSources.map(({ id, interval }) => ({ id, interval }));
-const scheduler = startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, saveTracks: keepTracks.save, log });
+// La puntualidad: sus lecturas cada minuto y una copia cada cuarto de hora (y al apagar). Lo que se pierde
+// si el servidor se cae sin apagarse es, como mucho, ese cuarto de hora.
+const tasks = [
+  { name: 'puntualidad', every: 60_000, run: recordPunctuality.tick },
+  { name: 'puntualidad', every: 15 * 60_000, run: recordPunctuality.save },
+];
+const scheduler = startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, saveTracks: keepTracks.save, tasks, log });
 
 const server = createHttpServer({
   query,
@@ -131,8 +142,11 @@ function shutdown() {
   metrics.close();
   pool.close();
   if (xmlPool !== pool) xmlPool.close();
-  // Lo último que se guarda: el historial de posiciones, para que el siguiente arranque lo siga.
-  keepTracks.save().catch((err) => log.warn(`[estelas] ${err.message}`)).finally(() => server.close(() => process.exit(0)));
+  // Lo último que se guarda: el historial de posiciones y la puntualidad, para que el siguiente arranque los siga.
+  Promise.allSettled([
+    keepTracks.save().catch((err) => log.warn(`[estelas] ${err.message}`)),
+    recordPunctuality.save(),
+  ]).finally(() => server.close(() => process.exit(0)));
   setTimeout(() => process.exit(0), 3000).unref();
 }
 process.on('SIGINT', shutdown);

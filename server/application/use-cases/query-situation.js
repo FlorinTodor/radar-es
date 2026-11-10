@@ -57,8 +57,9 @@ function makeTrainMemo(live) {
  *   networkStations: estaciones de metro, tranvía y las demás redes que no son de Renfe.
  *   railNetwork: sin él, los recorridos de todas las fuentes se unen con rectas.
  *   thresholds: los de las alertas; los avisos de corte de luz usan los de la demanda de las islas.
+ *   punctuality: la puntualidad histórica (caso de uso record-punctuality); sin ella, no hay.
  */
-export function makeQuerySituation({ situation, stations, networkStations, network, clock, sources = [], railNetwork, thresholds = DEFAULT_THRESHOLDS }) {
+export function makeQuerySituation({ situation, stations, networkStations, network, clock, sources = [], railNetwork, thresholds = DEFAULT_THRESHOLDS, punctuality = null }) {
   const withPaths = sources.filter((s) => typeof s.path === 'function');
   const withTripStops = sources.filter((s) => typeof s.tripStops === 'function');
   // Los sucesos en vigor: un aviso oficial que ya pasó de su vigencia no se muestra aunque su fuente
@@ -214,6 +215,8 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
     },
     /** Los tipos de vehículo dados de alta (domain/modos.js), en orden: nombres y filtros del cliente salen de aquí. */
     modes: () => MODES,
+    /** La puntualidad de un servicio o de una línea (su clave de domain/seguir.js); null si no se sabe. */
+    punctuality: (key) => punctuality?.report(key) ?? null,
     lines: () => network.lines(),
     lineSources: () => network.sources(),
     /**
