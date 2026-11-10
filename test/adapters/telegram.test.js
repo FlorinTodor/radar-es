@@ -48,6 +48,19 @@ test('API: cada llamada va a su método con su cuerpo; los errores dicen el esta
   assert.deepEqual(calls[1].body, { chat_id: 7, text: 'hola', link_preview_options: { is_disabled: true }, reply_markup: { inline_keyboard: [[{ text: 'Uno', callback_data: 'a:0' }]] } });
   await api.setCommands([['seguir', 'Seguir algo']]);
   assert.deepEqual(calls[2].body, { commands: [{ command: 'seguir', description: 'Seguir algo' }] });
+  // El menú de quien tiene Telegram en inglés, el de un chat y las descripciones de cada idioma.
+  await api.setCommands([['follow', 'Follow something']], { lang: 'en' });
+  assert.deepEqual(calls[3].body, { commands: [{ command: 'follow', description: 'Follow something' }], language_code: 'en' });
+  await api.setCommands([['follow', 'Follow something']], { chatId: 7 });
+  assert.deepEqual(calls[4].body, { commands: [{ command: 'follow', description: 'Follow something' }], scope: { type: 'chat', chat_id: 7 } });
+  await api.setDescriptions({ description: 'D'.repeat(600), shortDescription: 'Corta', lang: 'en' });
+  assert.ok(calls[5].url.endsWith('/setMyDescription'));
+  assert.deepEqual(calls[5].body, { description: 'D'.repeat(512), language_code: 'en' }, 'el tope de Telegram');
+  assert.ok(calls[6].url.endsWith('/setMyShortDescription'));
+  assert.deepEqual(calls[6].body, { short_description: 'Corta', language_code: 'en' });
+  await api.setDescriptions({ description: 'Larga', shortDescription: 'Corta' });
+  assert.deepEqual(calls[7].body, { description: 'Larga' }, 'sin idioma, la de siempre');
+  calls.length = 0;
 
   fail = Object.assign(new Error('HTTP 429 en api.telegram.org'), { status: 429, body: { ok: false, description: 'Too Many Requests: retry after 7', parameters: { retry_after: 7 } } });
   const slow = await api.send({ chatId: 7, text: 'x' }).catch((e) => e);
@@ -90,8 +103,14 @@ test('cola: uno por segundo a cada chat, 25 por segundo en total, reintentos con
   assert.equal(q.next(14_000).text, 'k');
 });
 
-test('toIncoming: textos y botones de chats privados; lo demás, nada', () => {
+test('toIncoming: textos y botones de chats privados, con el idioma de su Telegram; lo demás, nada', () => {
   assert.deepEqual(toIncoming({ update_id: 1, message: { chat: { id: 9, type: 'private' }, text: '/seguir 08058' } }), { chatId: 9, text: '/seguir 08058' });
+  assert.deepEqual(toIncoming({ update_id: 1, message: { chat: { id: 9, type: 'private' }, from: { id: 9, language_code: 'pt-br' }, text: '/start' } }),
+    { chatId: 9, text: '/start', clientLang: 'pt-br' });
+  assert.deepEqual(toIncoming({ update_id: 1, message: { chat: { id: 9, type: 'private' }, from: { language_code: '<b>x</b>' }, text: '/start' } }),
+    { chatId: 9, text: '/start' }, 'lo que no tiene forma de idioma, no');
+  assert.deepEqual(toIncoming({ update_id: 3, callback_query: { id: 'q', data: 'l:en', from: { language_code: 'en' }, message: { chat: { id: 9, type: 'private' } } } }),
+    { chatId: 9, callback: 'l:en', callbackId: 'q', clientLang: 'en' });
   assert.deepEqual(toIncoming({ update_id: 2, message: { chat: { id: 9, type: 'private' }, sticker: {} } }), { chatId: 9, text: '' });
   assert.deepEqual(toIncoming({ update_id: 3, callback_query: { id: 'q', data: 'a:0', message: { chat: { id: 9, type: 'private' } } } }),
     { chatId: 9, callback: 'a:0', callbackId: 'q' });
@@ -124,7 +143,10 @@ function harness({ claim = true } = {}) {
       sent.push(m);
     },
     answer: async (a) => { answered.push(a); },
-    setCommands: async () => {},
+    menus: [],
+    descriptions: [],
+    setCommands: async (commands, opts = {}) => { api.menus.push({ commands, ...opts }); },
+    setDescriptions: async (d) => { api.descriptions.push(d); },
   };
   const lease = { owned: false, claim: async () => (lease.owned = claim), release: async () => { lease.owned = false; } };
   const key = numberedServiceKey({ operator: 'Renfe', number: '08058' });
@@ -166,6 +188,31 @@ test('bucle: sin turno no lee; con turno, lee, contesta por la cola, responde a 
   g.advance(2000);
   await g.tg.drainOnce();
   assert.match(g.sent.at(-1).text, /^Hecho: ya no te aviso de Avant 08058/);
+});
+
+test('bucle: al coger el turno pone el menú y las descripciones de cada idioma (una vez); si un chat cambia de idioma, su menú', async () => {
+  const h = harness();
+  await h.tg.claimOnce();
+  assert.deepEqual(h.api.menus.map((m) => [m.lang, m.commands[0][0]]), [[null, 'seguir'], ['en', 'follow']], 'el de siempre, en español; el inglés, por language_code');
+  assert.deepEqual(h.api.descriptions.map((d) => d.lang), [null, 'en']);
+  assert.match(h.api.descriptions[1].description, /^I alert you about what you follow on Radar España/);
+  await h.lease.release();
+  await h.tg.claimOnce();
+  assert.equal(h.api.menus.length, 2, 'no se repite al volver a cogerlo');
+  h.inbox.push({ update_id: 1, message: { chat: { id: 9, type: 'private' }, from: { language_code: 'en' }, text: '/start' } });
+  await h.tg.pollOnce();
+  h.inbox.push({ update_id: 2, callback_query: { id: 'q1', data: 'l:en', message: { chat: { id: 9, type: 'private' } } } });
+  await h.tg.pollOnce();
+  assert.deepEqual(h.answered, [{ id: 'q1', text: 'Done' }]);
+  assert.equal(h.api.menus.at(-1).chatId, 9);
+  assert.equal(h.api.menus.at(-1).commands[0][0], 'follow', 'su menú, en inglés');
+  for (let i = 0; i < 3; i++) {
+    h.advance(1000);
+    await h.tg.drainOnce();
+  }
+  assert.deepEqual(h.sent.map((m) => m.text.split('\n')[0]), ['Hola. Soy el bot de Radar España.',
+    'Would you like me to write in English? Tap the button, or send /language at any time.', "Done: from now on I'll write to you in English. /help to see what I do; /language to change it."]);
+  assert.deepEqual(h.sent[1].buttons, [[{ text: 'English', data: 'l:en' }]]);
 });
 
 test('bucle: la ronda manda los avisos y guarda; un chat que bloquea el bot se olvida; 429 espera; token malo, desactivado', async () => {
