@@ -85,7 +85,7 @@ test('/carretera: la carretera y, al final, la provincia (con o sin «en», «pr
   assert.equal(key('Málaga'), 'sin-carretera');
   assert.equal(key('A7 Mlaga'), 'carretera', 'una provincia mal escrita no se pega a la carretera («A7MLAGA»)');
   assert.equal(key('tranvía de la luna'), 'carretera');
-  assert.match(roadRequestHelp(parseRoadRequest('Málaga')), /^Dime también la carretera: \/carretera A-7 Málaga\. Para los avisos de toda la provincia: \/provincia Málaga\.$/);
+  assert.match(roadRequestHelp(parseRoadRequest('Málaga')), /^Dime también la carretera, por ejemplo: \/carretera A-7 Málaga\. Para los avisos de toda la provincia: \/provincia Málaga\.$/);
   assert.match(roadRequestHelp(parseRoadRequest('xyz'), 'xyz'), /^No entiendo qué carretera es «xyz»/);
   assert.match(roadRequestHelp(parseRoadRequest('')), /^Dime la carretera: \/carretera A-7/);
 });

@@ -120,7 +120,7 @@ export function parseRoadRequest(text) {
 /** Lo que se contesta a un «/carretera …» que no se entiende. */
 export function roadRequestHelp(result, arg = '') {
   if (result.error === 'sin-carretera') {
-    return `Dime también la carretera: /carretera A-7 ${result.province.name}. Para los avisos de toda la provincia: /provincia ${result.province.name}.`;
+    return `Dime también la carretera, por ejemplo: /carretera A-7 ${result.province.name}. Para los avisos de toda la provincia: /provincia ${result.province.name}.`;
   }
   const intro = result.error === 'vacia' ? 'Dime la carretera' : `No entiendo qué carretera es «${arg}». Escríbela como en las señales`;
   return `${intro}: /carretera A-7, /carretera N-340. Si sólo te interesa una provincia, añádela: /carretera AP-7 Tarragona.\n\n`

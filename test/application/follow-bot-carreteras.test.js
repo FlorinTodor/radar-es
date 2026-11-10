@@ -45,7 +45,7 @@ test('/carretera: la sigue (entera o en una provincia), cuenta cómo está y qu�
   assert.match(say('/carretera A-7 en Málaga')[0].text, /^Hecho: te aviso de .* de la A-7 en Málaga; de las obras/);
   assert.equal(say('/mis')[0].text, 'Sigues:\n\n1. Carretera A-7\n2. Carretera A-7 (Málaga)\n\nPara dejar algo: /dejar (o /dejar y su número).');
   assert.match(say('/carretera')[0].text, /^Dime la carretera: \/carretera A-7/);
-  assert.match(say('/carretera Málaga')[0].text, /^Dime también la carretera: \/carretera A-7 Málaga\. Para los avisos de toda la provincia: \/provincia Málaga\.$/);
+  assert.match(say('/carretera Málaga')[0].text, /^Dime también la carretera, por ejemplo: \/carretera A-7 Málaga\. Para los avisos de toda la provincia: \/provincia Málaga\.$/);
   assert.match(say('/carretera la del puerto')[0].text, /^No entiendo qué carretera es «la del puerto»/);
   assert.match(say('/datos')[0].text, /Lo que sigues: Carretera A-7; Carretera A-7 \(Málaga\)/);
   assert.match(say('/dejar 2')[0].text, /^Hecho: ya no te aviso de Carretera A-7 \(Málaga\)\.$/);
