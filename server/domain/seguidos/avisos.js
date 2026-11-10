@@ -51,9 +51,9 @@ const clip = (s, n) => cutText(String(s ?? '').replace(/\s+/g, ' ').trim(), n);
  */
 
 /** Un nombre de parada para compararlo, como en la ficha de la estación de la web: sin tildes, mayúsculas ni espacios dobles. */
-const plainStop = (s) => String(s ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
+export const plainStop = (s) => String(s ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
 const isTripEvent = (e) => e?.category === 'cancelacion' || e?.category === 'sin-datos';
-const nearStation = (s, station) => !Number.isFinite(s.lat) || !Number.isFinite(station.lat)
+export const nearStation = (s, station) => !Number.isFinite(s.lat) || !Number.isFinite(station.lat)
   || distanceKm(station.lat, station.lon, s.lat, s.lon) <= STATION_KM;
 
 /** ¿Pasa esta cancelación (o tren sin datos) por esta estación? Su parada allí, o null. */
