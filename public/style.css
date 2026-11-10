@@ -75,8 +75,9 @@ button { font: inherit; color: inherit; }
 }
 
 .tabs { display: flex; border-bottom: 1px solid var(--border); }
-/* Seis pestañas: si no caben, la fila se desliza de lado en vez de cortarse (también en el escritorio, y con la
-   rueda del ratón); mientras queden pestañas a la derecha, el borde se desvanece para que se note (ver app.js). */
+/* Seis pestañas: si no caben, la fila se desliza de lado en vez de cortarse; mientras queden pestañas a la
+   derecha, el borde se desvanece para que se note (ver app.js). En el escritorio, en cambio, van en dos filas de
+   tres (más abajo): una fila que se desliza no se nota con el ratón, y «Estaciones» y «Fuentes» quedaban fuera. */
 .tabs { overflow-x: auto; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
 .tabs.more {
@@ -88,6 +89,10 @@ button { font: inherit; color: inherit; }
   color: var(--ink-2); cursor: pointer; font-size: 13px; white-space: nowrap;
 }
 .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+@media (min-width: 861px) {
+  .tabs { display: grid; grid-template-columns: repeat(3, auto); overflow: visible; }
+  .tabs button { padding: 10px 6px; }
+}
 .badge {
   display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px;
   background: var(--surface-2); color: var(--ink-2); font-size: 11px; line-height: 18px;
