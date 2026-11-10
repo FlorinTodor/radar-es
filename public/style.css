@@ -269,9 +269,37 @@ button { font: inherit; color: inherit; }
 .pop dt { color: var(--muted); }
 .pop dd { margin: 0; min-width: 0; overflow-wrap: anywhere; } /* las direcciones largas de un aviso no ensanchan la ficha */
 .pop .note { margin-top: 8px; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
-/* «Avisarme por Telegram» (avisar.js): enlaces normales, con espacio para pulsarlos en el móvil. */
-.pop .tg-follow { margin: 8px 0 0; font-size: 12px; line-height: 1.9; }
-.pop .tg-follow a { color: var(--accent); white-space: nowrap; }
+/* «Avísame por Telegram» (avisar.js): botón grande en azul Telegram arriba de la ficha, para que se vea sin
+   buscarlo. El azul es más oscuro que el de la marca (#2aabee) para que el texto blanco se lea bien (4,6:1); el
+   de la marca queda en el borde y el brillo. */
+.pop .tg-cta { display: grid; gap: 6px; margin: 2px 0 12px; }
+.pop .tg-btn {
+  display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 9px 16px 9px 10px; border-radius: 12px;
+  background: #1479c0; color: #fff; text-decoration: none;
+  box-shadow: 0 0 0 1px #2aabee, 0 6px 18px rgba(42, 171, 238, 0.28);
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+.pop .tg-btn:hover { background: #0f68a6; transform: translateY(-1px); }
+.pop .tg-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.pop .tg-btn .tg-icon { flex: none; width: 32px; height: 32px; padding: 6px; border-radius: 50%; background: #fff; color: #1479c0; }
+.pop .tg-txt { display: grid; gap: 1px; line-height: 1.25; }
+.pop .tg-txt strong { font-size: 15px; font-weight: 700; }
+.pop .tg-txt small { font-size: 12.5px; color: #fff; }
+.pop .tg-alt { justify-self: start; padding: 2px 4px; color: var(--accent); font-size: 12.5px; }
+/* La lista de «Siguiendo»: un botón pequeño en el mismo azul junto a cada cosa. */
+.tg-mini {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 4px 10px 4px 4px; border-radius: 999px;
+  background: #1479c0; color: #fff; font-size: 12.5px; font-weight: 600; text-decoration: none;
+}
+.tg-mini:hover { background: #0f68a6; }
+.tg-mini:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.tg-mini .tg-icon { width: 22px; height: 22px; padding: 4px; border-radius: 50%; background: #fff; color: #1479c0; }
+@media (max-width: 860px) {
+  .pop .tg-btn { min-height: 56px; }
+  .pop .tg-txt strong { font-size: 16px; }
+  .pop .tg-alt { font-size: 14px; padding: 6px 4px; }
+  .tg-mini { padding: 6px 12px 6px 6px; font-size: 13.5px; }
+}
 /* Aviso de posición estimada por horario: en la ficha y en la lista de trenes. */
 .est-badge { display: inline-block; margin: 0 0 8px; padding: 2px 8px; border: 1px dashed var(--st-warning); border-radius: 4px;
   color: var(--st-warning); font-size: 11.5px; font-weight: 600; }
