@@ -75,9 +75,9 @@ button { font: inherit; color: inherit; }
 }
 
 .tabs { display: flex; border-bottom: 1px solid var(--border); }
-/* Seis pestañas: si no caben, la fila se desliza de lado en vez de cortarse; mientras queden pestañas a la
-   derecha, el borde se desvanece para que se note (ver app.js). En el escritorio, en cambio, van en dos filas de
-   tres (más abajo): una fila que se desliza no se nota con el ratón, y «Estaciones» y «Fuentes» quedaban fuera. */
+/* Seis pestañas, en dos filas de tres (escritorio aquí abajo; móvil, en su bloque): en una sola fila no cabían, y
+   una fila que se desliza de lado no se nota («Estaciones» y «Fuentes» quedaban fuera). Si algún día no cupieran
+   ni así, la fila se desliza y el borde se desvanece (ver markMoreTabs en app.js). */
 .tabs { overflow-x: auto; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
 .tabs.more {
@@ -488,14 +488,15 @@ body.doc { overflow: auto; display: block; }
   .dia-nav .btn-ghost { flex: 1; }
 }
 
-.sheet-handle { display: none; }
+.sheet-handle, .sheet-hide { display: none; }
 
 /* ---------- Móvil ----------
    El mapa ocupa toda la pantalla y el panel lateral pasa a ser una hoja que sube desde abajo
    (sólo pestañas, media pantalla o entera; ver app.js). Los indicadores van en una fila que
    se desliza de lado. */
 @media (max-width: 860px) {
-  :root { --peek: 65px; --sheet-half: 55%; }  /* --sheet-half = SHEET_HALF de app.js */
+  /* --peek: el asa y las dos filas de pestañas; --sheet-min: oculto, sólo «Mostrar el panel». --sheet-half = SHEET_HALF de app.js */
+  :root { --peek: 116px; --sheet-min: 44px; --sheet-half: 55%; }
   body { height: 100dvh; }
 
   .topbar { flex-wrap: wrap; gap: 2px 12px; min-height: 0; padding: 6px 12px 4px; }
@@ -516,6 +517,8 @@ body.doc { overflow: auto; display: block; }
 
   .layout { position: relative; }
   .map-wrap { position: absolute; inset: 0 0 var(--peek); }
+  /* Con el panel oculto, el mapa llega hasta la barra de «Mostrar el panel» (MapLibre se ajusta solo). */
+  .layout.sheet-hidden .map-wrap { bottom: var(--sheet-min); }
   .sidebar {
     position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; width: auto; overflow: hidden;
     height: var(--peek); min-height: var(--peek); max-height: 100%;
@@ -523,15 +526,27 @@ body.doc { overflow: auto; display: block; }
     box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.45); transition: height .25s ease;
   }
   .sidebar[data-sheet="half"] { height: var(--sheet-half); }
+  .sidebar[data-sheet="hidden"] { height: var(--sheet-min); min-height: var(--sheet-min); }
   .sidebar[data-sheet="full"] { height: 100%; border-radius: 0; }
-  .sidebar.dragging { transition: none; }
+  .sidebar.dragging { transition: none; min-height: var(--sheet-min); } /* se puede arrastrar hasta ocultarla */
   .sheet-handle {
-    display: flex; flex: none; align-items: center; justify-content: center; width: 100%; height: 20px;
-    padding: 0; border: 0; background: none; cursor: grab; touch-action: none;
+    display: flex; flex: none; align-items: center; justify-content: center; width: 100%; height: 28px;
+    padding: 0; border: 0; background: none; color: var(--ink); cursor: grab; touch-action: none;
   }
-  .sheet-handle span { width: 40px; height: 4px; border-radius: 2px; background: var(--muted); }
-  .tabs { flex: none; }
-  .tabs button { height: 43px; padding: 0 8px; }
+  .sheet-grip { width: 40px; height: 4px; border-radius: 2px; background: var(--muted); }
+  .sheet-label { display: none; font-size: 14px; font-weight: 600; }
+  .sheet-hide {
+    display: block; position: absolute; top: 0; right: 4px; z-index: 1; height: 28px; padding: 0 10px;
+    border: 0; background: none; color: var(--ink-2); font-size: 12.5px; cursor: pointer;
+  }
+  /* Oculto: toda la barra es el botón para volver a abrirlo (44 px, cómodo para el dedo). */
+  .sidebar[data-sheet="hidden"] .sheet-handle { height: var(--sheet-min); }
+  .sidebar[data-sheet="hidden"] .sheet-grip, .sidebar[data-sheet="hidden"] .sheet-hide { display: none; }
+  .sidebar[data-sheet="hidden"] .sheet-label { display: inline; }
+  /* Las seis pestañas en dos filas de tres: se ven todas sin deslizar. */
+  .tabs { flex: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: visible; }
+  .tabs.more { -webkit-mask-image: none; mask-image: none; }
+  .tabs button { height: 43px; padding: 0 4px; }
   .panel { overscroll-behavior: contain; }
   .disclaimer { padding: 6px 12px; font-size: 10.5px; line-height: 1.35; }
 

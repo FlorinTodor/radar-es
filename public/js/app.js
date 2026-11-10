@@ -500,12 +500,13 @@ document.querySelector('.tabs').addEventListener('click', (ev) => {
   const btn = ev.target.closest('[data-tab]');
   if (!btn) return;
   showTab(btn.dataset.tab);
-  if (mobile.matches && sidebar.dataset.sheet === 'peek') setSheet('half');
+  if (mobile.matches && (sidebar.dataset.sheet === 'peek' || sidebar.dataset.sheet === 'hidden')) setSheet('half');
 });
 
 // ---------- Móvil: el panel es una hoja que sube desde abajo ----------
-// Tres alturas: sólo las pestañas, media pantalla y pantalla completa. Se cambia tocando el asa
-// o una pestaña, o arrastrando el asa; en el escritorio no hace nada (el CSS la ignora).
+// Cuatro alturas: oculto (sólo «Mostrar el panel», para ver el mapa entero), sólo las pestañas, media
+// pantalla y pantalla completa. Se cambia tocando el asa, «Ocultar» o una pestaña, o arrastrando el asa;
+// en el escritorio no hace nada (el CSS lo ignora).
 const mobile = window.matchMedia('(max-width: 860px)');
 const sidebar = document.querySelector('.sidebar');
 const sheetHandle = document.getElementById('sheet-handle');
@@ -513,10 +514,14 @@ const SHEET_HALF = 0.55; // fracción de la zona bajo la barra superior; igual q
 
 function setSheet(stop) {
   sidebar.dataset.sheet = stop;
-  sheetHandle.setAttribute('aria-expanded', String(stop !== 'peek'));
-  sheetHandle.setAttribute('aria-label', stop === 'peek' ? 'Abrir el panel' : 'Bajar el panel');
+  sidebar.parentElement.classList.toggle('sheet-hidden', stop === 'hidden');
+  sheetHandle.setAttribute('aria-expanded', String(stop !== 'peek' && stop !== 'hidden'));
+  sheetHandle.setAttribute('aria-label', stop === 'hidden' ? 'Mostrar el panel' : stop === 'peek' ? 'Abrir el panel' : 'Bajar el panel');
 }
 setSheet('peek');
+document.getElementById('sheet-hide').addEventListener('click', () => setSheet('hidden'));
+// Las alturas fijas, del CSS (no del min-height de la hoja, que cambia con el estado).
+const cssPx = (name) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || 0;
 
 let sheetDrag = null;
 let sheetDragEnd = 0;
@@ -540,7 +545,7 @@ const endSheetDrag = () => {
   if (!moved) return; // ha sido un toque: lo resuelve el evento click
   const h = sidebar.offsetHeight;
   const max = sidebar.parentElement.clientHeight;
-  const stops = { peek: parseFloat(getComputedStyle(sidebar).minHeight) || 0, half: max * SHEET_HALF, full: max };
+  const stops = { hidden: cssPx('--sheet-min'), peek: cssPx('--peek'), half: max * SHEET_HALF, full: max };
   const nearest = Object.keys(stops).reduce((a, b) => (Math.abs(stops[b] - h) < Math.abs(stops[a] - h) ? b : a));
   sidebar.classList.remove('dragging');
   sidebar.style.height = '';
@@ -551,7 +556,8 @@ sheetHandle.addEventListener('pointerup', endSheetDrag);
 sheetHandle.addEventListener('pointercancel', endSheetDrag);
 sheetHandle.addEventListener('click', () => {
   if (Date.now() - sheetDragEnd < 400) return; // el click que sigue a soltar un arrastre
-  setSheet(sidebar.dataset.sheet === 'peek' ? 'half' : 'peek');
+  const now = sidebar.dataset.sheet;
+  setSheet(now === 'hidden' ? 'peek' : now === 'peek' ? 'half' : 'peek');
 });
 // Al escribir en un buscador el teclado tapa media pantalla: se sube la hoja entera.
 for (const id of ['vehicle-search', 'station-search']) {
