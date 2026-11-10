@@ -4,6 +4,7 @@ import { delayClass, esc } from './format.js';
 import * as P from './panels.js';
 import { stationBoard } from './station-board.js';
 import * as S from './siguiendo.js';
+import { loadTelegram } from './avisar.js';
 
 // ---------- Estado ----------
 const state = {
@@ -66,6 +67,8 @@ const map = createMap('map', {
 });
 
 const boardFor = (st) => stationBoard(st, { vehicles: allVehicles(), events: allEvents(), lines: state.lines });
+// Si el servidor tiene bot de Telegram, las fichas llevan «Avisarme por Telegram» (avisar.js).
+loadTelegram();
 
 // Con ?debug en la URL se expone el mapa para inspeccionarlo desde la consola o en pruebas.
 if (new URLSearchParams(location.search).has('debug')) window.radarDebug = { map, prefs };

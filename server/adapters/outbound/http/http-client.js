@@ -35,6 +35,10 @@ const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
  * @property {(url: string, opts?: RequestOptions) => Promise<string>} text
  * @property {(url: string, opts?: RequestOptions) => Promise<any>} json
  * @property {(url: string, opts?: RequestOptions) => Promise<Uint8Array>} bytes  Para feeds binarios (GTFS-RT protobuf).
+ * @property {(url: string, body: any, opts?: RequestOptions) => Promise<any>} postJson  Manda `body` como JSON y
+ *   devuelve la respuesta en JSON (las APIs a las que se escribe: el bot de Telegram). No sigue redirecciones.
+ *   Si la respuesta no es 2xx, el error lleva `status` y, si la respuesta es JSON, `body` (Telegram dice ahí
+ *   cuánto esperar, `retry_after`). Como los demás, el mensaje sólo dice el host: la ruta puede llevar una clave.
  */
 
 /** @returns {HttpClient} */
@@ -57,10 +61,39 @@ export function createHttpClient({ userAgent = DEFAULT_UA, defaultTimeout = 20_0
     }
   }
   const text = async (url, opts) => new TextDecoder().decode(await get(url, opts));
+
+  async function postJson(url, body, { timeout = defaultTimeout, headers = {}, maxBytes = DEFAULT_MAX_BYTES } = {}) {
+    const at = new URL(url);
+    if (at.protocol !== 'https:' && at.protocol !== 'http:') throw new Error(`Esquema no admitido en ${at.host}`);
+    const res = await fetch(at, {
+      method: 'POST',
+      headers: { 'User-Agent': userAgent, 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeout),
+      redirect: 'manual', // a una API se le escribe en su sitio: una redirección es un error
+    });
+    const raw = new TextDecoder().decode(await readLimited(res, maxBytes, at.host));
+    let parsed;
+    try {
+      parsed = raw ? JSON.parse(raw) : null;
+    } catch {
+      parsed = undefined;
+    }
+    if (!res.ok) {
+      const err = new Error(`HTTP ${res.status} en ${at.host}`);
+      err.status = res.status;
+      if (parsed !== undefined) err.body = parsed;
+      throw err;
+    }
+    if (parsed === undefined) throw new Error(`Respuesta que no es JSON en ${at.host}`);
+    return parsed;
+  }
+
   return {
     text,
     json: async (url, opts) => JSON.parse(await text(url, opts)),
     bytes: get,
+    postJson,
   };
 }
 

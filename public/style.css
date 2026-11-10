@@ -269,6 +269,9 @@ button { font: inherit; color: inherit; }
 .pop dt { color: var(--muted); }
 .pop dd { margin: 0; min-width: 0; overflow-wrap: anywhere; } /* las direcciones largas de un aviso no ensanchan la ficha */
 .pop .note { margin-top: 8px; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+/* «Avisarme por Telegram» (avisar.js): enlaces normales, con espacio para pulsarlos en el móvil. */
+.pop .tg-follow { margin: 8px 0 0; font-size: 12px; line-height: 1.9; }
+.pop .tg-follow a { color: var(--accent); white-space: nowrap; }
 /* Aviso de posición estimada por horario: en la ficha y en la lista de trenes. */
 .est-badge { display: inline-block; margin: 0 0 8px; padding: 2px 8px; border: 1px dashed var(--st-warning); border-radius: 4px;
   color: var(--st-warning); font-size: 11.5px; font-weight: 600; }

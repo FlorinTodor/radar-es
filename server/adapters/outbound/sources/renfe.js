@@ -1021,6 +1021,10 @@ export function createRenfeSources({ http, cache, stations, log }) {
         // Si el aviso referencia una estación, lo ubicamos en el mapa.
         const stop = (a.informedEntity ?? []).map((ie) => stations.get(ie.stopId)).find(Boolean);
         const lines = [...new Set((a.informedEntity ?? []).map((ie) => ie.routeId?.match(/C\d+[a-z]?|R\d+[A-Z]?|RT?\d+/)?.[0]).filter(Boolean))];
+        // Las líneas que nombra, con su núcleo (las mismas claves que sus trenes, renfeFollow): quien sigue una
+        // (domain/seguir.js) se entera del aviso.
+        const follow = followOf(...(a.informedEntity ?? []).map((ie) => renfeLineKey(ie.routeId)).filter(Boolean)
+          .flatMap((k) => renfeFollow({ line: k.split('|')[1], lineKey: k, nucleo }) ?? []));
         events.push({
           id: `renfe-aviso:${e.id}`,
           category: 'ferroviario',
@@ -1032,6 +1036,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
           lon: stop?.lon ?? null,
           start: periods[0]?.start ? +periods[0].start * 1000 : null,
           end: periods[0]?.end ? +periods[0].end * 1000 : null,
+          ...(follow ? { follow } : {}),
         });
       }
       const fresh = (r) => (r.status === 'fulfilled' ? r.value : null);

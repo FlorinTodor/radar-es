@@ -73,6 +73,9 @@
  *   (el centro de la isla, del municipio…): los avisos oficiales no traen coordenadas.
  * @property {string} [group]    Mismo aviso publicado para varios lugares (un evento por lugar).
  * @property {string} [credit]   Atribución que pide la licencia de su fuente, para mostrarla junto al dato.
+ * @property {string[]} [follow]  Avisos de un operador (type 'aviso'): las claves de las líneas que nombra
+ *   (domain/seguir.js), para que le lleguen a quien sigue una de ellas (el bot de Telegram). Las cancelaciones
+ *   las llevan en `trip.follow`.
  * @property {number} [expires]  Epoch ms a partir del cual deja de estar en vigor aunque su fuente no
  *   vuelva a responder (avisos oficiales: lo que dura uno sin noticias de su fin, ver domain/emergencias.js;
  *   terremotos: dos días, domain/sismos.js; tráfico: su fin o una hora sin leerlo, domain/carreteras.js;
