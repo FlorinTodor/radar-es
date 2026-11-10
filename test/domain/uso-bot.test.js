@@ -19,8 +19,8 @@ const chat = (id, subs = {}, provinces = [], digest = null) => ({
 test('sin chats: todo a cero, con todos los tipos', () => {
   const u = usageOf([]);
   assert.deepEqual(u, {
-    chats: 0, digest: 0, follows: { servicio: 0, linea: 0, parada: 0, carretera: 0, provincia: 0 },
-    distinct: { servicio: 0, linea: 0, parada: 0, carretera: 0, provincia: 0 }, top: [],
+    chats: 0, digest: 0, follows: { servicio: 0, linea: 0, parada: 0, trayecto: 0, carretera: 0, provincia: 0 },
+    distinct: { servicio: 0, linea: 0, parada: 0, trayecto: 0, carretera: 0, provincia: 0 }, top: [],
   });
   assert.deepEqual(Object.keys(u.follows), USAGE_KINDS);
 });
@@ -33,8 +33,8 @@ test('cuenta chats, cosas por tipo, cosas distintas y partes; lo más seguido pr
   ]);
   assert.equal(u.chats, 3);
   assert.equal(u.digest, 1);
-  assert.deepEqual(u.follows, { servicio: 1, linea: 3, parada: 1, carretera: 0, provincia: 3 });
-  assert.deepEqual(u.distinct, { servicio: 1, linea: 1, parada: 1, carretera: 0, provincia: 2 });
+  assert.deepEqual(u.follows, { servicio: 1, linea: 3, parada: 1, trayecto: 0, carretera: 0, provincia: 3 });
+  assert.deepEqual(u.distinct, { servicio: 1, linea: 1, parada: 1, trayecto: 0, carretera: 0, provincia: 2 });
   assert.deepEqual(u.top, [
     { kind: 'linea', key: C4A, name: 'C4a Cercanías Madrid', chats: 3 },
     { kind: 'provincia', key: 'prov-valencia', name: 'Valencia', chats: 2 },
@@ -52,7 +52,7 @@ test('el nombre de verdad gana al provisional; el tope de lo más seguido', () =
     chat(3, { [AVANT]: { name: 'un tren de Renfe', guessed: true }, [C4A]: 'C4a Cercanías Madrid' }),
   ], { top: 1 });
   assert.deepEqual(u.top, [{ kind: 'servicio', key: AVANT, name: 'Avant 08058', chats: 3 }]);
-  assert.deepEqual(u.distinct, { servicio: 1, linea: 1, parada: 0, carretera: 0, provincia: 0 }, 'las distintas se cuentan todas');
+  assert.deepEqual(u.distinct, { servicio: 1, linea: 1, parada: 0, trayecto: 0, carretera: 0, provincia: 0 }, 'las distintas se cuentan todas');
   assert.deepEqual(usageOf([chat(1, { [AVANT]: { name: 'un tren de Renfe', guessed: true } })]).top[0].name, 'un tren de Renfe');
 });
 

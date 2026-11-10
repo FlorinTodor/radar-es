@@ -8,6 +8,7 @@ export const INPUT_MAX = 200;
 /** Órdenes, con su descripción para el menú del bot (setMyCommands): el mismo orden que la ayuda. */
 export const COMMANDS = [
   ['seguir', 'Seguir un tren, autobús, metro o línea: /seguir 08058, /seguir C4 Madrid'],
+  ['trayecto', 'Tus trenes de una estación a otra: /trayecto Alcalá de Henares > Atocha 7:00-9:00 L-V'],
   ['estado', 'Cómo va ahora lo que sigues, o lo que busques'],
   ['provincia', 'Avisos de tu provincia: AEMET, terremotos y emergencias'],
   ['carretera', 'Cortes y accidentes de una carretera: /carretera A-7, /carretera AP-7 Tarragona'],

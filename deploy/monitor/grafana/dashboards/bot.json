@@ -513,6 +513,18 @@
                 "value": "Provincias"
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trayecto"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Trayectos"
+              }
+            ]
           }
         ]
       },
@@ -621,6 +633,9 @@
                       },
                       "provincia": {
                         "text": "Provincias"
+                      },
+                      "trayecto": {
+                        "text": "Trayectos"
                       }
                     }
                   }
@@ -1160,6 +1175,18 @@
               {
                 "id": "displayName",
                 "value": "/seguir"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trayecto"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "/trayecto"
               }
             ]
           },

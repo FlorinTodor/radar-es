@@ -3,8 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  FOLLOW_KEY_MAX, answersTo, describeFollow, followKind, followOf, isFollowKey, lineKey, mergeFollow, networkPart, numberedServiceKey,
-  parseFollowKey, scheduledServiceKey, shortHash, stopCode, stopKey,
+  ALL_DAYS, FOLLOW_KEY_MAX, answersTo, daysText, describeFollow, followKind, followOf, isFollowKey, lineKey, mergeFollow, networkPart,
+  numberedServiceKey, parseFollowKey, scheduledServiceKey, shortHash, stopCode, stopKey, trayectoKey,
 } from '../../server/domain/seguir.js';
 
 const TELEGRAM_START = /^[A-Za-z0-9_-]{1,64}$/;
@@ -138,4 +138,43 @@ test('la huella es siempre la misma y de 7 caracteres en base 36', () => {
   assert.notEqual(shortHash('2354'), shortHash('2355'));
   assert.match(shortHash(''), /^[0-9a-z]{7}$/);
   assert.match(shortHash('ES:Euskotren:StopPlaceEntrance:2576_Entrada_E'), /^[0-9a-z]{7}$/);
+});
+
+test('trayecto: dos estaciones, la franja y los días; reversible, válido para Telegram y sin tocar las demás claves', () => {
+  const key = trayectoKey({ origin: '70103', destination: '18000', from: 7 * 60, to: 9 * 60, days: 0x1f });
+  assert.equal(key, 't-70103-18000-07000900-1f');
+  assert.match(key, TELEGRAM_START);
+  assert.equal(followKind(key), 'trayecto');
+  assert.deepEqual(parseFollowKey(key), {
+    kind: 'trayecto', network: null, parts: ['70103', '18000'], origin: '70103', destination: '18000', from: '07:00', to: '09:00', days: 0x1f,
+  });
+  assert.equal(describeFollow(key, { originName: 'Alcalá de Henares', destinationName: 'Madrid-Atocha Cercanías' }),
+    'Alcalá de Henares → Madrid-Atocha Cercanías (07:00-09:00, de lunes a viernes)');
+  // Las estaciones de metro y tranvía llevan su red en el código: también caben (las de códigos más largos del catálogo).
+  const long = trayectoKey({ origin: 'metrosevilla:L1-E10', destination: 'metrosevilla:L1-E21', from: 0, to: 24 * 60 - 1, days: ALL_DAYS });
+  assert.ok(long.length <= FOLLOW_KEY_MAX && TELEGRAM_START.test(long), long);
+  assert.equal(parseFollowKey(long).origin, 'metrosevilla:L1-E10');
+  assert.equal(parseFollowKey(long).to, '23:59');
+  for (const bad of [
+    { origin: '70103', destination: '70103', from: 420, to: 540, days: 1 }, // la misma estación
+    { origin: '70103', destination: '18000', from: 540, to: 420, days: 1 }, // franja al revés
+    { origin: '70103', destination: '18000', from: 420, to: 24 * 60, days: 1 }, // pasa del día
+    { origin: '70103', destination: '18000', from: 420, to: 540, days: 0 }, // ningún día
+    { origin: '70103', destination: '18000', from: 420, to: 540, days: 0x80 },
+    { origin: '', destination: '18000', from: 420, to: 540, days: 1 },
+    { origin: 'x'.repeat(30), destination: 'y'.repeat(30), from: 420, to: 540, days: 1 }, // no cabe en 64
+  ]) assert.equal(trayectoKey(bad), null, JSON.stringify(bad));
+  for (const bad of ['t-70103-18000-09000700-1f', 't-70103-18000-07000900-00', 't-70103-18000-07000900-80', 't-70103-18000-07602500-1f',
+    't-70103-70103-07000900-1f', 't-70103-18000-0700-1f', 't-70103-18000-07000900-1F', 't-7010_3-18000-07000900-1f', 't-70103']) {
+    assert.equal(isFollowKey(bad), false, bad);
+  }
+  assert.deepEqual(mergeFollow([key, 'p-71801', 's-renfe-8058']), ['s-renfe-8058', 'p-71801', key]);
+  // Las de antes siguen igual.
+  for (const good of ['s-renfe-8058', 'l-metrobilbao', 'p-71801', 'l-renfe-__17cohho', 's-emtmalaga-_-0abc123-0732']) assert.equal(isFollowKey(good), true, good);
+  assert.equal(daysText(0x1f), 'de lunes a viernes');
+  assert.equal(daysText(0x60), 'sábados y domingos');
+  assert.equal(daysText(0x15), 'lunes, miércoles y viernes');
+  assert.equal(daysText(0x71), 'de viernes a lunes', 'seguidos pasando del domingo al lunes');
+  assert.equal(daysText(0x40), 'los domingos');
+  assert.equal(daysText(ALL_DAYS), 'todos los días');
 });

@@ -44,6 +44,7 @@ parámetro `start` de Telegram (`t.me/<bot>?start=<clave>`), sin tablas para vol
 | Línea | `l-<red>[-<ámbito>][-<línea>]` | `l-renfe-Madrid-C5`, `l-renfe-C_C3_A1diz-C1`, `l-emtmalaga-27` |
 | Toda la red de un operador | `l-<red>` | `l-metrobilbao` |
 | Parada o estación | `p-[<catálogo>-]<código>` | `p-71801`, `p-tmb-123` |
+| Trayecto (sólo el bot) | `t-<origen>-<destino>-<HHMMHHMM>-<días>` | `t-70103-18000-07000900-1f` |
 
 - `<red>` es el operador tal como lo enseña el radar, en minúsculas, sin tildes ni signos: «EMT Málaga» →
   `emtmalaga`. Si pasa de 20 caracteres, se abrevia con su huella. **Cambiar el nombre de un operador cambia
@@ -62,8 +63,15 @@ parámetro `start` de Telegram (`t.me/<bot>?start=<clave>`), sin tablas para vol
 - El servicio de un horario lleva la **huella del `stop_id`** de su parada de origen y su hora de salida (pasada la
   medianoche del horario, `2510`). Si otro día sale a otra hora, es otro servicio, porque así lo dice el horario.
 - La clave de una parada se puede deshacer: `stopCode(clave)` devuelve su código de catálogo.
+- Un **trayecto** no lo da ningún vehículo: lo escribe quien lo sigue en el bot («Mi trayecto», ver
+  [telegram.md](telegram.md)). Lleva el código de catálogo entero de sus dos estaciones (con `:` como `_3A`, para
+  poder volver a encontrarlas), la franja en la que sale del origen (`07000900`: de 07:00 a 09:00, siempre de una
+  hora a otra más tarde del mismo día) y los días, una máscara de 7 bits en hexadecimal (bit 0 el lunes… bit 6 el
+  domingo: `1f` es de lunes a viernes, `60` sábados y domingos, `7f` todos). Con los códigos más largos del
+  catálogo (`metrosevilla:L1-E10`) cabe en 64. `parseFollowKey` devuelve sus dos códigos (`origin`,
+  `destination`), la franja (`from`, `to`, «HH:MM») y los días (`days`). Ninguna lista `follow` lleva trayectos.
 
-Funciones: `numberedServiceKey`, `scheduledServiceKey`, `lineKey`, `stopKey` y `stopCode` para construirlas;
+Funciones: `numberedServiceKey`, `scheduledServiceKey`, `lineKey`, `stopKey`, `stopCode` y `trayectoKey` para construirlas;
 `isFollowKey`, `followKind` y `parseFollowKey` para validarlas y leerlas; `describeFollow` para nombrarlas con
 lo que se sepa del vehículo; y `answersTo`,
 `mergeFollow` y `followOf` para trabajar con listas. Quien guarde una clave para más adelante (el bot, Mis
@@ -81,6 +89,8 @@ trenes) debe guardar también su nombre, porque las partes con huella no se pued
   - Si la línea es el propio producto, no se repite: «AVE · Renfe».
   - Nunca lleva dónde está ahora el vehículo (`area`): eso no es de la línea.
 - Toda la red: «<operador>: toda la red».
+- Un trayecto: «<origen> → <destino> (HH:MM-HH:MM, <días>)», con el nombre de sus estaciones: «Alcalá de Henares →
+  Madrid-Atocha Cercanías (07:00-09:00, de lunes a viernes)» (`daysText` escribe los días).
 
 ### Qué da cada fuente hoy
 

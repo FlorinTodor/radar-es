@@ -47,6 +47,7 @@ otro lee lo que le escribe la gente.
 
      ```
      seguir - Seguir un tren, autobús, metro o línea: /seguir 08058, /seguir C4 Madrid
+     trayecto - Tus trenes de una estación a otra: /trayecto Alcalá de Henares > Atocha 7:00-9:00 L-V
      estado - Cómo va ahora lo que sigues, o lo que busques
      provincia - Avisos de tu provincia: AEMET, terremotos y emergencias
      carretera - Cortes y accidentes de una carretera: /carretera A-7, /carretera AP-7 Tarragona
@@ -79,6 +80,64 @@ TELEGRAM_BOT_USERNAME=RadarEspanaBot
 El `.env` se lee al crear el contenedor. Se aplica en el siguiente despliegue: el relevo crea el contenedor
 nuevo con el `.env` nuevo, sin corte. Sin token, el registro dice `[telegram] bot desactivado: falta
 TELEGRAM_BOT_TOKEN` y la web no enseña el botón.
+
+## Mi trayecto
+
+Además de un tren, una línea o una estación, el bot sigue el trayecto de cada día:
+`/trayecto Alcalá de Henares > Atocha 7:00-9:00 L-V` sigue los trenes que **paran en el origen y luego en el
+destino** y **salen del origen en esa franja**, uno de esos días. No hace falta saber su número.
+
+- **Cómo se escribe**: las dos estaciones separadas por `>` (o `→`), la franja (`7:00-9:00`, `7-9`, `de 7 a
+  9:30`) y los días (`L-V`, `S-D`, `L,X,V`, `LXV`, `V-L`, `laborables`, `fin de semana`; sin días, todos). Los
+  días pueden ir antes o después de la franja. La franja va de una hora a otra más tarde del mismo día. Escrito
+  sin orden («Alcalá > Atocha 7-9»), también vale.
+- **Las estaciones** salen del catálogo del radar (las de Renfe y las de las redes de metro y tranvía), como en el
+  mapa. Si el nombre es el de una estación tal cual, ésa; si no, todas las que tienen esas palabras en su nombre,
+  su ciudad o su red. Si con esos nombres hay más de un trayecto posible (hay dos «Atocha»), el bot pregunta con
+  una lista de combinaciones, sólo de estaciones distintas y de la misma red.
+- **Qué avisa**, de los trenes del trayecto:
+  - si se cancelan, o si se les suprime la parada del origen o la del destino (las demás paradas suprimidas, no);
+  - si van con 15 minutos de retraso o más, y otra vez cada 15 más (como un tren seguido: si mejora, no);
+  - si su operador no publica nada de ellos («sin datos»), mientras según su horario no hayan llegado al destino.
+
+  Los avisos salen en la misma ronda que los demás, uno por trayecto con lo nuevo; lo que ya había al seguirlo se
+  cuenta en la respuesta y no se avisa. De una cancelación de un tren que según su horario ya habría llegado al
+  destino no se avisa: a esas horas ya no sirve.
+- **`/estado` y el parte** dicen los trenes de la franja que se ven ahora, por su hora en el origen: los que
+  circulan, con su retraso y su próxima parada, y los cancelados, sin parar en el origen o el destino o sin datos
+  (los que salían hace más de un cuarto de hora ya no salen). Un tren cancelado que se ve circulando sale una vez,
+  como cancelado. Fuera de sus días lo dice; de noche, en general, no hay nada que contar: un tren se ve cuando
+  empieza su recorrido, y una cancelación, cuando su operador la publica.
+- **La hora en el origen**:
+  - de las cancelaciones y los trenes sin datos, la de su horario;
+  - de los trenes que circulan, la de su horario si la fuente la da (Alta Velocidad, Larga y Media Distancia,
+    horarios GTFS). Si no, la que prevé su operador menos su retraso.
+  - En Cercanías y Rodalies no hay ninguna de las dos (Renfe no publica la hora de cada parada en su tiempo real y
+    el radar no guarda ese horario: son 140.000 viajes), así que se calcula por dónde va. Es lo que le falta hasta
+    el origen por sus paradas, en línea recta, a 45 km/h, menos su retraso. Es aproximada y se dice así («hora
+    aproximada», «aprox.»). Un tren justo en el borde de la franja puede entrar o no.
+- **Qué fuentes valen**: cualquiera que diga las paradas de sus viajes con su nombre. Las estaciones se comparan
+  como en su ficha de la web: mismo nombre y a menos de 3 km. Con lo que publica hoy cada una:
+  - **Renfe** (Cercanías, Rodalies, AV, LD y MD): todo. Tiene cancelaciones con su horario, paradas suprimidas,
+    retraso y trenes sin datos.
+  - **Metros, tranvías y FGC**: sus trenes salen en `/estado`, pero de ellos no hay cancelaciones ni retraso que
+    avisar. FGC sólo dice las paradas que le quedan.
+  - Una fuente cuyas paradas se llaman de otra forma que en el catálogo (Ouigo: «Madrid-Puerta De Atocha») no
+    encaja con esa estación.
+
+  Los autobuses no entran: aún no hay catálogo de sus paradas.
+- **Como lo demás que se sigue**: cuenta en el tope de cosas por chat, sale en `/mis`, `/dejar` y `/datos`, y en
+  el panel del bot es un tipo más («Trayectos», y `/trayecto` entre las órdenes).
+- **Lo que guarda** de un trayecto es lo mismo que de lo demás: su clave (el código de sus dos estaciones, la franja
+  y los días; ver [vehiculos.md](vehiculos.md)) y su nombre, que los dice («Alcalá de Henares → Madrid-Atocha
+  Cercanías (07:00-09:00, de lunes a viernes)»). La política de privacidad de `/legal` lo dice.
+- **Cuánto cuesta**: en cada ronda sólo se miran las paradas de los trenes que van con retraso, y las
+  cancelaciones salen del mismo índice de paradas que las estaciones seguidas. Para `/estado` y el parte se miran
+  las de todos los que no van por carretera: como mucho una vez por minuto (y una sola vez para los partes de
+  todos los chats de esa ronda).
+- **Código**: `server/domain/seguidos/trayectos.js` (qué se escribe, qué trenes son, qué se avisa y cómo van) y
+  `server/domain/seguidos/estaciones.js` (buscar una estación del catálogo por su nombre); en el caso de uso, la
+  orden `/trayecto` y lo que pide a `query-situation` (las paradas de cada viaje y el catálogo de estaciones).
 
 ## Cómo funciona por dentro
 
