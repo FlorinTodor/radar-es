@@ -158,7 +158,8 @@ Un monitor externo (UptimeRobot) sigue avisando si se cae el VPS entero, con la 
 ## Entorno de pruebas, secretos y servidor
 
 - **Pruebas** se monta con `deploy/preparar-pruebas.sh` y no está abierto al público.
-- **Secretos**: el `.env` (`NAP_API_KEY`, `ESIOS_TOKEN`, las claves de EMT Madrid, titular y contacto), el token que marca los commits y las
+- **Secretos**: el `.env` (`NAP_API_KEY`, `ESIOS_TOKEN`, las claves de EMT Madrid, el token del bot de Telegram
+  «Sigue tu tren» —ver [telegram.md](telegram.md)—, titular y contacto), el token que marca los commits y las
   credenciales del túnel no están en git. El token sólo puede escribir el estado de los commits de
   este repositorio y no va en el `.env`, que también llega al contenedor.
 - **`data/`**: cachés de GTFS, histórico y una copia del historial de posiciones (`cache/estelas.v1`,
