@@ -47,7 +47,7 @@ export function helpText({ webUrl, limits }) {
     'Órdenes:',
     COMMANDS.map(([c, d]) => `/${c}: ${d}`).join('\n'),
     'También puedes escribirme sin orden lo que buscas («08058», «C4 Madrid», «27 EMT Málaga»).',
-    `Desde la web, en la ficha de un vehículo o de una estación, el botón «Avisarme por Telegram» lo sigue directamente: ${webUrl}`,
+    `Desde la web, en la ficha de un vehículo o de una estación, el botón «Avísame por Telegram» lo sigue directamente: ${webUrl}`,
     `Avisos: si se cancela o se suprimen paradas, si va con ${limits.delayMin} min de retraso o más (y otra vez si empeora), si su operador deja de publicarlo y los avisos del operador sobre su línea. Puedes seguir hasta ${limits.subsPerChat} cosas.`,
     'Los datos son los que publican los operadores y organismos: el radar no es oficial y puede fallar. No lo uses para decisiones de seguridad.',
   ].join('\n\n');

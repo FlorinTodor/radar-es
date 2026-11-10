@@ -130,7 +130,7 @@ let telegramBot = null;
 if (!config.telegram) {
   log.warn('[telegram] bot desactivado: falta TELEGRAM_BOT_TOKEN');
 } else {
-  if (!config.telegram.username) log.warn('[telegram] falta TELEGRAM_BOT_USERNAME: el bot funciona, pero la web no enseña el botón «Avisarme por Telegram»');
+  if (!config.telegram.username) log.warn('[telegram] falta TELEGRAM_BOT_USERNAME: el bot funciona, pero la web no enseña el botón «Avísame por Telegram»');
   const botDir = new URL('bot/', config.dataDir);
   // La atribución de cada aviso: la licencia de su fuente (la del operador, si la fuente agrupa a varios).
   const sourceById = new Map(sources.map((s) => [s.id, s]));

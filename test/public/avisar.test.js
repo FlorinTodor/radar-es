@@ -1,4 +1,4 @@
-// «Avisarme por Telegram» en las fichas: sólo si hay bot; un enlace por servicio, línea o estación, con el nombre
+// «Avísame por Telegram» en las fichas: sólo si hay bot; un enlace por servicio, línea o estación, con el nombre
 // del tipo de vehículo del registro; nada que no sea una clave válida.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

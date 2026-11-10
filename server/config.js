@@ -21,7 +21,7 @@ export function loadConfig(env = process.env) {
       publicUrl: publicUrl(env.PUBLIC_URL),
       // Contador de visitas sin cookies. Sin esta variable no se carga (así en local no cuenta).
       goatcounter: goatcounterUrl(env.GOATCOUNTER_URL),
-      // El usuario del bot de Telegram, para el botón «Avisarme por Telegram» de las fichas (nunca el token).
+      // El usuario del bot de Telegram, para el botón «Avísame por Telegram» de las fichas (nunca el token).
       telegram: telegram?.username ? { bot: telegram.username } : null,
     },
     telegram,

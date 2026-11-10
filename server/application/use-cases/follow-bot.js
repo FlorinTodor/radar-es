@@ -188,7 +188,7 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
       const p = findProvince(arg);
       if (p) return followProvince(chatId, p);
       return [reply(chatId, `No encuentro nada así entre lo que circula ahora o ha circulado hace poco. Prueba con el número `
-        + `(«08058»), la línea y su ciudad u operador («C4 Madrid»), o búscalo en el mapa y pulsa «Avisarme por Telegram» en su ficha: ${webUrl}`)];
+        + `(«08058»), la línea y su ciudad u operador («C4 Madrid»), o búscalo en el mapa y pulsa «Avísame por Telegram» en su ficha: ${webUrl}`)];
     }
     if (found.length === 1 && !confirm) return follow(chatId, found[0].key, found[0].name);
     const buttons = menu(chatId, 'add', found.map((e) => ({ sub: e.key, name: e.name, label: entryLabel(e) })), c.now);

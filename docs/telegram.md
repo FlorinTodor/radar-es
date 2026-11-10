@@ -14,7 +14,7 @@ Con `/parte 07:30` manda cada día un resumen de lo que sigue. Lo que se puede s
 [`docs/vehiculos.md`](vehiculos.md): el bot no sabe de qué fuente ni de qué tipo es cada vehículo, así que un
 tipo nuevo funciona sin tocarlo.
 
-Desde la web, la ficha de cada vehículo, cancelación, tren sin datos o estación lleva «Avisarme por Telegram»:
+Desde la web, la ficha de cada vehículo, cancelación, tren sin datos o estación lleva «Avísame por Telegram»:
 abre el bot con `t.me/<bot>?start=<clave>` y lo sigue con un toque.
 
 ## Crear el bot (una vez)
