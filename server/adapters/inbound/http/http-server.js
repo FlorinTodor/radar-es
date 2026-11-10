@@ -526,12 +526,13 @@ const NO_METRICS = { request() {}, mcp() {} };
 
 /**
  * Módulos puros del dominio que también usa el navegador, tal cual: las claves de lo que se puede seguir
- * (seguir.js), el registro de tipos de vehículo (modos.js) y el estado de lo que se sigue (siguiendo.js).
+ * (seguir.js), el registro de tipos de vehículo (modos.js), el estado de lo que se sigue (siguiendo.js) y los
+ * textos del servidor en inglés (en-servidor.js, que comparten la web en inglés y el bot de Telegram).
  * Se sirven en /server/domain/<fichero>, la misma ruta relativa que tienen desde public/js en el repositorio,
  * así que el cliente los importa igual en el navegador y en los tests de Node. Sólo pueden importarse entre
  * ellos (test/adapters/http-siguiendo.test.js lo comprueba).
  */
-export const SHARED_DOMAIN_MODULES = Object.freeze(['seguir.js', 'modos.js', 'siguiendo.js']);
+export const SHARED_DOMAIN_MODULES = Object.freeze(['seguir.js', 'modos.js', 'siguiendo.js', 'en-servidor.js']);
 /** @param {string} domainDir  carpeta server/domain @returns {Record<string, string>} ruta pública → fichero */
 export const sharedDomainFiles = (domainDir) => Object.fromEntries(SHARED_DOMAIN_MODULES.map((f) => [`/server/domain/${f}`, join(domainDir, f)]));
 

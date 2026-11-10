@@ -14,7 +14,7 @@ import { createFirmsSource } from '../../server/adapters/outbound/sources/firms.
 import { createIgnSismosSource } from '../../server/adapters/outbound/sources/ign-sismos.js';
 import { createEmscSismosSource } from '../../server/adapters/outbound/sources/emsc-sismos.js';
 
-// Los textos que escribe el servidor, en inglés (public/js/i18n/en-servidor.js). Se generan con el propio
+// Los textos que escribe el servidor, en inglés (server/domain/en-servidor.js). Se generan con el propio
 // servidor: si cambia una de sus plantillas, la traducción deja de encajar y este test lo dice. Los nombres y
 // lo que publica cada fuente tienen que salir tal cual.
 before(() => useLang('en'));
