@@ -819,6 +819,14 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   «Todas · Ninguna», la leyenda plegada y las preferencias guardadas en el navegador.
 - Aviso al entrar sobre los datos públicos que todavía faltan.
 - Páginas que explican cada parte del mapa y versión en inglés.
+- La web en inglés, con el interruptor ES/EN de la barra superior: en español por defecto, se recuerda en
+  el navegador y se puede enlazar con `?lang=en` (las páginas en inglés llevan así al mapa). Se traduce
+  lo que escribe Radar España: pestañas, fichas, capas y leyenda, las alertas del motor, «Siguiendo»,
+  «El día en cifras», fechas y números. Los nombres de estaciones, líneas y operadores, los avisos que
+  publica cada fuente (Renfe, AEMET, protección civil…) y las atribuciones que piden las licencias se
+  quedan tal cual. Al cambiar de idioma, el mapa vuelve al mismo sitio y a la misma pestaña, y quien ve
+  la web en español no descarga el diccionario. Los botones del propio mapa (acercar, alejar, cerrar)
+  también salen ya en el idioma de la web.
 - Sin avisos en la consola del navegador por los iconos que pide el mapa base y no trae.
 - Se puede instalar en el móvil como una app, desde Chrome o Safari («Añadir a pantalla de inicio»).
 - Preparada para los buscadores: título y descripción a medida en cada página (sin que Google las
@@ -1000,7 +1008,7 @@ Ninguna por ahora.
 
 ## Posibles mejoras
 
-- Botón en el mapa para cambiar entre español e inglés.
+- El aviso legal y el bot de Telegram también en inglés (hoy sólo en español; la web en inglés lo indica).
 - Tiempo real de TMB y posiciones de los autobuses de EMT Madrid desde sus API, cuando EMT apruebe nuestra
   aplicación de MobilityLabs (ver
   *Pendiente y conocido*).
