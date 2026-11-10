@@ -2,6 +2,9 @@ FROM node:22-alpine AS base
 
 WORKDIR /app
 ENV NODE_ENV=production
+# Intermedios que algunas fuentes no envían (ver server/certs/intermedios.pem): completan la cadena,
+# que se sigue verificando hasta una raíz del sistema.
+ENV NODE_EXTRA_CA_CERTS=/app/server/certs/intermedios.pem
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
