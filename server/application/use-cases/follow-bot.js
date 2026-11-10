@@ -3,7 +3,7 @@
 // leídos ({ chatId, text } o { chatId, callback }) y devuelve respuestas ({ chatId, text, buttons }); el
 // adaptador de entrada (adapters/inbound/telegram) las trae y las lleva. Vale para cualquier vehículo: lo que se
 // sigue son claves `follow` (domain/seguir.js), sin mirar de qué fuente ni de qué tipo es.
-import { describeFollow, isFollowKey, followKind, stopCode } from '../../domain/seguir.js';
+import { describeFollow, isFollowKey, followKind, parseFollowKey, stopCode } from '../../domain/seguir.js';
 import { entryLabel, searchDirectory, updateDirectory } from '../../domain/seguidos/directorio.js';
 import {
   DELAY_MIN, SEEN_MAX, collectFacts, factsMessage, fitMessage, fmtWhen, madridDay, madridHourMinute, newFacts, provinceSub, statusOf,
@@ -59,7 +59,10 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
       const st = stationOf(stopCode(key));
       return st?.name ? `Estación ${st.name}` : describeFollow(key);
     }
-    return directory.get(key)?.name ?? describeFollow(key) ?? key;
+    if (directory.has(key)) return directory.get(key).name;
+    // Algo que no se ve ahora (un enlace guardado): lo que dice su clave, con la red en mayúscula («Renfe 25535»).
+    const network = parseFollowKey(key)?.network ?? '';
+    return describeFollow(key, { operator: network.charAt(0).toUpperCase() + network.slice(1) }) ?? key;
   }
 
   /** Cómo está ahora, en texto: sus líneas y sus fuentes. */

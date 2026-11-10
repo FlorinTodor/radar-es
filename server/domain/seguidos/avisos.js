@@ -261,10 +261,12 @@ export function statusOf(sub, { vehicles = [], events = [], now, stationOf = () 
     const running = vehicles.filter((v) => answersTo(v.follow, sub));
     const withDelay = running.filter((v) => Number.isFinite(v.delay));
     const late = withDelay.filter((v) => v.delay >= 5).length;
-    const noun = modeNoun(running[0]?.mode ?? tripEvents[0]?.trip?.mode, true);
-    lines.push(running.length
-      ? `Ahora circulan ${running.length} ${noun}${withDelay.length ? `; ${late} de los ${withDelay.length} que dicen su retraso llevan 5 min o más` : ''}.`
-      : `Ahora no se ve ninguno circulando.`);
+    const mode = running[0]?.mode ?? tripEvents[0]?.trip?.mode;
+    const delays = withDelay.length === 1 ? `; ${late ? 'lleva' : 'no lleva'} 5 min o más de retraso`
+      : withDelay.length ? `; ${late} de los ${withDelay.length} que dicen su retraso llevan 5 min o más` : '';
+    lines.push(running.length === 1 ? `Ahora circula 1 ${modeNoun(mode)}${delays}.`
+      : running.length ? `Ahora circulan ${running.length} ${modeNoun(mode, true)}${delays}.`
+        : 'Ahora no se ve ninguno circulando.');
     for (const v of running.slice(0, 1)) credit(creditOf(v.source, v.operator));
     const cancelled = tripEvents.filter((e) => e.category === 'cancelacion');
     if (cancelled.length) {

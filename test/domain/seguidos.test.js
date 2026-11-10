@@ -131,10 +131,12 @@ test('estado: un servicio que circula, cancelado o que no se ve; una línea; una
   assert.deepEqual(statusOf(numberedServiceKey({ operator: 'Renfe', number: '1' }), ctx).lines,
     ['Ahora no se ve circulando: puede que no le toque a esta hora o que su operador no lo publique.']);
   const c4 = statusOf(C4A, ctx).lines;
-  assert.equal(c4[0], 'Ahora circulan 1 trenes; 0 de los 1 que dicen su retraso llevan 5 min o más.');
+  assert.equal(c4[0], 'Ahora circula 1 tren; no lleva 5 min o más de retraso.');
   assert.equal(c4[1], 'Cancelados o con paradas suprimidas hoy: 1.');
   assert.match(c4.at(-1), /^Aviso: Aviso Renfe · C4a, C4b: Por huelga/);
-  assert.deepEqual(statusOf(EMT27, ctx).lines, ['Ahora circulan 1 autobuses.'], 'el nombre de los vehículos, del registro de tipos');
+  assert.deepEqual(statusOf(EMT27, ctx).lines, ['Ahora circula 1 autobús.'], 'el nombre de los vehículos, del registro de tipos');
+  const two = statusOf(EMT27, { ...ctx, vehicles: [...vehicles, { ...vehicles[4], id: 'emt-malaga:662', delay: 9 }, { ...vehicles[4], id: 'x', delay: 1 }] }).lines;
+  assert.equal(two[0], 'Ahora circulan 3 autobuses; 1 de los 2 que dicen su retraso llevan 5 min o más.');
   assert.match(statusOf(provinceSub('valencia'), ctx).lines[0], /^Aviso naranja por lluvias/);
   assert.match(statusOf(provinceSub('soria'), ctx).lines[0], /^Ahora no hay avisos naranja o rojo de AEMET/);
 });

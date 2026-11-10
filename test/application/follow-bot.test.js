@@ -59,6 +59,8 @@ test('enlace de la web (/start <clave>): sigue directamente y cuenta cómo va', 
   assert.match(say(`/start ${AVANT}`)[0].text, /^Ya sigues Avant 08058/);
   assert.match(say('/start')[0].text, /^Hola\. Soy el bot de Radar España/);
   assert.match(say('/start no-es-una-clave')[0].text, /^Hola/);
+  assert.match(say(`/start ${numberedServiceKey({ operator: 'Renfe', number: '25535' })}`)[0].text, /^Hecho: te aviso de Renfe 25535\./,
+    'un enlace a algo que ahora no se ve: el nombre, de su clave');
 });
 
 test('buscar: uno, varios con botones (y el botón sigue), nada; texto sin orden pregunta antes', () => {
