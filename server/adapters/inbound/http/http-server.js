@@ -31,8 +31,9 @@ const MIME = {
  *   lo rápida que sea la máquina).
  *   mcp: quien atiende los mensajes del servidor MCP en POST /mcp; sin él, /mcp no existe.
  *   metrics: cuenta cada petición (por ruta, sin parámetros) y cada mensaje MCP, para la monitorización.
+ *   days: el día en cifras (caso de uso day-in-figures), en /api/dia y /api/dia/AAAA-MM-DD; sin él, no existen.
  */
-export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs, about = {}, now = Date.now, mcp, metrics = NO_METRICS }) {
+export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs, about = {}, now = Date.now, mcp, metrics = NO_METRICS, days }) {
   // Todas las respuestas JSON se calculan, comprimen y firman (ETag) como mucho una vez cada `ttl`,
   // así que pedirlas mil veces cuesta lo mismo que pedirlas una. Sin esto, /api/lines (1 MB)
   // saturaba un núcleo con unas 20 peticiones por segundo. `key` separa las variantes por parámetros.
@@ -97,6 +98,9 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
   // herramientas recorren todos los vehículos. Presupuesto propio, para que no le quiten sitio al mapa;
   // sólo lo gasta lo que hay que calcular (el adaptador MCP guarda unos segundos cada respuesta).
   const mcpBudget = createBudget({ perSecond: MCP_BUDGET.perSecond, burst: MCP_BUDGET.burst, now });
+  // El día en cifras: hoy cambia cada minuto; un día pasado ya no cambia. Como mucho, un resumen por día de
+  // los que se guardan (unos 90): su propio memo, que no expulsa a los demás.
+  const memoDays = createJsonMemo({ max: DAY_MEMO_MAX, maxBytes: DAY_MEMO_BYTES, now });
   // Y otro por cliente, para que uno solo no gaste el de todos. Se guardan los de los últimos
   // MCP_CLIENTS_MAX clientes: si alguien llena la lista con direcciones nuevas, sigue el de todos.
   const mcpClients = new Map();
@@ -161,6 +165,11 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
         if (id === null || id.length > MAX_VEHICLE_ID) return send(res, 400, { error: 'Ruta inválida' });
         return sendTrain(req, res, id, () => query.stops?.(id) ?? null, 'Paradas desconocidas', stopsTrains);
       }
+      if (days && (url.pathname === '/api/dia' || url.pathname.startsWith('/api/dia/'))) {
+        const date = url.pathname === '/api/dia' ? null : decodeOrNull(url.pathname.slice('/api/dia/'.length));
+        if (date !== null && !DAY_PATH.test(date)) return send(res, 400, { error: 'Fecha inválida: AAAA-MM-DD' });
+        return sendDay(req, res, date);
+      }
       if (url.pathname.startsWith('/api/tracks/')) {
         const id = decodeOrNull(url.pathname.slice('/api/tracks/'.length));
         if (id === null || id.length > MAX_VEHICLE_ID) return send(res, 400, { error: 'Ruta inválida' });
@@ -218,6 +227,30 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     const zipped = /\bgzip\b/.test(req.headers['accept-encoding'] ?? '');
     res.writeHead(200, { ...headers, ...(zipped && { 'Content-Encoding': 'gzip' }), 'Content-Length': (zipped ? gz : json).length });
     res.end(req.method === 'HEAD' ? undefined : zipped ? gz : json);
+  }
+
+  /**
+   * El resumen de un día. Hoy se recalcula como mucho cada minuto y el navegador pregunta con el ETag; un día
+   * pasado se guarda más (ya no cambia). Mientras un día pasado se lee del disco, 503 con Retry-After, sin
+   * guardar nada: la página vuelve a pedirlo sola. Sin datos de ese día, 404.
+   */
+  function sendDay(req, res, date) {
+    const entry = memoDays(date ?? 'hoy', date ? DAY_PAST_TTL_MS : DAY_TODAY_TTL_MS, () => days.summary(date) ?? { missing: true },
+      { isEmpty: (b) => b?.loading === true || b?.missing === true });
+    if (entry.empty) {
+      if (JSON.parse(entry.json).missing) return send(res, 404, { error: 'No hay datos de ese día' });
+      res.setHeader('Retry-After', '2');
+      res.setHeader('Cache-Control', 'no-store');
+      return send(res, 503, { error: 'Leyendo ese día; prueba dentro de un momento', loading: true });
+    }
+    const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': date ? DAY_PAST_CACHE : REVALIDATE, ETag: entry.etag, Vary: 'Accept-Encoding' };
+    if (req.headers['if-none-match'] === entry.etag) {
+      res.writeHead(304, headers);
+      return res.end();
+    }
+    const zipped = /\bgzip\b/.test(req.headers['accept-encoding'] ?? '');
+    res.writeHead(200, { ...headers, ...(zipped && { 'Content-Encoding': 'gzip' }), 'Content-Length': (zipped ? entry.gz : entry.json).length });
+    res.end(req.method === 'HEAD' ? undefined : zipped ? entry.gz : entry.json);
   }
 
   /**
@@ -395,6 +428,13 @@ const LOOPBACK_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?
 // no es un vehículo: así nadie llena el memo con claves enormes.
 const MAX_VEHICLE_ID = 256;
 const CATALOG_CACHE = 'public, max-age=600, s-maxage=3600';
+// El día en cifras (sendDay): el de hoy, cada minuto; uno pasado ya no cambia.
+const DAY_PATH = /^\d{4}-\d{2}-\d{2}$/;
+const DAY_TODAY_TTL_MS = 60_000;
+const DAY_PAST_TTL_MS = 3600_000;
+const DAY_PAST_CACHE = 'public, max-age=3600, s-maxage=86400';
+const DAY_MEMO_MAX = 100;
+const DAY_MEMO_BYTES = 16 * 1024 * 1024;
 /** Directo: Cloudflare lo guarda `edge` s y, si el servidor no responde, sirve la última copia 15 min. */
 const liveCache = (edge) => `public, max-age=0, s-maxage=${edge}, stale-while-revalidate=${edge * 3}, stale-if-error=900`;
 /**
@@ -444,6 +484,8 @@ export function routeLabel(rawUrl, { routes, vendorPrefixes = [], www = false })
   if (path === '/mcp' || Object.hasOwn(routes, path) || path === '/api/burnt-areas') return path;
   if (path.startsWith('/api/')) {
     if (path.startsWith('/api/stations/')) return '/api/stations/:code';
+    if (path === '/api/dia') return path;
+    if (path.startsWith('/api/dia/')) return '/api/dia/:fecha';
     for (const p of ['ahead', 'stops', 'tracks']) if (path.startsWith(`/api/${p}/`)) return `/api/${p}/:id`;
     return '/api/otra';
   }
