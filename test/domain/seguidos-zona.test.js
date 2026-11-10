@@ -53,19 +53,20 @@ test('qué provincias tienen sus apagones a la vista: Canarias, Ceuta y Melilla 
   for (const id of ['illes-balears', 'madrid', 'granada']) assert.equal(hasIsolatedGrid(id), false, id);
 });
 
-test('focos: sólo confianza alta y 10 MW o más, recientes o de hoy, fuera de las fuentes de calor fijas', () => {
+test('focos: sólo confianza alta y 10 MW o más, de hoy, fuera de las fuentes de calor fijas', () => {
   const events = [
     foco(37.05, -3.35, 45),
     foco(37.3, -3.0, 45, { confidence: 'nominal' }),
     foco(37.6, -3.6, 9.9),
-    foco(37.2, -2.9, 80, { start: NOW - 13 * HOUR }), // 23:00 de ayer en Madrid y hace más de 12 h
+    foco(37.2, -2.9, 80, { start: NOW - 11.5 * HOUR }), // 00:30 de hoy en Madrid
+    foco(37.6, -2.9, 80, { start: NOW - 12.5 * HOUR }), // 23:30 de ayer: aunque sea de hace menos de 13 h
     foco(37.4, -3.9, 80, { start: NOW + 5 * MIN }), // del futuro: un reloj mal puesto
     foco(43.527, -5.732, 120), // la siderurgia de Gijón: no es un incendio
     { id: 'obra', category: 'carretera', lat: 37.05, lon: -3.35, frp: 45, confidence: 'alta', start: NOW },
   ];
-  assert.deepEqual(fireZones(events, NOW).map((z) => z.strongest.id), [events[0].id]);
+  assert.deepEqual(fireZones(events, NOW).map((z) => z.strongest.id), [events[3].id, events[0].id], 'por orden de detección');
   assert.ok(STATIC_HEAT.every((s) => s.km <= 6), 'círculos pequeños: no tapan una comarca');
-  // Un foco de esta madrugada (hace más de 12 h, pero de hoy) sigue contando hasta medianoche.
+  // Un foco de esta madrugada sigue contando hasta medianoche (aunque sea de hace más de 12 h).
   const early = foco(37.05, -3.35, 45, { start: Date.parse('2026-11-09T23:30:00Z') }); // 00:30 de hoy en Madrid
   assert.equal(fireZones([early], Date.parse('2026-11-10T22:00:00Z')).length, 1, 'a las 23:00 de hoy, aún');
   assert.equal(fireZones([early], Date.parse('2026-11-10T23:30:00Z')).length, 0, 'mañana, no');
@@ -102,6 +103,9 @@ test('como mucho un aviso por zona y día: aunque el fuego crezca o haya otro gr
   const merged = fireZones(other, NOW);
   assert.equal(merged.length, 1);
   assert.equal(merged[0].focos, 2);
+  // Lo de ayer no cuenta hoy: dos de ayer y uno de hoy no son tres juntos.
+  const yesterday = [foco(37.05, -3.35, 15, { start: NOW - 20 * HOUR }), foco(37.06, -3.35, 15, { start: NOW - 20 * HOUR })];
+  assert.equal(fireZones([...yesterday, foco(37.07, -3.35, 15, { start: NOW - HOUR })], NOW).length, 0);
   // Al día siguiente, los de ayer ya no cuentan y el primero es otro: otro aviso.
   const tomorrow = Date.parse('2026-11-11T13:00:00Z');
   const next = fireZones([...afternoon, foco(37.06, -3.35, 60, { start: tomorrow - HOUR })], tomorrow);

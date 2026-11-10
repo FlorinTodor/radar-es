@@ -76,9 +76,9 @@ export const FIRE_RULES = Object.freeze({
   minFocos: 3,
   // Focos a menos de esto (encadenados) son el mismo grupo: el criterio del motor de alertas.
   clusterKm: DEFAULT_THRESHOLDS.fireClusterKm,
-  // Cuentan los de las últimas horas, como en el motor de alertas, y todos los de hoy (ver fireZones).
-  windowHours: DEFAULT_THRESHOLDS.fireWindowHours,
-  // La zona de un aviso: una casilla de este tamaño en grados (unos 25 km). Como mucho un aviso por zona y día.
+  // La zona de un aviso: una casilla de este tamaño en grados (unos 25 km). Como mucho un aviso por zona y día, y
+  // por eso sólo cuentan los focos de hoy (hora peninsular), no los de las últimas 12 horas como en el motor de
+  // alertas: ver fireZones. El satélite pasa de madrugada y a primera hora de la tarde: no se pierde ninguno.
   zoneDeg: 0.25,
 });
 
@@ -159,13 +159,13 @@ const ZONES = new WeakMap();
 
 /**
  * Los focos de calor que son un aviso, por zona. Sólo los de confianza alta y de `minFrp` o más, fuera de las
- * fuentes de calor fijas (STATIC_HEAT), de las últimas `windowHours` o de hoy (hora de Madrid); encadenados a menos
- * de `clusterKm`, y de cada grupo sólo los que tienen un foco de `strongFrp` o `minFocos` focos.
+ * fuentes de calor fijas (STATIC_HEAT) y de hoy (hora de Madrid); encadenados a menos de `clusterKm`, y de cada
+ * grupo sólo los que tienen un foco de `strongFrp` o `minFocos` focos.
  *
  * Como mucho un aviso por zona y día: la zona de un grupo es el día y la casilla de su primer foco, y los focos de
  * hoy cuentan hasta medianoche, así que en todo el día el primero de un grupo no cambia aunque el fuego crezca o se
- * mueva, ni desaparece para volver horas después como nuevo. Dos grupos de la misma zona son un solo aviso. Al día
- * siguiente, si sigue ardiendo, el primero es otro y es otro aviso.
+ * mueva, ni desaparece para volver horas después como nuevo; si dos grupos se juntan, su zona es la de uno de los
+ * dos. Dos grupos de la misma zona son un solo aviso. Al día siguiente, si sigue ardiendo, es otro aviso.
  * @param {object[]} events  los sucesos en vigor (los de FIRMS: category 'incendio', con frp y confidence)
  * @param {number} now
  * @returns {FireZone[]}
@@ -178,7 +178,7 @@ export function fireZones(events, now, rules = FIRE_RULES) {
   for (const e of events ?? []) {
     if (e?.category !== 'incendio' || e.withdrawn || e.confidence !== 'alta' || !(e.frp >= rules.minFrp)) continue;
     if (!Number.isFinite(e.lat) || !Number.isFinite(e.lon) || !Number.isFinite(e.start) || e.start > now) continue;
-    if (now - e.start > rules.windowHours * 3600_000 && madridDay(e.start) !== today) continue;
+    if (madridDay(e.start) !== today) continue;
     if (byId.has(e.id) || isStaticHeat(e)) continue; // los dos ficheros de FIRMS (Europa y África) se solapan
     byId.set(e.id, e);
   }

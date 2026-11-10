@@ -163,7 +163,8 @@ una quema o una fábrica. Para que un aviso sea casi siempre un fuego de verdad:
   Canarias; lista `STATIC_HEAT` en `zona.js`, con círculos aproximados);
 - encadenados a menos de 2 km, un grupo es un solo aviso, y sólo si su foco más fuerte llega a **30 MW** o junta
   **3 focos**: lo que el motor de alertas llama gravedad «alta» en un posible incendio cerca de trenes;
-- de las últimas 12 horas (como el motor de alertas) o de hoy;
+- sólo los de hoy (hora peninsular), no los de las últimas 12 horas como el motor de alertas: así nunca hay dos
+  avisos de la misma zona el mismo día. El satélite pasa de madrugada y a primera hora de la tarde;
 - **como mucho un aviso por zona** (casillas de unos 25 km) **y día**: aunque el fuego crezca o haya otro grupo en
   la misma zona, y aunque deje de verse un rato. Al día siguiente, si sigue, otro aviso.
 
