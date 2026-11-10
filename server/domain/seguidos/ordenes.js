@@ -1,4 +1,6 @@
 // Las órdenes del bot «Sigue tu tren» y los textos fijos que contesta. Puro: sólo texto.
+import { cutText } from './texto.js';
+import { plainName } from '../provincias.js';
 
 /** Lo que se lee de un mensaje: más que esto no es una orden ni una búsqueda razonable. */
 export const INPUT_MAX = 200;
@@ -26,12 +28,43 @@ const KNOWN = new Set(['start', ...COMMANDS.map(([c]) => c)]);
  * @returns {{ command: string, arg: string }}  command: el de COMMANDS, 'start', 'buscar' o 'desconocida'
  */
 export function parseCommand(text) {
-  const t = String(text ?? '').slice(0, INPUT_MAX).trim();
+  const t = cutText(String(text ?? ''), INPUT_MAX, '').trim();
   const m = /^\/([A-Za-z_]+)(?:@[A-Za-z0-9_]+)?(?:\s+([\s\S]*))?$/.exec(t);
   if (!m) return { command: t ? 'buscar' : 'ayuda', arg: t };
   const name = m[1].toLowerCase();
   const command = ALIASES[name] ?? (KNOWN.has(name) ? name : 'desconocida');
   return { command, arg: (m[2] ?? '').replace(/\s+/g, ' ').trim() };
+}
+
+// Lo que se escribe en un chat sin buscar nada («hola», «gracias», «vale»): no es una búsqueda (por el principio
+// de una palabra, «hola» encontraba la parada «Naciones-Holanda» y «vale», las líneas de València).
+const GREETING = /^(?:hola|holi|buenas|buenos dias|buenas tardes|buenas noches|hey|hi|hello|que tal|saludos)$/;
+const THANKS = /^(?:gracias|muchas gracias|mil gracias|thanks|thank you)$/;
+const OK = /^(?:vale|ok|okay|okey|perfecto|genial|de acuerdo|entendido|si|no|adios|hasta luego|chao|bien|muy bien|de nada)$/;
+const HELP = /^(?:ayuda|help|menu|info|informacion|como funciona|que haces|start|empezar|comandos|ordenes)$/;
+
+/**
+ * ¿Es charla y no una búsqueda? 'saludo', 'gracias', 'vale' o 'ayuda'; si no, null. Con «bot», «radar» o signos
+ * alrededor igual («¡Hola, bot!», «gracias!!»).
+ * @param {string} text
+ */
+export function smallTalk(text) {
+  const t = plainName(text).replace(/(?:^| )(?:bot|radar|radar espana|amigo)$/, '').trim().replace(/^(?:hola )(?=que tal$)/, '');
+  if (!t) return null;
+  if (GREETING.test(t)) return 'saludo';
+  if (THANKS.test(t)) return 'gracias';
+  if (OK.test(t)) return 'vale';
+  if (HELP.test(t)) return 'ayuda';
+  return null;
+}
+
+/** Lo que se contesta a la charla: qué se le puede escribir. */
+export function smallTalkText(kind) {
+  if (kind === 'gracias' || kind === 'vale') {
+    return `${kind === 'gracias' ? 'De nada. ' : ''}Si quieres seguir algo más, dime su número o su línea («08058», «C4 Madrid»). /mis para ver lo que sigues.`;
+  }
+  return `${kind === 'saludo' ? 'Hola. ' : ''}Dime qué quieres seguir: un número de tren («08058»), una línea con su ciudad u operador `
+    + '(«C4 Madrid», «27 EMT Málaga») o una provincia (/provincia Valencia). /ayuda para ver todo lo que hago.';
 }
 
 /** ¿Es «HH:MM» (o «7:30», «0730») una hora válida? La devuelve como «HH:MM»; si no, null. */

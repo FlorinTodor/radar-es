@@ -4,11 +4,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { lineKey, numberedServiceKey, scheduledServiceKey, stopKey } from '../../server/domain/seguir.js';
-import { entryLabel, searchDirectory, updateDirectory } from '../../server/domain/seguidos/directorio.js';
+import { entryLabel, guessedName, knownNames, searchDirectory, updateDirectory } from '../../server/domain/seguidos/directorio.js';
 import {
-  DELAY_MIN, collectFacts, factsMessage, madridDay, madridHourMinute, newFacts, provinceSub, statusOf, trackFacts,
+  DELAY_MIN, MESSAGE_MAX, collectFacts, factsMessage, fitMessage, madridDay, madridHourMinute, newFacts, packBlocks, provinceSub, statusOf,
+  stopAt, trackFacts, tripsAt,
 } from '../../server/domain/seguidos/avisos.js';
-import { parseCommand, parseHour } from '../../server/domain/seguidos/ordenes.js';
+import { parseCommand, parseHour, smallTalk } from '../../server/domain/seguidos/ordenes.js';
+import { cutText } from '../../server/domain/seguidos/texto.js';
 
 const NOW = Date.parse('2026-11-10T11:00:00Z'); // 12:00 en Madrid
 const AVANT = numberedServiceKey({ operator: 'Renfe', number: '08058' });
@@ -94,7 +96,8 @@ test('hechos: cancelación, retraso desde el umbral (y por escalones), aviso de 
   assert.deepEqual(facts.get(provinceSub('valencia')).map((f) => f.kind), ['meteo']);
   assert.match(facts.get(provinceSub('valencia'))[0].text, /^Aviso naranja por lluvias · Litoral sur de Valencia, desde .* hasta .*\. Emitido el /);
   const worse = collectFacts({ keys: [AVANT], vehicles: [{ ...vehicles[0], delay: 31 }], now: NOW });
-  assert.deepEqual(worse.get(AVANT).map((f) => f.id), ['renfe-ld:08058|retraso|1'], `+${DELAY_MIN} min más: otro aviso`);
+  assert.deepEqual(worse.get(AVANT).filter((f) => !f.silent).map((f) => f.id), ['renfe-ld:08058|retraso|1'], `+${DELAY_MIN} min más: otro aviso`);
+  assert.deepEqual(worse.get(AVANT).filter((f) => f.silent).map((f) => f.id), ['renfe-ld:08058|retraso|0'], 'el escalón de debajo, callado');
 });
 
 test('nuevos: sólo lo que sale después de la última vez; lo que ya estaba al seguirlo, no; y lo que vuelve tras horas, otra vez', () => {
@@ -159,4 +162,127 @@ test('órdenes: con su argumento, con @bot, alias, texto sin orden y horas', () 
 test('hora de Madrid', () => {
   assert.equal(madridHourMinute(NOW), '12:00');
   assert.equal(madridDay(Date.parse('2026-11-10T23:30:00Z')), '2026-11-11', 'pasada la medianoche de Madrid, otro día');
+});
+
+// Un texto UTF-16 bien formado: ningún par sustituto partido (Telegram rechaza el mensaje entero).
+const wellFormed = (t) => !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(t);
+
+test('recortes: nunca parten un emoji (par sustituto) por la mitad', () => {
+  for (let pad = 0; pad < 4; pad++) {
+    const t = `${'x'.repeat(pad)}${'🚆'.repeat(30)}`;
+    for (let max = 2; max < 40; max++) {
+      const cut = cutText(t, max);
+      assert.ok(cut.length <= max, `cabe en ${max}`);
+      assert.ok(wellFormed(cut), `sin partir con ${pad} delante y ${max}`);
+    }
+  }
+  assert.equal(cutText('corto', 10), 'corto');
+  assert.ok(wellFormed(fitMessage(`${'a'.repeat(MESSAGE_MAX - 2)}🚆🚆🚆`)));
+  const notice = { id: 'n', category: 'ferroviario', type: 'aviso', title: `${'t'.repeat(118)}🚆🚆`, description: `${'d'.repeat(398)}🚆🚆`, follow: [C4A] };
+  assert.ok(wellFormed(collectFacts({ keys: [C4A], events: [notice], now: NOW }).get(C4A)[0].text), 'el título y el texto de un aviso, recortados');
+  assert.ok(wellFormed(parseCommand(`/provincia ${'x'.repeat(188)}${'🚆'.repeat(10)}`).arg), 'lo que escribe alguien, acotado sin partir');
+});
+
+test('estación: lo que pasa por ella, por el índice de la ronda (igual que mirando cada viaje); las retiradas, aparte', () => {
+  const station = { name: 'Getafe-Centro', lat: 40.3, lon: -3.73 };
+  const trip = (id, time, extra = {}) => ({
+    id, source: 'x', category: 'cancelacion', type: 'cancelado', title: `Tren ${id} cancelado`,
+    trip: { follow: [], stops: [{ name: 'Parla', time: '06:00' }, { name: ' GETAFE-CENTRO ', time, lat: 40.3, lon: -3.73 }, { name: 'Atocha', time: '07:00' }] }, ...extra,
+  });
+  const far = { ...trip('lejos', '06:10'), trip: { follow: [], stops: [{ name: 'Getafe-Centro', time: '06:10', lat: 42.0, lon: -3.73 }] } };
+  const events = [trip('b', '06:40'), trip('a', '06:20'), trip('retirada', '06:30', { withdrawn: NOW - 60_000 }), far,
+    { ...trip('sd', '06:50'), category: 'sin-datos', type: 'sin-datos', title: 'Tren sd sin datos' }, notice];
+  const viaIndex = tripsAt(events, station).map(({ e, here }) => [e.id, here.time]);
+  const oneByOne = events.map((e) => [e, stopAt(e, station)]).filter(([e, here]) => here && (e.category === 'cancelacion' || e.category === 'sin-datos'))
+    .map(([e, here]) => [e.id, here.time]);
+  assert.deepEqual(viaIndex, oneByOne, 'el índice da lo mismo que recorrerlos');
+  assert.deepEqual(viaIndex.map(([id]) => id), ['b', 'a', 'retirada', 'sd'], 'por nombre, sin mirar mayúsculas; la de lejos, no');
+  events.push(trip('nueva', '06:05'));
+  assert.equal(tripsAt(events, station).length, 5, 'si la lista cambia, el índice se rehace');
+  const key = stopKey('17000');
+  const facts = collectFacts({ keys: [key], events, now: NOW, stationOf: () => station }).get(key);
+  assert.deepEqual(facts.map((f) => f.id), ['b', 'a', 'sd', 'nueva'], 'para avisar, sin las retiradas');
+  const { lines } = statusOf(key, { events, now: NOW, stationOf: () => station });
+  assert.equal(lines[0], 'Pasaban hoy por Getafe-Centro y están cancelados o con paradas suprimidas: 3; sin datos: 1.');
+  assert.deepEqual(lines.slice(1, 5), ['- Tren nueva cancelado (aquí a las 06:05)', '- Tren a cancelado (aquí a las 06:20)', '- Tren b cancelado (aquí a las 06:40)',
+    '- Tren sd sin datos (aquí a las 06:50)'], 'por su hora allí');
+  assert.equal(lines.at(-1), 'Además, 1 que se había cancelado y su operador ya no publica: puede que al final circule.');
+  const onlyGone = statusOf(key, { events: [trip('r', '06:30', { withdrawn: 1 })], now: NOW, stationOf: () => station }).lines;
+  assert.deepEqual(onlyGone, ['Hoy no hay cancelaciones en vigor ni servicios sin datos que pasen por Getafe-Centro.',
+    'Además, 1 que se había cancelado y su operador ya no publica: puede que al final circule.']);
+});
+
+test('retraso: se avisa cuando empeora, no cuando mejora (aunque al seguirlo ya fuera tarde)', () => {
+  const at = (delay) => [{ ...vehicles[0], delay }];
+  const round = (seen, delay, t) => {
+    const facts = collectFacts({ keys: [AVANT], vehicles: at(delay), now: t });
+    return { facts, seen: trackFacts(seen, facts, t) };
+  };
+  // Se empieza a seguir con 50 min: lo que ya había, visto.
+  let { seen } = round(new Map(), 50, NOW);
+  let t = NOW;
+  for (const delay of [35, 20, 16, 50, 52]) {
+    t += 60_000;
+    const r = round(seen, delay, t);
+    seen = r.seen;
+    assert.deepEqual(newFacts(AVANT, r.facts.get(AVANT), seen, t - 60_000), [], `${delay} min: no es nuevo`);
+  }
+  t += 60_000;
+  const r = round(seen, 66, t);
+  assert.deepEqual(newFacts(AVANT, r.facts.get(AVANT), r.seen, t - 60_000).map((f) => f.text.match(/va con (\d+) min/)[1]), ['66'], 'empeora: un aviso');
+  // De 0 a 50 de golpe: un solo aviso (el de su escalón), no uno por escalón.
+  const fresh = round(new Map(), 0, NOW);
+  const jump = round(fresh.seen, 50, NOW + 60_000);
+  assert.deepEqual(newFacts(AVANT, jump.facts.get(AVANT), jump.seen, NOW).map((f) => f.id), ['renfe-ld:08058|retraso|2']);
+});
+
+test('mensajes en bloques: cada cosa entera, en varios mensajes; lo que no cabe se cuenta; la web al final', () => {
+  const blocks = Array.from({ length: 12 }, (_, i) => `Cosa ${i}:\n${'línea de estado. '.repeat(60)}`); // ~1.000 caracteres cada uno
+  const all = packBlocks(blocks, { footer: 'Más en https://x.es', maxMessages: 10 });
+  assert.ok(all.length > 1 && all.every((m) => m.length <= MESSAGE_MAX));
+  assert.deepEqual(all.join('\n\n').match(/^Cosa \d+:/gm), blocks.map((_, i) => `Cosa ${i}:`), 'todas, en orden y enteras');
+  for (const m of all) assert.ok(!/…$/.test(m.split('\n\n').at(-2) ?? ''), 'ningún bloque recortado');
+  assert.match(all.at(-1), /Más en https:\/\/x\.es$/);
+  const capped = packBlocks(blocks, { footer: 'Más en https://x.es', maxMessages: 2, more: (n) => `…y ${n} más.` });
+  assert.equal(capped.length, 2);
+  const shown = capped.join('\n\n').match(/^Cosa \d+:/gm).length;
+  assert.match(capped.at(-1), new RegExp(`…y ${12 - shown} más\\.\\n\\nMás en https://x\\.es$`), 'dice cuántas quedan fuera');
+  assert.ok(capped.every((m) => m.length <= MESSAGE_MAX));
+  const huge = packBlocks([`Enorme:\n${'x'.repeat(9000)}`, 'Pequeño:\nbien'], { footer: 'web' });
+  assert.ok(huge.every((m) => m.length <= MESSAGE_MAX) && /Pequeño:\nbien\n\nweb$/.test(huge.at(-1)), 'un bloque que no cabe solo se recorta; el resto sigue');
+  assert.deepEqual(packBlocks([], { footer: 'web' }), ['web']);
+});
+
+test('búsqueda ambigua: a igual encaje, por el orden del registro de tipos (trenes, metros y tranvías antes que autobuses)', () => {
+  const bus = (op, i) => ({ id: `b${i}`, mode: 'bus', operator: op, line: 'C1', follow: [lineKey({ operator: op, line: 'C1' })] });
+  const list = [...['Alsa', 'Auvasa', 'Avanza', 'EMT València', 'Moventis'].map(bus), vehicles[3],
+    { id: 't', mode: 'tranvia', operator: 'Tranvía de Murcia', line: 'C1', follow: [lineKey({ operator: 'Tranvía de Murcia', line: 'C1' })] }];
+  const dir = updateDirectory(new Map(), { vehicles: list, now: NOW });
+  const found = searchDirectory(dir, 'C1', { limit: Infinity });
+  assert.deepEqual(found.slice(0, 2).map((e) => e.mode), ['cercanias', 'tranvia']);
+  assert.equal(found.length, 7);
+});
+
+test('nombres de lo que no se ve: sólo lo comprobable (operador conocido, número, código corto); nunca el texto libre de la clave', () => {
+  const dir = updateDirectory(new Map(), { vehicles, events: [cancelled], now: NOW });
+  const known = knownNames(dir);
+  assert.equal(known.operators.get('emtmalaga'), 'EMT Málaga');
+  assert.ok(known.scopes.has('Madrid'));
+  assert.equal(guessedName(lineKey({ operator: 'EMT Málaga', line: '71' }), known), 'Línea 71 · EMT Málaga');
+  assert.equal(guessedName(lineKey({ operator: 'Renfe', scope: 'Madrid', line: 'C10' }), known), 'Línea C10 · Renfe (Madrid)');
+  assert.equal(guessedName(numberedServiceKey({ operator: 'Renfe', number: '04375' }), known), 'Renfe 4375');
+  assert.equal(guessedName(scheduledServiceKey({ operator: 'Euskotren', line: 'E3', origin: 'x', departure: 17 * 3600 + 7 * 60 }), known), 'Línea E3 · Euskotren, el de las 17:07');
+  assert.equal(guessedName('l-emtmalagaa-71', known), 'esa línea (ahora no se ve)', 'red que no se conoce');
+  assert.equal(guessedName('s-noexiste-1', known), 'ese servicio (ahora no se ve)');
+  for (const key of ['l-renfe-_0A_0AHecho_3A_20baja', 'l-renfe-Visita_20evil_2Ecom', 'l-renfe-_E2_80_AEabc', 'l-renfe-Inventado-C4']) {
+    const name = guessedName(key, known);
+    assert.ok(!/\n|evil|Hecho|\u202e|Inventado/.test(name), `${key} → ${name}`);
+  }
+  assert.equal(guessedName(stopKey('17000'), known), null, 'las estaciones, del catálogo');
+});
+
+test('charla: «hola», «gracias», «vale»… no son búsquedas; una línea o un número, sí', () => {
+  for (const [t, kind] of [['Hola', 'saludo'], ['¡Hola, bot!', 'saludo'], ['buenos días', 'saludo'], ['Gracias!!', 'gracias'], ['vale', 'vale'],
+    ['ok', 'vale'], ['ayuda', 'ayuda'], ['help', 'ayuda']]) assert.equal(smallTalk(t), kind, t);
+  for (const t of ['C4 Madrid', '08058', 'hola madrid', 'Valencia', '27 EMT Málaga', '']) assert.equal(smallTalk(t), null, t);
 });

@@ -4,13 +4,14 @@ Quien escribe al bot puede seguir cualquier vehículo que publique el radar (un 
 tranvía y los tipos que se añadan), su línea, una estación o una provincia. El bot le avisa:
 
 - si lo que sigue se cancela o se le suprimen paradas;
-- si va con 15 minutos o más de retraso, y otra vez cada 15 minutos más;
+- si va con 15 minutos o más de retraso, y otra vez cada 15 minutos más (cuando empeora; si recupera, no);
 - si su operador deja de publicar sus datos (trenes «sin datos»);
 - de los avisos del operador sobre su línea;
 - en una provincia, de los avisos naranja y rojo de AEMET, los terremotos que pueden sentirse y los avisos
   oficiales (planes de emergencia y cortes de luz).
 
-Con `/parte 07:30` manda cada día un resumen de lo que sigue. Lo que se puede seguir son las claves de
+Con `/parte 07:30` manda cada día un resumen de lo que sigue. El parte y `/estado` cuentan cada cosa entera: si no
+caben en un mensaje, van en varios (hasta 6) y, si ni así, dicen cuántas cosas quedan fuera. Lo que se puede seguir son las claves de
 [`docs/vehiculos.md`](vehiculos.md): el bot no sabe de qué fuente ni de qué tipo es cada vehículo, así que un
 tipo nuevo funciona sin tocarlo.
 
@@ -76,7 +77,18 @@ TELEGRAM_BOT_TOKEN` y la web no enseña el botón.
 - **Envía por una cola** con los límites de Telegram: un mensaje por segundo a cada chat y unos 25 por segundo en
   total. Si Telegram pide esperar (`retry_after`), espera.
 - **Avisa en rondas de un minuto**: un mensaje por cosa seguida con lo nuevo, nunca lo que ya había al empezar a
-  seguirla.
+  seguirla. Lo que pasa por cada estación seguida sale de un índice de la ronda (nombre de parada → viajes
+  cancelados o sin datos): seguir cientos de estaciones no alarga la ronda. En una estación, las cancelaciones que
+  su operador ya no publica van aparte, como en su ficha de la web.
+- **Los botones de cada lista llevan su id** (`a:<id>:<n>`): un botón de un mensaje anterior no escoge nada de la
+  lista nueva, sólo contesta que esa lista ya no vale.
+- **Un enlace se puede inventar** (`t.me/<bot>?start=<clave>`): de lo que no se ve ni está en el directorio no se
+  repite el texto de su clave. Se nombra con lo que se puede comprobar (el operador si se conoce su red, el número,
+  la hora, un código de línea corto) o con un nombre genérico, y se renueva en cuanto se vuelve a ver. Una estación
+  que no está en el catálogo no se sigue.
+- **Charla**: «hola», «gracias», «vale»… escritos sin orden no se buscan (por el principio de una palabra, «hola»
+  encontraba «Naciones-Holanda»). Una búsqueda con más resultados de los que caben en la lista dice cuántos hay
+  y pide la ciudad o el operador; a igual encaje, primero trenes, metros y tranvías (orden del registro de tipos).
 - **Atiende un solo servidor a la vez.** Durante un relevo hay dos contenedores, y un turno en
   `data/bot/turno.json` decide cuál atiende el bot. El que se apaga lo suelta y el nuevo lo coge.
 - **Lo que guarda**, en `data/bot/seguidos.v1.json`:
