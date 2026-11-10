@@ -7,6 +7,7 @@ import { followControls } from './siguiendo.js';
 import { modeNoun } from '../../server/domain/modos.js';
 import { punctualitySlot } from './puntualidad.js';
 import { telegramFollow } from './avisar.js';
+import { locale, t, tn, tx } from './i18n.js';
 
 const STYLE = 'https://tiles.openfreemap.org/styles/dark';
 // Iconos que el estilo pide y su sprite no tiene (ver styleimagemissing en createMap). Sólo esos: uno de los
@@ -74,10 +75,12 @@ const EFFIS_ATTRIBUTION = '© European Union, 1995-2025 · <a href="https://fore
 const LEVEL_COLOR = ['match', ['get', 'level'], 'rojo', STATUS.critical, 'naranja', STATUS.serious, STATUS.warning];
 const LEVEL_ORDER = { amarillo: 0, naranja: 1, rojo: 2 };
 
+// La fecha va dentro de la fórmula del IGN, que se queda en español en los dos idiomas: también su fecha.
 const today = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', dateStyle: 'short' }).format(new Date());
-// Textos que exigen las licencias (el resto de atribuciones están en /legal#fuentes).
+// Textos que exigen las licencias (el resto de atribuciones están en /legal#fuentes). Van tal cual en los
+// dos idiomas: son las fórmulas que pide cada licencia. Sólo se traduce el enlace a /legal.
 const ATTRIBUTION = [
-  '<a href="/legal#fuentes">Fuentes y licencias</a>',
+  `<a href="/legal#fuentes">${t('Fuentes y licencias')}</a>`,
   'Powered by <a href="https://www.transportes.gob.es/" target="_blank" rel="noopener">MITRAMS</a>',
   'Powered by <a href="https://www.crtm.es/" target="_blank" rel="noopener">CRTM</a>',
   'Powered by <a href="https://www.tram.cat/" target="_blank" rel="noopener">TRAM Barcelona</a>',
@@ -125,6 +128,14 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     // pliega en un botón (i) al mover el mapa, como permiten las normas de atribución de OSM;
     // además todas las atribuciones están en /legal.
     attributionControl: { customAttribution: ATTRIBUTION },
+    // Los textos de los botones de MapLibre (vienen en inglés), en el idioma de la web.
+    locale: {
+      'Map.Title': t('Mapa'),
+      'NavigationControl.ZoomIn': t('Acercar'),
+      'NavigationControl.ZoomOut': t('Alejar'),
+      'AttributionControl.ToggleAttribution': t('Mostrar u ocultar las atribuciones'),
+      'Popup.Close': t('Cerrar'),
+    },
   });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
   map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
@@ -539,7 +550,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
       id: 'veh-labels', type: 'symbol', source: 'vehicles', minzoom: 9,
       // Las posiciones estimadas lo dicen también en la etiqueta, no sólo con la placa hueca.
       layout: {
-        'text-field': ['case', IS_EST, ['concat', ['get', 'line'], ' · estimada'], ['get', 'line']],
+        'text-field': ['case', IS_EST, ['concat', ['get', 'line'], ` · ${t('estimada')}`], ['get', 'line']],
         'text-font': FONT, 'text-size': 11, 'text-offset': [0, -1.9], 'text-optional': true,
       },
       paint: { 'text-color': '#f0efec', 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.5 },
@@ -1082,8 +1093,8 @@ function createDetailCard(host, onVehicle, onEvent) {
   el.className = 'card detail';
   el.hidden = true;
   el.setAttribute('role', 'region');
-  el.setAttribute('aria-label', 'Detalle del elemento seleccionado');
-  el.innerHTML = '<button type="button" class="detail-close" aria-label="Cerrar ficha">×</button><div class="detail-body"></div>';
+  el.setAttribute('aria-label', t('Detalle del elemento seleccionado'));
+  el.innerHTML = `<button type="button" class="detail-close" aria-label="${esc(t('Cerrar ficha'))}">×</button><div class="detail-body"></div>`;
   el.querySelector('.detail-close').addEventListener('click', () => { el.hidden = true; });
   // Si se abre o se cierra la lista de paradas, se queda así al repintar la ficha ('toggle' no sube: captura).
   el.addEventListener('toggle', (ev) => {
@@ -1110,63 +1121,77 @@ function createDetailCard(host, onVehicle, onEvent) {
 
 function stationDetail(st, { stopped, arriving, notices, lines, connections = [], cancellations = [], missing = [] }) {
   const train = (v, when) => `<li><button type="button" class="link" data-vehicle="${esc(v.id)}">${esc(vehicleTitle(v))}</button>
-    ${v.destination ? ` → ${esc(v.destination)}` : ''}${v.platform ? ` · vía ${esc(v.platform)}` : ''}${when ? ` · ${esc(when)}` : ''}
+    ${v.destination ? ` → ${esc(v.destination)}` : ''}${v.platform ? ` · ${esc(t('vía {platform}', { platform: v.platform }))}` : ''}${when ? ` · ${esc(when)}` : ''}
     <span class="st-delay">${esc(fmtDelay(v))}</span></li>`;
-  const when = (v) => (v.nextEta ? fmtLocalHour(v.nextEta) : Number.isFinite(v.nextInMinutes) ? `en ${v.nextInMinutes} min` : '');
+  const when = (v) => (v.nextEta ? fmtLocalHour(v.nextEta) : Number.isFinite(v.nextInMinutes) ? t('en {n} min', { n: v.nextInMinutes }) : '');
   const list = (items, empty) => (items.length ? `<ul class="st-list">${items.join('')}</ul>` : `<p class="st-empty">${empty}</p>`);
   const chips = (ls) => `<div class="st-lines">${ls.map((l) => `<span class="st-line" style="--line:${esc(l.color ?? '#898781')}" title="${esc(l.network ?? '')}">${esc(l.line)}</span>`).join('')}</div>`;
   const link = (url, label) => (safeUrl(url) ? `<a href="${esc(safeUrl(url))}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>` : '');
   const meta = [st.network, st.place, st.province && st.province !== st.place ? st.province : null, st.cercanias ? 'Cercanías / Rodalies' : null].filter(Boolean);
   const address = [st.address, [st.postalCode, st.place].filter(Boolean).join(' ')].filter(Boolean).join(', ');
-  const accessible = { true: 'Sí', false: 'No', partial: 'En parte' }[st.accessible] ?? 'Sin datos';
+  const accessible = { true: t('Sí'), false: t('No'), partial: t('En parte') }[st.accessible] ?? t('Sin datos');
   const rows = [
-    address && ['Dirección', address],
-    ['Accesible en silla de ruedas', st.accessibleSource ? `${accessible} (según ${st.accessibleSource})` : accessible],
-    st.opened && ['Inaugurada', String(st.opened)],
-    st.tracks && ['Vías', String(st.tracks)],
-    st.metricGauge && ['Ancho de vía', 'Métrico (antigua FEVE)'],
-    !st.networkId && ['Código', st.code],
+    address && [t('Dirección'), address],
+    [t('Accesible en silla de ruedas'), st.accessibleSource ? t('{value} (según {source})', { value: accessible, source: st.accessibleSource }) : accessible],
+    st.opened && [t('Inaugurada'), String(st.opened)],
+    st.tracks && [t('Vías'), String(st.tracks)],
+    st.metricGauge && [t('Ancho de vía'), t('Métrico (antigua FEVE)')],
+    !st.networkId && [t('Código'), st.code],
   ].filter(Boolean);
   // Las de otras redes salen del GTFS de su operador en el NAP: su atribución y la fecha de sus datos.
   // «Powered by MITRAMS», «Powered by CRTM» y «Powered by TRAM Barcelona» van con su enlace, como pide
   // su licencia (igual que en el pie del mapa).
   // Las de Renfe, de sus datos abiertos: «Origen de los datos: Renfe Operadora» y el día en que se descargaron.
+  // La atribución va tal cual en los dos idiomas: es la fórmula que pide cada licencia.
   const day = (iso) => (/^\d{4}-\d{2}-\d{2}/.test(iso ?? '') ? iso.slice(0, 10).split('-').reverse().join('/') : null);
   const updated = day(st.source?.updated);
   const downloaded = day(st.source?.downloaded);
   const creditText = st.source?.credit ?? (st.networkId ? null : 'Origen de los datos: Renfe Operadora');
-  const source = creditText ? `<p class="st-source">Datos de la estación: ${creditHtml(creditText)}${updated ? ` · actualizados el ${esc(updated)}`
-    : downloaded ? ` · descargados el ${esc(downloaded)}` : ''}</p>` : '';
+  const dated = updated ? ` · ${esc(t('actualizados el {date}', { date: updated }))}`
+    : downloaded ? ` · ${esc(t('descargados el {date}', { date: downloaded }))}` : '';
+  const source = creditText ? `<p class="st-source">${t('Datos de la estación: {credit}', { credit: creditHtml(creditText) })}${dated}</p>` : '';
   // La foto viene de Wikimedia Commons: su licencia pide citar título, autor y licencia junto a ella.
   // El título es el nombre del fichero, que enlaza a su página en Commons.
   const photoTitle = st.photo ? photoTitleOf(st.photo.page) : null;
-  const photo = st.photo && safeUrl(st.photo.url) ? `<figure class="st-photo"><img src="${esc(safeUrl(st.photo.url))}" alt="Estación de ${esc(st.name)}" loading="lazy">
-    <figcaption>Foto: ${photoTitle ? `${link(st.photo.page, photoTitle)}, de ` : ''}${esc(st.photo.author)} · ${st.photo.licenseUrl ? link(st.photo.licenseUrl, st.photo.license) : esc(st.photo.license)} · ${photoTitle ? 'Wikimedia Commons' : link(st.photo.page, 'Wikimedia Commons')}</figcaption></figure>` : '';
+  const photoBy = photoTitle ? t('Foto: {title}, de {author}', { title: link(st.photo?.page, photoTitle), author: esc(st.photo?.author) })
+    : t('Foto: {author}', { author: esc(st.photo?.author) });
+  const photo = st.photo && safeUrl(st.photo.url) ? `<figure class="st-photo"><img src="${esc(safeUrl(st.photo.url))}" alt="${esc(t('Estación de {name}', { name: st.name }))}" loading="lazy">
+    <figcaption>${photoBy} · ${st.photo.licenseUrl ? link(st.photo.licenseUrl, st.photo.license) : esc(st.photo.license)} · ${photoTitle ? 'Wikimedia Commons' : link(st.photo.page, 'Wikimedia Commons')}</figcaption></figure>` : '';
   // Sólo enlaces: no se carga nada de esas webs hasta que se pulsan. El de Google Maps usa su
   // formato público de enlaces (Maps URLs): en el móvil abre la app con la ruta hasta la estación.
   const links = [
-    link(`https://www.google.com/maps/dir/?api=1&destination=${st.lat},${st.lon}`, 'Cómo llegar (Google Maps)'),
+    link(`https://www.google.com/maps/dir/?api=1&destination=${st.lat},${st.lon}`, t('Cómo llegar (Google Maps)')),
     link(st.wikipedia, 'Wikipedia'),
-    link(st.sheet, 'Ficha técnica de Renfe (PDF, 2019)'),
+    link(st.sheet, t('Ficha técnica de Renfe (PDF, 2019)')),
     link(`https://www.openstreetmap.org/?mlat=${st.lat}&mlon=${st.lon}#map=17/${st.lat}/${st.lon}`, 'OpenStreetMap'),
   ].filter(Boolean);
+  // Hora de una cancelación en esta estación: la del horario, que ya no se cumple.
+  const cancelledAt = (c) => (c.first ? t('salía a las {time}', { time: c.time }) : c.last ? t('llegaba a las {time}', { time: c.time }) : t('pasaba a las {time}', { time: c.time }));
+  const missingAt = (c) => (c.passed
+    ? (c.first ? t('salía a las {time} según su horario', { time: c.time }) : t('pasaba a las {time} según su horario', { time: c.time }))
+    : c.first ? t('sale a las {time} según su horario', { time: c.time })
+      : c.last ? t('llega a las {time} según su horario', { time: c.time }) : t('pasa a las {time} según su horario', { time: c.time }));
   return `<div class="pop">${photo}<h3>${esc(st.name)}</h3>${followControls(st)}${telegramFollow(st.follow)}${meta.length ? `<p class="st-meta">${esc(meta.join(' · '))}</p>` : ''}
     ${lines.length ? chips(lines) : ''}
-    <h4>En la estación ahora</h4>${list(stopped.map((v) => train(v)), 'Ningún tren parado ahora mismo.')}
-    <h4>Próximos trenes</h4>${list(arriving.map((v) => train(v, when(v))), 'Ningún tren en camino con datos en directo.')}
-    ${notices.length ? `<h4>Avisos de Renfe</h4><ul class="st-list">${notices.map((e) => `<li>${esc(e.description ?? e.title)}</li>`).join('')}</ul>` : ''}
-    ${cancellations.length ? `<h4>Cancelaciones que pasan por aquí</h4><ul class="st-list">${cancellations.map((c) => `<li><button type="button" class="link" data-event="${esc(c.id)}">${esc(c.title)}</button>${c.time ? ` · ${c.first ? 'salía' : c.last ? 'llegaba' : 'pasaba'} a las ${esc(c.time)}` : ''}${c.skipped ? ' · <strong>no para aquí</strong>' : ''}${c.withdrawn ? ' · ya no se publica' : ''}</li>`).join('')}</ul>` : ''}
-    ${missing.length ? `<h4>Trenes sin datos que pasan por aquí</h4><ul class="st-list">${missing.map((c) => `<li><button type="button" class="link" data-event="${esc(c.id)}">${esc(c.title)}</button>${c.time ? ` · ${c.passed ? (c.first ? 'salía' : 'pasaba') : c.first ? 'sale' : c.last ? 'llega' : 'pasa'} a las ${esc(c.time)} según su horario` : ''}</li>`).join('')}</ul>` : ''}
-    ${connections.length ? `<h4>Conexiones a pie</h4>${chips(connections)}` : ''}
+    <h4>${t('En la estación ahora')}</h4>${list(stopped.map((v) => train(v)), t('Ningún tren parado ahora mismo.'))}
+    <h4>${t('Próximos trenes')}</h4>${list(arriving.map((v) => train(v, when(v))), t('Ningún tren en camino con datos en directo.'))}
+    ${notices.length ? `<h4>${t('Avisos de Renfe')}</h4><ul class="st-list">${notices.map((e) => `<li>${esc(tx(e.description ?? e.title))}</li>`).join('')}</ul>` : ''}
+    ${cancellations.length ? `<h4>${t('Cancelaciones que pasan por aquí')}</h4><ul class="st-list">${cancellations.map((c) => `<li><button type="button" class="link" data-event="${esc(c.id)}">${esc(tx(c.title))}</button>${c.time ? ` · ${esc(cancelledAt(c))}` : ''}${c.skipped ? ` · <strong>${t('no para aquí')}</strong>` : ''}${c.withdrawn ? ` · ${t('ya no se publica')}` : ''}</li>`).join('')}</ul>` : ''}
+    ${missing.length ? `<h4>${t('Trenes sin datos que pasan por aquí')}</h4><ul class="st-list">${missing.map((c) => `<li><button type="button" class="link" data-event="${esc(c.id)}">${esc(tx(c.title))}</button>${c.time ? ` · ${esc(missingAt(c))}` : ''}</li>`).join('')}</ul>` : ''}
+    ${connections.length ? `<h4>${t('Conexiones a pie')}</h4>${chips(connections)}` : ''}
     <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
     <p class="st-links">${links.join(' · ')}</p>${source}
-    <div class="note">${st.networkId ? 'Salen los trenes con posición en directo o estimada a partir del horario' : 'Sólo salen los trenes que publican su posición en directo'}; los horarios completos están en la web del operador.
-      Pulsa un tren para ver su ficha.</div></div>`;
+    <div class="note">${st.networkId
+    ? t('Salen los trenes con posición en directo o estimada a partir del horario; los horarios completos están en la web del operador. Pulsa un tren para ver su ficha.')
+    : t('Sólo salen los trenes que publican su posición en directo; los horarios completos están en la web del operador. Pulsa un tren para ver su ficha.')}</div></div>`;
 }
 
 // Fuentes por id, de /api/health. Las licencias (TMB, AMB, TRAM, Renfe…) piden citar la fuente y la
 // fecha de actualización donde se ven sus datos: en la ficha de cada tren y de cada suceso.
 let sourcesById = new Map();
+
+// Nombre de la fila con la atribución: las fichas la cambian por la del suceso (ver cancellationDetail).
+const ATTRIBUTION_ROW = t('Atribución');
 
 /**
  * Filas «Atribución» y «Actualizado» de una ficha: el texto que pide la licencia (en un grupo de
@@ -1175,77 +1200,86 @@ let sourcesById = new Map();
  */
 function sourceRows(id, operator) {
   const s = sourcesById.get(id);
-  if (!s) return [['Fuente', id]]; // todavía sin el estado de las fuentes
+  if (!s) return [[t('Fuente'), id]]; // todavía sin el estado de las fuentes
   const schedule = s.datasetUpdatedBy?.[operator] ?? s.datasetUpdated;
   const dates = [
-    schedule && `horario del ${fmtDate(schedule)}`,
-    s.sourceTime ? `datos ${fmtDataTime(s.sourceTime)}` : !schedule && s.lastOk && `leídos ${fmtDataTime(s.lastOk)}`,
+    schedule && t('horario del {date}', { date: fmtDate(schedule) }),
+    s.sourceTime ? t('datos {when}', { when: fmtDataTime(s.sourceTime) }) : !schedule && s.lastOk && t('leídos {when}', { when: fmtDataTime(s.lastOk) }),
   ].filter(Boolean);
   // «Atribución» y no «Fuente»: muchas ya empiezan por «Fuente: …» u «Origen de los datos: …».
-  // La atribución va como HTML: las que lo piden llevan su enlace (ver creditHtml).
-  return [['Atribución', { html: creditHtml(s.operatorLicenses?.[operator] ?? s.license ?? s.name) }], dates.length && ['Actualizado', dates.join(' · ')]];
+  // La atribución va como HTML: las que lo piden llevan su enlace (ver creditHtml). Tal cual en los dos idiomas.
+  return [[ATTRIBUTION_ROW, { html: creditHtml(s.operatorLicenses?.[operator] ?? s.license ?? s.name) }], dates.length && [t('Actualizado'), dates.join(' · ')]];
 }
+
+/** Las filas de la fuente, con la atribución del propio suceso si la trae (la de su tiempo real). */
+const eventSourceRows = (e) => sourceRows(e.source).map((r) => (r && r[0] === ATTRIBUTION_ROW && e.credit ? [ATTRIBUTION_ROW, { html: creditHtml(e.credit) }] : r));
 
 /**
  * Ficha de una cancelación: qué tren, de dónde a dónde y a qué hora, qué paradas se suprimen, quién lo
  * publica, en qué fichero y desde cuándo lo ve el radar (las fuentes no dicen cuándo lo publicaron).
  */
 export function cancellationDetail(e, now = Date.now()) {
-  const t = e.trip;
-  const bus = t.mode === 'bus';
-  const was = e.type === 'cancelado' ? 'Cancelado: no circula'
-    : t.endsAt ? `Circula, pero termina en ${t.endsAt}`
-      : t.startsAt ? `Circula, pero empieza en ${t.startsAt}`
-        : `Circula sin parar en ${t.skipped.length === 1 ? t.skipped[0] : `${t.skipped.length} ${bus ? 'paradas' : 'estaciones'}`}`;
+  const trip = e.trip;
+  const bus = trip.mode === 'bus';
+  const skippedWhere = trip.skipped?.length === 1 ? trip.skipped[0]
+    : bus ? tn('{n} parada', '{n} paradas', trip.skipped?.length ?? 0) : tn('{n} estación', '{n} estaciones', trip.skipped?.length ?? 0);
+  const was = e.type === 'cancelado' ? t('Cancelado: no circula')
+    : trip.endsAt ? t('Circula, pero termina en {stop}', { stop: trip.endsAt })
+      : trip.startsAt ? t('Circula, pero empieza en {stop}', { stop: trip.startsAt })
+        : t('Circula sin parar en {stop}', { stop: skippedWhere });
   // Una que su fuente ya no publica: lo que decía y cuándo lo retiró.
   const state = e.withdrawn
-    ? `Ya no lo publica (desde las ${fmtTime(e.withdrawn)}). Lo que decía: ${was.charAt(0).toLowerCase()}${was.slice(1)}`
+    ? t('Ya no lo publica (desde las {time}). Lo que decía: {was}', { time: fmtTime(e.withdrawn), was: `${was.charAt(0).toLowerCase()}${was.slice(1)}` })
     : was;
+  // El texto del aviso es el de la fuente: tal cual.
   const link = (n) => {
     const url = safeUrl(n.url && !/^https?:/i.test(n.url) ? `https://${n.url}` : n.url);
-    return { html: `${esc(n.text)}${url ? ` <a href="${esc(url)}" target="_blank" rel="noopener">Más información</a>` : ''}` };
+    return { html: `${esc(n.text)}${url ? ` <a href="${esc(url)}" target="_blank" rel="noopener">${t('Más información')}</a>` : ''}` };
   };
-  const who = [t.service, t.line, t.number].filter((x, i, all) => x && all.indexOf(x) === i).join(' ');
+  const who = [trip.service, trip.line, trip.number].filter((x, i, all) => x && all.indexOf(x) === i).join(' ');
   const feedLink = (name, url) => {
     const safe = safeUrl(url);
-    return safe ? `<a href="${esc(safe)}" target="_blank" rel="noopener">${esc(name)}</a>` : esc(name);
+    return safe ? `<a href="${esc(safe)}" target="_blank" rel="noopener">${esc(tx(name))}</a>` : esc(tx(name));
   };
   // El mismo tren en otro feed del operador (los regionales de Rodalies también van en el de AV/LD/MD).
-  const also = (t.alsoIn ?? []).map((o) => ` y en su ${feedLink(o.feed, o.feedUrl)} (como ${esc(o.as)}${o.withdrawn ? `; ahí dejó de publicarlo a las ${fmtTime(o.withdrawn)}` : ''})`).join('');
-  const published = { html: `${esc(t.publisher)}, en su ${feedLink(t.feed, t.feedUrl)}${also}` };
+  const also = (trip.alsoIn ?? []).map((o) => ` ${o.withdrawn
+    ? t('y en su {feed} (como {as}; ahí dejó de publicarlo a las {time})', { feed: feedLink(o.feed, o.feedUrl), as: esc(o.as), time: fmtTime(o.withdrawn) })
+    : t('y en su {feed} (como {as})', { feed: feedLink(o.feed, o.feedUrl), as: esc(o.as) })}`).join('');
+  const published = { html: `${t('{publisher}, en su {feed}', { publisher: esc(trip.publisher), feed: feedLink(trip.feed, trip.feedUrl) })}${also}` };
   const today = fmtDate(e.seen) === fmtDate(now);
-  const at = `${today ? '' : `el ${fmtDate(e.seen)} `}a las ${fmtTime(e.seen)}`;
-  const seen = e.seen ? `${t.publisher} no dice cuándo lo publicó. El radar lo vio por primera vez ${at} (${timeAgo(e.seen, now)})`
-    + (e.seenAtStart ? '; ya estaba publicado cuando el radar empezó a leer esta fuente, así que pudo publicarse antes' : '') : null;
+  const at = today ? t('a las {time}', { time: fmtTime(e.seen) }) : t('el {date} a las {time}', { date: fmtDate(e.seen), time: fmtTime(e.seen) });
+  const seen = e.seen ? t('{publisher} no dice cuándo lo publicó. El radar lo vio por primera vez {at} ({ago})', { publisher: trip.publisher, at, ago: timeAgo(e.seen, now) })
+    + (e.seenAtStart ? t('; ya estaba publicado cuando el radar empezó a leer esta fuente, así que pudo publicarse antes') : '') : null;
+  const until = e.withdrawn && t('{publisher} dejó de publicarlo a las {time}', { publisher: trip.publisher, time: fmtTime(e.withdrawn) })
+    + (trip.withdrawnAfterArrival === true ? t(', después de su hora de llegada: lo normal con los viajes que ya han pasado')
+      : trip.withdrawnAfterArrival === false ? t(', antes de su hora de llegada: puede que al final circule') : '')
+    + t('. Se ve aquí hasta medianoche');
   const rows = [
-    ['Estado', state],
-    ['Gravedad', SEVERITY_LABEL[e.severity] ?? e.severity],
-    [bus ? 'Línea' : 'Tren', who || null],
-    ['Operador', t.operator],
-    t.origin && t.destination && ['Recorrido', `${t.origin} → ${t.destination}`],
-    t.departure && ['Salida según el horario', `${t.departure}, de ${t.origin}`],
-    t.arrival && ['Llegada según el horario', `${t.arrival}, a ${t.destination}`],
-    ['Día', t.date ? fmtDate(Date.parse(`${t.date}T12:00:00Z`)) : `${t.publisher} no lo dice en su tiempo real`],
-    t.trips > 1 && ['Expediciones afectadas', String(t.trips)],
-    t.skipped?.length && ['Paradas suprimidas', t.skipped.join('; ')],
-    t.reason && ['Motivo', t.reason],
-    t.notice && [`Aviso de ${t.publisher}`, link(t.notice)],
-    ...(t.lineNotices ?? []).map((n, i) => [i === 0 ? (t.line ? `Avisos de la ${t.line}` : 'Avisos de la línea') : '', link(n)]),
-    ['Lo publica', published],
-    seen && ['Desde cuándo', seen],
-    e.withdrawn && ['Hasta cuándo', `${t.publisher} dejó de publicarlo a las ${fmtTime(e.withdrawn)}${t.withdrawnAfterArrival === true
-      ? ', después de su hora de llegada: lo normal con los viajes que ya han pasado'
-      : t.withdrawnAfterArrival === false ? ', antes de su hora de llegada: puede que al final circule' : ''}. Se ve aquí hasta medianoche`],
-    t.cancelled && t.running && ['Ojo', `${t.publisher} lo da a la vez como cancelado y en servicio (con su retraso, su posición o paradas suprimidas)`],
+    [t('Estado'), state],
+    [t('Gravedad'), SEVERITY_LABEL[e.severity] ?? e.severity],
+    [bus ? t('Línea') : t('Tren'), who || null],
+    [t('Operador'), trip.operator],
+    trip.origin && trip.destination && [t('Recorrido'), `${trip.origin} → ${trip.destination}`],
+    trip.departure && [t('Salida según el horario'), t('{time}, de {stop}', { time: trip.departure, stop: trip.origin })],
+    trip.arrival && [t('Llegada según el horario'), t('{time}, a {stop}', { time: trip.arrival, stop: trip.destination })],
+    [t('Día'), trip.date ? fmtDate(Date.parse(`${trip.date}T12:00:00Z`)) : t('{publisher} no lo dice en su tiempo real', { publisher: trip.publisher })],
+    trip.trips > 1 && [t('Expediciones afectadas'), String(trip.trips)],
+    trip.skipped?.length && [t('Paradas suprimidas'), trip.skipped.join('; ')],
+    trip.reason && [t('Motivo'), trip.reason], // el motivo que da el operador: tal cual
+    trip.notice && [t('Aviso de {publisher}', { publisher: trip.publisher }), link(trip.notice)],
+    ...(trip.lineNotices ?? []).map((n, i) => [i === 0 ? (trip.line ? t('Avisos de la {line}', { line: trip.line }) : t('Avisos de la línea')) : '', link(n)]),
+    [t('Lo publica'), published],
+    seen && [t('Desde cuándo'), seen],
+    e.withdrawn && [t('Hasta cuándo'), until],
+    trip.cancelled && trip.running && [t('Ojo'), t('{publisher} lo da a la vez como cancelado y en servicio (con su retraso, su posición o paradas suprimidas)', { publisher: trip.publisher })],
     // La atribución de su tiempo real (la de la fuente puede hablar de la posición estimada: Euskotren, AMB).
-    ...sourceRows(e.source).map((r) => (r && r[0] === 'Atribución' && e.credit ? ['Atribución', { html: creditHtml(e.credit) }] : r)),
+    ...eventSourceRows(e),
   ].filter((r) => r && r[1]);
-  const list = t.stops?.length > 1 ? cancelledStopsHtml(t.stops, e.type === 'cancelado') : '';
-  return `<div class="pop"><h3>${esc(e.title)}</h3>${followControls(t)}${telegramFollow(t.follow, t.mode, { line: t.line, service: t.service, operator: t.operator })}${e.description ? `<p>${esc(e.description)}</p>` : ''}
+  const list = trip.stops?.length > 1 ? cancelledStopsHtml(trip.stops, e.type === 'cancelado') : '';
+  return `<div class="pop"><h3>${esc(tx(e.title, e.source))}</h3>${followControls(trip)}${telegramFollow(trip.follow, trip.mode, { line: trip.line, service: trip.service, operator: trip.operator })}${e.description ? `<p>${esc(tx(e.description, e.source))}</p>` : ''}
     <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
-    ${punctualitySlot(t.follow)}${list}
-    <div class="note">Las horas son las del horario del operador. Si el operador deja de publicarlo, sigue aquí hasta medianoche
-    como «ya no lo publica»; si su fuente deja de responder, se muestra como mucho una hora más.</div></div>`;
+    ${punctualitySlot(trip.follow)}${list}
+    <div class="note">${t('Las horas son las del horario del operador. Si el operador deja de publicarlo, sigue aquí hasta medianoche como «ya no lo publica»; si su fuente deja de responder, se muestra como mucho una hora más.')}</div></div>`;
 }
 
 /**
@@ -1253,32 +1287,32 @@ export function cancellationDetail(e, now = Date.now()) {
  * No es una cancelación: no se sabe si circula.
  */
 export function missingTrainDetail(e, now = Date.now()) {
-  const t = e.trip;
-  const who = [t.service, t.number].filter(Boolean).join(' ');
-  const feed = safeUrl(t.feedUrl);
-  const looked = feed ? { html: `<a href="${esc(feed)}" target="_blank" rel="noopener">${esc(t.feed)}</a> de ${esc(t.publisher)}` } : `${t.feed} de ${t.publisher}`;
+  const trip = e.trip;
+  const who = [trip.service, trip.number].filter(Boolean).join(' ');
+  const feed = safeUrl(trip.feedUrl);
+  const looked = feed
+    ? { html: t('{feed} de {publisher}', { feed: `<a href="${esc(feed)}" target="_blank" rel="noopener">${esc(tx(trip.feed))}</a>`, publisher: esc(trip.publisher) }) }
+    : t('{feed} de {publisher}', { feed: tx(trip.feed), publisher: trip.publisher });
   const today = fmtDate(e.seen) === fmtDate(now);
   const rows = [
-    ['Estado', `Sin datos: ${t.publisher} no publica nada de este tren. No se sabe si circula`],
-    ['Tren', who || null],
-    ['Operador', t.operator],
-    t.origin && t.destination && ['Recorrido', `${t.origin} → ${t.destination}`],
-    t.departure && ['Salida según el horario', `${t.departure}, de ${t.origin}`],
-    t.arrival && ['Llegada según el horario', `${t.arrival}, a ${t.destination}`],
-    t.between && ['Ahora iría', `entre ${t.between[0]} y ${t.between[1]}, según su horario`],
-    t.date && ['Día', fmtDate(Date.parse(`${t.date}T12:00:00Z`))],
-    ['Qué se ha mirado', looked],
-    ['Qué falta', 'Su posición, su retraso y su cancelación: no sale en ninguno de los dos ficheros'],
-    e.seen && ['Desde cuándo', `El radar lo echa en falta desde las ${today ? '' : `${fmtDate(e.seen)} `}${fmtTime(e.seen)} (${timeAgo(e.seen, now)})`],
-    ...sourceRows(e.source).map((r) => (r && r[0] === 'Atribución' && e.credit ? ['Atribución', { html: creditHtml(e.credit) }] : r)),
+    [t('Estado'), t('Sin datos: {publisher} no publica nada de este tren. No se sabe si circula', { publisher: trip.publisher })],
+    [t('Tren'), who || null],
+    [t('Operador'), trip.operator],
+    trip.origin && trip.destination && [t('Recorrido'), `${trip.origin} → ${trip.destination}`],
+    trip.departure && [t('Salida según el horario'), t('{time}, de {stop}', { time: trip.departure, stop: trip.origin })],
+    trip.arrival && [t('Llegada según el horario'), t('{time}, a {stop}', { time: trip.arrival, stop: trip.destination })],
+    trip.between && [t('Ahora iría'), t('entre {from} y {to}, según su horario', { from: trip.between[0], to: trip.between[1] })],
+    trip.date && [t('Día'), fmtDate(Date.parse(`${trip.date}T12:00:00Z`))],
+    [t('Qué se ha mirado'), looked],
+    [t('Qué falta'), t('Su posición, su retraso y su cancelación: no sale en ninguno de los dos ficheros')],
+    e.seen && [t('Desde cuándo'), t('El radar lo echa en falta desde las {when} ({ago})', { when: `${today ? '' : `${fmtDate(e.seen)} `}${fmtTime(e.seen)}`, ago: timeAgo(e.seen, now) })],
+    ...eventSourceRows(e),
   ].filter((r) => r && r[1]);
-  const list = t.stops?.length > 1 ? missingStopsHtml(t.stops) : '';
-  return `<div class="pop"><h3>${esc(e.title)}</h3>${followControls(t)}${telegramFollow(t.follow, t.mode, { line: t.line, service: t.service, operator: t.operator })}${e.description ? `<p>${esc(e.description)}</p>` : ''}
+  const list = trip.stops?.length > 1 ? missingStopsHtml(trip.stops) : '';
+  return `<div class="pop"><h3>${esc(tx(e.title, e.source))}</h3>${followControls(trip)}${telegramFollow(trip.follow, trip.mode, { line: trip.line, service: trip.service, operator: trip.operator })}${e.description ? `<p>${esc(tx(e.description, e.source))}</p>` : ''}
     <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
-    ${punctualitySlot(t.follow)}${list}
-    <div class="note">Sale si, según el horario publicado, debería llevar más de 10 minutos circulando y le quedan más de 5 para llegar,
-    y su operador no publica ni su posición ni su retraso ni su cancelación. Puede circular sin que se publique, o no circular sin que se
-    haya publicado su cancelación.</div></div>`;
+    ${punctualitySlot(trip.follow)}${list}
+    <div class="note">${t('Sale si, según el horario publicado, debería llevar más de 10 minutos circulando y le quedan más de 5 para llegar, y su operador no publica ni su posición ni su retraso ni su cancelación. Puede circular sin que se publique, o no circular sin que se haya publicado su cancelación.')}</div></div>`;
 }
 
 /** Paradas del tren sin datos, con su hora del horario; en gris, las que ya debería haber pasado. */
@@ -1287,16 +1321,17 @@ function missingStopsHtml(stops) {
     const cls = [s.passed && 'passed', (i === 0 || i === stops.length - 1) && 'end'].filter(Boolean).join(' ');
     return `<li${cls ? ` class="${cls}"` : ''}><span class="ts-name">${esc(s.name)}</span>${s.time ? `<span class="ts-time">${esc(s.time)}</span>` : ''}</li>`;
   }).join('');
-  return `<details class="trip-stops" open><summary>Paradas según su horario · ${stops.length}</summary><ol>${items}</ol></details>`;
+  return `<details class="trip-stops" open><summary>${t('Paradas según su horario · {n}', { n: stops.length })}</summary><ol>${items}</ol></details>`;
 }
 
 /** Paradas del viaje cancelado, con su hora del horario y las suprimidas tachadas. */
 function cancelledStopsHtml(stops, whole) {
   const skipped = stops.filter((s) => s.skipped).length;
-  const summary = whole ? `Paradas del viaje cancelado · ${stops.length}` : `Paradas · ${skipped} suprimida${skipped === 1 ? '' : 's'} de ${stops.length}`;
+  const summary = whole ? t('Paradas del viaje cancelado · {n}', { n: stops.length })
+    : tn('Paradas · {n} suprimida de {total}', 'Paradas · {n} suprimidas de {total}', skipped, { total: stops.length });
   const items = stops.map((s, i) => {
     const cls = [s.skipped && 'skipped', (i === 0 || i === stops.length - 1) && 'end'].filter(Boolean).join(' ');
-    const when = [s.time, s.skipped && 'suprimida'].filter(Boolean).join(' · ');
+    const when = [s.time, s.skipped && t('suprimida')].filter(Boolean).join(' · ');
     return `<li${cls ? ` class="${cls}"` : ''}><span class="ts-name">${esc(s.name)}</span>${when ? `<span class="ts-time">${esc(when)}</span>` : ''}</li>`;
   }).join('');
   return `<details class="trip-stops cancelled-stops" open><summary>${summary}</summary><ol>${items}</ol></details>`;
@@ -1306,6 +1341,10 @@ function cancelledStopsHtml(stops, whole) {
 // con cada lectura); hasta entonces, abierta en pantallas anchas y cerrada en el móvil.
 let stopsListOpen = null;
 
+// Cómo se llama un vehículo de cada tipo en la nota de su recorrido (modeNoun da el nombre en español).
+const NOUN = { tren: t('tren'), metro: t('metro'), tranvía: t('tranvía'), autobús: t('autobús'), vehículo: t('vehículo') };
+const kmFmt = new Intl.NumberFormat(locale(), { maximumFractionDigits: 1 });
+
 /**
  * @param {object} v  @param {boolean} [onRoute] se dibuja lo que le queda hasta su final
  * @param {import('./trip-stops.js').TripStops|null} [stops] paradas de su viaje
@@ -1313,43 +1352,47 @@ let stopsListOpen = null;
 function vehicleDetail(v, onRoute = false, stops = null) {
   // La vía es la de una estación (en la que está parado o a la que llega), nunca la del trayecto:
   // va pegada a esa estación para que no se lea como la vía por la que circula.
-  const via = v.platform ? ` · vía ${v.platform}` : '';
+  const via = v.platform ? ` · ${t('vía {platform}', { platform: v.platform })}` : '';
+  const nextIn = v.nextEta ? ` (${fmtLocalHour(v.nextEta)})` : v.nextInMinutes !== undefined && v.nextInMinutes !== null ? ` (${t('en {n} min', { n: v.nextInMinutes })})` : '';
   const rows = [
-    ['Tipo', MODE_LABEL[v.mode] ?? v.mode],
-    (v.origin || v.destination) && ['Recorrido', `${v.origin ?? '?'} → ${v.destination ?? '?'}`],
-    ['Retraso', fmtDelay(v)],
-    v.current && [v.stopped ? 'Parado en' : v.mode === 'bus' ? 'Última parada' : 'Última estación', `${v.current}${v.stopped ? via : ''}`],
+    [t('Tipo'), MODE_LABEL[v.mode] ?? v.mode],
+    (v.origin || v.destination) && [t('Recorrido'), `${v.origin ?? '?'} → ${v.destination ?? '?'}`],
+    [t('Retraso'), fmtDelay(v)],
+    v.current && [v.stopped ? t('Parado en') : v.mode === 'bus' ? t('Última parada') : t('Última estación'), `${v.current}${v.stopped ? via : ''}`],
     // El operador lo da parado en una estación lejos de su posición: la del mapa no está al día.
-    v.farFromStop && v.current && ['Posición', `${v.source?.startsWith('renfe') ? 'Renfe' : 'El operador'} la da a ${v.farFromStop.toLocaleString('es-ES', { maximumFractionDigits: 1 })} km de ${v.current}: puede que no esté al día`],
-    v.next && ['Próxima', `${v.next}${v.nextEta ? ` (${fmtLocalHour(v.nextEta)})` : v.nextInMinutes !== undefined && v.nextInMinutes !== null ? ` (en ${v.nextInMinutes} min)` : ''}${v.stopped ? '' : via}`],
-    v.area && ['Núcleo', v.area],
-    v.rollingStock && ['Material', v.rollingStock],
+    v.farFromStop && v.current && [t('Posición'), t('{who} la da a {km} km de {stop}: puede que no esté al día', {
+      who: v.source?.startsWith('renfe') ? 'Renfe' : t('El operador'), km: kmFmt.format(v.farFromStop), stop: v.current,
+    })],
+    v.next && [t('Próxima'), `${v.next}${nextIn}${v.stopped ? '' : via}`],
+    v.area && [t('Núcleo'), v.area],
+    v.rollingStock && [t('Material'), v.rollingStock],
     v.fixTime && ['GPS', timeAgo(v.fixTime)],
     ...sourceRows(v.source, v.operator),
   ].filter(Boolean);
-  const aheadText = (how) => `La <strong>línea azul clara continua</strong> (con borde oscuro) es lo que le queda hasta ${esc(v.destination ?? 'su destino')}${how}. `;
+  const aheadText = (how) => t('La <strong>línea azul clara continua</strong> (con borde oscuro) es lo que le queda hasta {destination}{how}. ', {
+    destination: esc(v.destination ?? t('su destino')), how,
+  });
   const ahead = onRoute || v.ahead ? aheadText('') : '';
+  const noun = NOUN[modeNoun(v.mode)] ?? modeNoun(v.mode);
   const note = !v.estimated
-    ? `${ahead}La <strong>línea azul discontinua</strong> es el recorrido de este ${esc(modeNoun(v.mode))} en los últimos 45 min (desde que el radar lo sigue). `
-      + 'La × sólo cierra esta ficha; pulsa en una zona vacía del mapa para quitar el recorrido y «Ver todo» para volver a verlo todo.'
+    ? `${ahead}${t('La <strong>línea azul discontinua</strong> es el recorrido de este {vehicle} en los últimos 45 min (desde que el radar lo sigue). ', { vehicle: esc(noun) })}`
+      + t('La × sólo cierra esta ficha; pulsa en una zona vacía del mapa para quitar el recorrido y «Ver todo» para volver a verlo todo.')
     : (v.delay !== null && v.delay !== undefined
-      ? '<strong>Posición estimada</strong> a partir del horario y del retraso real que publica el operador: no es GPS. '
-      : '<strong>Posición estimada</strong> a partir del horario publicado: no es GPS y no refleja retrasos. ')
+      ? t('<strong>Posición estimada</strong> a partir del horario y del retraso real que publica el operador: no es GPS. ')
+      : t('<strong>Posición estimada</strong> a partir del horario publicado: no es GPS y no refleja retrasos. '))
       + (v.atLastStop
-        ? 'El operador no publica el recorrido entre paradas, así que se muestra en la última parada por la que ha pasado.'
-        : 'Se mueve a saltos, en cada actualización. Si su ruta tiene trazado publicado, la <strong>línea azul discontinua</strong> '
-          + 'es el tramo que habría recorrido en los últimos 45 min según el horario.')
-      + (v.ahead ? ` ${aheadText(', según el horario').trim()}` : '');
-  const badge = v.estimated ? '<div class="est-badge">Posición estimada · no es GPS</div>' : '';
+        ? t('El operador no publica el recorrido entre paradas, así que se muestra en la última parada por la que ha pasado.')
+        : t('Se mueve a saltos, en cada actualización. Si su ruta tiene trazado publicado, la <strong>línea azul discontinua</strong> es el tramo que habría recorrido en los últimos 45 min según el horario.'))
+      + (v.ahead ? ` ${aheadText(t(', según el horario')).trim()}` : '');
+  const badge = v.estimated ? `<div class="est-badge">${t('Posición estimada · no es GPS')}</div>` : '';
   const open = stopsListOpen ?? !window.matchMedia('(max-width: 860px)').matches;
   const list = stops ? stopsListHtml(stops, { open }) : '';
-  const stopsNote = list ? ' Los <strong>puntos</strong> son sus paradas: blancos los que le quedan y grises por los que ya ha pasado.'
-    + (v.estimated ? ' Sus horas son las del horario.' : '') : '';
+  const stopsNote = list ? ` ${t('Los <strong>puntos</strong> son sus paradas: blancos los que le quedan y grises por los que ya ha pasado.')}`
+    + (v.estimated ? ` ${t('Sus horas son las del horario.')}` : '') : '';
   return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}${followControls(v)}${telegramFollow(v.follow, v.mode, { line: v.line, service: v.service, operator: v.operator })}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
     ${punctualitySlot(v.follow, { delayKnown: Number.isFinite(v.delay) || typeof v.late === 'boolean' })}
     ${list}<div class="note">${note}${stopsNote}</div></div>`;
 }
-
 
 /**
  * EFFIS devuelve las coordenadas en orden [lat, lon] aunque GeoJSON pide [lon, lat]. Como se pide
@@ -1381,40 +1424,40 @@ function containsPoint(g, [x, y]) {
 
 // Cubierta del suelo de EFFIS (clases de CORINE Land Cover), en % del área quemada.
 const LAND_COVER = [
-  ['BROADLEA', 'Bosque de frondosas'], ['CONIFER', 'Bosque de coníferas'], ['MIXED', 'Bosque mixto'],
-  ['SCLEROPH', 'Vegetación esclerófila'], ['TRANSIT', 'Matorral boscoso de transición'],
-  ['OTHERNATLC', 'Otros espacios naturales'], ['AGRIAREAS', 'Zonas agrícolas'],
-  ['ARTIFSURF', 'Superficies artificiales'], ['OTHERLC', 'Otros usos'],
+  ['BROADLEA', t('Bosque de frondosas')], ['CONIFER', t('Bosque de coníferas')], ['MIXED', t('Bosque mixto')],
+  ['SCLEROPH', t('Vegetación esclerófila')], ['TRANSIT', t('Matorral boscoso de transición')],
+  ['OTHERNATLC', t('Otros espacios naturales')], ['AGRIAREAS', t('Zonas agrícolas')],
+  ['ARTIFSURF', t('Superficies artificiales')], ['OTHERLC', t('Otros usos')],
 ];
 
 function burntAreaDetail(p) {
-  const pct = (v) => `${Math.round(Number(v))}\u00a0%`; // espacio duro: que el % no salte de línea
+  const pct = (v) => `${Math.round(Number(v))} %`; // espacio duro: que el % no salte de línea
   const date = (s) => (s ? s.slice(0, 10).split('-').reverse().join('/') : null);
   const cover = LAND_COVER.filter(([k]) => Number(p[k]) >= 1).sort(([a], [b]) => p[b] - p[a])
     .map(([k, label]) => `${label} ${pct(p[k])}`).join(' · ');
   const place = [p.COMMUNE, p.PROVINCE].filter(Boolean).join(', ');
   const rows = [
-    ['Fecha del incendio', date(p.FIREDATE)],
-    ['Superficie', p.AREA_HA ? `${fmtArea(p.AREA_HA)} ha` : null],
-    cover && ['Qué ha ardido', cover],
-    Number(p.PERCNA2K) >= 1 && ['En Red Natura 2000', pct(p.PERCNA2K)],
-    ['Actualizado', date(p.LASTUPDATE)],
-    ['Fuente', 'Copernicus EFFIS'],
+    [t('Fecha del incendio'), date(p.FIREDATE)],
+    [t('Superficie'), p.AREA_HA ? `${fmtArea(p.AREA_HA)} ha` : null],
+    cover && [t('Qué ha ardido'), cover],
+    Number(p.PERCNA2K) >= 1 && [t('En Red Natura 2000'), pct(p.PERCNA2K)],
+    [t('Actualizado'), date(p.LASTUPDATE)],
+    [t('Fuente'), 'Copernicus EFFIS'],
   ].filter((r) => r && r[1]);
-  return `<div class="pop"><h3>Área quemada${place ? ` en ${esc(place)}` : ''}</h3>
+  return `<div class="pop"><h3>${place ? t('Área quemada en {place}', { place: esc(place) }) : t('Área quemada')}</h3>
     <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
-    <div class="note">Perímetro estimado por satélite por el sistema europeo de incendios forestales (EFFIS), no es un
-    dato oficial de extinción. <a href="https://forest-fire.emergency.copernicus.eu/apps/effis.csv/" target="_blank" rel="noopener">Ver en EFFIS</a></div></div>`;
+    <div class="note">${t('Perímetro estimado por satélite por el sistema europeo de incendios forestales (EFFIS), no es un dato oficial de extinción.')} <a href="https://forest-fire.emergency.copernicus.eu/apps/effis.csv/" target="_blank" rel="noopener">${t('Ver en EFFIS')}</a></div></div>`;
 }
 
-const fmtArea = (ha) => new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(Number(ha));
+const fmtArea = (ha) => new Intl.NumberFormat(locale(), { maximumFractionDigits: 0 }).format(Number(ha));
 
-// Los avisos oficiales no traen coordenadas: se sitúan en el centro de lo que nombran.
+// Los avisos oficiales no traen coordenadas: se sitúan en el centro de lo que nombran. La fórmula de
+// CartoCiudad (licencia del IGN) va tal cual en los dos idiomas.
 const APPROX_LABEL = {
-  isla: 'aproximada: el centro de la isla',
-  municipio: 'aproximada: el centro de la localidad (Obra derivada de CartoCiudad 2026 CC-BY 4.0 scne.es)',
-  provincia: 'aproximada: el centro de la provincia',
-  comunidad: 'aproximada: el aviso no dice el lugar exacto (centro de la comunidad)',
+  isla: t('aproximada: el centro de la isla'),
+  municipio: t('aproximada: el centro de la localidad (Obra derivada de CartoCiudad 2026 CC-BY 4.0 scne.es)'),
+  provincia: t('aproximada: el centro de la provincia'),
+  comunidad: t('aproximada: el aviso no dice el lugar exacto (centro de la comunidad)'),
 };
 
 /** @param {object} e  @param {object[]} [others] otros avisos oficiales del mismo sitio */
@@ -1422,19 +1465,20 @@ function eventDetail(e, others = []) {
   if (e.category === 'cancelacion' && e.trip) return cancellationDetail(e);
   if (e.category === 'sin-datos' && e.trip) return missingTrainDetail(e);
   const rows = [
-    ['Gravedad', SEVERITY_LABEL[e.severity] ?? e.severity],
-    e.issued && ['Emitido', e.issuedDayOnly ? fmtDate(e.issued) : fmtDateTime(e.issued)], // algunas fuentes sólo dan el día
-    e.start && ['Inicio', fmtDateTime(e.start)],
-    e.end && ['Fin previsto', fmtDateTime(e.end)],
-    e.updated && ['Última revisión', fmtDateTime(e.updated)], // de la incidencia en su fuente (DGT)
-    e.area && ['Lugar', e.area],
-    e.approx && ['Ubicación', APPROX_LABEL[e.approx] ?? 'aproximada'],
+    [t('Gravedad'), SEVERITY_LABEL[e.severity] ?? e.severity],
+    e.issued && [t('Emitido'), e.issuedDayOnly ? fmtDate(e.issued) : fmtDateTime(e.issued)], // algunas fuentes sólo dan el día
+    e.start && [t('Inicio'), fmtDateTime(e.start)],
+    e.end && [t('Fin previsto'), fmtDateTime(e.end)],
+    e.updated && [t('Última revisión'), fmtDateTime(e.updated)], // de la incidencia en su fuente (DGT)
+    e.area && [t('Lugar'), e.area],
+    e.approx && [t('Ubicación'), APPROX_LABEL[e.approx] ?? t('aproximada')],
     ...sourceRows(e.source),
   ].filter(Boolean);
   const url = safeUrl(e.url);
-  const link = url ? `<div class="note"><a href="${esc(url)}" target="_blank" rel="noopener">Ficha oficial</a></div>` : '';
-  const more = others.length ? `<h4>Otros avisos oficiales en ${esc(e.area)}</h4><ul class="st-list">${others
-    .map((o) => `<li><button type="button" class="link" data-event="${esc(o.id)}">${o.power ? 'Corte de luz: ' : ''}${esc(o.title)}</button></li>`).join('')}</ul>` : '';
-  return `<div class="pop"><h3>${esc(e.title)}</h3>${e.description ? `<p>${esc(e.description)}</p>` : ''}
+  const link = url ? `<div class="note"><a href="${esc(url)}" target="_blank" rel="noopener">${t('Ficha oficial')}</a></div>` : '';
+  const more = others.length ? `<h4>${t('Otros avisos oficiales en {area}', { area: esc(e.area) })}</h4><ul class="st-list">${others
+    .map((o) => `<li><button type="button" class="link" data-event="${esc(o.id)}">${o.power ? `${t('Corte de luz:')} ` : ''}${esc(tx(o.title, o.source))}</button></li>`).join('')}</ul>` : '';
+  // El título y la descripción: los de la fuente tal cual; los que escribe el radar, traducidos (tx).
+  return `<div class="pop"><h3>${esc(tx(e.title, e.source))}</h3>${e.description ? `<p>${esc(tx(e.description, e.source))}</p>` : ''}
     <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>${link}${more}</div>`;
 }

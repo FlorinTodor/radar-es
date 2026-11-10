@@ -1,3 +1,5 @@
+import { locale, t } from './i18n.js';
+
 export const STATUS = {
   none: '#898781',
   good: '#0ca30c',
@@ -8,11 +10,11 @@ export const STATUS = {
 
 // Clases de retraso: índice → [color, etiqueta]. El 0 es "sin dato".
 export const DELAY_CLASSES = [
-  [STATUS.none, 'Sin dato de retraso'],
-  [STATUS.good, 'En hora (menos de 5 min)'],
-  [STATUS.warning, '5 a 14 min'],
-  [STATUS.serious, '15 a 44 min'],
-  [STATUS.critical, '45 min o más'],
+  [STATUS.none, t('Sin dato de retraso')],
+  [STATUS.good, t('En hora (menos de 5 min)')],
+  [STATUS.warning, t('5 a 14 min')],
+  [STATUS.serious, t('15 a 44 min')],
+  [STATUS.critical, t('45 min o más')],
 ];
 
 export function delayClass(v) {
@@ -23,36 +25,38 @@ export function delayClass(v) {
   return 4;
 }
 
-export const SEVERITY_LABEL = { baja: 'Baja', media: 'Media', alta: 'Alta', 'muy alta': 'Muy alta' };
+export const SEVERITY_LABEL = { baja: t('Baja'), media: t('Media'), alta: t('Alta'), 'muy alta': t('Muy alta') };
 export const SEVERITY_RANK = { 'muy alta': 4, alta: 3, media: 2, baja: 1 };
 export const sevClass = (s) => `sev-${(s ?? 'baja').replace(' ', '-')}`;
 
 export const MODE_LABEL = {
-  av: 'Alta velocidad', ld: 'Larga distancia', md: 'Media distancia', cercanias: 'Cercanías / Rodalies',
-  metro: 'Metro / urbano', tranvia: 'Tranvía', bus: 'Autobús', otros: 'Otros',
+  av: t('Alta velocidad'), ld: t('Larga distancia'), md: t('Media distancia'), cercanias: t('Cercanías / Rodalies'),
+  metro: t('Metro / urbano'), tranvia: t('Tranvía'), bus: t('Autobús'), otros: t('Otros'),
 };
 
-const nf = new Intl.NumberFormat('es-ES');
+const nf = new Intl.NumberFormat(locale());
 export const fmtNum = (n) => (n === null || n === undefined ? '–' : nf.format(n));
+/** Un número con `digits` decimales, con la coma o el punto de cada idioma: fmtDec(2.5, 1) → «2,5» / «2.5». */
+export const fmtDec = (n, digits = 1) => new Intl.NumberFormat(locale(), { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(n);
 
 export function fmtDelay(v) {
-  if (v.delay === null || v.delay === undefined) return v.late === true ? 'Con retraso' : v.late === false ? 'En hora' : '—';
-  return v.delay <= 0 ? 'En hora' : `+${v.delay} min`;
+  if (v.delay === null || v.delay === undefined) return v.late === true ? t('Con retraso') : v.late === false ? t('En hora') : '—';
+  return v.delay <= 0 ? t('En hora') : `+${v.delay} min`;
 }
 
 export function timeAgo(ms, now = Date.now()) {
   if (!ms) return '—';
   const s = Math.round((now - ms) / 1000);
-  if (s < 0) return 'ahora';
-  if (s < 60) return `hace ${s} s`;
-  if (s < 3600) return `hace ${Math.round(s / 60)} min`;
-  if (s < 86400) return `hace ${Math.round(s / 3600)} h`;
-  return `hace ${Math.round(s / 86400)} d`;
+  if (s < 0) return t('ahora');
+  if (s < 60) return t('hace {n} s', { n: s });
+  if (s < 3600) return t('hace {n} min', { n: Math.round(s / 60) });
+  if (s < 86400) return t('hace {n} h', { n: Math.round(s / 3600) });
+  return t('hace {n} d', { n: Math.round(s / 86400) });
 }
 
-const timeFmt = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit' });
-const dateTimeFmt = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-const dateTimeYearFmt = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const timeFmt = new Intl.DateTimeFormat(locale(), { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit' });
+const dateTimeFmt = new Intl.DateTimeFormat(locale(), { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+const dateTimeYearFmt = new Intl.DateTimeFormat(locale(), { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const yearFmt = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', year: 'numeric' });
 export const fmtTime = (ms) => (ms ? timeFmt.format(ms) : '—');
 /**
@@ -65,7 +69,7 @@ export const fmtDateTime = (ms, now = Date.now()) => {
 };
 /** «15/04/2026, 11:22», siempre con el año: en la pestaña Fuentes, una fecha sin año no dice si el horario es de este año. */
 export const fmtDateTimeYear = (ms) => (ms ? dateTimeYearFmt.format(ms) : '—');
-const dateFmt = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', year: 'numeric' });
+const dateFmt = new Intl.DateTimeFormat(locale(), { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', year: 'numeric' });
 export const fmtDate = (ms) => (ms ? dateFmt.format(ms) : '—');
 const dayFmt = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Madrid' }); // «2026-11-02»: el día en Madrid
 
@@ -82,10 +86,10 @@ export function scheduleValidity(validUntil, now = Date.now()) {
   if (!m) return null;
   const [y, mo, d] = dayFmt.format(now).split('-').map(Number);
   const left = Math.round((Date.UTC(+m[1], +m[2] - 1, +m[3]) - Date.UTC(y, mo - 1, d)) / 86_400_000);
-  const text = `válido hasta el ${m[3]}/${m[2]}/${m[1]}`;
-  if (left < 0) return { text, warn: 'horario caducado', expired: true };
+  const text = t('válido hasta el {date}', { date: `${m[3]}/${m[2]}/${m[1]}` });
+  if (left < 0) return { text, warn: t('horario caducado'), expired: true };
   if (left > ENDING_DAYS) return { text, warn: null, expired: false };
-  return { text, warn: left === 0 ? 'hoy es su último día' : left === 1 ? 'caduca mañana' : `caduca en ${left} días`, expired: false };
+  return { text, warn: left === 0 ? t('hoy es su último día') : left === 1 ? t('caduca mañana') : t('caduca en {n} días', { n: left }), expired: false };
 }
 
 /**
@@ -95,7 +99,7 @@ export function scheduleValidity(validUntil, now = Date.now()) {
  */
 export function fmtDataTime(ms, now = Date.now()) {
   if (!ms) return '—';
-  return dayFmt.format(ms) === dayFmt.format(now) ? `de las ${fmtTime(ms)}` : `del ${fmtDate(ms)} a las ${fmtTime(ms)}`;
+  return dayFmt.format(ms) === dayFmt.format(now) ? t('de las {time}', { time: fmtTime(ms) }) : t('del {date} a las {time}', { date: fmtDate(ms), time: fmtTime(ms) });
 }
 
 // "2026-10-30T19:17:00" (hora local de Madrid) → "19:17"

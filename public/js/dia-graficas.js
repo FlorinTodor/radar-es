@@ -3,12 +3,19 @@
 // redondeado y la base recta, rejilla de un pelo y en gris, el texto nunca del color del dato, y los
 // valores también en la tabla (la ficha sólo los repite al pasar por encima).
 import { esc } from './format.js';
+import { locale, t } from './i18n.js';
 
-const nf = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 });
-/** Número con el formato de aquí («1.284», «12,5»); «–» si no hay. */
-export const fmt = (n) => (Number.isFinite(n) ? nf.format(n) : '–');
-/** «7 h» */
-export const hourLabel = (h) => `${h} h`;
+// Los formatos, uno por idioma (se crean la primera vez que hacen falta).
+const formats = new Map();
+const format = (kind, make) => {
+  const key = `${kind}|${locale()}`;
+  if (!formats.has(key)) formats.set(key, make(locale()));
+  return formats.get(key);
+};
+/** Número con el formato del idioma («1.284», «12,5» / «1,284», «12.5»); «–» si no hay. */
+export const fmt = (n) => (Number.isFinite(n) ? format('num', (l) => new Intl.NumberFormat(l, { maximumFractionDigits: 1 })).format(n) : '–');
+/** «7 h» (en inglés, «7:00») */
+export const hourLabel = (h) => t('{h} h', { h });
 
 /** Techo «redondo» del eje y sus marcas (0, 50, 100…): de 3 a 5 marcas. */
 export function niceScale(max) {
@@ -53,8 +60,8 @@ export function lineChart({ width, height, today, compare = null, label, unit = 
   const { max, ticks } = niceScale(Math.max(...all, 0));
   const x = (i) => PAD.left + (i * (w - PAD.left - PAD.right)) / 23;
   const y = (v) => h - PAD.bottom - (v / max) * (h - PAD.top - PAD.bottom);
-  const grid = ticks.map((t) => `<line class="grid" x1="${PAD.left}" x2="${w - PAD.right}" y1="${y(t).toFixed(1)}" y2="${y(t).toFixed(1)}"/>`
-    + `<text class="tick" x="${PAD.left - 6}" y="${(y(t) + 3.5).toFixed(1)}" text-anchor="end">${fmt(t)}${unit}</text>`).join('');
+  const grid = ticks.map((v) => `<line class="grid" x1="${PAD.left}" x2="${w - PAD.right}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/>`
+    + `<text class="tick" x="${PAD.left - 6}" y="${(y(v) + 3.5).toFixed(1)}" text-anchor="end">${fmt(v)}${unit}</text>`).join('');
   const xs = [0, 6, 12, 18, 23].map((i) => `<text class="tick" x="${x(i).toFixed(1)}" y="${h - 6}" text-anchor="middle">${hourLabel(i)}</text>`).join('');
   const last = today.reduce((acc, v, i) => (Number.isFinite(v) ? i : acc), -1);
   const end = last >= 0
@@ -83,8 +90,8 @@ export function columnChart({ width, height, values, label, unit = '', fixedMax 
   const x = (i) => PAD.left + i * band + (band - bar) / 2;
   const y = (v) => h - PAD.bottom - (Math.min(v, max) / max) * (h - PAD.top - PAD.bottom);
   const base = h - PAD.bottom;
-  const grid = ticks.map((t) => `<line class="grid" x1="${PAD.left}" x2="${w - PAD.right}" y1="${y(t).toFixed(1)}" y2="${y(t).toFixed(1)}"/>`
-    + `<text class="tick" x="${PAD.left - 6}" y="${(y(t) + 3.5).toFixed(1)}" text-anchor="end">${fmt(t)}${unit}</text>`).join('');
+  const grid = ticks.map((v) => `<line class="grid" x1="${PAD.left}" x2="${w - PAD.right}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/>`
+    + `<text class="tick" x="${PAD.left - 6}" y="${(y(v) + 3.5).toFixed(1)}" text-anchor="end">${fmt(v)}${unit}</text>`).join('');
   const r = Math.min(4, bar / 2);
   const cols = values.map((v, i) => {
     if (!Number.isFinite(v) || v <= 0) return '';
@@ -121,12 +128,11 @@ export function hourAt(px, x0, x1) {
   return Math.max(0, Math.min(23, Math.round(((px - x0) / (x1 - x0)) * 23)));
 }
 
-const DAY_TITLE = new Intl.DateTimeFormat('es-ES', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-const DAY_SHORT = new Intl.DateTimeFormat('es-ES', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' });
-/** «martes, 10 de noviembre de 2026» */
-export const dayTitle = (date) => DAY_TITLE.format(new Date(`${date}T12:00:00Z`));
-/** «mar, 10 nov» */
-export const dayShort = (date) => DAY_SHORT.format(new Date(`${date}T12:00:00Z`));
+const dayFormat = (kind, opts) => format(kind, (l) => new Intl.DateTimeFormat(l, { timeZone: 'UTC', ...opts }));
+/** «martes, 10 de noviembre de 2026» / «Tuesday, 10 November 2026» */
+export const dayTitle = (date) => dayFormat('title', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(`${date}T12:00:00Z`));
+/** «mar, 10 nov» / «Tue 10 Nov» */
+export const dayShort = (date) => dayFormat('short', { weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(`${date}T12:00:00Z`));
 
 /**
  * La mediana del retraso como frase: «la mitad, 2 min o menos» si se sabe el minuto; si cae en un tramo,
@@ -134,6 +140,6 @@ export const dayShort = (date) => DAY_SHORT.format(new Date(`${date}T12:00:00Z`)
  */
 export function medianPhrase(m) {
   if (!m) return null;
-  if (Number.isFinite(m.minutes)) return `la mitad, ${m.minutes} min o menos`;
-  return m.to ? `retraso mediano: entre ${m.from} y ${m.to} min` : `retraso mediano: ${m.from} min o más`;
+  if (Number.isFinite(m.minutes)) return t('la mitad, {n} min o menos', { n: m.minutes });
+  return m.to ? t('retraso mediano: entre {from} y {to} min', { from: m.from, to: m.to }) : t('retraso mediano: {from} min o más', { from: m.from });
 }

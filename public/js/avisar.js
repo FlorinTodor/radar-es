@@ -5,6 +5,8 @@
 // espera ese tren o ese autobús.
 import { parseFollowKey } from '../../server/domain/seguir.js';
 import { esc } from './format.js';
+import { t } from './i18n.js';
+import { followNameText } from './siguiendo.js';
 
 const KEY_RE = /^[slp]-[A-Za-z0-9_-]{1,62}$/;
 const BOT_RE = /^[A-Za-z][A-Za-z0-9_]{1,28}[Bb][Oo][Tt]$/;
@@ -38,10 +40,13 @@ const startUrl = (key) => `https://t.me/${esc(bot)}?start=${esc(key)}`;
  * @param {{ line?: string|null, service?: string|null }} [names]
  */
 function lineWords({ line = null, service = null, network = false, operator = null } = {}) {
-  if (network) return { all: `toda la red${operator ? ` de ${operator}` : ''}`, of: `toda la red${operator ? ` de ${operator}` : ''}` };
-  if (!line) return { all: 'toda su línea', of: 'su línea' };
-  if (service && line === service) return { all: `todos los ${line}`, of: `los ${line}` };
-  return { all: `toda la línea ${line}`, of: `la línea ${line}` };
+  if (network) {
+    const all = operator ? t('toda la red de {operator}', { operator }) : t('toda la red');
+    return { all, of: all };
+  }
+  if (!line) return { all: t('toda su línea'), of: t('su línea') };
+  if (service && line === service) return { all: t('todos los {line}', { line }), of: t('los {line}', { line }) };
+  return { all: t('toda la línea {line}', { line }), of: t('la línea {line}', { line }) };
 }
 
 /**
@@ -66,17 +71,17 @@ export function telegramFollow(follow, mode, names = {}) {
   let main = null;
   let alt = null;
   if (service) {
-    main = { key: service, what: `si este ${nouns[mode] ?? 'servicio'} se cancela o va con retraso` };
-    if (line) alt = { key: line, text: `o de ${words.all}` };
+    main = { key: service, what: t('si este {noun} se cancela o va con retraso', { noun: t(nouns[mode] ?? 'servicio') }) };
+    if (line) alt = { key: line, text: t('o de {what}', { what: words.all }) };
   } else if (line) {
-    main = { key: line, what: `de las cancelaciones y avisos de ${words.of}` };
+    main = { key: line, what: t('de las cancelaciones y avisos de {what}', { what: words.of }) };
   } else if (stop) {
     // No todas las redes publican cancelaciones (los metros y tranvías casi nunca): no prometer más de lo que hay.
-    main = { key: stop, what: 'de las cancelaciones que su operador publique en esta estación' };
+    main = { key: stop, what: t('de las cancelaciones que su operador publique en esta estación') };
   }
   if (!main) return '';
   return `<div class="tg-cta"><a class="tg-btn" href="${startUrl(main.key)}" target="_blank" rel="noopener">${PLANE}`
-    + `<span class="tg-txt"><strong>Avísame por Telegram</strong><small>${esc(main.what)}</small></span></a>`
+    + `<span class="tg-txt"><strong>${t('Avísame por Telegram')}</strong><small>${esc(main.what)}</small></span></a>`
     + `${alt ? `<a class="tg-alt" href="${startUrl(alt.key)}" target="_blank" rel="noopener">${esc(alt.text)}</a>` : ''}</div>`;
 }
 
@@ -86,6 +91,7 @@ export function telegramFollow(follow, mode, names = {}) {
  */
 export function telegramLink(key, name = '') {
   if (!bot || typeof key !== 'string' || !KEY_RE.test(key)) return '';
-  const label = `Avisos por Telegram${name ? ` de ${name}` : ''}`;
-  return `<a class="tg-mini" href="${startUrl(key)}" target="_blank" rel="noopener" aria-label="${esc(label)}" title="${esc(label)}">${PLANE}<span>Avisos en Telegram</span></a>`;
+  // El bot habla en español: con la web en inglés, el texto accesible lo dice.
+  const label = name ? t('Avisos por Telegram de {name}', { name: followNameText(name) }) : t('Avisos por Telegram');
+  return `<a class="tg-mini" href="${startUrl(key)}" target="_blank" rel="noopener" aria-label="${esc(label)}" title="${esc(label)}">${PLANE}<span>${t('Avisos en Telegram')}</span></a>`;
 }
