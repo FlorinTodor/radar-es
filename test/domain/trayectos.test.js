@@ -185,10 +185,18 @@ test('avisos: cancelados y sin parar en el origen o el destino, sin datos y retr
     events: events.map((e) => (e.category === 'sin-datos' ? { ...e, trip: { ...e.trip, stops: e.trip.stops.map((s) => ({ ...s, passed: true })) } } : e)) };
   const later = collectTrayectoFacts({ keys: [KEY], ...arrived }).get(KEY).map((f) => f.id);
   assert.ok(!later.some((id) => id.includes('retraso') || id.includes('sin-datos')), later.join());
-  // El sábado (fuera de L-V), nada de lo de ese día: ni los que circulan, ni las cancelaciones sin fecha (son de hoy),
-  // ni la que tiene la fecha de ese sábado. El sin datos lleva la fecha de su viaje (el martes): ése sí.
+  // A las 08:20 ya no se avisa del cancelado que salía de Alcalá a las 07:37 y llegaba a Atocha a las 08:10; del que
+  // llegaba a las 08:30 (sin parar en Atocha), aún sí.
+  const at0820 = Date.parse('2026-11-10T07:20:00Z');
+  const afterwards = collectTrayectoFacts({ keys: [KEY], ...ctx, vehicles: [], now: at0820 }).get(KEY).map((f) => f.id);
+  assert.ok(!afterwards.includes('c-dentro') && afterwards.includes('p-alcala') && afterwards.includes('p-atocha'), afterwards.join());
+  // El sábado (fuera de L-V), nada: ni los que circulan, ni las cancelaciones sin fecha (son de hoy), ni la que tiene
+  // la fecha de ese sábado; y el sin datos del martes ya habría llegado.
   const saturday = Date.parse('2026-11-14T05:30:00Z');
-  assert.deepEqual(collectTrayectoFacts({ keys: [KEY], ...ctx, now: saturday }).get(KEY).map((f) => f.id), ['renfe-sin-datos:18003']);
+  assert.equal(collectTrayectoFacts({ keys: [KEY], ...ctx, now: saturday }).get(KEY), undefined);
+  const tuesdayEvent = ctx.events.find((e) => e.category === 'sin-datos');
+  assert.equal(collectTrayectoFacts({ keys: [KEY], ...ctx, events: [{ ...tuesdayEvent, trip: { ...tuesdayEvent.trip, date: '2026-11-14' } }], now: saturday }).get(KEY),
+    undefined, 'ni uno con la fecha de ese sábado');
 });
 
 test('cómo va: los de la franja por su hora en el origen, sin repetir el tren cancelado que circula; y qué se dice si no hay ninguno', () => {

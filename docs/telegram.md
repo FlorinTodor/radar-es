@@ -93,7 +93,8 @@ destino** y **salen del origen en esa franja**, uno de esos días. No hace falta
   - si su operador no publica nada de ellos («sin datos»), mientras según su horario no hayan llegado al destino.
 
   Los avisos salen en la misma ronda que los demás, uno por trayecto con lo nuevo; lo que ya había al seguirlo se
-  cuenta en la respuesta y no se avisa.
+  cuenta en la respuesta y no se avisa. De una cancelación de un tren que según su horario ya habría llegado al
+  destino no se avisa: a esas horas ya no sirve.
 - **`/estado` y el parte** dicen los trenes de la franja que se ven ahora, por su hora en el origen: los que
   circulan, con su retraso y su próxima parada, y los cancelados, sin parar en el origen o el destino o sin datos
   (los que salían hace más de un cuarto de hora ya no salen). Un tren cancelado que se ve circulando sale una vez,

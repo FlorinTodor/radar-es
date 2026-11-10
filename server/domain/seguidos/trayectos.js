@@ -110,7 +110,7 @@ export function parseTrayectoText(text) {
   const parts = t.split(ARROW);
   if (parts.length !== 2) return { error: 'flecha' };
   const origin = parts[0].trim();
-  let rest = parts[1].trim();
+  const rest = parts[1].trim();
   const ranges = [...rest.matchAll(RANGE)];
   if (!origin) return { error: 'estaciones' };
   if (!ranges.length) return { error: 'franja' };
@@ -310,7 +310,8 @@ const inWindow = (t, dep) => Boolean(t.days & (1 << weekday(dep.day))) && dep.mi
  * Las cancelaciones, paradas suprimidas y trenes sin datos del trayecto: los que pasaban por el origen y luego por
  * el destino y salían del origen en la franja. De los que cancelan sólo algunas paradas, si una es el origen o el
  * destino; de los sin datos, si según su horario aún no ha llegado al destino. Las retiradas (su operador ya no las
- * publica) van marcadas.
+ * publica) van marcadas. `end`: cuándo llegaba al destino según su horario (o, si no se sabe, GONE_MIN después de
+ * salir del origen), como `order`.
  */
 function eventTrains(t, events, now) {
   const out = [];
@@ -328,7 +329,9 @@ function eventTrains(t, events, now) {
     } else if (e.type !== 'parcial') kind = 'cancelado';
     else if (stops[o].skipped || stops[d].skipped) kind = 'parcial';
     else continue;
-    out.push({ kind, e, dep, o: stops[o], d: stops[d], withdrawn: Boolean(e.withdrawn) });
+    const arrival = toMin(stops[d].time);
+    const end = order(dep) + (arrival === null ? GONE_MIN : (arrival - dep.min + 1440) % 1440);
+    out.push({ kind, e, dep, end, o: stops[o], d: stops[d], withdrawn: Boolean(e.withdrawn) });
   }
   return out;
 }
@@ -404,7 +407,8 @@ function delayFacts(x, t, delayMin, creditOf) {
 /**
  * Lo que pasa ahora con cada trayecto seguido (los hechos de avisos.js, con los mismos ids): las cancelaciones
  * de sus trenes y las paradas suprimidas en su origen o su destino, los trenes sin datos y el retraso de los que van
- * con `delayMin` o más (un hecho por escalón). Las cancelaciones que su fuente ya no publica, no.
+ * con `delayMin` o más (un hecho por escalón). Las cancelaciones que su fuente ya no publica, no; ni las de un tren
+ * que según su horario ya habría llegado al destino.
  * @param {{ keys: Iterable<string>, vehicles?: object[], events?: object[], now: number,
  *           stationOf?: (code: string) => object|null, stopsOf?: (id: string) => object[]|null,
  *           creditOf?: (source: string, operator?: string) => string|null, delayMin?: number }} ctx
@@ -418,6 +422,7 @@ export function collectTrayectoFacts({ keys, vehicles = [], events = [], now, st
     if (t) trayectos.push([key, t]);
   }
   if (!trayectos.length) return out;
+  const nowAt = order(madridAt(now));
   // Sólo los que van con retraso: sus paradas, una vez para todos los trayectos.
   const late = passIndex(vehicles.filter((v) => v?.delay >= delayMin), stopsOf);
   for (const [key, t] of trayectos) {
@@ -425,7 +430,8 @@ export function collectTrayectoFacts({ keys, vehicles = [], events = [], now, st
     const add = (f) => {
       if (!facts.some((x) => x.id === f.id)) facts.push(f);
     };
-    for (const x of eventTrains(t, events, now)) if (!x.withdrawn) add(eventFact(x, t, creditOf));
+    // De un tren que ya habría llegado al destino no se avisa: a esas horas ya no sirve de nada.
+    for (const x of eventTrains(t, events, now)) if (!x.withdrawn && x.end >= nowAt) add(eventFact(x, t, creditOf));
     for (const x of vehicleTrains(t, late, now)) for (const f of delayFacts(x, t, delayMin, creditOf)) add(f);
     if (facts.length) out.set(key, facts);
   }
