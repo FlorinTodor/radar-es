@@ -14,6 +14,8 @@
 // que usa el mapa: así el asistente y la web cuentan los mismos trenes parados y en camino.
 import { stationBoard } from '../../../../public/js/station-board.js';
 import { isStationCode, SEVERITY_RANK } from '../../../domain/model.js';
+import { followKind } from '../../../domain/seguir.js';
+import { KEEP_DAYS } from '../../../domain/puntualidad.js';
 
 /** Versiones del protocolo que entiende, de la más nueva a la más antigua. */
 export const PROTOCOL_VERSIONS = ['2026-07-28', '2025-11-25', '2025-06-18', '2025-03-26'];
@@ -408,6 +410,29 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
           datasetUpdated: iso(h.datasetUpdated), datasetValidUntil: h.datasetValidUntil,
         }));
         return { generatedAt: iso(now()), sources, note: NOTE, moreInfo: `${site}/legal#fuentes` };
+      },
+    },
+
+    puntualidad: {
+      title: 'Puntualidad de un servicio o de una línea',
+      ttl: 60_000, // lo de hoy cambia cada minuto
+      description: 'Puntualidad de los últimos días de un servicio (un tren o un autobús concreto que se repite cada día) o de una línea, '
+        + 'de cualquier operador que publique su retraso. De un servicio, cada día: a tiempo, con 5 minutos o más de retraso (su último '
+        + 'retraso conocido, que es el de su llegada) o cancelado, y cuántos de los últimos 10 días en que circuló llegó tarde. De una línea, '
+        + 'cada día: qué parte de las lecturas iba con 5 minutos o más, cuántos servicios acabaron tarde y cuántas cancelaciones hubo. '
+        + 'La clave sale del campo «follow» de buscar_trenes o de incidencias: empieza por «s-» la de un servicio y por «l-» la de una línea.',
+      inputSchema: {
+        type: 'object',
+        properties: { key: { type: 'string', maxLength: 64, description: 'Clave de un servicio («s-renfe-8058») o de una línea («l-renfe-30-C5»).' } },
+        required: ['key'],
+        additionalProperties: false,
+      },
+      run({ key }) {
+        const kind = followKind(key);
+        if (kind !== 'servicio' && kind !== 'linea') throw new ToolError('No es la clave de un servicio («s-…») ni de una línea («l-…»): sale del campo «follow» de buscar_trenes o de incidencias.');
+        const report = query.punctuality?.(key) ?? null;
+        if (!report) throw new ToolError(`Radar España no tiene datos de puntualidad de «${key}»: no se ha visto con su retraso en los últimos ${KEEP_DAYS} días, o su operador no publica el retraso.`);
+        return envelope({ punctuality: report }, [{ source: report.source, operator: report.operator }]);
       },
     },
   };
