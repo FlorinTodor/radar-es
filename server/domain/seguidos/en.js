@@ -193,7 +193,7 @@ export const EN = {
     "It isn't running right now: it may not be due at this time, or its operator may not publish it.",
   'lleva 5 min o más de retraso': 'it is 5 min or more late',
   'no lleva 5 min o más de retraso': 'it is less than 5 min late',
-  '{late} de los {n} que dicen su retraso llevan 5 min o más': '{late} of the {n} that report their delay are 5 min or more late',
+  '{late} de los {n} que dicen su retraso llevan 5 min o más': '5 min or more late: {late} of the {n} that report their delay',
   'Ahora circula 1 {noun}': '1 {noun} running now',
   'Ahora circulan {n} {nouns}': '{n} {nouns} running now',
   'Ahora no se ve ninguno circulando.': 'None running right now.',
