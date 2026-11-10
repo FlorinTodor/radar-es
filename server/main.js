@@ -10,6 +10,7 @@ import { makeServeTiles } from './application/use-cases/serve-tiles.js';
 import { makeRefreshCatalogs } from './application/use-cases/refresh-catalogs.js';
 import { makeLinesOnRail } from './application/use-cases/lines-on-rail.js';
 import { makeKeepTracks } from './application/use-cases/keep-tracks.js';
+import { makeFollowBot } from './application/use-cases/follow-bot.js';
 import { createHttpClient } from './adapters/outbound/http/http-client.js';
 import { createFileCache } from './adapters/outbound/http/file-cache.js';
 import { createConsoleLogger } from './adapters/outbound/logging/console-logger.js';
@@ -24,6 +25,10 @@ import { createIgnRailNetwork } from './adapters/outbound/network/ign-rail-netwo
 import { createInMemorySituation } from './adapters/outbound/persistence/in-memory-situation.js';
 import { createJsonlHistory } from './adapters/outbound/persistence/jsonl-history.js';
 import { createTrackStore } from './adapters/outbound/persistence/track-store.js';
+import { createFollowStore } from './adapters/outbound/persistence/follow-store.js';
+import { createFileLease } from './adapters/outbound/persistence/file-lease.js';
+import { createTelegramApi } from './adapters/outbound/telegram/telegram-api.js';
+import { createTelegramBot } from './adapters/inbound/telegram/telegram-bot.js';
 import { createSources } from './adapters/outbound/sources/index.js';
 import { startPolling } from './adapters/inbound/scheduler/polling-scheduler.js';
 import { createHttpServer } from './adapters/inbound/http/http-server.js';
@@ -99,6 +104,33 @@ await keepTracks.restore().catch((err) => log.warn(`[estelas] no se pudo recuper
 const feeds = enabledSources.map(({ id, interval }) => ({ id, interval }));
 const scheduler = startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, saveTracks: keepTracks.save, log });
 
+// Bot de Telegram «Sigue tu tren» (docs/telegram.md): sin TELEGRAM_BOT_TOKEN en .env, desactivado.
+let telegramBot = null;
+if (!config.telegram) {
+  log.warn('[telegram] bot desactivado: falta TELEGRAM_BOT_TOKEN');
+} else {
+  if (!config.telegram.username) log.warn('[telegram] falta TELEGRAM_BOT_USERNAME: el bot funciona, pero la web no enseña el botón «Avisarme por Telegram»');
+  const botDir = new URL('bot/', config.dataDir);
+  // La atribución de cada aviso: la licencia de su fuente (la del operador, si la fuente agrupa a varios).
+  const sourceById = new Map(sources.map((s) => [s.id, s]));
+  const creditOf = (id, operator) => sourceById.get(id)?.operatorLicenses?.[operator] ?? sourceById.get(id)?.license ?? null;
+  const followBot = makeFollowBot({
+    read: { vehicles: () => query.vehicles(), events: () => query.events(), station: (code) => query.station(code) },
+    store: assertPort('FollowStore', createFollowStore({ dir: botDir, log }), PORT_MEMBERS.FollowStore),
+    clock,
+    creditOf,
+    webUrl: config.telegram.webUrl,
+    log,
+  });
+  telegramBot = createTelegramBot({
+    api: assertPort('ChatChannel', createTelegramApi({ http, token: config.telegram.token }), PORT_MEMBERS.ChatChannel),
+    bot: followBot,
+    lease: assertPort('Lease', createFileLease({ dir: botDir }), PORT_MEMBERS.Lease),
+    log,
+  });
+  telegramBot.start();
+}
+
 const server = createHttpServer({
   query,
   log,
@@ -127,12 +159,15 @@ metricsServer?.listen(config.metricsPort, config.metricsHost, () => {
 function shutdown() {
   log.info('Cerrando…');
   scheduler.stop();
+  // El bot guarda lo suyo y suelta su turno, para que lo coja enseguida el servidor que releva a éste.
+  const botStopped = telegramBot?.stop().catch((err) => log.warn(`[telegram] ${err.message}`));
   metricsServer?.close();
   metrics.close();
   pool.close();
   if (xmlPool !== pool) xmlPool.close();
   // Lo último que se guarda: el historial de posiciones, para que el siguiente arranque lo siga.
-  keepTracks.save().catch((err) => log.warn(`[estelas] ${err.message}`)).finally(() => server.close(() => process.exit(0)));
+  Promise.all([keepTracks.save().catch((err) => log.warn(`[estelas] ${err.message}`)), botStopped])
+    .finally(() => server.close(() => process.exit(0)));
   setTimeout(() => process.exit(0), 3000).unref();
 }
 process.on('SIGINT', shutdown);

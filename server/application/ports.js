@@ -141,6 +141,32 @@
  */
 
 /**
+ * Lo que sigue cada chat del bot «Sigue tu tren» (caso de uso follow-bot) y lo que ya se le ha avisado, para
+ * seguir igual tras un reinicio o un relevo. Sólo el número de cada chat, lo que sigue y desde cuándo.
+ * @typedef {object} FollowStorePort
+ * @property {() => Promise<object|null>} load  Lo último guardado, o null si no hay o no se lee.
+ * @property {(snapshot: object) => Promise<void>} save  Nunca rechaza: si no puede escribir, lo registra.
+ */
+
+/**
+ * Turno para un trabajo que sólo debe hacer un servidor a la vez (el bot: si dos leyeran sus mensajes, los dos
+ * avisarían). Durante un relevo hay dos: el que arranca espera a que el otro lo suelte o a que caduque.
+ * @typedef {object} LeasePort
+ * @property {() => Promise<boolean>} claim  Lo coge o lo renueva; false si lo tiene otro (y no ha caducado).
+ * @property {() => Promise<void>} release  Lo suelta, si es suyo.
+ */
+
+/**
+ * Canal de mensajería del bot (Telegram): recibir lo que escriben, contestar y responder a los botones.
+ * @typedef {object} ChatChannelPort
+ * @property {(o: { offset: number, waitSec: number }) => Promise<object[]>} receive  Lo nuevo desde `offset`,
+ *   esperando hasta `waitSec` si no hay nada (long polling).
+ * @property {(m: { chatId: number, text: string, buttons?: Array<Array<{ text: string, data: string }>> }) => Promise<void>} send
+ * @property {(o: { id: string, text?: string }) => Promise<void>} answer  Respuesta breve a un botón pulsado.
+ * @property {(commands: Array<[string, string]>) => Promise<void>} setCommands  El menú de órdenes del bot.
+ */
+
+/**
  * Teselas y consultas de capas externas (IGN, EFFIS) servidas desde nuestro dominio para que
  * Cloudflare las guarde. Lo usa el caso de uso serve-tiles, que antes decide qué teselas se
  * pueden pedir (domain/tiles.js): el proveedor descarga y guarda en disco todo lo que se le pide.
@@ -190,6 +216,9 @@ export const PORT_MEMBERS = {
     'pushKpiSample', 'kpiHistory'],
   History: ['append'],
   TrackStore: ['load', 'save'],
+  FollowStore: ['load', 'save'],
+  Lease: ['claim', 'release'],
+  ChatChannel: ['receive', 'send', 'answer', 'setCommands'],
   TileProvider: ['layers', 'cacheControl', 'tile', 'burntAreas'],
   Clock: ['now'],
   Logger: ['info', 'warn', 'error'],
