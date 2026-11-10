@@ -46,7 +46,10 @@ export function makeRecordPunctuality({ situation, store, clock, log, book = cre
       const license = source ? source.operatorLicenses?.[r.operator] ?? source.license ?? source.name ?? null : null;
       return {
         ...r,
-        name: describeFollow(key, { ...r, modeLabel: r.mode ? capitalized(modeNoun(r.mode)) : null }),
+        // En AV/LD/MD la línea es el producto: en el nombre de la línea, sin repetirlo («Tren Media Distancia · Renfe»).
+        name: describeFollow(key, {
+          ...r, service: r.kind === 'linea' && r.service === r.line ? null : r.service, modeLabel: r.mode ? capitalized(modeNoun(r.mode)) : null,
+        }),
         credit: license,
         note: `Retrasos que publica ${r.operator ?? 'su operador'} en su tiempo real; datos modificados: el radar se queda con el último de cada `
           + `recorrido y los cuenta por día (${r.lateMinutes} min o más, tarde).`,

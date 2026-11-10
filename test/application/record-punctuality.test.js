@@ -54,6 +54,7 @@ test('cada minuto: vehículos de fuentes al día y cancelaciones en vigor; el in
   assert.equal(bus.credit, 'Font: AMB', 'la del operador, si la fuente agrupa a varios');
   assert.equal(p.report('l-fgc-S1'), null, 'su fuente no estaba al día');
   assert.equal(p.report('s-renfe-5962').days.at(-1).status, 'cancelado');
+  assert.equal(p.report('l-renfe-Avant').name, 'Tren Avant · Renfe', 'sin repetir el producto, que es su línea');
   assert.equal(p.report('s-renfe-1'), null, 'una cancelación que ya no está en vigor no cuenta');
 });
 

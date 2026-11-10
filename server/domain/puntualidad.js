@@ -137,7 +137,7 @@ function createTable({ fields, metaFields, keep, max, strings, cap: wanted = 256
     index: new Map(), // clave → índice
     free: [],
     cap,
-    known: new Uint8Array(cap), // 1 si se sabe algo de ella (sus columnas)
+    known: new Uint8Array(cap), // de dónde se sabe lo que dicen sus columnas: 0 nada, 1 un viaje cancelado, 2 un vehículo
     firstDay: new Int32Array(cap),
     lastDay: new Int32Array(cap),
     cols: Object.fromEntries(metaFields.map((f) => [f, new Uint32Array(cap)])),
@@ -187,16 +187,17 @@ function createTable({ fields, metaFields, keep, max, strings, cap: wanted = 256
       for (let d = 0; d < keep; d++) clear(i * keep + d);
       return i;
     },
-    hasMeta: (i) => t.known[i] === 1,
+    /** Lo que se sabe de ella viene de algo al menos tan fiable como `level` (1 un viaje cancelado, 2 un vehículo). */
+    hasMeta: (i, level = 1) => t.known[i] >= level,
     /** Lo que se sabe de la clave `i`, como objeto. */
     meta(i) {
       const out = {};
       for (const f of metaFields) out[f] = strings.get(t.cols[f][i]);
       return out;
     },
-    setMeta(i, m) {
+    setMeta(i, m, level = 2) {
       for (const f of metaFields) t.cols[f][i] = strings.ref(m[f] ?? null);
-      t.known[i] = 1;
+      t.known[i] = level;
     },
     /** Posición del hueco de `day` para escribir (avanzando `lastDay`), o -1 si el día ya no se guarda. */
     slot(i, day) {
@@ -325,13 +326,17 @@ export function createPunctualityBook({ keep = KEEP_DAYS, maxServices = MAX_SERV
     if (strings.size() > STRINGS_MAX) strings.compact([...services.columns(), ...lines.columns()]);
   }
 
-  function lineIdx(key, src) {
+  /**
+   * `level`: 2 si `src` es un vehículo, 1 si es el viaje de una cancelación. Lo del vehículo manda: su fuente
+   * es la que publica el retraso (la de la atribución), no la de los avisos.
+   */
+  function lineIdx(key, src, level) {
     const i = lines.idx(key, true);
     if (i < 0) {
       full.lines = true;
       return -1;
     }
-    if (src && !lines.hasMeta(i)) lines.setMeta(i, metaOf(src));
+    if (src && !lines.hasMeta(i, level)) lines.setMeta(i, metaOf(src), level);
     return i;
   }
 
@@ -343,7 +348,8 @@ export function createPunctualityBook({ keep = KEEP_DAYS, maxServices = MAX_SERV
       return -1;
     }
     // Su origen o su destino pueden cambiar de un día a otro: se toman al empezar cada recorrido.
-    if (src && (refresh || !services.hasMeta(i))) services.setMeta(i, metaOf(src, { lineKey: lineKey ?? services.meta(i).lineKey }));
+    const level = refresh ? 2 : 1;
+    if (src && (refresh || !services.hasMeta(i))) services.setMeta(i, metaOf(src, { lineKey: lineKey ?? services.meta(i).lineKey }), level);
     return i;
   }
 
@@ -496,7 +502,7 @@ export function createPunctualityBook({ keep = KEEP_DAYS, maxServices = MAX_SERV
         const serviceKey = v.follow.find((k) => followKind(k) === 'servicio') ?? null;
         const lineKey = v.follow.find((k) => followKind(k) === 'linea') ?? null;
         if (lineKey) {
-          const li = lineIdx(lineKey, v);
+          const li = lineIdx(lineKey, v, 2);
           const o = li < 0 ? -1 : lines.slot(li, today);
           if (o >= 0) {
             const d = lines.t.data;
@@ -562,7 +568,7 @@ export function createPunctualityBook({ keep = KEEP_DAYS, maxServices = MAX_SERV
             const o = si < 0 ? -1 : services.slot(si, onDay);
             if (o >= 0) services.t.data.flags[o] |= flag;
           } else if (kind === 'linea' && first) {
-            const li = lineIdx(key, { ...t, source: e.source });
+            const li = lineIdx(key, { ...t, source: e.source }, 1);
             const o = li < 0 ? -1 : lines.slot(li, onDay);
             if (o >= 0) inc16(lines.t.data.cancelled, o);
           }
