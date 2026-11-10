@@ -7,11 +7,11 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { strToU8, zipSync } from 'fflate';
 import { createSources } from '../../server/adapters/outbound/sources/index.js';
-import { createRenfeSources, renfeFollow } from '../../server/adapters/outbound/sources/renfe.js';
+import { RENFE_NUCLEOS, createRenfeSources, renfeFollow } from '../../server/adapters/outbound/sources/renfe.js';
 import { createGtfsScheduleSource } from '../../server/adapters/outbound/sources/gtfs-horario.js';
 import { vehiclesFromFeed } from '../../server/adapters/outbound/sources/gtfs-rt.js';
 import { createFgcSource } from '../../server/adapters/outbound/sources/fgc.js';
-import { isFollowKey, followKind, scheduledServiceKey } from '../../server/domain/seguir.js';
+import { FOLLOW_KEY_MAX, describeFollow, isFollowKey, followKind, parseFollowKey, scheduledServiceKey } from '../../server/domain/seguir.js';
 
 const { transit_realtime: rt } = createRequire(import.meta.url)('gtfs-realtime-bindings');
 const noop = () => {};
@@ -68,22 +68,39 @@ test('Renfe: Cercanías por su número y su línea con el núcleo; AV/LD/MD por 
     trip: { tripId }, position: { latitude: 39.41, longitude: -0.39 }, currentStatus: 'STOPPED_AT', stopId: '64103', vehicle: { id, label },
   } });
   const feeds = {
-    'vehicle_positions.json': { entity: [position('4006J24054C2', '24054', 'C2-24054-PLATF.(2)'), position('4099J99999C9', '99999', 'C9-99999')] },
+    'vehicle_positions.json': { entity: [position('4006J24054C2', '24054', 'C2-24054-PLATF.(2)'), position('4099J99999C9', '99999', 'C9-99999'),
+      position('9913M11111C1', '11111', 'C1-11111'), position('9913M22222C1', '22222', 'C1-22222')] },
     'vehicle_positions_LD.json': { entity: [position('0805812026-11-10', '08058')] },
   };
   const http = { json: async (url) => feeds[url.split('/').pop()] ?? { entity: [] } };
   const cache = { bytes: async (url, name) => (name === 'renfe-fomento_transit.zip' ? cercaniasZip : ldZip) };
-  const [cercanias, ld] = createRenfeSources({ http, cache, stations, log: quiet });
-  const { vehicles: [c2, unknown] } = await cercanias.fetch();
-  assert.deepEqual(c2.follow, ['s-renfe-24054', 'l-renfe-40-C2']);
-  assert.deepEqual(unknown.follow, ['s-renfe-99999', 'l-renfe-40-C9'], 'sin su viaje en el horario: el núcleo, del viaje');
+  const warnings = [];
+  const [cercanias, ld] = createRenfeSources({ http, cache, stations, log: { ...quiet, warn: (m) => warnings.push(m) } });
+  const { vehicles: [c2, unknown, newNucleo, again] } = await cercanias.fetch();
+  assert.deepEqual(c2.follow, ['s-renfe-24054', 'l-renfe-Valencia-C2']);
+  assert.deepEqual(unknown.follow, ['s-renfe-99999', 'l-renfe-Valencia-C9'], 'sin su viaje en el horario: el núcleo, del viaje');
+  assert.deepEqual(newNucleo.follow, ['s-renfe-11111', 'l-renfe-99-C1'], 'un núcleo que no está en la tabla sigue funcionando con su código');
+  assert.equal(again.follow[1], 'l-renfe-99-C1');
+  assert.equal(warnings.filter((w) => /núcleo de Cercanías 99/.test(w)).length, 1, 'y se avisa una vez');
   const { vehicles: [avant] } = await ld.fetch();
   assert.deepEqual(avant.follow, ['s-renfe-8058', 'l-renfe-Avant']);
-  for (const v of [c2, unknown, avant]) assertFollow(v);
+  for (const v of [c2, unknown, newNucleo, avant]) assertFollow(v);
+});
+
+test('Renfe: las líneas de todos los núcleos de Cercanías caben, se leen y no acaban en huella', () => {
+  for (const [code, name] of Object.entries(RENFE_NUCLEOS)) {
+    for (const line of ['C1', 'C10', 'C4a', 'R16', 'R2N']) {
+      const [, key] = renfeFollow({ number: '12345', line, lineKey: `${code}|${line}` });
+      assert.ok(isFollowKey(key) && key.length <= FOLLOW_KEY_MAX, key);
+      assert.deepEqual(parseFollowKey(key).parts, [name, line], key);
+      assert.equal(describeFollow(key, { operator: 'Renfe', service: 'Cercanías' }), `Cercanías ${line} · Renfe (${name})`);
+    }
+  }
 });
 
 test('Renfe: el mismo número en Rodalies y en AV/LD/MD es el mismo servicio', () => {
   const rodalies = renfeFollow({ number: '18093', line: 'R16', lineKey: '51|R16', tripId: '5113M18093R16' });
+  assert.equal(rodalies[1], 'l-renfe-Catalunya-R16');
   const regional = renfeFollow({ number: '18093', line: 'Regional Exprés' });
   assert.equal(rodalies[0], regional[0]);
   assert.equal(rodalies[0], 's-renfe-18093');
