@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { isStationCode } from '../../../domain/model.js';
 import { followKind, isFollowKey } from '../../../domain/seguir.js';
+import { isDay } from '../../../domain/dia.js';
 import { McpBusy, PROTOCOL_VERSIONS, RPC, idOf, isModernVersion, versionOf } from '../mcp/mcp.js';
 
 const MIME = {
@@ -194,7 +195,8 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
       }
       if (days && (url.pathname === '/api/dia' || url.pathname.startsWith('/api/dia/'))) {
         const date = url.pathname === '/api/dia' ? null : decodeOrNull(url.pathname.slice('/api/dia/'.length));
-        if (date !== null && !DAY_PATH.test(date)) return send(res, 400, { error: 'Fecha inválida: AAAA-MM-DD' });
+        // Con forma de fecha y que exista: el 30 de febrero o el mes 13 también son inválidos (400), no «sin datos».
+        if (date !== null && !isDay(date)) return send(res, 400, { error: 'Fecha inválida: AAAA-MM-DD' });
         return sendDay(req, res, date);
       }
       if (url.pathname.startsWith('/api/tracks/')) {
@@ -464,7 +466,6 @@ const CATALOG_CACHE = 'public, max-age=600, s-maxage=3600';
 const PUNCTUALITY_CACHE = 'public, max-age=60, s-maxage=120';
 
 // El día en cifras (sendDay): el de hoy, cada minuto; uno pasado ya no cambia.
-const DAY_PATH = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_TODAY_TTL_MS = 60_000;
 const DAY_PAST_TTL_MS = 3600_000;
 const DAY_PAST_CACHE = 'public, max-age=3600, s-maxage=86400';

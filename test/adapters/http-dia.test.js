@@ -52,10 +52,11 @@ test('un día pasado: 503 mientras se lee (sin guardar nada) y después 200 guar
 });
 
 test('fechas mal escritas, 400; sin datos, 404; sin el caso de uso, la ruta no existe', async () => {
-  for (const path of ['/api/dia/hoy', '/api/dia/2026-11-9', '/api/dia/..%2F..%2Fx', '/api/dia/2026-11-10/x']) {
+  // Con forma de fecha pero que no existe (30 de febrero, mes 13), también 400: no es «sin datos».
+  for (const path of ['/api/dia/hoy', '/api/dia/2026-11-9', '/api/dia/..%2F..%2Fx', '/api/dia/2026-11-10/x', '/api/dia/2026-02-30', '/api/dia/2026-13-01']) {
     assert.equal((await fetch(`${base}${path}`)).status, 400, path);
   }
-  assert.equal((await fetch(`${base}/api/dia/2026-02-30`)).status, 404);
+  assert.equal((await fetch(`${base}/api/dia/2026-01-01`)).status, 404, 'una fecha que existe, sin datos');
   const bare = createHttpServer({ query: {}, log: { error() {}, info() {}, warn() {} }, publicDir: '/nonexistent', vendorDirs: {} });
   await new Promise((resolve) => bare.listen(0, '127.0.0.1', resolve));
   try {
