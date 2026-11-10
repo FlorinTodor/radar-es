@@ -147,6 +147,8 @@ export function createGtfsRtAlertsSource({ http, cache, log, now = Date.now }, {
           ...(near ? { area: near.name } : {}),
           start: period?.start ? +period.start * 1000 : null,
           end: period?.end ? +period.end * 1000 : null,
+          // La línea que nombra: quien la sigue (domain/seguir.js) se entera del aviso.
+          ...(line ? { follow: followOf(lineKey({ operator, line })) } : {}),
         });
       }
       const found = [...cancellations.values()];

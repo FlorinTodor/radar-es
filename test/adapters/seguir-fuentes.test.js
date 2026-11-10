@@ -11,6 +11,7 @@ import { createRenfeSources, renfeFollow } from '../../server/adapters/outbound/
 import { createGtfsScheduleSource } from '../../server/adapters/outbound/sources/gtfs-horario.js';
 import { vehiclesFromFeed } from '../../server/adapters/outbound/sources/gtfs-rt.js';
 import { createFgcSource } from '../../server/adapters/outbound/sources/fgc.js';
+import { createRodaliesSource } from '../../server/adapters/outbound/sources/rodalies.js';
 import { isFollowKey, followKind, scheduledServiceKey } from '../../server/domain/seguir.js';
 
 const { transit_realtime: rt } = createRequire(import.meta.url)('gtfs-realtime-bindings');
@@ -171,4 +172,15 @@ test('FGC: su línea (da la unidad, no un número de servicio que se repita)', a
   const { vehicles: [v] } = await createFgcSource({ http: { json: async () => ({ results: [record] }) }, nap: { enabled: false } }).fetch();
   assert.deepEqual(v.follow, ['l-fgc-S2']);
   assertFollow(v);
+});
+
+test('avisos de Rodalies (RSS de la Generalitat): las claves de sus líneas, las de los trenes de Renfe (núcleo 51)', async () => {
+  const rss = `<?xml version="1.0"?><rss><channel><lastBuildDate>Tue, 10 Nov 2026 10:00:00 GMT</lastBuildDate>
+    <item><title>Línea R14,R13. Retrasos por una avería.</title><description>Retrasos de 20 minutos por una avería en Lleida.</description></item>
+    <item><title>Aviso general.</title><description>Huelga de maquinistas: servicios mínimos.</description></item>
+    </channel></rss>`;
+  const source = createRodaliesSource({ http: { text: async () => rss }, stations: { all: () => [] } });
+  const { events } = await source.fetch();
+  assert.deepEqual(events[0].follow, ['l-renfe-51-R14', 'l-renfe-51-R13']);
+  assert.equal(events[1].follow, undefined, 'sin líneas, sin claves');
 });

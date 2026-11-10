@@ -193,7 +193,10 @@ test('el aviso de Renfe que nombra el tren cancelado (por su hora y su origen) y
     { id: 'a4', alert: { informedEntity: [{ routeId: '40T0002C1' }], descriptionText: text('Por una avería, los trenes de la C1 circulan con retraso.') } },
   ] };
   const avisos = avisosOf(createRenfeSources({ http: httpWith(feeds({ 'alerts.json': alerts })), cache: memoryCache(), stations, log }));
-  const cerc = (await avisos.fetch()).events.find((e) => e.id === 'renfe-cancelado:4006J20109C2');
+  const { events } = await avisos.fetch();
+  const cerc = events.find((e) => e.id === 'renfe-cancelado:4006J20109C2');
+  assert.deepEqual(events.find((e) => e.id === 'renfe-aviso:a2').follow, ['l-renfe-40-C2'], 'el aviso lleva la clave de su línea, con su núcleo');
+  assert.deepEqual(events.find((e) => e.id === 'renfe-aviso:a4').follow, ['l-renfe-40-C1']);
   assert.equal(cerc.trip.notice.text, alerts.entity[0].alert.descriptionText.translation[0].text);
   assert.match(cerc.description, /Aviso de Renfe sobre este viaje: Línea C2\. Tren con salida prevista a las 08:00h/);
   assert.deepEqual(cerc.trip.lineNotices.map((n) => n.text), ['Por obras en la infraestructura entre Moixent y Xàtiva, algunos trenes circulan con retraso.'],
