@@ -229,12 +229,12 @@ test('un recorrido que no vuelve en RUN_GAP_MS se olvida; si reaparece, es otro 
 
 test('de una línea, lo que dice su vehículo (la fuente del retraso) manda sobre lo que dice una cancelación', () => {
   const book = createPunctualityBook();
-  const cancelled = { id: 'c', category: 'cancelacion', type: 'cancelado', source: 'renfe-avisos', trip: { operator: 'Renfe', service: 'Cercanías', line: 'C1', follow: ['l-renfe-10-C1'] } };
+  const cancelled = { id: 'c', category: 'cancelacion', type: 'cancelado', source: 'renfe-avisos', trip: { operator: 'Renfe', service: 'Cercanías', line: 'C1', follow: ['l-renfe-Madrid-C1'] } };
   book.cancellations([cancelled], T0);
-  assert.equal(book.report('l-renfe-10-C1', T0).source, 'renfe-avisos');
-  const c1 = { id: 'renfe-c:1', source: 'renfe-cercanias', mode: 'cercanias', operator: 'Renfe', service: 'Cercanías', line: 'C1', delay: 2, follow: ['l-renfe-10-C1'] };
+  assert.equal(book.report('l-renfe-Madrid-C1', T0).source, 'renfe-avisos');
+  const c1 = { id: 'renfe-c:1', source: 'renfe-cercanias', mode: 'cercanias', operator: 'Renfe', service: 'Cercanías', line: 'C1', delay: 2, follow: ['l-renfe-Madrid-C1'] };
   book.observe([c1], T0 + MIN);
-  assert.equal(book.report('l-renfe-10-C1', T0 + MIN).source, 'renfe-cercanias');
+  assert.equal(book.report('l-renfe-Madrid-C1', T0 + MIN).source, 'renfe-cercanias');
   book.cancellations([{ ...cancelled, id: 'c2' }], T0 + 2 * MIN);
-  assert.equal(book.report('l-renfe-10-C1', T0 + 2 * MIN).source, 'renfe-cercanias', 'una cancelación después no lo cambia');
+  assert.equal(book.report('l-renfe-Madrid-C1', T0 + 2 * MIN).source, 'renfe-cercanias', 'una cancelación después no lo cambia');
 });

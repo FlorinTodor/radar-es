@@ -54,7 +54,7 @@ test('cada minuto: vehículos de fuentes al día y cancelaciones en vigor; el in
   assert.equal(bus.credit, 'Font: AMB', 'la del operador, si la fuente agrupa a varios');
   assert.equal(p.report('l-fgc-S1'), null, 'su fuente no estaba al día');
   assert.equal(p.report('s-renfe-5962').days.at(-1).status, 'cancelado');
-  assert.equal(p.report('l-renfe-Avant').name, 'Tren Avant · Renfe', 'sin repetir el producto, que es su línea');
+  assert.equal(p.report('l-renfe-Avant').name, 'Avant · Renfe', 'sin repetir el producto, que es su línea');
   assert.equal(p.report('s-renfe-1'), null, 'una cancelación que ya no está en vigor no cuenta');
 });
 
@@ -85,3 +85,15 @@ test('con la tabla llena se avisa una vez en el registro', () => {
   assert.match(warnings[0], /llena/);
 });
 
+
+test('el informe de una línea de Cercanías lleva su núcleo en el nombre (el de su clave, no el municipio del vehículo)', () => {
+  const f = fixture();
+  f.state.vehicles = [{
+    id: 'renfe-c:3013M23719C5', source: 'renfe-ld', mode: 'cercanias', operator: 'Renfe', service: 'Cercanías', line: 'C5', label: '23719',
+    area: 'Móstoles', delay: 1, follow: ['s-renfe-23719', 'l-renfe-Madrid-C5'],
+  }];
+  const p = makeRecordPunctuality({ ...f, log: quiet });
+  p.tick();
+  assert.equal(p.report('l-renfe-Madrid-C5').name, 'Cercanías C5 · Renfe (Madrid)');
+  assert.equal(p.report('s-renfe-23719').name, 'Cercanías 23719');
+});

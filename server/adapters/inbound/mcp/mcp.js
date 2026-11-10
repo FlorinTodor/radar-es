@@ -423,7 +423,7 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
         + 'La clave sale del campo «follow» de buscar_trenes o de incidencias: empieza por «s-» la de un servicio y por «l-» la de una línea.',
       inputSchema: {
         type: 'object',
-        properties: { key: { type: 'string', maxLength: 64, description: 'Clave de un servicio («s-renfe-8058») o de una línea («l-renfe-30-C5»).' } },
+        properties: { key: { type: 'string', maxLength: 64, description: 'Clave de un servicio («s-renfe-8058») o de una línea («l-renfe-Madrid-C5»).' } },
         required: ['key'],
         additionalProperties: false,
       },
