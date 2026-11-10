@@ -135,3 +135,33 @@ test('el historial de posiciones se guarda cada minuto, sin empezar una copia en
   await flush();
   assert.equal(saves, 2);
 });
+
+test('los trabajos periódicos (la puntualidad): cada uno a su ritmo, sin empezar uno encima de otro; si fallan, se apunta y siguen', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const runs = { lecturas: 0, copias: 0 };
+  let finish;
+  const warnings = [];
+  const scheduler = startPolling({
+    feeds: [], ingestSource: async () => true, detectAlerts() {}, log: { ...quietLog, warn: (m) => warnings.push(m) },
+    tasks: [
+      { name: 'puntualidad', every: MIN, run: () => { runs.lecturas++; if (runs.lecturas === 2) throw new Error('fallo'); } },
+      { name: 'puntualidad', every: 15 * MIN, run: () => { runs.copias++; return new Promise((resolve) => { finish = resolve; }); } },
+    ],
+  });
+  const minutes = async (n) => {
+    for (let i = 0; i < n; i++) {
+      t.mock.timers.tick(MIN);
+      await flush();
+    }
+  };
+  await minutes(15);
+  assert.deepEqual(runs, { lecturas: 15, copias: 1 });
+  assert.deepEqual(warnings, ['[puntualidad] fallo']);
+  await minutes(15);
+  assert.equal(runs.copias, 1, 'la copia anterior aún no ha terminado');
+  finish();
+  await flush();
+  scheduler.stop();
+  await minutes(60);
+  assert.deepEqual(runs, { lecturas: 30, copias: 1 });
+});

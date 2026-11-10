@@ -10,7 +10,7 @@ import { performance } from 'node:perf_hooks';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { isStationCode } from '../../../domain/model.js';
-import { isFollowKey } from '../../../domain/seguir.js';
+import { followKind, isFollowKey } from '../../../domain/seguir.js';
 import { McpBusy, PROTOCOL_VERSIONS, RPC, idOf, isModernVersion, versionOf } from '../mcp/mcp.js';
 
 const MIME = {
@@ -167,6 +167,15 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
         const code = decodeOrNull(url.pathname.slice('/api/stations/'.length));
         const station = isStationCode(code) ? query.station(code) : null;
         return station ? sendJson(req, res, 200, station, CATALOG_CACHE) : send(res, 404, { error: 'Estación no encontrada' });
+      }
+      // Puntualidad de un servicio o de una línea (su clave de domain/seguir.js): una búsqueda en memoria,
+      // sin cálculo que acotar. Cambia cada minuto.
+      if (url.pathname.startsWith('/api/puntualidad/')) {
+        const key = decodeOrNull(url.pathname.slice('/api/puntualidad/'.length));
+        const kind = followKind(key);
+        if (kind !== 'servicio' && kind !== 'linea') return send(res, 400, { error: 'Clave de servicio o de línea inválida' });
+        const report = query.punctuality?.(key) ?? null;
+        return report ? sendJson(req, res, 200, report, PUNCTUALITY_CACHE) : send(res, 404, { error: 'Sin datos de puntualidad' });
       }
       if (url.pathname.startsWith('/api/ahead/')) {
         const id = decodeOrNull(url.pathname.slice('/api/ahead/'.length));
@@ -418,6 +427,8 @@ const LOOPBACK_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?
 // no es un vehículo: así nadie llena el memo con claves enormes.
 const MAX_VEHICLE_ID = 256;
 const CATALOG_CACHE = 'public, max-age=600, s-maxage=3600';
+/** Puntualidad de una clave: lo de hoy cambia cada minuto; lo de días anteriores, no. */
+const PUNCTUALITY_CACHE = 'public, max-age=60, s-maxage=120';
 /** Directo: Cloudflare lo guarda `edge` s y, si el servidor no responde, sirve la última copia 15 min. */
 const liveCache = (edge) => `public, max-age=0, s-maxage=${edge}, stale-while-revalidate=${edge * 3}, stale-if-error=900`;
 /**
@@ -478,6 +489,7 @@ export function routeLabel(rawUrl, { routes, vendorPrefixes = [], www = false })
   if (path === '/mcp' || Object.hasOwn(routes, path) || path === '/api/burnt-areas') return path;
   if (path.startsWith('/api/')) {
     if (path.startsWith('/api/stations/')) return '/api/stations/:code';
+    if (path.startsWith('/api/puntualidad/')) return '/api/puntualidad/:clave';
     for (const p of ['ahead', 'stops', 'tracks']) if (path.startsWith(`/api/${p}/`)) return `/api/${p}/:id`;
     return '/api/otra';
   }

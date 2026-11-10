@@ -32,8 +32,11 @@ export function nextDelay(interval, failures) {
  *   feeds: qué fuentes leer y cada cuánto (ms). El planificador sólo conoce su id: leerlas es
  *   cosa del caso de uso ingestSource.
  *   saveTracks: guarda el historial de posiciones (caso de uso keep-tracks), cada minuto.
+ *   tasks: otros trabajos periódicos, cada uno con su nombre (para el registro), cada cuánto (ms) y qué hace
+ *   (la puntualidad: sus lecturas cada minuto y su copia cada cuarto de hora). Si uno tarda más que su
+ *   intervalo, no se empieza otro encima; si falla, se apunta y sigue.
  */
-export function startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, saveTracks, log }) {
+export function startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, saveTracks, tasks = [], log }) {
   const timers = new Map();
   let pending = null;
   let stopped = false;
@@ -79,10 +82,19 @@ export function startPolling({ feeds, ingestSource, detectAlerts, refreshCatalog
     saving = true;
     Promise.resolve().then(saveTracks).catch((err) => log.warn(`[estelas] ${err.message}`)).finally(() => { saving = false; });
   }, TRACKS_SAVE_MS);
+  const taskTimers = tasks.map(({ name, every, run }) => {
+    let busy = false;
+    return setInterval(() => {
+      if (busy) return;
+      busy = true;
+      Promise.resolve().then(run).catch((err) => log.warn(`[${name}] ${err?.message ?? err}`)).finally(() => { busy = false; });
+    }, every);
+  });
 
   return {
     stop() {
       stopped = true;
+      for (const t of taskTimers) clearInterval(t);
       clearInterval(heartbeat);
       clearInterval(catalogs);
       clearInterval(tracksTimer);

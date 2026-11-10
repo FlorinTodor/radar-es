@@ -41,6 +41,10 @@ const query = {
   kpis: () => ({ current: { vehicles: 3, byMode: { av: 1, cercanias: 1, otros: 1 }, delayed: 1, withDelayInfo: 2, medianDelay: 6, maxDelay: 12 }, history: [] }),
   stations: () => stations,
   station: (code) => stations.find((s) => s.code === code) ?? null,
+  punctuality: (key) => (key === 's-renfe-3123' ? {
+    key, kind: 'servicio', name: 'AVE 03123', operator: 'Renfe', source: 'renfe-ld', lateMinutes: 5,
+    days: [{ day: '2026-11-09', status: 'tarde', delay: 12, max: 14 }], summary: { ran: 1, late: 1, cancelled: 0 }, recent: { days: 1, late: 1, cancelled: 0 },
+  } : null),
 };
 const mcp = createMcpHandler({ query, about: { publicUrl: 'https://example.test' }, version: '9.9.9', now: () => T });
 const call = (name, args = {}) => mcp({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }).result;
@@ -99,7 +103,7 @@ test('notificaciones sin respuesta; método desconocido y mensaje roto con su er
 
 test('tools/list: todas de sólo lectura e idempotentes, con su esquema de argumentos y siempre en el mismo orden', () => {
   const { tools } = mcp({ jsonrpc: '2.0', id: 1, method: 'tools/list' }).result;
-  assert.deepEqual(tools.map((t) => t.name), ['buscar_trenes', 'buscar_estaciones', 'estacion', 'incidencias', 'alertas', 'resumen', 'estado_fuentes']);
+  assert.deepEqual(tools.map((t) => t.name), ['buscar_trenes', 'buscar_estaciones', 'estacion', 'incidencias', 'alertas', 'resumen', 'estado_fuentes', 'puntualidad']);
   for (const t of tools) {
     assert.equal(t.inputSchema.type, 'object', t.name);
     assert.deepEqual(t.annotations, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, t.name);
@@ -294,7 +298,7 @@ test('presupuesto: sólo lo gasta lo que hay que calcular; sin fichas, McpBusy; 
   ask('alertas', {});
   assert.equal(tokens, 0);
   ask('alertas', {}); // guardada
-  assert.deepEqual(fresh({ jsonrpc: '2.0', id: 2, method: 'tools/list' }, { budget }).result.tools.length, 7);
+  assert.deepEqual(fresh({ jsonrpc: '2.0', id: 2, method: 'tools/list' }, { budget }).result.tools.length, 8);
   assert.throws(() => ask('resumen', {}), McpBusy);
 });
 
@@ -505,4 +509,20 @@ test('cancelaciones retiradas, con su motivo, y trenes sin datos (también en la
   const station = ask('estacion', { code: '35400' });
   assert.deepEqual(station.missingTrains.map((x) => [x.id, x.timeHere]), [['renfe-sin-datos:37090', '10:40']]);
   assert.deepEqual(station.cancellations.map((x) => x.id), ['renfe-cancelado:ld:00291']);
+});
+
+test('puntualidad: la de un servicio o una línea por su clave, con la atribución de su fuente; si no es una clave o no hay datos, se explica', () => {
+  const r = call('puntualidad', { key: 's-renfe-3123' }).structuredContent;
+  assert.equal(r.punctuality.name, 'AVE 03123');
+  assert.deepEqual(r.punctuality.summary, { ran: 1, late: 1, cancelled: 0 });
+  assert.deepEqual(r.sources.map((s) => [s.source, s.attribution]), [['renfe-ld', 'Origen de los datos: Renfe Operadora']]);
+  const none = call('puntualidad', { key: 's-renfe-1' });
+  assert.equal(none.isError, true);
+  assert.match(none.content[0].text, /no tiene datos de puntualidad de «s-renfe-1»/);
+  for (const key of ['p-71801', 'hola', 's-']) {
+    const bad = call('puntualidad', { key });
+    assert.equal(bad.isError, true, key);
+    assert.match(bad.content[0].text, /No es la clave de un servicio/);
+  }
+  assert.match(call('puntualidad', {}).content[0].text, /Falta el argumento «key»/);
 });

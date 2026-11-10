@@ -141,6 +141,15 @@
  */
 
 /**
+ * Lo guardado de la puntualidad histórica (el caso de uso record-punctuality y domain/puntualidad.js), que
+ * sobrevive a reinicios y despliegues. Como TrackStore: se escribe de golpe, y en un relevo el servidor que
+ * arranca lee la última copia que dejó el otro.
+ * @typedef {object} PunctualityStorePort
+ * @property {() => Promise<object|null>} load  La última copia guardada, o null si no hay o no se lee.
+ * @property {(snapshot: object) => Promise<void>} save  Nunca rechaza: si no puede escribir, lo registra.
+ */
+
+/**
  * Teselas y consultas de capas externas (IGN, EFFIS) servidas desde nuestro dominio para que
  * Cloudflare las guarde. Lo usa el caso de uso serve-tiles, que antes decide qué teselas se
  * pueden pedir (domain/tiles.js): el proveedor descarga y guarda en disco todo lo que se le pide.
@@ -190,6 +199,7 @@ export const PORT_MEMBERS = {
     'pushKpiSample', 'kpiHistory'],
   History: ['append'],
   TrackStore: ['load', 'save'],
+  PunctualityStore: ['load', 'save'],
   TileProvider: ['layers', 'cacheControl', 'tile', 'burntAreas'],
   Clock: ['now'],
   Logger: ['info', 'warn', 'error'],
