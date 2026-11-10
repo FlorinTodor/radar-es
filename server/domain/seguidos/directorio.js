@@ -97,24 +97,31 @@ export function entriesOf(x, now) {
 
 /**
  * Pone al día el directorio con lo que se ve ahora (vehículos y viajes de las cancelaciones y trenes sin datos)
- * y olvida lo que no se ve desde hace DIRECTORY_KEEP_MS. Cambia `dir` (es del caso de uso que lo guarda).
+ * y olvida lo que no se ve desde hace DIRECTORY_KEEP_MS. Cambia `dir` (es del caso de uso que lo guarda). El
+ * nombre sólo se calcula para las claves nuevas: de las que ya están, sólo cuándo se vieron y por dónde pasan
+ * (con miles de autobuses por minuto, rehacerlo todo cada vez costaba demasiado).
  * @param {Map<string, Entry>} dir
  * @param {{ vehicles?: object[], events?: object[], now: number, max?: number, keepMs?: number }} ctx
  */
 export function updateDirectory(dir, { vehicles = [], events = [], now, max = DIRECTORY_MAX, keepMs = DIRECTORY_KEEP_MS }) {
-  const add = (entry) => {
-    const old = dir.get(entry.key);
-    if (!old) {
-      dir.set(entry.key, entry);
-      return;
+  const visit = (x) => {
+    if (!Array.isArray(x?.follow)) return;
+    let fresh = null;
+    for (const key of x.follow) {
+      const old = dir.get(key);
+      if (!old) {
+        fresh ??= entriesOf(x, now);
+        const entry = fresh.find((e) => e.key === key);
+        if (entry) dir.set(key, entry);
+        continue;
+      }
+      old.seen = now;
+      for (const p of [x.origin, x.destination]) if (p && old.places.length < MAX_PLACES && !old.places.includes(p)) old.places.push(p);
+      for (const t of [x.area, x.current, x.next]) if (t && old.towns.length < MAX_TOWNS && !old.towns.includes(t)) old.towns.push(t);
     }
-    old.seen = now;
-    old.name = entry.name;
-    for (const p of entry.places) if (!old.places.includes(p) && old.places.length < MAX_PLACES) old.places.push(p);
-    for (const t of entry.towns) if (!old.towns.includes(t) && old.towns.length < MAX_TOWNS) old.towns.push(t);
   };
-  for (const v of vehicles) for (const e of entriesOf(v, now)) add(e);
-  for (const ev of events) if (ev?.trip) for (const e of entriesOf({ ...ev.trip, follow: ev.trip.follow }, now)) add(e);
+  for (const v of vehicles) visit(v);
+  for (const ev of events) if (ev?.trip) visit(ev.trip);
   for (const [key, e] of dir) if (now - e.seen > keepMs) dir.delete(key);
   if (dir.size > max) {
     const oldest = [...dir.values()].sort((a, b) => a.seen - b.seen).slice(0, dir.size - max);
@@ -131,6 +138,18 @@ export function entryLabel(e) {
 
 const TIME_RE = /^(\d{1,2})[:.h]?(\d{2})$/;
 
+// El texto en el que se busca cada entrada («␠palabra␠palabra␠»), preparado una vez mientras no cambien su
+// nombre ni sus lugares: buscar es mirar si contiene «␠token» (empieza una palabra) o «␠token␠» (la palabra entera).
+const HAYSTACK = new WeakMap();
+function haystackOf(e) {
+  const sig = `${e.name}|${e.places.length}|${e.towns?.length ?? 0}`;
+  const cached = HAYSTACK.get(e);
+  if (cached?.sig === sig) return cached;
+  const prepared = { sig, text: ` ${plainName([e.name, e.operator, ...e.places, ...(e.towns ?? [])].join(' '))} `, line: plainName(e.line ?? '') };
+  HAYSTACK.set(e, prepared);
+  return prepared;
+}
+
 /**
  * Lo que mejor encaja con un texto: un número de servicio («08058», «8058»), una línea con su operador o su
  * ciudad («C4 Madrid», «27 EMT Málaga», «R2 Sants»), una hora («E4 13:10»)… Todas las palabras tienen que
@@ -146,23 +165,34 @@ export function searchDirectory(dir, text, { limit = 8 } = {}) {
   const tokens = plainName(String(text ?? '').slice(0, 200).replace(/\b(\d{1,2})[:.h](\d{2})h?\b/g, '$1$2')).split(' ').filter(Boolean).slice(0, 6);
   if (!tokens.length) return [];
   const scored = [];
+  // Cada palabra, una vez: si es un número (sin ceros a la izquierda) o una hora.
+  const parts = tokens.map((t) => {
+    const time = TIME_RE.exec(t);
+    return { t, number: /^\d+$/.test(t) ? String(Number(t)) : null, time: time ? `${time[1].padStart(2, '0')}:${time[2]}` : null, prefix: ` ${t}`, whole: ` ${t} ` };
+  });
+  // Un servicio sólo sale por su número o su hora: sin palabras así, ni se miran.
+  const canBeService = parts.some((p) => p.number || p.time);
   for (const e of dir.values()) {
-    const words = new Set(plainName([e.name, e.operator, ...e.places, ...(e.towns ?? [])].join(' ')).split(' ').filter(Boolean));
-    const line = plainName(e.line ?? '');
+    if (e.kind === 'servicio' && !canBeService) continue;
+    let prepared = null; // el texto de la entrada, sólo si hace falta (un número se compara sin él)
+    const line = () => (prepared ??= haystackOf(e)).line;
+    const words = () => (prepared ??= haystackOf(e)).text;
     let score = 0;
     let ok = true;
     let identified = e.kind !== 'servicio';
-    for (const t of tokens) {
-      const time = TIME_RE.exec(t);
-      if (/^\d+$/.test(t) && e.number !== null && String(Number(t)) === e.number) {
+    for (const { t, number, time, prefix, whole } of parts) {
+      if (number && e.number !== null && number === e.number) {
         score += 100;
         identified = true;
-      } else if (time && e.departure === `${time[1].padStart(2, '0')}:${time[2]}`) {
+      } else if (time && e.departure === time) {
         score += 30;
         identified = true;
-      } else if (line && t === line) score += 50;
-      else if (line && t.length >= 2 && line.startsWith(t) && /\d/.test(t)) score += 20; // «C4» → C4a, C4b
-      else if (words.has(t) || (t.length >= 3 && [...words].some((w) => w.startsWith(t)))) score += 5;
+      } else if (e.kind === 'servicio' && e.number !== null && number) {
+        ok = false; // otro número: no es este servicio
+        break;
+      } else if (line() && t === line()) score += 50;
+      else if (line() && t.length >= 2 && line().startsWith(t) && /\d/.test(t)) score += 20; // «C4» → C4a, C4b
+      else if (words().includes(whole) || (t.length >= 3 && words().includes(prefix))) score += 5;
       else {
         ok = false;
         break;

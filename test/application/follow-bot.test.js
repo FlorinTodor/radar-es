@@ -209,3 +209,11 @@ test('un chat que bloquea el bot se olvida', () => {
   bot.forget(CHAT);
   assert.deepEqual(bot.stats(), { chats: 0, subs: 0 });
 });
+
+test('una inundación de mensajes de un chat: se avisa una vez y lo demás de ese minuto se ignora', () => {
+  const { say } = setup({ limits: { messagesPerMinute: 3 } });
+  for (let i = 0; i < 3; i++) assert.equal(say('/ayuda').length, 1);
+  assert.match(say('/ayuda')[0].text, /^Demasiados mensajes seguidos/);
+  assert.deepEqual(say('/ayuda'), []);
+  assert.equal(say('/ayuda', 2002).length, 1, 'los demás chats, igual');
+});

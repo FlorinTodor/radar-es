@@ -15,9 +15,13 @@ import { findProvince, provinceById } from '../../domain/provincias.js';
 /** Topes: chats en total, cosas seguidas por chat (provincias incluidas), provincias por chat y menús. */
 export const LIMITS = Object.freeze({
   chats: 20_000, subsPerChat: 20, provincesPerChat: 5, menuItems: 8, menuTtlMs: 30 * 60_000, delayMin: DELAY_MIN,
+  // Mensajes por minuto de un mismo chat: más es una inundación (cada búsqueda recorre el directorio entero).
+  messagesPerMinute: 20,
 });
 // Lo que se sigue aunque no haya nada que avisar: cada tanto se guarda igualmente (la hora de la última ronda).
 const SAVE_EVERY_MS = 10 * 60_000;
+// El directorio de lo que se puede seguir se pone al día como mucho cada tanto (son miles de vehículos).
+const DIRECTORY_EVERY_MS = 5 * 60_000;
 const BUTTON_MAX = 60;
 
 const num = (x) => (Number.isFinite(x) ? x : 0);
@@ -45,8 +49,16 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
   let offset = 0;
   const directory = new Map();
   const menus = new Map(); // chat → { kind: 'add'|'drop', items, at }: los botones de la última lista
+  const rate = new Map(); // chat → { from, count }: sus mensajes del último minuto
   let dirty = false;
   let savedAt = 0;
+  let directoryAt = -Infinity;
+  /** Pone al día el directorio si hace falta: cada DIRECTORY_EVERY_MS o, con `key`, si aún no la tiene. */
+  const refreshDirectory = (c, key = null) => {
+    if (c.now - directoryAt < DIRECTORY_EVERY_MS && (!key || directory.has(key))) return;
+    updateDirectory(directory, c);
+    directoryAt = c.now;
+  };
 
   const stationOf = (code) => (code && read.station ? read.station(code) : null);
   const ctx = () => ({ vehicles: read.vehicles(), events: read.events(), now: clock.now(), stationOf, creditOf });
@@ -97,7 +109,7 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
     if (!isFollowKey(key)) return [reply(chatId, 'Eso no es algo que se pueda seguir. Búscalo con /seguir o desde la web.')];
     const c = ctx();
     // Un enlace de la web trae sólo la clave: su nombre, de lo que se ve ahora.
-    if (!name && !directory.has(key)) updateDirectory(directory, c);
+    if (!name) refreshDirectory(c, key);
     const existing = chats.get(chatId);
     if (existing?.subs.has(key)) return [reply(chatId, `Ya sigues ${existing.subs.get(key).name}.\n\nAhora:\n${statusText(key, c)}`)];
     if (count(existing) >= limits.subsPerChat) {
@@ -170,7 +182,7 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
         + '«27 EMT Málaga») o una provincia (/provincia Valencia).')];
     }
     if (isFollowKey(arg)) return follow(chatId, arg);
-    updateDirectory(directory, c);
+    refreshDirectory(c);
     const found = searchDirectory(directory, arg, { limit: limits.menuItems });
     if (!found.length) {
       const p = findProvince(arg);
@@ -191,10 +203,10 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
       if (!chat) return [reply(chatId, 'No sigues nada todavía. Dime qué quieres seguir con /seguir, o mira cómo va algo: /estado 08058.')];
       for (const it of listOf(chat)) blocks.push(`${it.name}:\n${statusText(it.sub, c)}`);
     } else if (isFollowKey(arg)) {
-      if (!directory.has(arg)) updateDirectory(directory, c);
+      refreshDirectory(c, arg);
       blocks.push(`${nameOf(arg)}:\n${statusText(arg, c)}`);
     } else {
-      updateDirectory(directory, c);
+      refreshDirectory(c);
       const found = searchDirectory(directory, arg, { limit: 3 });
       const p = !found.length ? findProvince(arg) : null;
       if (p) blocks.push(`${provinceTitle(p)}:\n${statusText(provinceSub(p.id), c)}`);
@@ -364,6 +376,15 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
     handle(msg) {
       const chatId = msg?.chatId;
       if (!Number.isSafeInteger(chatId)) return { replies: [] };
+      const now = clock.now();
+      const r = rate.get(chatId);
+      if (!r || now - r.from >= 60_000) {
+        if (rate.size > 2 * limits.chats) for (const [id, x] of rate) if (now - x.from >= 60_000) rate.delete(id);
+        rate.set(chatId, { from: now, count: 1 });
+      } else if (++r.count > limits.messagesPerMinute) {
+        // Se avisa una vez; lo demás de ese minuto se ignora.
+        return { replies: r.count === limits.messagesPerMinute + 1 ? [reply(chatId, 'Demasiados mensajes seguidos. Espera un minuto, por favor.')] : [] };
+      }
       if (msg.callback !== undefined) return callback(chatId, msg.callback);
       const { command, arg } = parseCommand(msg.text);
       const run = {
@@ -390,7 +411,7 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
     tick() {
       const c = ctx();
       const { now } = c;
-      updateDirectory(directory, c);
+      refreshDirectory(c);
       for (const [id, m] of menus) if (now - m.at > limits.menuTtlMs) menus.delete(id);
       const keys = new Set();
       const provinces = new Set();
