@@ -3,12 +3,17 @@
 // cómo está ahora. Pocas y claras: hay más de mil incidencias a la vez, casi todas obras, y el bot no puede ser
 // un aluvión. Los textos de las fuentes van tal cual (sus licencias piden no alterarlos, ver /legal), sólo
 // juntados y con lo que añade el radar detrás (si corta la carretera, la gravedad, desde cuándo); la atribución de
-// cada fuente va en cada mensaje. Puro: sin red, ni reloj, ni disco (la hora llega en `now`).
+// cada fuente va en cada mensaje. Los textos, en el idioma de quien los recibe (`tr`, de idioma.js; en español si no
+// se dice): lo que añade el radar, traducido; los títulos que escribe nuestro servidor («Accidente · A-7 km 12.0»),
+// con las plantillas de la web (en-servidor.js); lo que publica cada fuente, tal cual. Puro: sin red, ni reloj, ni
+// disco (la hora llega en `now`).
 import { parseRoadKey, roadCode, roadKey, roadLabel } from '../seguir.js';
 import { PROVINCIAS_ES, findProvince, provinceOfPoint } from '../provincias.js';
+import { ES, frase } from './idioma.js';
+import { SEVERITY_RANK } from '../model.js';
 
-/** Gravedades que cuentan como graves (las de domain/model.js), según su fuente. */
-const SEVERE = new Set(['alta', 'muy alta']);
+/** Gravedades que cuentan como graves (las de domain/model.js), según su fuente: alta o muy alta. */
+const isSevere = (severity) => (SEVERITY_RANK[severity] ?? 0) >= SEVERITY_RANK.alta;
 const WORKS = 'roadMaintenance';
 const ACCIDENT = 'accident';
 /**
@@ -19,16 +24,17 @@ const ACCIDENT = 'accident';
 export const TRAFFIC_FRESH_MS = 6 * 3600_000;
 /** Lo que se cuenta de una carretera o de una provincia en /estado y en el parte; del resto, cuántas son. */
 const STATUS_MAX = 5;
-/** De dónde salen los avisos de tráfico, para decirlo al seguir una carretera. */
-export const TRAFFIC_SOURCES_TEXT = 'Datos de la DGT, del Servei Català de Trànsit y de Tráfico de Euskadi.';
-/** Lo que se añade al seguir una provincia. */
-export const PROVINCE_TRAFFIC_TEXT = 'También de los cortes de carretera y de los accidentes graves (no de las obras ni de las retenciones).';
+/** De dónde salen los avisos de tráfico, para decirlo al seguir una carretera (en español: se traduce con t()). */
+export const TRAFFIC_SOURCES_TEXT = frase('Datos de la DGT, del Servei Català de Trànsit y de Tráfico de Euskadi.');
+/** Lo que se añade al seguir una provincia (en español: se traduce con t()). */
+export const PROVINCE_TRAFFIC_TEXT = frase('También de los cortes de carretera y de los accidentes graves (no de las obras ni de las retenciones).');
 
 const MADRID_TIME = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const MADRID_DATE = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', day: 'numeric', month: 'numeric', year: 'numeric' });
 const MADRID_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit' });
-/** «las 21:52» si es de hoy (en hora de Madrid); si no, «el 21/11/2025». */
-const whenText = (ms, now) => (MADRID_DAY.format(ms) === MADRID_DAY.format(now) ? `las ${MADRID_TIME.format(ms)}` : `el ${MADRID_DATE.format(ms)}`);
+/** «HH:MM» si es de hoy (en hora de Madrid), con `today`; si no, «21/11/2025», con `other`: dos frases de t(). */
+const whenText = (ms, now, today, other, t) => (MADRID_DAY.format(ms) === MADRID_DAY.format(now)
+  ? t(today, { time: MADRID_TIME.format(ms) }) : t(other, { date: MADRID_DATE.format(ms) }));
 
 /** ¿Es una incidencia de tráfico? (y no un aviso de un operador de autobuses, que también va por carretera) */
 export const isTrafficIncident = (e) => e?.category === 'carretera' && e.type !== 'aviso';
@@ -41,7 +47,7 @@ export function roadWorthy(e) {
   if (!isTrafficIncident(e)) return false;
   if (e.closed === true) return true;
   if (e.type === WORKS) return false;
-  return e.type === ACCIDENT || SEVERE.has(e.severity);
+  return e.type === ACCIDENT || isSevere(e.severity);
 }
 
 /**
@@ -51,7 +57,7 @@ export function roadWorthy(e) {
  */
 export function provinceWorthy(e) {
   if (!isTrafficIncident(e) || e.type === WORKS) return false;
-  return e.closed === true || (e.type === ACCIDENT && SEVERE.has(e.severity));
+  return e.closed === true || (e.type === ACCIDENT && isSevere(e.severity));
 }
 
 const BY_COMPACT = new Map(PROVINCIAS_ES.map((p) => [p.id.replaceAll('-', ''), p]));
@@ -85,11 +91,15 @@ export function roadName(code, events = []) {
   return roadLabel(code);
 }
 
-/** El nombre de lo que se sigue: «Carretera A-7» o «Carretera A-7 (Málaga)». */
-export const roadTitle = (name, province = null) => `Carretera ${name}${province ? ` (${province.name})` : ''}`;
+/**
+ * El nombre de lo que se sigue: «Carretera A-7» o «Carretera A-7 (Málaga)». Se guarda en español, como los demás
+ * nombres, y se enseña en el idioma del chat (idioma.js nameText: «A-7 road (Málaga)»).
+ */
+export const roadTitle = (name, province = null) => `${ES.t('Carretera {road}', { road: name })}${province ? ` (${province.name})` : ''}`;
 
-const FILLER_RE = /^(?:la|el|carretera|ctra\.?|autov[ií]a|autopista|nacional)$/i;
-const JOINER_RE = /^(?:en|de|por|provincia)$/i;
+// Lo que se escribe alrededor de la carretera, en español y en inglés («la A-7 en Málaga», «the A-7 in Málaga»).
+const FILLER_RE = /^(?:la|el|carretera|ctra\.?|autov[ií]a|autopista|nacional|the|road|motorway)$/i;
+const JOINER_RE = /^(?:en|de|por|provincia|in|of|province)$/i;
 
 /**
  * Qué carretera pide «/carretera …»: «A-7», «a7», «A 7», «la AP-7 en Tarragona», «N-340 provincia de Cádiz».
@@ -117,41 +127,50 @@ export function parseRoadRequest(text) {
   return key ? roadSub(key) : { error: 'carretera' };
 }
 
-/** Lo que se contesta a un «/carretera …» que no se entiende. */
-export function roadRequestHelp(result, arg = '') {
+/** Lo que se contesta a un «/carretera …» que no se entiende, en el idioma del chat. */
+export function roadRequestHelp(result, arg = '', { t } = ES) {
   if (result.error === 'sin-carretera') {
-    return `Dime también la carretera, por ejemplo: /carretera A-7 ${result.province.name}. Para los avisos de toda la provincia: /provincia ${result.province.name}.`;
+    return t('Dime también la carretera, por ejemplo: /carretera A-7 {province}. Para los avisos de toda la provincia: /provincia {province}.',
+      { province: result.province.name });
   }
-  const intro = result.error === 'vacia' ? 'Dime la carretera' : `No entiendo qué carretera es «${arg}». Escríbela como en las señales`;
-  return `${intro}: /carretera A-7, /carretera N-340. Si sólo te interesa una provincia, añádela: /carretera AP-7 Tarragona.\n\n`
-    + 'Te aviso de sus cortes, sus accidentes y sus incidencias de gravedad alta o muy alta; de las obras, sólo si la cortan.';
+  const intro = result.error === 'vacia' ? t('Dime la carretera') : t('No entiendo qué carretera es «{road}». Escríbela como en las señales', { road: arg });
+  return `${intro}: ${t('/carretera A-7, /carretera N-340. Si sólo te interesa una provincia, añádela: /carretera AP-7 Tarragona.')}\n\n`
+    + t('Te aviso de sus cortes, sus accidentes y sus incidencias de gravedad alta o muy alta; de las obras, sólo si la cortan.');
 }
 
-/** La respuesta al empezar a seguir una carretera (sin cómo está ahora, que va detrás). */
-export function roadFollowedText(sub, name) {
-  const where = `la ${name}${sub.province ? ` en ${sub.province.name}` : ''}`;
-  const tip = sub.province ? '' : ` Si sólo te interesa una provincia, escribe /carretera ${name} y su nombre.`;
-  return `Hecho: te aviso de los cortes, los accidentes y las incidencias de gravedad alta o muy alta de ${where}; de las obras, `
-    + `sólo si cortan la carretera. ${TRAFFIC_SOURCES_TEXT}${tip}`;
+/** La respuesta al empezar a seguir una carretera (sin cómo está ahora, que va detrás), en el idioma del chat. */
+export function roadFollowedText(sub, name, { t } = ES) {
+  const done = sub.province
+    ? t('Hecho: te aviso de los cortes, los accidentes y las incidencias de gravedad alta o muy alta de la {road} en {province}; de las obras, '
+      + 'sólo si cortan la carretera.', { road: name, province: sub.province.name })
+    : t('Hecho: te aviso de los cortes, los accidentes y las incidencias de gravedad alta o muy alta de la {road}; de las obras, '
+      + 'sólo si cortan la carretera.', { road: name });
+  const tip = sub.province ? '' : ` ${t('Si sólo te interesa una provincia, escribe /carretera {road} y su nombre.', { road: name })}`;
+  return `${done} ${t(TRAFFIC_SOURCES_TEXT)}${tip}`;
 }
 
 /** Un texto con su punto final, si no lo lleva ya. */
 const sentence = (s) => (/[.!?…]$/.test(s) ? s : `${s}.`);
+/** Lo que dice el radar de la gravedad que da la fuente, por su rango (domain/model.js): alta o muy alta. */
+const SEVERITY_TEXT = { [SEVERITY_RANK.alta]: frase('Gravedad: alta.'), [SEVERITY_RANK.alta + 1]: frase('Gravedad: muy alta.') };
 
 /**
  * El hecho de una incidencia de tráfico: su título y su descripción tal cual los da su fuente y, detrás, lo que
  * añade el radar. Su id sale de lo que cuenta, no del de su fuente: la DGT publica a veces la misma incidencia dos
  * veces (un número por sentido), y así se avisa una. Si pasa a cortar la carretera, es otro hecho (se avisa otra
  * vez); si deja de cortarla, no. La que no tiene noticias desde hace TRAFFIC_FRESH_MS va callada (`silent`): cuenta
- * como vista y no se avisa.
+ * como vista y no se avisa. En otro idioma (`tr`), el mismo id (del texto en español) y su texto traducido: lo que
+ * añade el radar y las etiquetas de nuestro servidor (tr.server, como la web); lo de la fuente, tal cual.
  */
-export function trafficFact(e, credit, now) {
+export function trafficFact(e, credit, now, tr = ES) {
+  const { t } = tr;
   const said = [e.title, e.description].filter(Boolean).join(' · ');
-  const parts = [sentence(said)];
-  if (e.closed === true && !/carretera cortada/i.test(said)) parts.push('Carretera cortada.');
-  if (SEVERE.has(e.severity)) parts.push(`Gravedad: ${e.severity}.`);
-  if (Number.isFinite(e.start)) parts.push(`Desde ${whenText(e.start, now)}.`);
-  if (Number.isFinite(e.end)) parts.push(`Prevista hasta ${whenText(e.end, now)}.`);
+  const shown = tr === ES ? said : [e.title, e.description].filter(Boolean).map((x) => tr.server(x, e.source)).join(' · ');
+  const parts = [sentence(shown)];
+  if (e.closed === true && !/carretera cortada/i.test(said)) parts.push(t('Carretera cortada.'));
+  if (isSevere(e.severity)) parts.push(t(SEVERITY_TEXT[SEVERITY_RANK[e.severity]]));
+  if (Number.isFinite(e.start)) parts.push(whenText(e.start, now, frase('Desde las {time}.'), frase('Desde el {date}.'), t));
+  if (Number.isFinite(e.end)) parts.push(whenText(e.end, now, frase('Prevista hasta las {time}.'), frase('Prevista hasta el {date}.'), t));
   const news = Math.max(...[e.start, e.updated].filter(Number.isFinite));
   const fresh = news === -Infinity || now - news <= TRAFFIC_FRESH_MS;
   return {
@@ -178,14 +197,14 @@ const push = (map, k, v) => {
  *   carretera no cuentan); provinces: ids de provincia
  * @returns {{ roads: Map<string, object[]>, provinces: Map<string, object[]> }}  clave → sus hechos; id de provincia → los suyos
  */
-export function trafficFacts({ keys = [], provinces = [], events = [], now, creditOf = () => null }) {
+export function trafficFacts({ keys = [], provinces = [], events = [], now, creditOf = () => null, tr = ES }) {
   const out = { roads: new Map(), provinces: new Map() };
   const subs = [...keys].map(roadSub).filter(Boolean);
   const wanted = new Set(provinces);
   if (!subs.length && !wanted.size) return out;
   const facts = new Map(); // incidencia → su hecho, una vez aunque vaya a varias cosas seguidas
   const factOf = (e) => {
-    if (!facts.has(e)) facts.set(e, trafficFact(e, e.credit ?? creditOf(e.source) ?? null, now));
+    if (!facts.has(e)) facts.set(e, trafficFact(e, e.credit ?? creditOf(e.source) ?? null, now, tr));
     return facts.get(e);
   };
   const provinceIds = new Map();
@@ -213,12 +232,12 @@ export function trafficFacts({ keys = [], provinces = [], events = [], now, cred
 }
 
 /** Unas líneas con los hechos (como mucho STATUS_MAX y cuántos más) y sus atribuciones. */
-function listed(facts, lines, credits) {
+function listed(facts, lines, credits, { t }) {
   for (const f of facts.slice(0, STATUS_MAX)) {
     lines.push(`- ${f.text}`);
     if (f.credit) credits.add(f.credit);
   }
-  if (facts.length > STATUS_MAX) lines.push(`…y ${facts.length - STATUS_MAX} más.`);
+  if (facts.length > STATUS_MAX) lines.push(t('…y {n} más.', { n: facts.length - STATUS_MAX }));
 }
 
 /**
@@ -226,21 +245,27 @@ function listed(facts, lines, credits) {
  * incidencias graves y cuántas más leves hay.
  * @returns {{ lines: string[], credits: string[] }}
  */
-export function roadStatus(key, { events = [], now, creditOf = () => null }) {
+export function roadStatus(key, { events = [], now, creditOf = () => null, tr = ES }) {
+  const { t, tn } = tr;
   const sub = roadSub(key);
-  if (!sub) return { lines: ['Esa carretera no la conozco.'], credits: [] };
-  const name = `la ${roadName(sub.road, events)}${sub.province ? ` (${sub.province.name})` : ''}`;
-  const facts = trafficFacts({ keys: [key], events, now, creditOf }).roads.get(key) ?? [];
+  if (!sub) return { lines: [t('Esa carretera no la conozco.')], credits: [] };
+  // «la A-7» o «la A-7 (Málaga)»: la carretera y la provincia, tal cual.
+  const name = `${roadName(sub.road, events)}${sub.province ? ` (${sub.province.name})` : ''}`;
+  const facts = trafficFacts({ keys: [key], events, now, creditOf, tr }).roads.get(key) ?? [];
   const lines = [];
   const credits = new Set();
-  if (!facts.length) lines.push(`Ahora no hay cortes, accidentes ni incidencias graves en ${name}.`);
+  if (!facts.length) lines.push(t('Ahora no hay cortes, accidentes ni incidencias graves en la {road}.', { road: name }));
   else {
-    lines.push(facts.length === 1 ? `Ahora hay 1 corte, accidente o incidencia grave en ${name}:` : `Ahora hay ${facts.length} cortes, accidentes o incidencias graves en ${name}:`);
-    listed(facts, lines, credits);
+    lines.push(tn('Ahora hay 1 corte, accidente o incidencia grave en la {road}:', 'Ahora hay {n} cortes, accidentes o incidencias graves en la {road}:',
+      facts.length, { road: name }));
+    listed(facts, lines, credits, tr);
   }
   const minor = events.filter((e) => isTrafficIncident(e) && !roadWorthy(e) && typeof e.road === 'string' && roadCode(e.road) === sub.road
     && (!sub.province || trafficProvinceId(e) === sub.province.id)).length;
-  if (minor) lines.push(`Además, ${minor === 1 ? '1 incidencia más leve' : `${minor} incidencias más leves`} (obras sin corte, retenciones…), en el mapa.`);
+  if (minor) {
+    lines.push(tn('Además, 1 incidencia más leve (obras sin corte, retenciones…), en el mapa.',
+      'Además, {n} incidencias más leves (obras sin corte, retenciones…), en el mapa.', minor));
+  }
   return { lines, credits: [...credits] };
 }
 
@@ -249,11 +274,12 @@ export function roadStatus(key, { events = [], now, creditOf = () => null }) {
  * @param {import('../provincias.js').Province} p
  * @returns {{ lines: string[], credits: string[] }}
  */
-export function provinceTrafficStatus(p, { events = [], now, creditOf = () => null }) {
-  const facts = trafficFacts({ provinces: [p.id], events, now, creditOf }).provinces.get(p.id) ?? [];
-  if (!facts.length) return { lines: ['Carreteras: ahora no hay cortes ni accidentes graves.'], credits: [] };
-  const lines = [facts.length === 1 ? 'Carreteras: 1 corte o accidente grave.' : `Carreteras: ${facts.length} cortes o accidentes graves.`];
+export function provinceTrafficStatus(p, { events = [], now, creditOf = () => null, tr = ES }) {
+  const { t, tn } = tr;
+  const facts = trafficFacts({ provinces: [p.id], events, now, creditOf, tr }).provinces.get(p.id) ?? [];
+  if (!facts.length) return { lines: [t('Carreteras: ahora no hay cortes ni accidentes graves.')], credits: [] };
+  const lines = [tn('Carreteras: 1 corte o accidente grave.', 'Carreteras: {n} cortes o accidentes graves.', facts.length)];
   const credits = new Set();
-  listed(facts, lines, credits);
+  listed(facts, lines, credits, tr);
   return { lines, credits: [...credits] };
 }

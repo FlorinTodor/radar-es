@@ -880,6 +880,12 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   los cortes, los accidentes y las incidencias graves de esa carretera, y en las provincias seguidas, de sus
   cortes y accidentes graves; pocas y sin repetir, con el texto y la atribución de la DGT, el Servei Català
   de Trànsit y Tráfico de Euskadi. La ficha de cada incidencia de tráfico lleva su «Avísame por Telegram».
+- El bot de Telegram también en inglés, por chat: se elige con `/idioma` (o `/language`), lo ofrece la
+  primera vez a quien tiene Telegram en otro idioma y lo abre ya en inglés el botón de la web en inglés.
+  Traduce todo lo que escribe el bot, también lo de las carreteras, los trayectos, los focos de calor y los
+  apagones, con sus órdenes en inglés (`/journey`, `/road`…) y los días de un trayecto escritos en inglés
+  (`Mon-Fri`, `weekends`), y deja tal cual los nombres, los avisos de cada fuente y las atribuciones, como
+  la web.
 - Todo lo anterior vale para cualquier tipo de vehículo: todos comparten las mismas claves para
   seguirlos y un registro de tipos, así que un tipo nuevo (barcos, aviones) sólo necesita su entrada en
   el registro y el adaptador de su fuente.
@@ -1039,7 +1045,7 @@ Ninguna por ahora.
 
 ## Posibles mejoras
 
-- El aviso legal y el bot de Telegram también en inglés (hoy sólo en español; la web en inglés lo indica).
+- El aviso legal también en inglés (hoy sólo en español; la web en inglés lo indica).
 - Tiempo real de TMB y posiciones de los autobuses de EMT Madrid desde sus API, cuando EMT apruebe nuestra
   aplicación de MobilityLabs (ver
   *Pendiente y conocido*).

@@ -2,10 +2,11 @@
 // seguir (t.me/<bot>?start=<clave>; ver docs/telegram.md y domain/seguir.js). Para cualquier vehículo: sale de
 // sus claves `follow`, y el nombre de cada tipo («tren», «autobús»…), del registro de tipos (/api/modes). Sólo si
 // el servidor tiene bot: lo dice /api/about. Va arriba de la ficha y bien visible: es lo que más interesa a quien
-// espera ese tren o ese autobús.
+// espera ese tren o ese autobús. Con la web en inglés, el enlace lleva el idioma delante de la clave
+// (start=en-<clave>) y el bot contesta ya en inglés (server/domain/seguidos/idioma.js, parseStartPayload).
 import { parseFollowKey, roadKey } from '../../server/domain/seguir.js';
 import { esc } from './format.js';
-import { t } from './i18n.js';
+import { lang, t } from './i18n.js';
 import { followNameText } from './siguiendo.js';
 
 const KEY_RE = /^[slp]-[A-Za-z0-9_-]{1,62}$/;
@@ -32,7 +33,13 @@ export function loadTelegram() {
 /** ¿Hay bot configurado? (para enseñar o no lo relacionado con Telegram) */
 export const hasTelegram = () => bot !== null;
 
-const startUrl = (key) => `https://t.me/${esc(bot)}?start=${esc(key)}`;
+// Telegram admite hasta 64 caracteres en start: si con el idioma no cabe (una clave de 62 o más, rarísima), va sin
+// él, como desde la web en español, y el bot contesta en el idioma que ya tenga ese chat.
+const START_MAX = 64;
+const startUrl = (key) => {
+  const payload = lang() === 'es' || `${lang()}-${key}`.length > START_MAX ? key : `${lang()}-${key}`;
+  return `https://t.me/${esc(bot)}?start=${esc(payload)}`;
+};
 
 /**
  * Cómo se nombra una línea en el botón: «la línea C2», «los Alvia» (cuando la «línea» es el propio producto,
@@ -103,7 +110,6 @@ export function telegramRoad(road) {
  */
 export function telegramLink(key, name = '') {
   if (!bot || typeof key !== 'string' || !KEY_RE.test(key)) return '';
-  // El bot habla en español: con la web en inglés, el texto accesible lo dice.
   const label = name ? t('Avisos por Telegram de {name}', { name: followNameText(name) }) : t('Avisos por Telegram');
   return `<a class="tg-mini" href="${startUrl(key)}" target="_blank" rel="noopener" aria-label="${esc(label)}" title="${esc(label)}">${PLANE}<span>${t('Avisos en Telegram')}</span></a>`;
 }

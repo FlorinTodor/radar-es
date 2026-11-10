@@ -4,14 +4,16 @@
 // franja uno de esos días), qué se avisa de ellos (cancelados o sin parar en una de las dos, con retraso, sin
 // datos) y cómo van (para /estado y el parte). Vale para cualquier fuente que diga las paradas de sus viajes: todo
 // sale de las paradas de las cancelaciones y de cada vehículo y de las estaciones del catálogo, comparadas como en
-// la ficha de una estación (mismo nombre y cerca). Puro: sin red, ni reloj, ni disco (la hora llega en `now`; las
-// paradas de cada vehículo, de `stopsOf`).
-import { ALL_DAYS, daysText, describeFollow, followKind, parseFollowKey, trayectoKey } from '../seguir.js';
-import { modeInfo, modeNoun } from '../modos.js';
+// la ficha de una estación (mismo nombre y cerca). Los textos, en el idioma de quien los recibe (`tr`, de
+// idioma.js; en español si no se dice), y lo que se escribe, en español o en inglés («L-V», «Mon-Fri»). Puro: sin
+// red, ni reloj, ni disco (la hora llega en `now`; las paradas de cada vehículo, de `stopsOf`).
+import { ALL_DAYS, describeFollow, followKind, parseFollowKey, trayectoKey } from '../seguir.js';
+import { modeInfo } from '../modos.js';
 import { distanceKm } from '../geo.js';
 import { DELAY_MIN, DELAY_STEP, madridDay, madridHourMinute, nearStation, plainStop, tripsAt, vehicleName } from './avisos.js';
 import { cutText } from './texto.js';
 import { sameNetwork, searchStations, stationLabel } from './estaciones.js';
+import { ES } from './idioma.js';
 
 /**
  * Velocidad media (con sus paradas) con la que se calcula cuándo pasa por una estación un tren del que no se sabe
@@ -25,7 +27,8 @@ const STATUS_TRAINS = 8;
 const GONE_MIN = 15;
 /** Estaciones que se combinan, como mucho, de cada lado (las demás no caben en una lista). */
 const OPTIONS_SIDE_MAX = 20;
-const EXAMPLE = '/trayecto Alcalá de Henares > Atocha 7:00-9:00 L-V';
+/** Cómo se escribe un trayecto, en el idioma del chat (con su orden: /trayecto, /journey). */
+const example = ({ t }) => t('/trayecto Alcalá de Henares > Atocha 7:00-9:00 L-V');
 
 const clip = (s, n) => cutText(String(s ?? '').replace(/\s+/g, ' ').trim(), n);
 const pad = (n) => String(n).padStart(2, '0');
@@ -52,20 +55,25 @@ const order = ({ day, min }) => Math.round(Date.parse(`${day}T00:00:00Z`) / 60_0
 export const looksLikeTrayecto = (text) => /[>→⟶]/.test(String(text ?? ''));
 
 const ARROW = /\s*(?:[-=–—]?>|→|⟶)\s*/;
-// La franja: «7:00-9:00», «7-9», «07.30 a 09.00», «de 7 a 9h», «entre las 7 y las 9». La última que haya.
-const RANGE = /(?:^|\s)(?:(?:de|entre)\s+)?(?:las\s+)?(\d{1,2})(?:[:.h](\d{2}))?\s*h?\s*(?:-|–|—|\ba\b|\by\b|\bhasta\b)\s*(?:las\s+)?(\d{1,2})(?:[:.h](\d{2}))?\s*h?(?=[\s,.;]|$)/gi;
+// La franja: «7:00-9:00», «7-9», «07.30 a 09.00», «de 7 a 9h», «entre las 7 y las 9»; en inglés, «from 7 to 9»,
+// «between 18 and 20». La última que haya.
+const RANGE = /(?:^|\s)(?:(?:de|entre|from|between)\s+)?(?:las\s+)?(\d{1,2})(?:[:.h](\d{2}))?\s*h?\s*(?:-|–|—|\ba\b|\by\b|\bhasta\b|\bto\b|\band\b)\s*(?:las\s+)?(\d{1,2})(?:[:.h](\d{2}))?\s*h?(?=[\s,.;]|$)/gi;
+// Los días, en español y en inglés («Mon-Fri», «Saturdays and Sundays»): ningún nombre de uno es el de otro.
 const DAY_NAMES = [
-  ['l', 'lu', 'lun', 'lunes'], ['m', 'ma', 'mar', 'martes'], ['x', 'mi', 'mie', 'mier', 'miercoles'], ['j', 'ju', 'jue', 'jueves'],
-  ['v', 'vi', 'vie', 'viernes'], ['s', 'sa', 'sab', 'sabado', 'sabados'], ['d', 'do', 'dom', 'domingo', 'domingos'],
+  ['l', 'lu', 'lun', 'lunes', 'mon', 'monday', 'mondays'], ['m', 'ma', 'mar', 'martes', 'tue', 'tues', 'tuesday', 'tuesdays'],
+  ['x', 'mi', 'mie', 'mier', 'miercoles', 'wed', 'wednesday', 'wednesdays'], ['j', 'ju', 'jue', 'jueves', 'thu', 'thur', 'thurs', 'thursday', 'thursdays'],
+  ['v', 'vi', 'vie', 'viernes', 'fri', 'friday', 'fridays'], ['s', 'sa', 'sab', 'sabado', 'sabados', 'sat', 'saturday', 'saturdays'],
+  ['d', 'do', 'dom', 'domingo', 'domingos', 'sun', 'sunday', 'sundays'],
 ];
 const DAY_OF = new Map(DAY_NAMES.flatMap((names, i) => names.map((n) => [n, i])));
-const ALL_RE = /^(?:todos|todos los dias|toda la semana|diario|a diario|cada dia|siempre)$/;
-const WORKDAYS_RE = /^(?:laborables|dias laborables|entre semana)$/;
-const WEEKEND_RE = /^(?:fin de semana|fines de semana|finde|findes|los fines de semana)$/;
+const ALL_RE = /^(?:todos|todos los dias|toda la semana|diario|a diario|cada dia|siempre|every day|everyday|daily|all week|all days)$/;
+const WORKDAYS_RE = /^(?:laborables|dias laborables|entre semana|weekdays|on weekdays|working days|workdays)$/;
+const WEEKEND_RE = /^(?:fin de semana|fines de semana|finde|findes|los fines de semana|weekend|weekends|at weekends|at the weekend|on weekends)$/;
 
 /**
  * Los días que dice un texto, como máscara (bit 0 el lunes): «L-V», «de lunes a viernes», «S-D», «L,X,V», «LXV»,
- * «sábados y domingos», «V-L» (de viernes a lunes), «laborables», «fin de semana», «todos». Sin nada, todos.
+ * «sábados y domingos», «V-L» (de viernes a lunes), «laborables», «fin de semana», «todos»; y en inglés, «Mon-Fri»,
+ * «Monday to Friday», «Mon,Wed,Fri», «Saturdays and Sundays», «weekdays», «weekends», «every day». Sin nada, todos.
  * @returns {number|null}  null si no se entiende
  */
 export function parseDays(text) {
@@ -74,8 +82,8 @@ export function parseDays(text) {
   if (ALL_RE.test(t)) return ALL_DAYS;
   if (WORKDAYS_RE.test(t)) return 0x1f;
   if (WEEKEND_RE.test(t)) return 0x60;
-  const words = t.replace(/\s*(?:-|–|—)\s*/g, '-').replace(/\s+(?:a|al|hasta)\s+/g, '-').split(/[\s,/]+/)
-    .filter((w) => w && !['de', 'los', 'las', 'el', 'y', 'e', 'cada'].includes(w));
+  const words = t.replace(/\s*(?:-|–|—)\s*/g, '-').replace(/\s+(?:a|al|hasta|to|through|till|until)\s+/g, '-').split(/[\s,/]+/)
+    .filter((w) => w && !['de', 'los', 'las', 'el', 'y', 'e', 'cada', 'on', 'and', 'every', 'from'].includes(w));
   if (!words.length) return null;
   let mask = 0;
   for (const w of words) {
@@ -93,9 +101,10 @@ export function parseDays(text) {
   return mask || null;
 }
 
-// Los días también pueden ir antes de la franja («Atocha L-V 7-9»): lo que se reconoce como días al final del
-// destino. Sólo con un guion, una coma o una palabra de días entera, para no comerse una estación que acabe en «D».
-const DAYS_TAIL = /\s+((?:de\s+)?(?:[LMXJVSD](?:\s*[-,]\s*[LMXJVSD])+|[LMXJVSD]{2,7}|(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bados?|domingos?|laborables|entre semana|fin(?:es)? de semana|finde|todos(?: los d[ií]as)?|diario)(?:(?:\s*(?:-|,|\by\b|\ba\b)\s*)(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bados?|domingos?))*))$/i;
+// Los días también pueden ir antes de la franja («Atocha L-V 7-9», «Atocha Mon-Fri 7-9»): lo que se reconoce como
+// días al final del destino. Sólo con un guion, una coma o una palabra de días entera, para no comerse una estación
+// que acabe en «D».
+const DAYS_TAIL = /\s+((?:de\s+)?(?:[LMXJVSD](?:\s*[-,]\s*[LMXJVSD])+|[LMXJVSD]{2,7}|(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bados?|domingos?|laborables|entre semana|fin(?:es)? de semana|finde|todos(?: los d[ií]as)?|diario)(?:(?:\s*(?:-|,|\by\b|\ba\b)\s*)(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bados?|domingos?))*|(?:mon|tues?|wed|thu(?:rs?)?|fri|sat|sun)(?:\s*[-,]\s*(?:mon|tues?|wed|thu(?:rs?)?|fri|sat|sun))+|(?:weekdays|weekends?|every day|daily|(?:mon|tues|wednes|thurs|fri|satur|sun)days?)(?:\s*(?:-|,|\band\b|\bto\b)\s*(?:mon|tues|wednes|thurs|fri|satur|sun)days?)*))$/i;
 
 /**
  * Lo que dice «/trayecto Alcalá de Henares > Atocha 7:00-9:00 L-V»: el texto del origen y del destino (para
@@ -144,7 +153,9 @@ export function parseTrayectoText(text) {
  * su nombre, en el orden de la búsqueda.
  * @param {import('./estaciones.js').CatalogStation[]} stations
  * @param {{ origin: string, destination: string, from: number, to: number, days: number }} parsed  de parseTrayectoText
- * @returns {{ error: 'origen'|'destino'|'misma'|'red', text?: string } | { pairs: Array<{ key: string, name: string, label: string }>, total: number }}
+ * @returns {{ error: 'origen'|'destino'|'misma'|'red', text?: string, origin?: string, destination?: string }
+ *   | { pairs: Array<{ key: string, name: string, label: string }>, total: number }}
+ *   red: origin y destination, las primeras que encajan (sus nombres en una lista)
  */
 export function trayectoOptions(stations, parsed, { limit = 8 } = {}) {
   const origins = searchStations(stations, parsed.origin, { limit: OPTIONS_SIDE_MAX });
@@ -166,7 +177,7 @@ export function trayectoOptions(stations, parsed, { limit = 8 } = {}) {
       pairs.push({ key, name: describeFollow(key, { originName: o.name, destinationName: d.name }), label: `${o.name} → ${d.name}${network}` });
     }
   }
-  if (!pairs.length) return same ? { error: 'misma' } : { error: 'red', text: `${stationLabel(origins[0])} y ${stationLabel(destinations[0])}` };
+  if (!pairs.length) return same ? { error: 'misma' } : { error: 'red', origin: stationLabel(origins[0]), destination: stationLabel(destinations[0]) };
   return { pairs: pairs.slice(0, limit), total: pairs.length };
 }
 
@@ -354,51 +365,67 @@ function vehicleTrains(t, index, now) {
 // Qué se avisa y cómo van
 
 const capital = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
-/** Cómo se llama un vehículo: por su servicio, con su línea («Cercanías C2 21518», «AVE 02202») o, si no tiene, por su línea. */
-function trainName(v) {
+/**
+ * Cómo se llama un vehículo: por su servicio, con su línea («Cercanías C2 21518», «AVE 02202») o, si no tiene, por su
+ * línea; con nuestras palabras en el idioma de `tr` («Autobús 27» → «Bus 27»).
+ */
+function trainName(v, tr) {
   const keys = Array.isArray(v.follow) ? v.follow : [];
   const service = keys.find((k) => followKind(k) === 'servicio');
   if (service && parseFollowKey(service).number !== undefined) {
-    return describeFollow(service, { operator: v.operator, service: v.service ?? undefined, line: v.line ?? undefined, number: v.label ?? undefined });
+    return tr.name(describeFollow(service, { operator: v.operator, service: v.service ?? undefined, line: v.line ?? undefined, number: v.label ?? undefined }));
   }
   const key = service ?? keys.find((k) => followKind(k) === 'linea');
-  return key ? vehicleName(v, key) : `${capital(modeNoun(v.mode))}${v.line ? ` ${v.line}` : ''}`;
+  return key ? tr.name(vehicleName(v, key)) : `${capital(tr.noun(v.mode))}${v.line ? ` ${v.line}` : ''}`;
 }
 /** Cómo se llama el tren de una cancelación: «Cercanías C2 21516», «AVE 02202». */
-const tripName = (trip) => [trip.service ?? trip.operator, trip.line && trip.line !== trip.service ? trip.line : null, trip.number]
-  .filter(Boolean).join(' ') || 'Un tren';
+const tripName = (trip, { t }) => [trip.service ?? trip.operator, trip.line && trip.line !== trip.service ? trip.line : null, trip.number]
+  .filter(Boolean).join(' ') || t('Un tren');
 const serviceKeys = (follow) => (Array.isArray(follow) ? follow.filter((k) => followKind(k) === 'servicio') : []);
 const creditOfEvent = (e, creditOf) => e.credit ?? creditOf(e.source, e.trip?.operator) ?? null;
 /** «el de las 07:42 en Alcalá de Henares» (con «hora aproximada» si es una estimación). */
-const theOne = (dep, station) => `el de las ${hhmm(dep.min)} en ${station.name}${dep.estimated ? ' (hora aproximada)' : ''}`;
+const theOne = (dep, station, { t }) => (dep.estimated ? t('el de las {time} en {station} (hora aproximada)', { time: hhmm(dep.min), station: station.name })
+  : t('el de las {time} en {station}', { time: hhmm(dep.min), station: station.name }));
 
-function skippedText(x, t) {
-  if (x.o.skipped && x.d.skipped) return `No para en ${t.origin.name} ni en ${t.destination.name}`;
-  return `No para en ${x.o.skipped ? t.origin.name : t.destination.name}`;
+/** «No para en …» (en un aviso) o, con `lower`, «no para en …» (en una línea de /estado). */
+function skippedText(x, way, { t }, { lower = false } = {}) {
+  if (x.o.skipped && x.d.skipped) {
+    const at = { origin: way.origin.name, destination: way.destination.name };
+    return lower ? t('no para en {origin} ni en {destination}', at) : t('No para en {origin} ni en {destination}', at);
+  }
+  const at = { station: x.o.skipped ? way.origin.name : way.destination.name };
+  return lower ? t('no para en {station}', at) : t('No para en {station}', at);
 }
 
-function eventFact(x, t, creditOf) {
+// El título de una cancelación lo escribe nuestro servidor (domain/cancelaciones.js): en el idioma del chat, con las
+// plantillas de la web. El motivo y el aviso del operador son suyos: tal cual.
+function eventFact(x, way, creditOf, tr) {
   const { e } = x;
+  const { t } = tr;
   const credit = creditOfEvent(e, creditOf);
-  const at = `Pasaba por ${t.origin.name} a las ${hhmm(x.dep.min)}.`;
-  if (x.kind === 'sin-datos') return { id: e.id, kind: 'sin-datos', text: `${e.title}. No se sabe si circula: su operador no publica nada de él. ${at}`, credit };
-  const reason = e.trip?.reason ? ` Motivo: ${clip(e.trip.reason, 200)}` : e.trip?.notice?.text ? ` Aviso del operador: ${clip(e.trip.notice.text, 200)}` : '';
+  const title = tr.server(e.title, e.source);
+  const at = t('Pasaba por {station} a las {time}.', { station: way.origin.name, time: hhmm(x.dep.min) });
+  if (x.kind === 'sin-datos') return { id: e.id, kind: 'sin-datos', text: `${title}. ${t('No se sabe si circula: su operador no publica nada de él.')} ${at}`, credit };
+  const reason = e.trip?.reason ? ` ${t('Motivo: {reason}', { reason: clip(e.trip.reason, 200) })}`
+    : e.trip?.notice?.text ? ` ${t('Aviso del operador: {notice}', { notice: clip(e.trip.notice.text, 200) })}` : '';
   if (x.kind === 'parcial') {
     // Si el título ya nombra la estación suprimida («no para en Alcalá de Henares»), no se repite.
-    const named = [x.o.skipped && t.origin, x.d.skipped && t.destination].filter(Boolean).every((st) => plainStop(e.title).includes(plainStop(st.name)));
-    return { id: e.id, kind: 'parcial', text: `${e.title}.${named ? '' : ` ${skippedText(x, t)}.`} ${at}${reason}`, credit };
+    const named = [x.o.skipped && way.origin, x.d.skipped && way.destination].filter(Boolean).every((st) => plainStop(e.title).includes(plainStop(st.name)));
+    return { id: e.id, kind: 'parcial', text: `${title}.${named ? '' : ` ${skippedText(x, way, tr)}.`} ${at}${reason}`, credit };
   }
-  return { id: e.id, kind: 'cancelado', text: `${e.title}. ${at}${reason}`, credit };
+  return { id: e.id, kind: 'cancelado', text: `${title}. ${at}${reason}`, credit };
 }
 
 /** Su retraso, por escalones como el de un servicio seguido (los de debajo, callados: no se avisa si mejora). */
-function delayFacts(x, t, delayMin, creditOf) {
+function delayFacts(x, way, delayMin, creditOf, tr) {
   const { v } = x;
+  const { t } = tr;
   const level = Math.floor((v.delay - delayMin) / DELAY_STEP);
   const fact = {
     id: `${v.id}|retraso|${level}`,
     kind: 'retraso',
-    text: `${trainName(v)}, ${theOne(x.dep, t.origin)}, va con ${v.delay} min de retraso.${v.next ? ` Próxima parada: ${v.next}.` : ''}`,
+    text: `${t('{train}, {which}, va con {n} min de retraso.', { train: trainName(v, tr), which: theOne(x.dep, way.origin, tr), n: v.delay })}`
+      + `${v.next ? ` ${t('Próxima parada: {stop}.', { stop: v.next })}` : ''}`,
     credit: creditOf(v.source, v.operator) ?? null,
   };
   return [fact, ...Array.from({ length: level }, (_, l) => ({ ...fact, id: `${v.id}|retraso|${l}`, silent: true }))];
@@ -408,39 +435,43 @@ function delayFacts(x, t, delayMin, creditOf) {
  * Lo que pasa ahora con cada trayecto seguido (los hechos de avisos.js, con los mismos ids): las cancelaciones
  * de sus trenes y las paradas suprimidas en su origen o su destino, los trenes sin datos y el retraso de los que van
  * con `delayMin` o más (un hecho por escalón). Las cancelaciones que su fuente ya no publica, no; ni las de un tren
- * que según su horario ya habría llegado al destino.
+ * que según su horario ya habría llegado al destino. Los textos, en el idioma de `tr` (los mismos ids en todos).
  * @param {{ keys: Iterable<string>, vehicles?: object[], events?: object[], now: number,
  *           stationOf?: (code: string) => object|null, stopsOf?: (id: string) => object[]|null,
- *           creditOf?: (source: string, operator?: string) => string|null, delayMin?: number }} ctx
+ *           creditOf?: (source: string, operator?: string) => string|null, delayMin?: number,
+ *           tr?: import('./idioma.js').Translator }} ctx
  * @returns {Map<string, import('./avisos.js').Fact[]>}
  */
-export function collectTrayectoFacts({ keys, vehicles = [], events = [], now, stationOf = () => null, stopsOf = () => null, creditOf = () => null, delayMin = DELAY_MIN }) {
+export function collectTrayectoFacts({
+  keys, vehicles = [], events = [], now, stationOf = () => null, stopsOf = () => null, creditOf = () => null, delayMin = DELAY_MIN, tr = ES,
+}) {
   const out = new Map();
   const trayectos = [];
   for (const key of keys) {
-    const t = followKind(key) === 'trayecto' ? trayectoStations(key, stationOf) : null;
-    if (t) trayectos.push([key, t]);
+    const way = followKind(key) === 'trayecto' ? trayectoStations(key, stationOf) : null;
+    if (way) trayectos.push([key, way]);
   }
   if (!trayectos.length) return out;
   const nowAt = order(madridAt(now));
   // Sólo los que van con retraso: sus paradas, una vez para todos los trayectos.
   const late = passIndex(vehicles.filter((v) => v?.delay >= delayMin), stopsOf);
-  for (const [key, t] of trayectos) {
+  for (const [key, way] of trayectos) {
     const facts = [];
     const add = (f) => {
       if (!facts.some((x) => x.id === f.id)) facts.push(f);
     };
     // De un tren que ya habría llegado al destino no se avisa: a esas horas ya no sirve de nada.
-    for (const x of eventTrains(t, events, now)) if (!x.withdrawn && x.end >= nowAt) add(eventFact(x, t, creditOf));
-    for (const x of vehicleTrains(t, late, now)) for (const f of delayFacts(x, t, delayMin, creditOf)) add(f);
+    for (const x of eventTrains(way, events, now)) if (!x.withdrawn && x.end >= nowAt) add(eventFact(x, way, creditOf, tr));
+    for (const x of vehicleTrains(way, late, now)) for (const f of delayFacts(x, way, delayMin, creditOf, tr)) add(f);
     if (facts.length) out.set(key, facts);
   }
   return out;
 }
 
-function delayWords(v) {
-  if (v.delay === null || v.delay === undefined) return v.late ? 'con retraso (no dice cuánto)' : 'sin dato de retraso';
-  return v.delay >= 5 ? `con ${v.delay} min de retraso` : v.delay > 0 ? `con ${v.delay} min` : 'en hora';
+/** Su retraso, con las mismas palabras que el de un servicio seguido (avisos.js statusOf). */
+function delayWords(v, { t }) {
+  if (v.delay === null || v.delay === undefined) return v.late ? t('con retraso (no dice cuánto)') : t('sin dato de retraso');
+  return v.delay >= 5 ? t('con {n} min de retraso', { n: v.delay }) : v.delay > 0 ? t('con {n} min', { n: v.delay }) : t('en hora');
 }
 
 /**
@@ -451,46 +482,52 @@ function delayWords(v) {
  * @param {string} key
  * @param {{ vehicles?: object[], events?: object[], now: number, stationOf?: (code: string) => object|null,
  *           stopsOf?: (id: string) => object[]|null, creditOf?: (source: string, operator?: string) => string|null,
- *           index?: Map<string, Array<{ v: object, stops: object[] }>> }} ctx  index: passIndex de la ronda (si no, se hace)
+ *           index?: Map<string, Array<{ v: object, stops: object[] }>>, tr?: import('./idioma.js').Translator }} ctx
+ *   index: passIndex de la ronda (si no, se hace)
  * @returns {{ lines: string[], credits: string[] }}
  */
-export function trayectoStatus(key, { vehicles = [], events = [], now, stationOf = () => null, stopsOf = () => null, creditOf = () => null, index = null }) {
-  const t = trayectoStations(key, stationOf);
-  if (!t) return { lines: ['Alguna de las estaciones de este trayecto ya no está en el catálogo del radar.'], credits: [] };
+export function trayectoStatus(key, { vehicles = [], events = [], now, stationOf = () => null, stopsOf = () => null, creditOf = () => null, index = null, tr = ES }) {
+  const { t } = tr;
+  const way = trayectoStations(key, stationOf);
+  if (!way) return { lines: [t('Alguna de las estaciones de este trayecto ya no está en el catálogo del radar.')], credits: [] };
   const credits = new Set();
   const nowAt = order(madridAt(now));
   const recent = (x) => order(x.dep) >= nowAt - GONE_MIN;
-  const found = eventTrains(t, events, now).filter(recent);
+  const found = eventTrains(way, events, now).filter(recent);
   const live = found.filter((x) => !x.withdrawn);
   const withdrawn = found.length - live.length;
   const told = new Set(live.flatMap((x) => serviceKeys(x.e.trip?.follow)));
-  const running = vehicleTrains(t, index ?? passIndex(vehicles, stopsOf), now).filter((x) => !serviceKeys(x.v.follow).some((k) => told.has(k)));
+  const running = vehicleTrains(way, index ?? passIndex(vehicles, stopsOf), now).filter((x) => !serviceKeys(x.v.follow).some((k) => told.has(k)));
   const trains = [...live, ...running].sort((a, b) => order(a.dep) - order(b.dep));
   const lines = [];
+  const at = { origin: way.origin.name, destination: way.destination.name, station: way.origin.name };
   if (!trains.length) {
-    lines.push(!(t.days & (1 << weekday(madridDay(now))))
-      ? `Hoy no es uno de tus días: te aviso ${daysText(t.days)}.`
-      : `Ahora no se ve ningún tren de tu franja de ${t.origin.name} a ${t.destination.name}. Los trenes salen aquí cuando empiezan su recorrido, y las cancelaciones, cuando su operador las publica.`);
-  } else lines.push(`Trenes de tu franja que se ven ahora (hora en ${t.origin.name}):`);
+    lines.push(!(way.days & (1 << weekday(madridDay(now))))
+      ? t('Hoy no es uno de tus días: te aviso {days}.', { days: tr.days(way.days) })
+      : t('Ahora no se ve ningún tren de tu franja de {origin} a {destination}. Los trenes salen aquí cuando empiezan su recorrido, y las '
+        + 'cancelaciones, cuando su operador las publica.', at));
+  } else lines.push(t('Trenes de tu franja que se ven ahora (hora en {station}):', at));
   for (const x of trains.slice(0, STATUS_TRAINS)) {
-    const when = `${hhmm(x.dep.min)}${x.dep.estimated ? ' (aprox.)' : ''}`;
+    const when = x.dep.estimated ? t('{time} (aprox.)', { time: hhmm(x.dep.min) }) : hhmm(x.dep.min);
     if (x.kind === 'circula') {
       const v = x.v;
-      lines.push(`- ${when} ${trainName(v)}: circula ${delayWords(v)}${x.gone ? `, ya ha salido de ${t.origin.name}` : ''}.${v.next ? ` Próxima parada: ${v.next}.` : ''}`);
+      const gone = x.gone ? `, ${t('ya ha salido de {station}', at)}` : '';
+      lines.push(`- ${when} ${t('{name}: circula {delay}', { name: trainName(v, tr), delay: delayWords(v, tr) })}${gone}.`
+        + `${v.next ? ` ${t('Próxima parada: {stop}.', { stop: v.next })}` : ''}`);
       const c = creditOf(v.source, v.operator);
       if (c) credits.add(c);
     } else {
-      const what = x.kind === 'cancelado' ? 'cancelado' : x.kind === 'parcial' ? `n${skippedText(x, t).slice(1)}`
-        : 'sin datos, su operador no publica nada de él';
-      lines.push(`- ${when} ${tripName(x.e.trip)}: ${what}.`);
+      const what = x.kind === 'cancelado' ? t('cancelado') : x.kind === 'parcial' ? skippedText(x, way, tr, { lower: true })
+        : t('sin datos, su operador no publica nada de él');
+      lines.push(`- ${when} ${tripName(x.e.trip, tr)}: ${what}.`);
       const c = creditOfEvent(x.e, creditOf);
       if (c) credits.add(c);
     }
   }
-  if (trains.length > STATUS_TRAINS) lines.push(`…y ${trains.length - STATUS_TRAINS} más.`);
+  if (trains.length > STATUS_TRAINS) lines.push(t('…y {n} más.', { n: trains.length - STATUS_TRAINS }));
   if (withdrawn) {
-    lines.push(withdrawn === 1 ? 'Además, 1 que se había cancelado y su operador ya no publica: puede que al final circule.'
-      : `Además, ${withdrawn} que se habían cancelado y su operador ya no publica: puede que al final circulen.`);
+    lines.push(tr.tn('Además, {n} que se había cancelado y su operador ya no publica: puede que al final circule.',
+      'Además, {n} que se habían cancelado y su operador ya no publica: puede que al final circulen.', withdrawn));
   }
   return { lines, credits: [...credits] };
 }
@@ -498,27 +535,31 @@ export function trayectoStatus(key, { vehicles = [], events = [], now, stationOf
 // ---------------------------------------------------------------------------------------------------------------
 // Textos de la orden
 
-/** Qué hace /trayecto y cómo se escribe. */
-export function trayectoHelpText({ delayMin = DELAY_MIN } = {}) {
+/** Qué hace /trayecto y cómo se escribe, en el idioma del chat. */
+export function trayectoHelpText({ delayMin = DELAY_MIN, tr = ES } = {}) {
+  const { t } = tr;
   return [
-    `Dime las dos estaciones, la franja en la que sales y los días:\n${EXAMPLE}`,
-    `Te aviso de los trenes que paran en las dos y salen de la primera en esa franja: si se cancelan o no paran en alguna de las dos, si van con ${delayMin} min de retraso o más (y otra vez si empeora) y si su operador no publica nada de ellos.`,
-    'Los días: L-V, S-D, L,X,V, «laborables»… Sin días, todos. Las estaciones, como en el mapa; si hay varias con ese nombre, te pregunto cuál.',
+    t('Dime las dos estaciones, la franja en la que sales y los días:\n{example}', { example: example(tr) }),
+    t('Te aviso de los trenes que paran en las dos y salen de la primera en esa franja: si se cancelan o no paran en alguna de las dos, si van '
+      + 'con {delay} min de retraso o más (y otra vez si empeora) y si su operador no publica nada de ellos.', { delay: delayMin }),
+    t('Los días: L-V, S-D, L,X,V, «laborables»… Sin días, todos. Las estaciones, como en el mapa; si hay varias con ese nombre, te pregunto cuál.'),
   ].join('\n\n');
 }
 
-/** Lo que se contesta si no se entiende o no se encuentra (error de parseTrayectoText o de trayectoOptions). */
-export function trayectoErrorText(r) {
+/** Lo que se contesta si no se entiende o no se encuentra (error de parseTrayectoText o de trayectoOptions), en el idioma del chat. */
+export function trayectoErrorText(r, tr = ES) {
+  const { t } = tr;
+  const ex = { example: example(tr) };
   switch (r.error) {
-    case 'flecha': return `Separa las dos estaciones con «>»:\n${EXAMPLE}`;
-    case 'estaciones': return `Dime la estación de origen y la de destino:\n${EXAMPLE}`;
-    case 'franja': return `Dime también la franja en la que sales del origen, de una hora a otra:\n${EXAMPLE}`;
-    case 'horas': return 'La franja tiene que ir de una hora a otra más tarde del mismo día, como 7:00-9:00 (como mucho, hasta las 23:59).';
-    case 'dias': return `No entiendo los días «${r.days}». Escríbelos así: L-V, S-D, L,X,V, «laborables» o «todos».`;
+    case 'flecha': return t('Separa las dos estaciones con «>»:\n{example}', ex);
+    case 'estaciones': return t('Dime la estación de origen y la de destino:\n{example}', ex);
+    case 'franja': return t('Dime también la franja en la que sales del origen, de una hora a otra:\n{example}', ex);
+    case 'horas': return t('La franja tiene que ir de una hora a otra más tarde del mismo día, como 7:00-9:00 (como mucho, hasta las 23:59).');
+    case 'dias': return t('No entiendo los días «{days}». Escríbelos así: L-V, S-D, L,X,V, «laborables» o «todos».', { days: r.days });
     case 'origen':
-    case 'destino': return `No encuentro la estación «${r.text}» en el catálogo del radar. Escríbela como en el mapa («Alcalá de Henares», «Madrid-Atocha Cercanías»).`;
-    case 'misma': return 'El origen y el destino son la misma estación.';
-    case 'red': return `${r.text} no son de la misma red: ningún tren para en las dos.`;
-    default: return `No entiendo ese trayecto. Escríbelo así:\n${EXAMPLE}`;
+    case 'destino': return t('No encuentro la estación «{name}» en el catálogo del radar. Escríbela como en el mapa («Alcalá de Henares», «Madrid-Atocha Cercanías»).', { name: r.text });
+    case 'misma': return t('El origen y el destino son la misma estación.');
+    case 'red': return t('{origin} y {destination} no son de la misma red: ningún tren para en las dos.', { origin: r.origin, destination: r.destination });
+    default: return t('No entiendo ese trayecto. Escríbelo así:\n{example}', ex);
   }
 }

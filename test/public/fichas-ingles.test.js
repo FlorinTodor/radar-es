@@ -95,13 +95,21 @@ test('la lista «Siguiendo» en inglés, con los títulos del servidor pasados p
   assert.match(html, /aria-label="Unfollow Bus 27 · EMT Málaga" title="Unfollow"/);
 });
 
-test('el botón de Telegram dice que el bot habla en español', () => {
+test('el botón de Telegram abre el bot ya en inglés (start=en-<clave>), sin pasar del tope de Telegram', () => {
   setTelegram({ telegram: { bot: 'RadarEspanaBot' } }, [{ id: 'av', noun: 'tren' }, { id: 'bus', noun: 'autobús' }]);
-  const service = text(telegramFollow([AVANT, AVANT_LINE], 'av', { service: 'Avant' }));
-  assert.equal(service, 'Alert me on Telegram (in Spanish) if this train is cancelled or delayed or about all Avant services');
+  const html = telegramFollow([AVANT, AVANT_LINE], 'av', { service: 'Avant' });
+  assert.equal(text(html), 'Alert me on Telegram if this train is cancelled or delayed or about all Avant services');
+  assert.match(html, new RegExp(`href="https://t\\.me/RadarEspanaBot\\?start=en-${AVANT}"`));
+  assert.match(html, new RegExp(`class="tg-alt" href="https://t\\.me/RadarEspanaBot\\?start=en-${AVANT_LINE}"`));
   assert.match(text(telegramFollow([BUS_27], 'bus')), /about cancellations and notices for line 27$/);
   assert.match(text(telegramFollow([stopKey('7180')], 'bus')), /about cancellations its operator publishes at this station$/);
-  assert.match(telegramLink(BUS_27, 'Autobús 27 · EMT Málaga'), /aria-label="Telegram alerts for Bus 27 · EMT Málaga \(the bot writes in Spanish\)"/);
+  const link = telegramLink(BUS_27, 'Autobús 27 · EMT Málaga');
+  assert.match(link, /aria-label="Telegram alerts for Bus 27 · EMT Málaga"/);
+  assert.match(link, new RegExp(`start=en-${BUS_27}"`));
+  // Una clave que con «en-» pasaría de 64 caracteres va sin él (el bot la entiende igual, en el idioma del chat).
+  const long = `l-${'a'.repeat(62)}`;
+  assert.match(telegramLink(long, 'x'), new RegExp(`start=${long}"`));
+  assert.match(telegramLink(long.slice(0, 61), 'x'), new RegExp(`start=en-${long.slice(0, 61)}"`), '61 + 3 = 64: cabe');
   setTelegram({}, []);
 });
 

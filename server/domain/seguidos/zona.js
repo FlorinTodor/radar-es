@@ -5,14 +5,18 @@
 //   de sus islas. De Baleares no hay: Red Eléctrica no publica su demanda real en tiempo real;
 // - y, para quien los pide («/provincia Granada incendios»), los focos de calor por satélite (NASA FIRMS) que
 //   pueden ser un incendio: sólo los más claros, agrupados y como mucho un aviso por zona y día.
+// Los textos, en el idioma de quien los recibe (`tr`, de idioma.js; en español si no se dice): los de las alertas
+// de nuestro servidor, con las plantillas de la web (en-servidor.js); la atribución, tal cual.
 // Puro: sin red, ni reloj, ni disco (la hora llega en `now`).
 import { PROVINCIAS_ES, plainName, provinceById, provinceOfPoint } from '../provincias.js';
-import { SISTEMAS_AISLADOS } from '../lugares.js';
+import { CALOR_FIJO, SISTEMAS_AISLADOS } from '../lugares.js';
 import { distanceKm } from '../geo.js';
 import { DEFAULT_THRESHOLDS } from '../alerts/thresholds.js';
+import { REE_CREDIT } from '../alerts/rules.js';
+import { SEVERITY_RANK } from '../model.js';
+import { ES } from './idioma.js';
 
 const MADRID_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit' });
-const MADRID_WHEN = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
 const madridDay = (ms) => MADRID_DAY.format(ms);
 
 // ---------- Apagones de los sistemas eléctricos aislados ----------
@@ -20,7 +24,9 @@ const madridDay = (ms) => MADRID_DAY.format(ms);
 /** Las alertas de un sistema aislado llevan este id y el del sistema (rules.js). */
 const GRID_PREFIX = 'red-aislada:';
 /** Lo que pide el aviso legal de Red Eléctrica: citarla como fuente (la hora del dato va en el texto de la alerta). */
-const GRID_CREDIT = 'Fuente: Red Eléctrica';
+const GRID_CREDIT = REE_CREDIT;
+/** La gravedad más alta (un apagón total; el parcial, por debajo). */
+const TOP_SEVERITY = Math.max(...Object.values(SEVERITY_RANK));
 
 const samePlace = (a, b) => plainName(a) === plainName(b);
 /** Las provincias a las que da luz un sistema: las de sus islas (o la ciudad: Ceuta, Melilla); si no, por dónde está. */
@@ -41,18 +47,20 @@ export const hasIsolatedGrid = (provinceId) => [...GRID_PROVINCES.values()].some
  * la hora del dato y que es una estimación de Radar España con datos de Red Eléctrica) y su atribución. Un hecho
  * por alerta y nivel: si un corte parcial pasa a total, se vuelve a avisar; si un apagón total se queda en parcial
  * al volver la luz, no (el parcial va callado, como los escalones de un retraso). Sin la hora de la alerta en el
- * id: tras un reinicio o un relevo la alerta se vuelve a abrir y no es un apagón nuevo.
+ * id: tras un reinicio o un relevo la alerta se vuelve a abrir y no es un apagón nuevo. Su título y su texto los
+ * escribe el motor de alertas: en otro idioma, con las plantillas de la web (tr.server).
  * @param {Array<{ id: string, severity: string, title: string, description: string, credit?: string, lat?: number, lon?: number }>} alerts
  * @param {string} provinceId
+ * @param {import('./idioma.js').Translator} [tr]
  */
-export function gridFacts(alerts, provinceId) {
+export function gridFacts(alerts, provinceId, tr = ES) {
   const out = [];
   for (const a of alerts ?? []) {
     if (typeof a?.id !== 'string' || !a.id.startsWith(GRID_PREFIX)) continue;
     const ids = GRID_PROVINCES.get(a.id.slice(GRID_PREFIX.length)) ?? [provinceOfPoint(a.lat, a.lon)?.id];
     if (!ids.includes(provinceId)) continue;
-    const total = a.severity === 'muy alta';
-    const fact = { id: `${a.id}|${total ? 'total' : 'parcial'}`, kind: 'apagon', text: `${a.title}. ${a.description}`, credit: a.credit ?? GRID_CREDIT };
+    const total = SEVERITY_RANK[a.severity] === TOP_SEVERITY;
+    const fact = { id: `${a.id}|${total ? 'total' : 'parcial'}`, kind: 'apagon', text: `${tr.server(a.title)}. ${tr.server(a.description)}`, credit: a.credit ?? GRID_CREDIT };
     out.push(fact);
     if (total) out.push({ ...fact, id: `${a.id}|parcial`, silent: true });
   }
@@ -83,25 +91,10 @@ export const FIRE_RULES = Object.freeze({
 });
 
 /**
- * Fuentes de calor fijas que el satélite ve a menudo y no son incendios: refinerías y siderurgias (antorchas y
- * hornos) y los volcanes de Canarias. Círculos aproximados, con margen; un foco dentro no cuenta. Gijón, Avilés y
- * Cartagena salen a diario en el directo (noviembre de 2026); las demás, por dónde están.
+ * Fuentes de calor fijas que el satélite ve a menudo y no son incendios (refinerías, siderurgias y los volcanes de
+ * Canarias): un foco dentro no cuenta. La lista, con sus nombres, en domain/lugares.js (CALOR_FIJO).
  */
-export const STATIC_HEAT = Object.freeze([
-  { name: 'Siderurgia de Gijón (Veriña)', lat: 43.527, lon: -5.732, km: 3 },
-  { name: 'Siderurgia de Avilés', lat: 43.55, lon: -5.86, km: 4 },
-  { name: 'Valle de Escombreras (Cartagena)', lat: 37.57, lon: -0.925, km: 3.5 },
-  { name: 'Refinería de Muskiz', lat: 43.325, lon: -3.115, km: 3 },
-  { name: 'Refinería de A Coruña', lat: 43.345, lon: -8.445, km: 3 },
-  { name: 'Refinería de Tarragona', lat: 41.175, lon: 1.205, km: 3 },
-  { name: 'Polígono petroquímico sur de Tarragona', lat: 41.115, lon: 1.17, km: 3 },
-  { name: 'Complejo industrial de Puertollano', lat: 38.67, lon: -4.045, km: 4 },
-  { name: 'Refinería de La Rábida (Huelva)', lat: 37.2, lon: -6.92, km: 4 },
-  { name: 'Refinería de San Roque', lat: 36.19, lon: -5.385, km: 3.5 },
-  { name: 'Refinería de Castellón', lat: 39.95, lon: 0.01, km: 3.5 },
-  { name: 'Volcán de Tajogaite (La Palma)', lat: 28.615, lon: -17.88, km: 5 },
-  { name: 'Timanfaya (Lanzarote)', lat: 29.0, lon: -13.76, km: 6 },
-]);
+export const STATIC_HEAT = CALOR_FIJO;
 const isStaticHeat = (e) => STATIC_HEAT.some((s) => distanceKm(s.lat, s.lon, e.lat, e.lon) <= s.km);
 
 const byStartThenId = (a, b) => a.start - b.start || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -224,21 +217,23 @@ const mapLink = (lat, lon) => `https://www.openstreetmap.org/?mlat=${coord(lat)}
  * @param {FireZone[]} zones  de fireZones
  * @param {string} provinceId
  * @param {(e: object) => string|null} [creditOf]  la atribución de la fuente de un foco
+ * @param {import('./idioma.js').Translator} [tr]  el idioma del texto (el mismo id en todos)
  */
-export function fireFacts(zones, provinceId, creditOf = () => null) {
+export function fireFacts(zones, provinceId, creditOf = () => null, tr = ES) {
+  const { t } = tr;
   const p = provinceById(provinceId);
   // En Canarias, un volcán también da calor (los conocidos ya no cuentan: STATIC_HEAT).
-  const also = p?.region === 'Canarias' ? 'una quema agrícola, actividad volcánica o una fuente de calor industrial'
-    : 'una quema agrícola o una fuente de calor industrial';
+  const also = plainName(p?.region ?? '') === 'canarias' ? t('una quema agrícola, actividad volcánica o una fuente de calor industrial')
+    : t('una quema agrícola o una fuente de calor industrial');
   return (zones ?? []).filter((z) => z.provinces.includes(provinceId)).map((z) => {
-    const mw = Math.round(z.maxFrp);
-    const what = z.focos === 1 ? `un foco de calor de ${mw} MW, detectado el ${MADRID_WHEN.format(z.last)}`
-      : `${z.focos} focos de calor juntos, el más fuerte de ${mw} MW; el último, detectado el ${MADRID_WHEN.format(z.last)}`;
+    const at = { mw: Math.round(z.maxFrp), when: tr.when(z.last), n: z.focos };
+    const what = z.focos === 1 ? t('un foco de calor de {mw} MW, detectado el {when}', at)
+      : t('{n} focos de calor juntos, el más fuerte de {mw} MW; el último, detectado el {when}', at);
     return {
       id: `incendio|${z.zone}`,
       kind: 'incendio',
-      text: `Posible incendio: ${what}. Es una detección por satélite, no un incendio confirmado: también puede ser ${also}. `
-        + `Dónde: ${mapLink(z.lat, z.lon)}`,
+      text: t('Posible incendio: {what}. Es una detección por satélite, no un incendio confirmado: también puede ser {also}. Dónde: {map}',
+        { what, also, map: mapLink(z.lat, z.lon) }),
       credit: creditOf(z.strongest),
     };
   });
@@ -246,14 +241,16 @@ export function fireFacts(zones, provinceId, creditOf = () => null) {
 
 // ---------- Lo que se pide al seguir una provincia ----------
 
-const FIRE_WORDS = '(?:incendios?|fuegos?|focos?(?:\\s+de\\s+calor)?)';
-const WITHOUT_FIRES = new RegExp(`^(.+?)\\s+sin\\s+${FIRE_WORDS}$`, 'iu');
-const WITH_FIRES = new RegExp(`^(.+?)\\s+(?:con\\s+|y\\s+)?${FIRE_WORDS}$`, 'iu');
-const FIRES_FIRST = new RegExp(`^${FIRE_WORDS}\\s+(?:en\\s+|de\\s+)?(.+)$`, 'iu');
+// También en inglés, para quien escribe así: «Granada fires», «fires in Granada», «Granada no fires».
+const FIRE_WORDS = '(?:incendios?|fuegos?|focos?(?:\\s+de\\s+calor)?|(?:wild)?fires?|hotspots?)';
+const WITHOUT_FIRES = new RegExp(`^(.+?)\\s+(?:sin|without|no)\\s+${FIRE_WORDS}$`, 'iu');
+const WITH_FIRES = new RegExp(`^(.+?)\\s+(?:con\\s+|y\\s+|with\\s+|and\\s+)?${FIRE_WORDS}$`, 'iu');
+const FIRES_FIRST = new RegExp(`^${FIRE_WORDS}\\s+(?:en\\s+|de\\s+|in\\s+)?(.+)$`, 'iu');
 
 /**
  * Lo que se pide con /provincia: la provincia y si quiere los focos de calor («Granada incendios», «incendios en
- * Granada»: true; «Granada sin incendios»: false; sólo la provincia: null, lo que ya tuviera).
+ * Granada», «Granada fires»: true; «Granada sin incendios», «Granada no fires»: false; sólo la provincia: null, lo
+ * que ya tuviera).
  * @param {string} arg
  * @returns {{ place: string, fires: boolean|null }}
  */
@@ -268,18 +265,23 @@ export function provinceOption(arg) {
 
 /**
  * Lo que se añade a la respuesta al seguir una provincia: los apagones de sus islas, si los tiene, y los focos de
- * calor (que los tendrá o cómo pedirlos).
+ * calor (que los tendrá o cómo pedirlos), en el idioma del chat.
  * @param {{ id: string, name: string, circles: object[] }} p
- * @param {{ fires: boolean }} opts
+ * @param {{ fires: boolean, tr?: import('./idioma.js').Translator }} opts
  */
-export function provinceExtrasText(p, { fires }) {
+export function provinceExtrasText(p, { fires, tr = ES }) {
+  const { t } = tr;
   const grid = hasIsolatedGrid(p.id);
+  const province = p.name;
+  const firesText = t('de los focos de calor que detecta el satélite y pueden ser un incendio: sólo los más claros, y nunca son un incendio '
+    + 'confirmado. Para quitarlos: /provincia {province} sin incendios', { province });
   return [
-    grid ? `También te aviso de los posibles apagones que se ven en la demanda eléctrica de ${p.circles.length > 1 ? 'cada isla' : p.name} `
-      + '(una estimación de Radar España con datos de Red Eléctrica).' : null,
-    fires ? `${grid ? 'Y' : 'También te aviso'} de los focos de calor que detecta el satélite y pueden ser un incendio: sólo los más claros, `
-      + `y nunca son un incendio confirmado. Para quitarlos: /provincia ${p.name} sin incendios`
-      : `Si quieres también los focos de calor que detecta el satélite (posibles incendios, sin confirmar): /provincia ${p.name} incendios`,
+    grid ? (p.circles.length > 1
+      ? t('También te aviso de los posibles apagones que se ven en la demanda eléctrica de cada isla (una estimación de Radar España con datos de Red Eléctrica).')
+      : t('También te aviso de los posibles apagones que se ven en la demanda eléctrica de {province} (una estimación de Radar España con datos de Red Eléctrica).',
+        { province })) : null,
+    fires ? `${grid ? t('Y') : t('También te aviso')} ${firesText}`
+      : t('Si quieres también los focos de calor que detecta el satélite (posibles incendios, sin confirmar): /provincia {province} incendios', { province }),
   ].filter(Boolean).join(' ');
 }
 
