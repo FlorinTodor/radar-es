@@ -141,6 +141,30 @@ test('desde cuándo: se guarda y otro arranque no la da por nueva; las nuevas de
   assert.equal(byId.get('renfe-cancelado:ld:05152').withdrawn, undefined, 'vuelve a publicarse: ya no está retirada');
 });
 
+test('Renfe vacía su tiempo real a medianoche: las cancelaciones de ayer no se ven hoy como retiradas, ni tras un reinicio', async (t) => {
+  const T0 = Date.parse('2026-11-09T22:58:00Z'); // 23:58 en Madrid
+  t.mock.timers.enable({ apis: ['Date'], now: T0 });
+  const cache = memoryCache();
+  let current = feeds();
+  const http = { json: (url) => httpWith(current).json(url) };
+  const cancelled = async (source) => (await source.fetch()).events.filter((e) => e.category === 'cancelacion');
+  assert.equal((await cancelled(avisosOf(createRenfeSources({ http, cache, stations, log })))).length, 3);
+  // 00:01: el feed ya no trae las de ayer. El servidor se ha reiniciado entretanto (la misma caché).
+  t.mock.timers.tick(3 * 60_000);
+  current = feeds({ 'trip_updates.json': { entity: [] }, 'trip_updates_LD.json': { entity: [] } });
+  const restarted = avisosOf(createRenfeSources({ http, cache, stations, log }));
+  assert.deepEqual(await cancelled(restarted), [], 'eran de ayer');
+  // Hoy, una que se ve y luego se deja de publicar sí sigue hasta la medianoche de hoy.
+  t.mock.timers.tick(9 * 3600_000);
+  current = feeds();
+  await restarted.fetch();
+  t.mock.timers.tick(2 * 60_000);
+  current = feeds({ 'trip_updates_LD.json': { entity: [] } });
+  const gone = (await cancelled(restarted)).find((e) => e.id === 'renfe-cancelado:ld:05152');
+  assert.equal(gone.withdrawn, T0 + 3 * 60_000 + 9 * 3600_000 + 2 * 60_000);
+  assert.equal(gone.expires, Date.parse('2026-11-10T23:00:00Z'), 'hasta la medianoche de hoy en Madrid');
+});
+
 test('si un feed falla, sus cancelaciones siguen (una hora desde la última lectura buena) y no se dan por nuevas', async (t) => {
   const T0 = Date.parse('2026-11-05T08:00:00Z');
   t.mock.timers.enable({ apis: ['Date'], now: T0 });

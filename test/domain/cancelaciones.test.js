@@ -228,6 +228,23 @@ test('se siguen de lectura en lectura: la que desaparece se retira hasta mediano
   assert.equal(memory.withdrawn.size, 0, 'pasada la medianoche, fuera');
 });
 
+test('la que desaparece pasada la medianoche era de ayer: no se retira hasta la medianoche siguiente', () => {
+  const NEXT_MIDNIGHT = MIDNIGHT + 86_400_000;
+  // 23:58: se ve; 00:01: la fuente ha vaciado su tiempo real al cambiar de día.
+  let memory = followWithdrawn({ shown: new Map(), withdrawn: new Map() }, [shownOnce], { now: MIDNIGHT - 120_000, clock: '23:58', endOfDay: MIDNIGHT });
+  assert.equal(memory.shownUntil, MIDNIGHT);
+  memory = followWithdrawn(memory, [], { now: MIDNIGHT + 60_000, clock: '00:01', endOfDay: NEXT_MIDNIGHT });
+  assert.equal(memory.withdrawn.size, 0, 'no se da como retirada hoy');
+  assert.equal(memory.shownUntil, NEXT_MIDNIGHT);
+  // La fuente no responde de 23:00 a 01:00: la última vez que se vio fue ayer.
+  memory = followWithdrawn({ shown: new Map(), withdrawn: new Map() }, [shownOnce], { now: MIDNIGHT - 3_600_000, clock: '23:00', endOfDay: MIDNIGHT });
+  memory = followWithdrawn(memory, [], { now: MIDNIGHT + 3_600_000, clock: '01:00', endOfDay: NEXT_MIDNIGHT });
+  assert.equal(memory.withdrawn.size, 0);
+  // Sin el día guardado (lo guardado antes de este cambio), como antes: hasta la medianoche de hoy.
+  memory = followWithdrawn({ shown: new Map([[shownOnce.id, shownOnce]]), withdrawn: new Map() }, [], { now: 20_000, clock: '09:05', endOfDay: MIDNIGHT });
+  assert.equal(memory.withdrawn.get(shownOnce.id).expires, MIDNIGHT);
+});
+
 // ---------- Trenes sin datos ----------
 
 test('tren sin datos: qué falta, por dónde iría según su horario y dónde se ve en el mapa', () => {

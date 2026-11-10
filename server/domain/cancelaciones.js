@@ -322,19 +322,26 @@ export function withdrawnCancellation(e, { now, clock, endOfDay }) {
 
 /**
  * Sigue las cancelaciones de lectura en lectura: las que estaban en la anterior y ya no están se retiran
- * (withdrawnCancellation) y se guardan hasta el final del día; si una vuelve a publicarse, vuelve a ser de
- * esta lectura.
- * @param {{ shown: Map<string, import('./model.js').IncidentEvent>, withdrawn: Map<string, import('./model.js').IncidentEvent> }} memory
+ * (withdrawnCancellation) y se guardan hasta el final del día en que se vieron por última vez; si una
+ * vuelve a publicarse, vuelve a ser de esta lectura. Las fuentes vacían su tiempo real al cambiar de día:
+ * las que desaparecen pasada la medianoche eran de ayer y no se muestran hoy como retiradas.
+ * @param {{ shown: Map<string, import('./model.js').IncidentEvent>, withdrawn: Map<string, import('./model.js').IncidentEvent>,
+ *           shownUntil?: number|null }} memory
+ *   shownUntil: la medianoche que cierra el día de la lectura en que se vieron las de `shown` (sin ella, la de hoy)
  * @param {import('./model.js').IncidentEvent[]} current  las de esta lectura
  * @param {{ now: number, clock: string, endOfDay: number }} when
- * @returns {{ shown: Map<string, import('./model.js').IncidentEvent>, withdrawn: Map<string, import('./model.js').IncidentEvent> }}
+ * @returns {{ shown: Map<string, import('./model.js').IncidentEvent>, withdrawn: Map<string, import('./model.js').IncidentEvent>,
+ *             shownUntil: number }}
  */
 export function followWithdrawn(memory, current, when) {
   const shown = new Map(current.map((e) => [e.id, e]));
   const withdrawn = new Map();
   for (const [id, e] of memory.withdrawn) if (!shown.has(id) && e.expires > when.now) withdrawn.set(id, e);
-  for (const [id, e] of memory.shown) if (!shown.has(id) && !withdrawn.has(id)) withdrawn.set(id, withdrawnCancellation(e, when));
-  return { shown, withdrawn };
+  const until = Number.isFinite(memory.shownUntil) ? Math.min(memory.shownUntil, when.endOfDay) : when.endOfDay;
+  if (until > when.now) {
+    for (const [id, e] of memory.shown) if (!shown.has(id) && !withdrawn.has(id)) withdrawn.set(id, withdrawnCancellation(e, { ...when, endOfDay: until }));
+  }
+  return { shown, withdrawn, shownUntil: when.endOfDay };
 }
 
 // ---------- Trenes sin datos ----------
