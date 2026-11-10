@@ -41,6 +41,21 @@ button { font: inherit; color: inherit; }
 .live[data-state="stale"] .dot { background: var(--st-warning); }
 @keyframes pulse { 50% { opacity: .35; } }
 
+/* Interruptor de idioma (ES/EN, ver js/i18n.js): dos botones pegados; el del idioma actual, marcado. */
+.lang-switch { display: inline-flex; flex: none; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+.lang-switch button, .lang-switch a {
+  min-width: 34px; min-height: 28px; padding: 0 8px; border: 0; background: transparent; color: var(--ink-2);
+  font-size: 12px; font-weight: 600; letter-spacing: .02em; cursor: pointer; text-decoration: none;
+  display: inline-grid; place-items: center;
+}
+.lang-switch button + button, .lang-switch a + a { border-left: 1px solid var(--border); }
+.lang-switch [aria-pressed="true"], .lang-switch [aria-current="page"] { background: var(--surface-2); color: var(--ink); }
+.lang-switch button:hover, .lang-switch button:focus-visible, .lang-switch a:hover, .lang-switch a:focus-visible { color: var(--ink); background: var(--surface-2); }
+/* Mientras se traduce al inglés no se enseña nada (si no, se vería un momento en español). Si la traducción
+   no llegara, la página aparece igualmente a los 2,5 s. */
+html.i18n-wait body { visibility: hidden; animation: i18n-show 0s 2.5s forwards; }
+@keyframes i18n-show { to { visibility: visible; } }
+
 /* Autor: su foto y su nombre llevan al portafolio; el icono, al código en GitHub. */
 .author { display: flex; align-items: center; gap: 6px; padding-left: 16px; border-left: 1px solid var(--border); }
 .author a { color: inherit; text-decoration: none; }
@@ -502,6 +517,7 @@ body.doc { overflow: auto; display: block; }
   .topbar { flex-wrap: wrap; gap: 2px 12px; min-height: 0; padding: 6px 12px 4px; }
   .brand { font-size: 15px; }
   .live { margin-left: auto; }
+  .lang-switch button, .lang-switch a { min-width: 30px; min-height: 30px; padding: 0 6px; font-size: 11.5px; }
   .author { gap: 2px; padding-left: 8px; }
   .author img { width: 28px; height: 28px; }
   .author-gh { width: 30px; height: 30px; }
