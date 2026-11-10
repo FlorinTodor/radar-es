@@ -83,6 +83,17 @@ test('un día pasado: «cargando» mientras se lee y luego su resumen; los KPI y
   assert.equal(s.uc.summary('2026-11-01'), null);
 });
 
+test('con el reloj: un sin datos visto a las 10:00 sigue contando cuando caduca; uno caducado antes de leerlo, no', async () => {
+  const s = setup('2026-11-10T10:00:00');
+  await s.uc.restore();
+  const missing = (id, seen, expires) => ({ id, category: 'sin-datos', severity: 'baja', seen: at(seen), expires: at(expires), trip: { operator: 'Renfe', mode: 'md', number: id } });
+  s.set([{ mode: 'md' }], [missing('a', '2026-11-10T10:00:00', '2026-11-10T10:10:00')]);
+  await s.tickAt('2026-11-10T10:00:00');
+  s.set([{ mode: 'md' }], [missing('a', '2026-11-10T10:00:00', '2026-11-10T10:10:00'), missing('b', '2026-11-10T09:00:00', '2026-11-10T09:10:00')]);
+  await s.tickAt('2026-11-10T10:20:00');
+  assert.equal(s.uc.summary().missing.total, 1);
+});
+
 test('fechas que no valen: futuras, de hace más de 90 días o mal escritas', async () => {
   const s = setup('2026-11-10T12:00:00');
   await s.uc.restore();

@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DAY_LIMITS, addDays, emptyDay, foldEvents, foldVehicles, isDay, madridDay, madridHour, medianDelay, sanitizeDay, summarizeDay,
+  DAY_LIMITS, addDays, emptyDay, foldEvents, foldVehicles, isDay, madridDay, madridHour, medianDelay, noteSources, sanitizeDay, summarizeDay,
 } from '../../server/domain/dia.js';
 
 const DATE = '2026-11-10';
@@ -82,6 +82,16 @@ test('incidencias: cada cancelación una vez al día (también si se retira), si
   assert.deepEqual(Object.keys(day.emergencies).sort(), ['m1', 'o1', 'q1'], 'ni el amarillo, ni el de mañana, ni el terremoto de ayer, ni GDACS verde');
   assert.equal(day.emergencies.o1.power, true);
   assert.deepEqual(day.credits, { 'renfe-avisos': 'Origen de los datos: Renfe Operadora', 'auvasa-avisos': 'Fuente: AUVASA' });
+});
+
+test('un tren sin datos visto a las 10:00 cuenta en el día aunque caduque a los 10 min; uno ya caducado al leerse, no', () => {
+  const day = emptyDay(DATE);
+  const seenAt10 = { id: 's1', category: 'sin-datos', seen: at('10:00'), expires: at('10:10'), trip: { operator: 'Renfe', mode: 'md', number: '18093' } };
+  const alreadyGone = { id: 's2', category: 'sin-datos', seen: at('09:00'), expires: at('09:10'), trip: { operator: 'Renfe', mode: 'md', number: '18095' } };
+  foldEvents(day, [seenAt10], at('10:00'));
+  foldEvents(day, [seenAt10, alreadyGone], at('10:20')); // el repositorio aún los guarda, ya caducados
+  assert.deepEqual(Object.keys(day.missing), ['s1']);
+  assert.equal(summarizeDay({ date: DATE, now: at('10:30'), today: true, record: day }).missing.total, 1);
 });
 
 test('topes: una lista que llega al suyo se queda ahí y lo dice', () => {
@@ -184,8 +194,10 @@ test('resumen: cancelaciones por operador, tipo y línea (con su nombre y por d�
   assert.deepEqual(s.cancellations.byOperator, [{ name: 'Renfe', n: 4 }, { name: 'EMT Málaga', n: 1 }]);
   assert.deepEqual(s.cancellations.byMode.map((m) => [m.id, m.n]), [['av', 1], ['cercanias', 3], ['bus', 1]]);
   const [c5, ...rest] = s.cancellations.byLine;
-  assert.deepEqual([c5.key, c5.name, c5.n, c5.origins], ['l-renfe-10-C5', 'Línea C5 · Cercanías · Renfe', 3, ['Móstoles-El Soto', 'Humanes']]);
-  assert.deepEqual(rest.map((g) => g.name).sort(), ['Línea 27 · EMT Málaga', 'Línea Avant · Renfe']);
+  assert.deepEqual([c5.key, c5.name, c5.n, c5.origins], ['l-renfe-10-C5', 'Tren C5 · Cercanías · Renfe', 3, ['Móstoles-El Soto', 'Humanes']],
+    'el nombre de describeFollow, con el tipo del registro (sin «Línea» delante)');
+  assert.deepEqual(rest.map((g) => g.name).sort(), ['Autobús 27 · EMT Málaga', 'Tren Avant · Avant · Renfe'],
+    'en AV/LD/MD lo que agrupa es el producto');
   assert.equal(s.alerts.total, 2);
   assert.deepEqual(s.alerts.bySeverity, { alta: 1, baja: 1 });
   assert.deepEqual(s.alerts.top.map((a) => a.severity), ['alta', 'baja'], 'la que se agravó cuenta con su gravedad mayor');
@@ -197,24 +209,55 @@ test('resumen: cancelaciones por operador, tipo y línea (con su nombre y por d�
   assert.equal(s.vehicles.peak, null);
 });
 
-test('resumen: las fuentes con su atribución (la de cada operador si la fuente agrupa a varios), sin repetir', () => {
+test('resumen: las fuentes por su nombre y con su atribución (la de cada operador si la fuente agrupa a varios), sin repetir', () => {
   const record = emptyDay(DATE);
   foldVehicles(record, [
     { mode: 'cercanias', source: 'renfe-cercanias', operator: 'Renfe' }, { mode: 'av', source: 'renfe-ld', operator: 'Renfe' },
     { mode: 'bus', source: 'bus-moventis', operator: 'Moventis Casas' }, { mode: 'bus', source: 'desconocida', operator: 'X' },
   ], at('10:00'));
-  foldEvents(record, [cancellation('c1')], at('10:00'));
+  foldEvents(record, [cancellation('c1'), cancellation('c2', { source: 'auvasa-avisos', credit: 'Fuente: AUVASA' })], at('10:00'));
   const health = [
     { id: 'renfe-cercanias', name: 'Renfe Cercanías', license: 'Origen de los datos: Renfe Operadora' },
     { id: 'renfe-ld', name: 'Renfe AV/LD/MD', license: 'Origen de los datos: Renfe Operadora' },
     { id: 'renfe-avisos', name: 'Renfe avisos', license: 'Origen de los datos: Renfe Operadora' },
-    { id: 'bus-moventis', name: 'Autobuses del NAP', license: 'NAP', operatorLicenses: { 'Moventis Casas': 'Fuente: Moventis (CC BY 4.0)' } },
+    { id: 'bus-moventis', name: 'Autobuses del NAP', license: 'NAP', operatorLicenses: { 'Moventis Casas': 'Fuente: Moventis (CC BY 4.0)', Otro: 'x' } },
   ];
-  const { credits } = summarizeDay({ date: DATE, now: at('10:30'), today: true, record, health });
+  noteSources(record, health);
+  assert.deepEqual(record.attrib['bus-moventis'], { name: 'Autobuses del NAP', license: 'NAP', operators: { 'Moventis Casas': 'Fuente: Moventis (CC BY 4.0)' } });
+  // Otro día ya no está en la lista de fuentes: se cita como estaba ese día (lo guardado en el registro).
+  const { credits } = summarizeDay({ date: DATE, now: at('10:30'), today: true, record: sanitizeDay(JSON.parse(JSON.stringify(record)), DATE), health: [] });
   assert.deepEqual(credits, [
     { names: ['Autobuses del NAP'], credit: 'Fuente: Moventis (CC BY 4.0)' },
+    { names: ['auvasa-avisos'], credit: 'Fuente: AUVASA' },
     { names: ['Renfe AV/LD/MD', 'Renfe avisos', 'Renfe Cercanías'], credit: 'Origen de los datos: Renfe Operadora' },
-  ]);
+  ], 'por su nombre; el id, sólo de la que no se sabe (auvasa-avisos no estaba en la lista)');
+  // Con la lista de ahora, también su nombre.
+  const now = summarizeDay({ date: DATE, now: at('10:30'), today: true, record, health: [...health, { id: 'auvasa-avisos', name: 'AUVASA avisos' }] });
+  assert.ok(now.credits.some((c) => c.names.includes('AUVASA avisos')));
+});
+
+test('las que no traen clave de línea (de versiones anteriores) van con la suya si no hay duda; si la hay, aparte', () => {
+  const record = emptyDay(DATE);
+  const c1 = (id, scope, over = {}) => cancellation(id, { trip: { operator: 'Renfe', mode: 'cercanias', service: 'Cercanías', line: 'C1', follow: scope ? ['l-renfe-' + scope + '-C1'] : undefined }, ...over });
+  foldEvents(record, [
+    cancellation('a1'), cancellation('a2', { trip: { operator: 'Renfe', mode: 'cercanias', service: 'Cercanías', line: 'C5' } }),
+    c1('b1', '10'), c1('b2', '40'), c1('b3', null),
+  ], at('10:00'));
+  const lines = summarizeDay({ date: DATE, now: at('10:30'), today: true, record }).cancellations.byLine;
+  assert.equal(lines.find((g) => g.key === 'l-renfe-10-C5').n, 2, 'la C5 sin clave, con la única C5');
+  assert.equal(lines.filter((g) => g.name.startsWith('Tren C1')).length, 3, 'C1 hay en Madrid y en València: la que no tiene clave, aparte');
+});
+
+test('lo que no se sabe sale null, no 0: alertas sin leer, y cancelaciones, sin datos y avisos de un día sin registro', () => {
+  const record = emptyDay(DATE);
+  foldVehicles(record, [{ mode: 'metro' }], at('10:00'));
+  const s = summarizeDay({ date: DATE, now: at('10:30'), today: true, record, alertRows: null });
+  assert.equal(s.alerts, null);
+  assert.equal(s.cancellations.total, 0, 'con registro, cero es cero');
+  const old = summarizeDay({ date: '2026-11-01', now: at('10:30'), today: false, record: null, kpiRows: [{ t: Date.parse('2026-11-01T09:00:00+01:00'), byMode: { metro: 3 }, vehicles: 3 }], alertRows: [] });
+  assert.deepEqual([old.cancellations, old.missing, old.emergencies], [null, null, null]);
+  assert.equal(old.alerts.total, 0);
+  assert.equal(old.delay.lateShare, null, 'sin retrasos publicados, no 0 %');
 });
 
 test('resumen: de un día sin nada, null; uno pasado, entero (sin cortar en la hora actual)', () => {

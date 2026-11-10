@@ -4,7 +4,7 @@
 // El resumen se pide desde la API, que no espera: es síncrono. Lo que hay que leer del disco (los KPI y las
 // alertas del histórico, el registro de un día pasado, el de la semana anterior) se lee aparte y se guarda en
 // memoria; mientras tanto, un día pasado responde «cargando» y la web vuelve a pedirlo en un momento.
-import { addDays, emptyDay, foldEvents, foldVehicles, isDay, madridDay, sanitizeDay, summarizeDay } from '../../domain/dia.js';
+import { addDays, emptyDay, foldEvents, foldVehicles, isDay, madridDay, noteSources, sanitizeDay, summarizeDay } from '../../domain/dia.js';
 
 const SAVE_EVERY_TICKS = 5; // cada 5 min se guarda el registro de hoy: un despliegue pierde como mucho eso
 const TODAY_REFRESH_MS = 5 * 60_000; // los KPI y las alertas de hoy, del histórico
@@ -75,8 +75,10 @@ export function makeDayInFigures({ situation, history, store, clock, log, keepDa
         const [rec, kpiRows, alertRows, compare, days] = await Promise.all([
           loadRecord(day), history.read('kpis', day), history.read('alerts', day), compareData(day), availableDays(today),
         ]);
-        const summary = summarizeDay({ date: day, now: clock.now(), today: false, record: rec, kpiRows, alertRows, compare, days,
-          health: situation.health() });
+        // Un día del que no hay ni registro ni KPI: el servidor no estaba en marcha y de sus alertas no se sabe.
+        const known = Boolean(rec) || kpiRows.length > 0 || alertRows.length > 0;
+        const summary = summarizeDay({ date: day, now: clock.now(), today: false, record: rec, kpiRows, alertRows: known ? alertRows : null,
+          compare, days, health: situation.health() });
         past.set(day, { summary, at: clock.now() });
         while (past.size > PAST_MAX) past.delete(past.keys().next().value);
       } catch (err) {
@@ -109,6 +111,7 @@ export function makeDayInFigures({ situation, history, store, clock, log, keepDa
       }
       foldVehicles(record, situation.vehicles(), now);
       foldEvents(record, situation.events(), now);
+      noteSources(record, situation.health());
       if (++ticks % SAVE_EVERY_TICKS === 0) await store.save(record);
       if (todayData.date !== today || now - todayData.at >= TODAY_REFRESH_MS) await refreshToday(today);
     },
@@ -134,7 +137,8 @@ export function makeDayInFigures({ situation, history, store, clock, log, keepDa
         if (!fresh) refreshToday(today);
         return summarizeDay({
           date, now, today: true, record: rec,
-          kpiRows: fresh ? todayData.kpiRows : [], alertRows: fresh ? todayData.alertRows : [],
+          // Mientras no se ha leído el histórico de hoy (justo tras arrancar), sus alertas no se saben: null, no 0.
+          kpiRows: fresh ? todayData.kpiRows : [], alertRows: fresh ? todayData.alertRows : null,
           compare: fresh ? todayData.compare : null, days: fresh ? todayData.days : [today], health: situation.health(),
         });
       }

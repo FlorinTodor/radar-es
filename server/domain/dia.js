@@ -72,6 +72,9 @@ export function addDays(day, n) {
  * @property {Record<string, object>} emergencies     avisos de AEMET, terremotos, avisos oficiales y de GDACS
  * @property {Record<string, string[]>} sources      de qué fuentes (y operadores) son los vehículos contados
  * @property {Record<string, string>} credits         atribución de cada fuente de las incidencias contadas
+ * @property {Record<string, { name: string, license: string|null, operators: Record<string, string>|null }>} attrib
+ *   nombre y licencia de cada fuente contada, tal como estaban ese día (noteSources): el día se cita igual
+ *   aunque después cambie o desaparezca la fuente
  * @property {Record<string, boolean>} truncated      qué lista llegó a su tope
  */
 
@@ -79,7 +82,7 @@ export function addDays(day, n) {
 export function emptyDay(date) {
   return {
     v: DAY_RECORD_VERSION, date, from: null, to: null, hours: {}, delays: {}, peak: null,
-    cancellations: {}, missing: {}, emergencies: {}, sources: {}, credits: {}, truncated: {},
+    cancellations: {}, missing: {}, emergencies: {}, sources: {}, credits: {}, attrib: {}, truncated: {},
   };
 }
 
@@ -125,6 +128,8 @@ export function sanitizeDay(raw, date) {
   day.emergencies = cleanMap(raw.emergencies, isObject, DAY_LIMITS.emergencies);
   day.sources = cleanMap(raw.sources, (ops) => Array.isArray(ops) && ops.every((o) => typeof o === 'string'), DAY_LIMITS.sources);
   day.credits = cleanMap(raw.credits, (c) => typeof c === 'string', DAY_LIMITS.sources);
+  day.attrib = cleanMap(raw.attrib, (a) => isObject(a) && typeof a.name === 'string'
+    && (a.license === null || typeof a.license === 'string') && (a.operators === null || isObject(a.operators)), DAY_LIMITS.sources);
   day.truncated = cleanMap(raw.truncated, (b) => b === true, 10);
   return day;
 }
@@ -240,6 +245,25 @@ export function foldEvents(day, events, now) {
   }
 }
 
+/**
+ * Apunta el nombre y la licencia de las fuentes contadas en el día (de `health`, la lista de fuentes del
+ * radar), para citarlas por su nombre aunque otro día cambien o ya no estén. Las que `health` no conoce se
+ * quedan como estaban.
+ * @param {DayRecord} day @param {import('./model.js').SourceHealth[]} health
+ */
+export function noteSources(day, health) {
+  const byId = new Map((health ?? []).map((h) => [h?.id, h]));
+  for (const id of new Set([...Object.keys(day.sources), ...Object.keys(day.credits)])) {
+    const h = byId.get(id);
+    if (!h || typeof h.name !== 'string' || !h.name) continue;
+    const seen = day.sources[id] ?? [];
+    const operators = isObject(h.operatorLicenses)
+      ? Object.fromEntries(seen.filter((o) => typeof h.operatorLicenses[o] === 'string').map((o) => [o, h.operatorLicenses[o].slice(0, 400)]))
+      : null;
+    day.attrib[id] = { name: h.name.slice(0, MAX_TEXT), license: typeof h.license === 'string' ? h.license.slice(0, 400) : null, operators };
+  }
+}
+
 // ---------- El resumen ----------
 
 const round1 = (x) => Math.round(x * 10) / 10;
@@ -336,20 +360,37 @@ const counted = (entries, keyOf) => {
 };
 const topOf = (map, n) => [...map].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]))).slice(0, n);
 
-/** Nombre de una línea a partir de lo que se sabe de un viaje suyo. */
+const nounLabel = (mode) => {
+  const noun = modeInfo(mode)?.noun;
+  return noun ? noun[0].toUpperCase() + noun.slice(1) : undefined;
+};
+
+/**
+ * Nombre de lo que agrupa una clave de línea (una línea o, en AV/LD/MD, el producto), tal como lo da
+ * describeFollow con lo que se sabe del viaje («Tren C5 · Cercanías · Renfe»).
+ */
 function lineName(e) {
-  const line = e.line ?? (e.svc && e.svc !== e.op ? e.svc : null);
-  const service = e.svc && e.svc !== line && e.svc !== e.op ? e.svc : undefined;
-  if (e.lk) return describeFollow(e.lk, { operator: e.op ?? undefined, service, line: line ?? undefined });
-  return [line ? `Línea ${line}` : null, service, e.op].filter(Boolean).join(' · ') || 'Sin línea';
+  const modeLabel = nounLabel(e.mode);
+  if (e.lk) return describeFollow(e.lk, { operator: e.op ?? undefined, service: e.svc ?? undefined, line: e.line ?? undefined, modeLabel });
+  // Sin clave (las guardadas por versiones anteriores): lo mismo, con lo que se sepa.
+  const who = e.svc && e.svc !== e.line && e.svc !== e.op ? `${e.svc} · ${e.op}` : e.op;
+  if (e.line) return `${modeLabel ?? 'Línea'} ${e.line} · ${who ?? '?'}`;
+  return [e.svc, e.op].filter(Boolean).join(' · ') || 'Sin nombre';
 }
 
 /** Cancelaciones o trenes sin datos agrupados por operador, por tipo y por línea (con su nombre). */
 function grouped(entries, { withType = false } = {}) {
   const list = Object.values(entries);
+  // Las que no traen clave (guardadas por versiones anteriores) van con la de su línea si sólo hay una con
+  // ese operador, servicio y línea (C1 hay en varias ciudades: entonces, aparte).
+  const triple = (e) => `${e.op ?? '?'}|${e.svc ?? ''}|${e.line ?? ''}`;
+  const keysOf = new Map();
+  for (const e of list) if (e.lk) keysOf.set(triple(e), new Set([...(keysOf.get(triple(e)) ?? []), e.lk]));
   const byLine = new Map();
-  for (const e of list) {
-    const key = e.lk ?? `${e.op ?? '?'}|${e.svc ?? ''}|${e.line ?? ''}`;
+  for (const raw of list) {
+    const only = !raw.lk && keysOf.get(triple(raw))?.size === 1 ? [...keysOf.get(triple(raw))][0] : null;
+    const e = only ? { ...raw, lk: only } : raw;
+    const key = e.lk ?? triple(e);
     const g = byLine.get(key) ?? { key: e.lk ?? null, name: lineName(e), operator: e.op ?? null, mode: e.mode, n: 0, partial: 0, origins: new Map() };
     g.n++;
     if (e.type === 'parcial') g.partial++;
@@ -372,8 +413,9 @@ function grouped(entries, { withType = false } = {}) {
   };
 }
 
-/** Las alertas del día (las filas «nueva» del histórico de alertas). */
+/** Las alertas del día (las filas «nueva» del histórico de alertas); null si no se sabe. */
 function alertsOf(rows) {
+  if (!Array.isArray(rows)) return null;
   const opened = new Map();
   for (const r of rows ?? []) {
     if (!isObject(r) || typeof r.id !== 'string' || (r.event !== 'nueva' && r.event !== 'escalada')) continue;
@@ -411,7 +453,11 @@ function emergenciesOf(entries) {
  * `health`: su nombre y su licencia, o la de cada operador si agrupa a varios) y las de las incidencias.
  */
 function creditsOf(record, health) {
+  // Lo apuntado ese día manda; si no, lo que hay ahora en la lista de fuentes.
   const bySource = new Map((health ?? []).map((s) => [s.id, s]));
+  for (const [id, a] of Object.entries(record?.attrib ?? {})) {
+    bySource.set(id, { id, name: a.name, license: a.license, operatorLicenses: a.operators });
+  }
   const out = new Map();
   const add = (name, credit) => {
     if (!credit) return;
@@ -426,24 +472,27 @@ function creditsOf(record, health) {
     if (perOperator.length) for (const c of perOperator) add(s.name, c);
     else add(s.name, s.license);
   }
-  for (const [id, credit] of Object.entries(record?.credits ?? {})) add(bySource.get(id)?.name ?? id, credit);
+  // De una incidencia se cita lo que ella dice; el nombre, el de su fuente (su id sólo si no se sabe).
+  for (const [id, credit] of Object.entries(record?.credits ?? {})) add(bySource.get(id)?.name || id, credit);
   const byName = (a, b) => a.localeCompare(b, 'es');
   return [...out.values()].map(({ names, credit }) => ({ names: [...names].sort(byName), credit })).sort((a, b) => byName(a.names[0], b.names[0]));
 }
 
 /**
  * El resumen de un día, listo para la API (/api/dia).
- * @param {{ date: string, now: number, today: boolean, record: DayRecord|null, kpiRows?: object[], alertRows?: object[],
+ * @param {{ date: string, now: number, today: boolean, record: DayRecord|null, kpiRows?: object[], alertRows?: object[]|null,
  *           compare?: { date: string, record: DayRecord|null, kpiRows?: object[] }|null, days?: string[],
  *           health?: import('./model.js').SourceHealth[] }} input
  *   days: los días con datos (para pasar de uno a otro); health: nombres y licencias de las fuentes.
+ *   alertRows null: no se sabe (aún no se ha leído el histórico); entonces las alertas salen null, no 0. Lo
+ *   mismo las cancelaciones, los trenes sin datos y los avisos de un día sin registro: null, no 0.
  * @returns {object|null}  null si de ese día no hay nada
  */
 export function summarizeDay({ date, now, today, record, kpiRows = [], alertRows = [], compare = null, days = [], health = [] }) {
   const hours = mergedHours(record, kpiRows);
   const alerts = alertsOf(alertRows);
   const hasEvents = record && (Object.keys(record.cancellations).length || Object.keys(record.missing).length || Object.keys(record.emergencies).length);
-  if (!hours.size && !alerts.total && !hasEvents) return null;
+  if (!hours.size && !alerts?.total && !hasEvents) return null;
 
   const lastHour = today ? madridHour(now) : 23;
   const modes = new Set();
