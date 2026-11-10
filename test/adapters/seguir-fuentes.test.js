@@ -4,6 +4,7 @@
 // añadirse a COVERED con la familia de adaptador que la prueba (ver docs/vehiculos.md).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import { strToU8, zipSync } from 'fflate';
 import { createSources } from '../../server/adapters/outbound/sources/index.js';
 import { createRenfeSources, renfeFollow } from '../../server/adapters/outbound/sources/renfe.js';
@@ -12,6 +13,7 @@ import { vehiclesFromFeed } from '../../server/adapters/outbound/sources/gtfs-rt
 import { createFgcSource } from '../../server/adapters/outbound/sources/fgc.js';
 import { isFollowKey, followKind, scheduledServiceKey } from '../../server/domain/seguir.js';
 
+const { transit_realtime: rt } = createRequire(import.meta.url)('gtfs-realtime-bindings');
 const noop = () => {};
 const quiet = { info: noop, warn: noop, error: noop };
 
@@ -103,7 +105,7 @@ const busGtfs = () => zipSync({
   'frequencies.txt': csv(['trip_id,start_time,end_time,headway_secs', 'F1,11:00:00,13:00:00,600']),
 });
 
-test('horario: cada viaje por su línea, su origen y su hora (también los de frecuencias), y su línea', async (t) => {
+test('horario sin tiempo real: sólo su línea (también las repeticiones por frecuencias)', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: NOW });
   const source = createGtfsScheduleSource({ nap: { gtfs: async () => busGtfs(), updatedAt: async () => null }, http: {}, log: quiet }, {
     id: 'bus-prueba', name: 'Prueba', mode: 'bus', ficheroId: 1, dataset: 1, operator: 'Sagalés Vic',
@@ -112,15 +114,25 @@ test('horario: cada viaje por su línea, su origen y su hora (también los de fr
   assert.ok(vehicles.length >= 3, 'el de horario y varias repeticiones del de frecuencias');
   for (const v of vehicles) {
     assertFollow(v);
-    assert.equal(v.follow[1], 'l-sagalesvic-L_2D1');
+    assert.deepEqual(v.follow, ['l-sagalesvic-L_2D1'], 'de un servicio sin tiempo real no habría nada que contar');
   }
-  const t1 = vehicles.find((v) => v.origin === 'Alfa');
-  assert.equal(t1.follow[0], scheduledServiceKey({ operator: 'Sagalés Vic', line: 'L-1', origin: 'A', departure: 11 * 3600 + 55 * 60 }));
-  const repeats = vehicles.filter((v) => v.origin === 'Beta').map((v) => v.follow[0]);
-  assert.equal(new Set(repeats).size, repeats.length, 'cada repetición, su hora de salida');
-  assert.ok(repeats.every((k) => /-(1[12])[0-5]0$/.test(k)), repeats.join(' '));
-  const again = (await source.fetch()).vehicles.find((v) => v.origin === 'Alfa');
-  assert.deepEqual(again.follow, t1.follow, 'en la lectura siguiente, la misma');
+});
+
+test('horario con tiempo real (AMB, Euskotren): el viaje por su línea, su origen y su hora, y su línea', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: NOW });
+  const feed = rt.FeedMessage.encode(rt.FeedMessage.fromObject({
+    header: { gtfsRealtimeVersion: '2.0', timestamp: 1 },
+    entity: [{ id: '1', tripUpdate: { trip: { tripId: 'T1', startDate: '20261101' }, stopTimeUpdate: [{ stopSequence: 2, arrival: { delay: 120 } }] } }],
+  })).finish();
+  const source = createGtfsScheduleSource({ nap: { gtfs: async () => busGtfs(), updatedAt: async () => null }, http: { bytes: async () => feed }, log: quiet }, {
+    id: 'amb-bus', name: 'AMB', mode: 'bus', ficheroId: 1, dataset: 1, operator: 'AMB', tripUpdatesUrl: 'https://ejemplo/trip-updates',
+  });
+  const { vehicles: [v] } = await source.fetch();
+  assertFollow(v);
+  assert.deepEqual(v.follow, [scheduledServiceKey({ operator: 'AMB', line: 'L-1', origin: 'A', departure: 11 * 3600 + 55 * 60 }), 'l-amb-L_2D1']);
+  assert.match(v.follow[0], /^s-amb-L_2D1-[0-9a-z]{7}-1155$/);
+  const { vehicles: [again] } = await source.fetch();
+  assert.deepEqual(again.follow, v.follow, 'en la lectura siguiente, la misma');
 });
 
 test('horario con número de tren propio (Ouigo): se sigue por su número', async (t) => {

@@ -61,17 +61,21 @@ function shapePoints(shape) {
 }
 
 /**
- * Lo que se puede seguir de un viaje del horario (ver domain/seguir.js): el servicio (por su número, si lo
- * tiene y es estable, o por su línea, su parada de origen y su hora de salida) y su línea. Sin offset, se
- * guarda en el viaje: es el mismo en todas las lecturas del día.
+ * Lo que se puede seguir de un viaje del horario (ver domain/seguir.js): su línea y, si hay algo que contar
+ * de él, el servicio: por su número, si lo tiene y es estable (Ouigo), o, con tiempo real del viaje
+ * (retrasos y cancelaciones: AMB, Euskotren), por su línea, su parada de origen y su hora de salida. Sin
+ * tiempo real no lleva servicio: de él sólo se sabría el horario, y en /api/live/buses, con miles de
+ * autobuses, las claves de servicio pesaban un 13 % más (con gzip); la línea, un 5 %. Si el operador
+ * publica un día su tiempo real (tripUpdatesUrl), sus viajes lo tendrán solos. Sin offset, se guarda en el
+ * viaje: es el mismo en todas las lecturas del día.
  * @param {object} trip  viaje del horario  @param {object[]} stops  sus paradas (tripStops)
- * @param {{ operator: string, line: string|null, label: string|null, numbered: boolean, offset?: number }} o
+ * @param {{ operator: string, line: string|null, label: string|null, numbered: boolean, realtime: boolean, offset?: number }} o
  */
-function tripFollow(trip, stops, { operator, line, label, numbered, offset = 0 }) {
+function tripFollow(trip, stops, { operator, line, label, numbered, realtime, offset = 0 }) {
   if (!offset && trip.follow !== undefined) return trip.follow;
-  const service = numbered && label
-    ? numberedServiceKey({ operator, number: label })
-    : scheduledServiceKey({ operator, line, origin: stops[0]?.stopId, departure: (stops[0]?.dep ?? NaN) + offset });
+  const service = numbered && label ? numberedServiceKey({ operator, number: label })
+    : realtime ? scheduledServiceKey({ operator, line, origin: stops[0]?.stopId, departure: (stops[0]?.dep ?? NaN) + offset })
+      : null;
   const follow = followOf(service, lineKey({ operator, line }));
   if (!offset) trip.follow = follow;
   return follow;
@@ -271,7 +275,7 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
       service: operator,
       line,
       label,
-      follow: tripFollow(trip, stops, { operator, line, label, numbered: !!options.numberedService, offset }),
+      follow: tripFollow(trip, stops, { operator, line, label, numbered: !!options.numberedService, realtime: !!tripUpdatesUrl, offset }),
       lat: est.lat,
       lon: est.lon,
       delay: delaySec === null ? null : Math.round(delaySec / 60),
@@ -381,7 +385,7 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
       const label = options.label?.(trip) ?? trip.label ?? null;
       out.push({
         ...common, id: `${id}-cancelado:${tripId}${c.startDate ? `:${c.startDate}` : ''}`, stops: list(true), number: trip.label ?? null,
-        follow: tripFollow(trip, stops, { operator, line, label, numbered: !!options.numberedService }),
+        follow: tripFollow(trip, stops, { operator, line, label, numbered: !!options.numberedService, realtime: true }),
         who: bus ? `Autobús ${line ?? ''} de ${operator}`.replace(/\s+/g, ' ') : [operator, line, trip.label].filter(Boolean).join(' '),
       });
     }
