@@ -103,3 +103,14 @@ test('acotado: una línea con cientos de vehículos da sólo los primeros; una c
   assert.equal(followStatus('x-nada'), null);
   assert.equal(followStatus(stopKey('71801')).state, 'parada');
 });
+
+test('una línea de tren con un autobús que la sustituye en un tramo (misma clave): se llama y es de tipo tren', () => {
+  const C3 = lineKey({ operator: 'Renfe', scope: 'Valencia', line: 'C3' });
+  const train = (label) => ({ id: `t${label}`, mode: 'cercanias', operator: 'Renfe', service: 'Cercanías', line: 'C3', label, delay: 0, follow: [C3] });
+  const bus = { id: 'b1', mode: 'bus', operator: 'Renfe', service: 'Autobús de Renfe', line: 'C3', label: '9001', delay: null, follow: [C3] };
+  const s = followStatus(C3, { vehicles: [bus, train('35001'), train('35003')], events: [] });
+  assert.equal(s.mode, 'cercanias');
+  assert.equal(s.name, 'Cercanías C3 · Renfe (Valencia)');
+  assert.equal(s.vehicles.total, 3, 'el autobús sigue contando entre los de la línea');
+  assert.equal(followStatus(C3, { vehicles: [bus], events: [] }).mode, 'bus', 'si sólo se ve el autobús, es lo que hay');
+});

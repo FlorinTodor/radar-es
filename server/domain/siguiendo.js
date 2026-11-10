@@ -13,6 +13,18 @@ export const FOLLOW_DELAYED_MIN = 5;
 export const FOLLOW_LIST_MAX = 20;
 
 const capitalize = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+
+/**
+ * El vehículo que da nombre y tipo a lo seguido: uno del tipo que más se ve. En una línea de tren con autobuses
+ * que la sustituyen en un tramo (comparten su clave), el tren, aunque el primero de la lista sea un autobús.
+ */
+function representative(vehicles) {
+  if (vehicles.length < 2) return vehicles[0] ?? null;
+  const count = new Map();
+  for (const v of vehicles) count.set(v.mode, (count.get(v.mode) ?? 0) + 1);
+  const [top] = [...count].reduce((best, c) => (c[1] > best[1] ? c : best));
+  return vehicles.find((v) => v.mode === top);
+}
 const keysOf = (list) => (Array.isArray(list) ? list : typeof list === 'string' ? [list] : []);
 
 /**
@@ -116,7 +128,7 @@ export function followStatus(key, { vehicles = [], events = [] } = {}) {
   // Primero los que van con más retraso; las incidencias en vigor antes que las retiradas.
   const sorted = [...vehicles].sort((a, b) => (b.delay ?? -1) - (a.delay ?? -1));
   const sortedEvents = [...active, ...events.filter((e) => e.withdrawn)];
-  const sample = vehicles[0] ?? events.find((e) => e.trip)?.trip ?? null;
+  const sample = representative(vehicles) ?? events.find((e) => e.trip)?.trip ?? null;
   return {
     key,
     kind,

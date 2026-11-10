@@ -10,6 +10,7 @@ let now = 1_000_000;
 let calls = 0;
 const ready = new Set();
 const days = {
+  today: () => '2026-11-10',
   summary(day) {
     calls++;
     if (day === null) return { date: '2026-11-10', today: true, n: calls };
@@ -69,4 +70,11 @@ test('fechas mal escritas, 400; sin datos, 404; sin el caso de uso, la ruta no e
 test('la monitorización cuenta /api/dia y /api/dia/:fecha sin la fecha', () => {
   assert.equal(routeLabel('/api/dia', { routes: {} }), '/api/dia');
   assert.equal(routeLabel('/api/dia/2026-11-09', { routes: {} }), '/api/dia/:fecha');
+});
+
+test('hoy pedido con su fecha (un enlace compartido) es hoy: sin guardarse como un día cerrado', async () => {
+  const res = await fetch(`${base}/api/dia/2026-11-10`);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('cache-control'), 'no-cache', 'ni una hora aquí ni un día en Cloudflare');
+  assert.equal((await res.json()).today, true);
 });

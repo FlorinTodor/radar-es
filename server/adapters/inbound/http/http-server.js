@@ -60,6 +60,10 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     '/api/live/siguiendo': {
       fn: (p) => query.following(p.get('clave')), key: (p) => p.get('clave'), ttl: 10_000, cache: liveCache(15), stableEtag: true,
       own: { max: 2_000, maxBytes: 8 * 1024 * 1024, perSecond: 50, burst: 100 },
+      // Y por cliente: las claves inventadas son válidas y no las guarda Cloudflare (cada URL es otra), así que
+      // uno solo podría gastar el de todos y echar del memo lo que siguen los demás. Lo que ya está en el memo
+      // no gasta nada; la ráfaga deja cargar de una vez todo lo que sigue una persona.
+      perClient: { perSecond: 5, burst: 60 },
     },
     // Catálogos: cambian unas pocas veces al día.
     // Vacíos mientras el servidor los carga al arrancar: entonces no se guardan (ver isEmpty).
@@ -120,6 +124,17 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
   // Y otro por cliente, para que uno solo no gaste el de todos. Se guardan los de los últimos
   // MCP_CLIENTS_MAX clientes: si alguien llena la lista con direcciones nuevas, sigue el de todos.
   const mcpClients = new Map();
+  // Presupuestos por cliente de las rutas con `perClient` (los de los últimos MCP_CLIENTS_MAX clientes de cada una).
+  const routeClients = new Map();
+  const routeClientBudget = (path, { perSecond, burst }, ip) => {
+    let clients = routeClients.get(path);
+    if (!clients) routeClients.set(path, (clients = new Map()));
+    const budget = clients.get(ip) ?? createBudget({ perSecond, burst, now });
+    clients.delete(ip);
+    clients.set(ip, budget);
+    if (clients.size > MCP_CLIENTS_MAX) clients.delete(clients.keys().next().value);
+    return budget;
+  };
   const clientBudget = (ip) => {
     const budget = mcpClients.get(ip) ?? createBudget({ perSecond: MCP_CLIENT_BUDGET.perSecond, burst: MCP_CLIENT_BUDGET.burst, now });
     mcpClients.delete(ip);
@@ -237,7 +252,12 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     else if (route.few) entry = memo(`${path}?${route.key(params)}`, route.ttl, () => route.fn(params), route);
     else {
       const compute = () => {
-        if (!budgets.get(path).take()) throw new Busy();
+        const mine = route.perClient ? routeClientBudget(path, route.perClient, clientAddress(req)) : null;
+        if (mine && !mine.take()) throw new Busy();
+        if (!budgets.get(path).take()) {
+          mine?.refund();
+          throw new Busy();
+        }
         return route.fn(params);
       };
       try {
