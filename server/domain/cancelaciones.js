@@ -344,6 +344,131 @@ export function followWithdrawn(memory, current, when) {
   return { shown, withdrawn, shownUntil: when.endOfDay };
 }
 
+// ---------- El mismo tren en dos feeds ----------
+
+// Margen entre las horas de una misma parada en los horarios de dos feeds: Renfe da a veces un minuto de
+// diferencia entre el de Rodalies y el de AV/LD/MD para el mismo tren.
+const SAME_TRAIN_MARGIN_MIN = 5;
+const trainNumber = (e) => (/^\d+$/.test(e?.trip?.number ?? '') ? String(Number(e.trip.number)) : null);
+const minutesOf = (hhmm) => {
+  const m = /^(\d{2}):(\d{2})$/.exec(hhmm ?? '');
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+};
+const closeInTime = (a, b) => {
+  const d = Math.abs(a - b) % 1440;
+  return Math.min(d, 1440 - d) <= SAME_TRAIN_MARGIN_MIN;
+};
+
+/**
+ * ¿Son el mismo tren dos incidencias con viaje (una cancelación o un tren sin datos)? El mismo número de
+ * tren y alguna parada común a la misma hora de su horario, con unos minutos de margen. El número solo no
+ * basta (no se sabe si dos redes lo repiten) y el recorrido puede no coincidir: el feed de Rodalies sólo
+ * trae el tramo de su red de un regional que sigue hasta València.
+ * @param {import('./model.js').IncidentEvent} a @param {import('./model.js').IncidentEvent} b
+ */
+export function sameTrain(a, b) {
+  const n = trainNumber(a);
+  if (!n || n !== trainNumber(b)) return false;
+  const times = new Map();
+  for (const s of a.trip.stops ?? []) {
+    const t = minutesOf(s.time);
+    if (t !== null) times.set(s.name, [...(times.get(s.name) ?? []), t]);
+  }
+  return (b.trip.stops ?? []).some((s) => {
+    const t = minutesOf(s.time);
+    return t !== null && (times.get(s.name) ?? []).some((u) => closeInTime(t, u));
+  });
+}
+
+const whoOf = (t) => [t.service, t.line, t.number].filter((x, i, all) => x && all.indexOf(x) === i).join(' ');
+
+/** Las de un mismo tren en una sola: la que sigue publicada y, si no, la de recorrido más completo. */
+function mergedTrain(group) {
+  const [kept, ...others] = [...group].sort((a, b) => (a.withdrawn ? 1 : 0) - (b.withdrawn ? 1 : 0)
+    || (b.trip.stops?.length ?? 0) - (a.trip.stops?.length ?? 0));
+  const first = group.filter((e) => Number.isFinite(e.seen)).sort((a, b) => a.seen - b.seen)[0] ?? kept;
+  const t = kept.trip;
+  const fromOther = (key) => (t[key] ? t[key] : others.map((o) => o.trip[key]).find((v) => (Array.isArray(v) ? v.length : v)));
+  const said = others.map((o) => {
+    const u = o.trip;
+    const route = u.origin && u.destination && (u.origin !== t.origin || u.destination !== t.destination) ? ` (${u.origin} → ${u.destination})` : '';
+    const what = o.type === kept.type ? '' : o.type === 'cancelado' ? ' Allí lo da como cancelado.' : ' Allí sólo suprime algunas paradas.';
+    return `${u.publisher} también lo ${o.withdrawn ? 'publicaba' : 'publica'} en su ${u.feed}, como ${whoOf(u)}${route}${o.withdrawn ? ', y allí ya no lo publica' : ''}.${what}`;
+  });
+  const { seenAtStart, ...rest } = kept;
+  const line = fromOther('line');
+  const notice = fromOther('notice');
+  const lineNotices = fromOther('lineNotices');
+  return {
+    ...rest,
+    // Siempre el mismo, aunque cambie la que se queda: lo marcado en el mapa no se pierde.
+    id: group.map((e) => e.id).sort()[0],
+    description: [kept.description, ...said].filter(Boolean).join(' '),
+    seen: first.seen,
+    ...(first.seenAtStart ? { seenAtStart: true } : {}),
+    trip: {
+      ...t,
+      line: line ?? null,
+      ...(notice ? { notice } : {}),
+      ...(lineNotices ? { lineNotices } : {}),
+      alsoIn: others.map((o) => ({
+        feed: o.trip.feed,
+        feedUrl: o.trip.feedUrl ?? null,
+        as: whoOf(o.trip),
+        origin: o.trip.origin ?? null,
+        destination: o.trip.destination ?? null,
+        ...(o.withdrawn ? { withdrawn: o.withdrawn } : {}),
+      })),
+    },
+  };
+}
+
+/** Las incidencias agrupadas por tren (sameTrain), en el orden en que llegan. */
+function byTrain(events) {
+  const groups = [];
+  const byNumber = new Map();
+  for (const e of events) {
+    const n = trainNumber(e);
+    const candidates = n ? byNumber.get(n) ?? [] : [];
+    const group = candidates.find((g) => g.some((x) => sameTrain(x, e)));
+    if (group) {
+      group.push(e);
+      continue;
+    }
+    groups.push([e]);
+    if (n) byNumber.set(n, [...candidates, groups.at(-1)]);
+  }
+  return groups;
+}
+
+/**
+ * Una sola cancelación por tren cuando su operador lo publica en dos feeds: Renfe da los regionales de
+ * Cataluña (R15, R16…) en el de Rodalies y en el de AV/LD/MD. Se queda la que sigue publicada (si la otra
+ * ya no lo está) o, si no, la de recorrido más completo; las demás se citan en ella (en `trip.alsoIn` y en
+ * su descripción), y de ellas toma su línea y sus avisos si no los tiene. Desde cuándo: la primera vez que
+ * el radar lo vio en cualquiera.
+ * @param {import('./model.js').IncidentEvent[]} events  las de esta lectura y las retiradas hoy
+ * @returns {import('./model.js').IncidentEvent[]}
+ */
+export function mergeSameTrain(events) {
+  return byTrain(events).map((g) => (g.length === 1 ? g[0] : mergedTrain(g)));
+}
+
+/**
+ * Los trenes sin datos que no son una cancelación: si el operador da el tren por cancelado (aunque sea en
+ * otro feed, o lo haya dejado de publicar hoy), sí se sabe algo de él.
+ * @param {import('./model.js').IncidentEvent[]} missing  trenes sin datos
+ * @param {import('./model.js').IncidentEvent[]} cancellations
+ */
+export function withoutCancelledTrains(missing, cancellations) {
+  const byNumber = new Map();
+  for (const c of cancellations) {
+    const n = trainNumber(c);
+    if (n) byNumber.set(n, [...(byNumber.get(n) ?? []), c]);
+  }
+  return missing.filter((m) => !(byNumber.get(trainNumber(m)) ?? []).some((c) => sameTrain(c, m)));
+}
+
 // ---------- Trenes sin datos ----------
 
 /**

@@ -9,7 +9,9 @@ import { madridClock, madridDateTime, madridServiceDay, madridToday, num } from 
 import { distanceKm } from '../../../domain/geo.js';
 import { gtfsTimeToSeconds, serviceRuns } from '../../../domain/schedule.js';
 import { clockOf, tripStopList } from '../../../domain/trip-stops.js';
-import { cancellationEvent, missingTrainEvent, noticesAbout, tripChanges } from '../../../domain/cancelaciones.js';
+import {
+  cancellationEvent, mergeSameTrain, missingTrainEvent, noticesAbout, tripChanges, withoutCancelledTrains,
+} from '../../../domain/cancelaciones.js';
 import { createSeenStore } from '../persistence/seen-store.js';
 
 const GTFSRT = 'https://gtfsrt.renfe.com';
@@ -965,7 +967,9 @@ export function createRenfeSources({ http, cache, stations, log }) {
       const cancellations = found.map(({ c, at }) => cancellationEvent({ ...c, ...noticesFor(c), ...since(c.id) }, at));
       // Las que Renfe ha dejado de publicar hoy siguen hasta medianoche, como retiradas.
       const withdrawn = await seenStore.withdrawn(cancellations, { clock: madridClock(readAt), endOfDay: madridServiceDay(readAt, 1).midnight });
-      const events = [...cancellations, ...withdrawn, ...missing.map((m) => missingTrainEvent({ ...m, ...since(m.id) }, readAt))];
+      // Un mismo tren en los dos feeds (los regionales de Rodalies), una vez; y si está cancelado, no es «sin datos».
+      const trains = mergeSameTrain([...cancellations, ...withdrawn]);
+      const events = [...trains, ...withoutCancelledTrains(missing.map((m) => missingTrainEvent({ ...m, ...since(m.id) }, readAt)), trains)];
       for (const e of d?.entity ?? []) {
         const a = e.alert;
         if (!a || !activeAlert(a, now)) continue;

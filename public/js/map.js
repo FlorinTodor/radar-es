@@ -1202,8 +1202,13 @@ export function cancellationDetail(e, now = Date.now()) {
     return { html: `${esc(n.text)}${url ? ` <a href="${esc(url)}" target="_blank" rel="noopener">Más información</a>` : ''}` };
   };
   const who = [t.service, t.line, t.number].filter((x, i, all) => x && all.indexOf(x) === i).join(' ');
-  const feed = safeUrl(t.feedUrl);
-  const published = feed ? { html: `${esc(t.publisher)}, en su <a href="${esc(feed)}" target="_blank" rel="noopener">${esc(t.feed)}</a>` } : `${t.publisher}, en su ${t.feed}`;
+  const feedLink = (name, url) => {
+    const safe = safeUrl(url);
+    return safe ? `<a href="${esc(safe)}" target="_blank" rel="noopener">${esc(name)}</a>` : esc(name);
+  };
+  // El mismo tren en otro feed del operador (los regionales de Rodalies también van en el de AV/LD/MD).
+  const also = (t.alsoIn ?? []).map((o) => ` y en su ${feedLink(o.feed, o.feedUrl)} (como ${esc(o.as)}${o.withdrawn ? `; ahí dejó de publicarlo a las ${fmtTime(o.withdrawn)}` : ''})`).join('');
+  const published = { html: `${esc(t.publisher)}, en su ${feedLink(t.feed, t.feedUrl)}${also}` };
   const today = fmtDate(e.seen) === fmtDate(now);
   const at = `${today ? '' : `el ${fmtDate(e.seen)} `}a las ${fmtTime(e.seen)}`;
   const seen = e.seen ? `${t.publisher} no dice cuándo lo publicó. El radar lo vio por primera vez ${at} (${timeAgo(e.seen, now)})`

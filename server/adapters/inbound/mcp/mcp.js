@@ -183,6 +183,10 @@ export function createMcpHandler({ query, about = {}, version = '0.0.0', now = D
     skipped: t.skipped?.length ? t.skipped : null, trips: t.trips, reason: t.reason, notice: t.notice ? noticeOut(t.notice) : null,
     lineNotices: t.lineNotices?.length ? t.lineNotices.map(noticeOut) : null,
     publisher: t.publisher, feed: t.feed, feedUrl: t.feedUrl,
+    // El mismo tren en otro feed del operador (y si ahí ya no lo publica, desde cuándo).
+    alsoPublishedIn: t.alsoIn?.length
+      ? t.alsoIn.map((o) => compact({ feed: o.feed, feedUrl: o.feedUrl, as: o.as, origin: o.origin, destination: o.destination, withdrawnBySource: iso(o.withdrawn) }))
+      : null,
   });
   const eventOut = (e) => compact({
     id: e.id, category: e.category, type: e.type, severity: e.severity, level: e.level, title: e.title,

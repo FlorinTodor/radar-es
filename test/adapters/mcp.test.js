@@ -483,7 +483,8 @@ test('cancelaciones retiradas, con su motivo, y trenes sin datos (también en la
   const withdrawn = {
     id: 'renfe-cancelado:ld:00291', source: 'renfe-avisos', category: 'cancelacion', type: 'cancelado', severity: 'baja', title: 'Alvia 00291 cancelado',
     lat: 38.89, lon: -6.98, seen: T - 600_000, withdrawn: T - 60_000,
-    trip: { ...trip, withdrawnAfterArrival: false, notice: { text: 'Por una avería, hoy no circula.', url: 'https://renfe.com/x' }, lineNotices: [{ text: 'Obras.' }] },
+    trip: { ...trip, withdrawnAfterArrival: false, notice: { text: 'Por una avería, hoy no circula.', url: 'https://renfe.com/x' }, lineNotices: [{ text: 'Obras.' }],
+      alsoIn: [{ feed: 'GTFS-RT de Cercanías y Rodalies', feedUrl: 'https://gtfsrt.renfe.com/trip_updates.json', as: 'Rodalies R16 37090', origin: 'Badajoz', destination: 'Mérida', withdrawn: T - 120_000 }] },
   };
   const missing = { id: 'renfe-sin-datos:37090', source: 'renfe-avisos', category: 'sin-datos', type: 'sin-datos', severity: 'baja', title: 'MD 37090 sin datos de Renfe',
     lat: 38.89, lon: -6.98, seen: T - 300_000, trip: { ...trip, between: ['Badajoz', 'Móstoles'] } };
@@ -495,6 +496,10 @@ test('cancelaciones retiradas, con su motivo, y trenes sin datos (también en la
   assert.equal(c.withdrawnAfterArrival, undefined);
   assert.deepEqual(c.trip.notice, { text: 'Por una avería, hoy no circula.', url: 'https://renfe.com/x' });
   assert.deepEqual(c.trip.lineNotices, [{ text: 'Obras.' }]);
+  assert.deepEqual(c.trip.alsoPublishedIn, [{
+    feed: 'GTFS-RT de Cercanías y Rodalies', feedUrl: 'https://gtfsrt.renfe.com/trip_updates.json', as: 'Rodalies R16 37090', origin: 'Badajoz', destination: 'Mérida',
+    withdrawnBySource: new Date(T - 120_000).toISOString(),
+  }], 'el mismo tren en otro feed');
   const [m] = ask('incidencias', { category: 'sin-datos' }).events;
   assert.deepEqual(m.trip.between, ['Badajoz', 'Móstoles']);
   const station = ask('estacion', { code: '35400' });
