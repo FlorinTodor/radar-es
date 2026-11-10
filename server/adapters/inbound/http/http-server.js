@@ -268,7 +268,10 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
    * pasado se guarda más (ya no cambia). Mientras un día pasado se lee del disco, 503 con Retry-After, sin
    * guardar nada: la página vuelve a pedirlo sola. Sin datos de ese día, 404.
    */
-  function sendDay(req, res, date) {
+  function sendDay(req, res, asked) {
+    // Hoy pedido con su fecha (un enlace compartido) es hoy: se renueva cada minuto y no se guarda como un día
+    // cerrado, ni aquí ni en Cloudflare (un día pasado se guarda horas).
+    const date = asked !== null && asked === days.today?.() ? null : asked;
     const entry = memoDays(date ?? 'hoy', date ? DAY_PAST_TTL_MS : DAY_TODAY_TTL_MS, () => days.summary(date) ?? { missing: true },
       { isEmpty: (b) => b?.loading === true || b?.missing === true });
     if (entry.empty) {

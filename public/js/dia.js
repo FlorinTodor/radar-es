@@ -17,6 +17,9 @@ const RETRY_MS = 2000;
 const SEVERITY = { 'muy alta': 'Muy alta', alta: 'Alta', media: 'Media', baja: 'Baja' };
 
 let data = null;
+// Hoy en Madrid, «AAAA-MM-DD»: la lista de días de un día pasado puede ser de antes de medianoche.
+const TODAY_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit' });
+const madridToday = () => TODAY_FMT.format(new Date());
 let timer = null;
 let asked = null; // el día que se ha pedido (null: hoy)
 
@@ -63,7 +66,7 @@ async function load(day, { quiet = false } = {}) {
 
 function go(day) {
   const url = new URL(location.href);
-  if (day && day !== data?.days?.[0]) url.searchParams.set('dia', day);
+  if (day && day !== madridToday()) url.searchParams.set('dia', day);
   else url.searchParams.delete('dia');
   history.pushState(null, '', url);
   load(dayParam());
@@ -89,7 +92,7 @@ async function navWithout(day) {
     prev.onclick = before ? () => go(before) : null;
     next.onclick = after ? () => go(after) : null;
     select.disabled = !days.length;
-    select.innerHTML = `<option value="" selected disabled>Elige un día</option>${days.map((d, i) => `<option value="${esc(d)}">${esc(dayShort(d))}${i === 0 ? ' (hoy)' : ''}</option>`).join('')}`;
+    select.innerHTML = `<option value="" selected disabled>Elige un día</option>${days.map((d) => `<option value="${esc(d)}">${esc(dayShort(d))}${d === madridToday() ? ' (hoy)' : ''}</option>`).join('')}`;
   } catch { /* sin lista de días: queda «Volver a hoy» */ }
 }
 
@@ -99,7 +102,7 @@ function renderNav() {
   prev.disabled = !data.prev;
   next.disabled = !data.next;
   select.disabled = !data.days.length;
-  select.innerHTML = data.days.map((d, i) => `<option value="${esc(d)}"${d === data.date ? ' selected' : ''}>${esc(dayShort(d))}${i === 0 ? ' (hoy)' : ''}</option>`).join('');
+  select.innerHTML = data.days.map((d) => `<option value="${esc(d)}"${d === data.date ? ' selected' : ''}>${esc(dayShort(d))}${d === madridToday() ? ' (hoy)' : ''}</option>`).join('');
   todayLink.hidden = data.today;
 }
 

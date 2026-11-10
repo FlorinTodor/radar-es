@@ -687,9 +687,30 @@ function renderFollowing() {
   });
 }
 
-async function refreshFollowing({ force = false } = {}) {
+// Una consulta a la vez (al cargar, abrir la pestaña y el arranque la pedían dos veces): si llega otra forzada
+// mientras tanto (se acaba de seguir algo), se repite al terminar.
+let followingBusy = null;
+let followingAgain = false;
+const FOLLOW_MIN_MS = 15_000; // entrar y salir de la pestaña no lo vuelve a pedir todo cada vez
+
+function refreshFollowing({ force = false } = {}) {
+  if (followingBusy) {
+    if (force) followingAgain = true;
+    return followingBusy;
+  }
   if (document.hidden && !force) return;
-  if (!force && state.tab !== 'following' && Date.now() - state.followingAt < FOLLOW_IDLE_MS) return;
+  if (!force && Date.now() - state.followingAt < (state.tab === 'following' ? FOLLOW_MIN_MS : FOLLOW_IDLE_MS)) return;
+  followingBusy = fetchFollowing().finally(() => {
+    followingBusy = null;
+    if (followingAgain) {
+      followingAgain = false;
+      refreshFollowing({ force: true });
+    }
+  });
+  return followingBusy;
+}
+
+async function fetchFollowing() {
   state.followingAt = Date.now();
   const keys = S.follows.list().filter((i) => i.kind !== 'parada').map((i) => i.key);
   for (const key of [...state.following.keys()]) if (!keys.includes(key)) state.following.delete(key);
