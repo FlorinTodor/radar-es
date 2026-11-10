@@ -645,7 +645,9 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Cada cancelación sale una sola vez: el tren que Renfe publica a la vez en el fichero de Cercanías y en
   el de Larga Distancia se junta en una (su ficha dice en qué otro fichero sale), un tren cancelado ya
   no sale además como «sin datos», y las cancelaciones que el operador retiró ayer ya no siguen saliendo
-  al día siguiente.
+  al día siguiente (tampoco las de ayer que Renfe quita de su tiempo real de madrugada). El aviso de un
+  tren que sale a la misma hora en sentido contrario ya no se pega a la cancelación de otro, y el número
+  de la pestaña Incidencias cuenta sólo las que siguen publicadas (las retiradas, al pasar por encima).
 - Contexto y emergencias: incidencias de tráfico y obras en carretera (capas separadas), avisos
   meteorológicos, focos de calor por satélite, áreas quemadas con su ficha, terremotos, alertas
   de catástrofes y demanda eléctrica.
@@ -852,6 +854,21 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Todo lo anterior vale para cualquier tipo de vehículo: todos comparten las mismas claves para
   seguirlos y un registro de tipos, así que un tipo nuevo (barcos, aviones) sólo necesita su entrada en
   el registro y el adaptador de su fuente.
+- Probado a fondo antes de subirlo, haciendo de distintos tipos de usuario (en el móvil, quien sigue de
+  todo, quien escribe sobre el día, quien usa el bot, quien intenta romperlo y quien revisa las
+  cancelaciones), con los datos reales del entorno de pruebas. De ahí salieron, ya hechos:
+  - las seis pestañas del panel en dos filas de tres, también en el móvil, donde además el panel se puede
+    ocultar para ver el mapa entero;
+  - botones de seguir y de Telegram cómodos para el dedo; un servicio se nombra con su línea («Cercanías
+    C3 20071») y una línea, por el tipo de vehículo que más se ve en ella;
+  - el día en cifras: fechas que no existen, días sin datos con salida, sin porcentajes de retraso en
+    horas con muy pocos vehículos, alertas repetidas agrupadas y hoy siempre al día, aunque se pida con
+    su fecha;
+  - Siguiendo: el número real de cancelaciones de una línea, consultas sin repetir y un reparto justo
+    entre quienes consultan;
+  - el bot: rondas rápidas aunque se sigan muchas estaciones, botones de listas viejas que ya no siguen
+    otra cosa, mensajes largos partidos sin cortar frases, avisos de retraso sólo cuando empeora y
+    nombres que no repiten el texto de enlaces inventados.
 
 **Rendimiento y fiabilidad**
 - Los autobuses de AMB vuelven a leerse aunque su servidor no envíe la cadena completa de su
@@ -991,6 +1008,13 @@ Ninguna por ahora.
 - Alertas de retraso más estables: algunas se abren y se cierran muchas veces en el mismo día cuando
   el retraso de un tren baila alrededor del umbral; darles un margen antes de cerrarlas.
 - Avisos por correo, además de por Telegram, para quien no lo use.
+- Incidencias en días de huelga: un buscador por número de tren o por línea y agrupar por línea o
+  núcleo, porque la lista enseña las primeras 250.
+- Bot: «/estado <provincia>» y «/seguir <provincia>» que ofrezcan la provincia, y ciudades e islas como
+  provincia (Bilbao, Mallorca, Gran Canaria); no avisar de la cancelación de un tren que ya ha salido.
+- Si tras un reinicio falla uno de los ficheros de Renfe en la primera lectura, sus cancelaciones salen
+  un minuto como retiradas y pierden desde cuándo se ven: recordar qué fichero no se ha leído aún.
+- En el móvil, el cuadro de atribuciones del mapa empieza desplegado y tapa parte del mapa.
 - Patrones con el histórico: retrasos o pérdidas de velocidad que se repiten en el mismo tramo, día
   tras día. No prueban un fallo, pero son señales para revisar. Hace falta:
   - guardar las posiciones y los retrasos de cada tren (hoy el histórico solo guarda alertas y KPIs);
