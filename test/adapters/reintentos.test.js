@@ -85,7 +85,7 @@ test('líneas del mapa: las redes que fallan se reintentan en la siguiente recar
   const catalog = make();
   await catalog.load();
   assert.deepEqual(catalog.lines().features.map((f) => f.properties.network), [firstName]);
-  const saved = JSON.parse(await readFile(join(dir, 'trazados-red-v3.json'), 'utf8'));
+  const saved = JSON.parse(await readFile(join(dir, 'trazados-red-v4.json'), 'utf8'));
   assert.equal(saved.failed.length, NETWORKS.length, 'apunta las que faltan (y Tenerife)');
   assert.equal(catalog.lines().failed, undefined, 'la lista de fallos no sale en /api/lines');
 

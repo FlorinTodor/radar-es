@@ -645,6 +645,11 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   operador deja de publicarlo, sigue desvaído hasta medianoche con la hora a la que lo retiró. También
   en la ficha de cada estación por la que pasaba y en el servidor MCP. Los viajes que Euskotren y AMB
   cancelan ya no se dibujan como si circularan.
+- El T2 del Trambaix y la línea 4 del TRAM d'Alacant salen como tranvía, como el resto de su red: su
+  horario en el Punto de Acceso Nacional los declara como tren y como metro, y el T2 salía como
+  «Cercanías / Rodalies». La atribución de esas redes y el aviso legal lo indican.
+- La ficha de cada tren de Renfe dice «Localidad» (la población por la que pasa) donde antes decía
+  «Núcleo», que no lo era.
 - Trenes sin datos: los de Alta Velocidad, Larga y Media Distancia que según su horario deberían estar
   circulando y de los que Renfe no publica nada (ni posición, ni retraso, ni cancelación). Salen en gris,
   aparte de las cancelaciones, en la última estación por la que deberían haber pasado: no se sabe si

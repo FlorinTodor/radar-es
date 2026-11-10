@@ -149,7 +149,7 @@ export default {
   '{who} la da a {km} km de {stop}: puede que no esté al día': '{who} places it {km} km from {stop}: it may not be up to date',
   'El operador': 'The operator',
   Próxima: 'Next',
-  Núcleo: 'Area',
+  Localidad: 'Town',
   Material: 'Rolling stock',
   'La <strong>línea azul clara continua</strong> (con borde oscuro) es lo que le queda hasta {destination}{how}. ':
     'The <strong>solid light blue line</strong> (with a dark edge) is what it has left to {destination}{how}. ',

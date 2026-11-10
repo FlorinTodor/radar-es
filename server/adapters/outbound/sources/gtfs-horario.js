@@ -21,6 +21,7 @@ import { madridClock, madridLocalToMs, madridServiceDay } from './parse.js';
 import { napDatasetPage } from '../nap/nap-client.js';
 import { createCpuPool } from '../workers/cpu-pool.js';
 import { packSchedule, unpackSchedule } from '../gtfs/gtfs-schedule.js';
+import { modeFixNote } from '../gtfs/gtfs-modes.js';
 
 const RELOAD_MS = 24 * 3600_000;
 // Un fichero de un grupo que no se ha podido leer se reintenta a los 10 min, sin releer los demás:
@@ -339,7 +340,8 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
   }
 
   const license = options.license ?? estimatedLicense(options.credit
-    ?? [...new Set(feeds.map((f) => (f.credit ? `${f.operator} (${f.credit})` : f.operator)))].join(', '));
+    ?? [...new Set(feeds.map((f) => (f.credit ? `${f.operator} (${f.credit})` : f.operator)))].join(', '))
+    + (feeds.map((f) => modeFixNote(f.ficheroId)).find(Boolean) ?? '');
 
   /**
    * Viajes que su tiempo real da como cancelados o con paradas suprimidas, con lo que dice su horario: de

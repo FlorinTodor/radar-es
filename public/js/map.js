@@ -1364,7 +1364,7 @@ function vehicleDetail(v, onRoute = false, stops = null) {
       who: v.source?.startsWith('renfe') ? 'Renfe' : t('El operador'), km: kmFmt.format(v.farFromStop), stop: v.current,
     })],
     v.next && [t('Próxima'), `${v.next}${nextIn}${v.stopped ? '' : via}`],
-    v.area && [t('Núcleo'), v.area],
+    v.area && [t('Localidad'), v.area], // la población de la estación en la que está o por la que acaba de pasar
     v.rollingStock && [t('Material'), v.rollingStock],
     v.fixTime && ['GPS', timeAgo(v.fixTime)],
     ...sourceRows(v.source, v.operator),

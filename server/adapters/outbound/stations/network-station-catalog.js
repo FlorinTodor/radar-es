@@ -5,7 +5,7 @@
 // estación más cercana» y tiene que ser una de Renfe. Se refresca una vez al día.
 import { distanceKm } from '../../../domain/geo.js';
 import { createPacer, csvColumns, csvColumnsStreamed, csvRows, gtfsBudget, openGtfs, own } from '../gtfs/gtfs-reader.js';
-import { modeOf } from '../gtfs/gtfs-modes.js';
+import { modeFixNote, modeOf } from '../gtfs/gtfs-modes.js';
 import { DEFAULT_COLOR, NETWORKS, readableColor } from '../network/gtfs-network-catalog.js';
 import { RETIRED_PHOTOS_VERSION, loadNetworkStationExtras, wheelchair } from './station-extras.js';
 import { createStationStore } from './station-store.js';
@@ -65,7 +65,7 @@ export async function buildStations(zip, net) {
   const files = await openGtfs(zip, ['stops.txt', 'routes.txt', 'trips.txt'], budget);
   const routes = new Map();
   for (const r of csvRows(files['routes.txt'])) {
-    const mode = modeOf(r.route_type);
+    const mode = modeOf(r.route_type, net.ficheroId);
     if (!mode) continue;
     const color = /^[0-9a-f]{6}$/i.test(r.route_color) ? readableColor(`#${r.route_color}`, mode) : DEFAULT_COLOR[mode]; // como en /api/lines
     routes.set(r.route_id, { line: r.route_short_name || r.route_long_name || r.route_id, color, mode });
@@ -191,7 +191,7 @@ export function createNetworkStationCatalog({ nap, cache, cacheDir, log, renfe, 
   const cacheFile = new URL('estaciones-redes-v1.json', cacheDir);
   // Versión de lo que se calcula: si cambia, se recalcula aunque la caché sea de hoy (como en Renfe,
   // la huella de las fotos retiradas va detrás).
-  const CATALOG_VERSION = `1-${RETIRED_PHOTOS_VERSION}`;
+  const CATALOG_VERSION = `2-${RETIRED_PHOTOS_VERSION}`; // 2: TRAM con todas sus líneas como tranvía (gtfs-modes.js)
 
   async function download(log) {
     const list = [];
@@ -203,7 +203,7 @@ export function createNetworkStationCatalog({ nap, cache, cacheDir, log, renfe, 
           log.warn(`[estaciones de otras redes] ${net.name}: sin fecha de actualización del NAP (${err.message})`);
           return null;
         });
-        const source = { credit: `Powered by MITRAMS (Punto de Acceso Nacional) · ${net.credit}`, updated, dataset: net.dataset };
+        const source = { credit: `Powered by MITRAMS (Punto de Acceso Nacional) · ${net.credit}${modeFixNote(net.ficheroId)}`, updated, dataset: net.dataset };
         for (const s of await buildStations(zip, net)) list.push({ ...s, source });
       } catch (err) {
         log.warn(`[estaciones de otras redes] ${net.name}: ${err.message}`);
