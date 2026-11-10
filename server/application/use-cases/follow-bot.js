@@ -13,6 +13,10 @@ import { dataText, helpText, parseCommand, parseHour, smallTalk, smallTalkText, 
 import { cutText } from '../../domain/seguidos/texto.js';
 import { countEvent, emptyTotals, parseTotals, usageOf } from '../../domain/seguidos/uso.js';
 import { findProvince, provinceById } from '../../domain/provincias.js';
+import {
+  collectTrayectoFacts, looksLikeTrayecto, parseTrayectoText, passIndex, trayectoErrorText, trayectoHelpText, trayectoName, trayectoOptions,
+  trayectoStatus,
+} from '../../domain/seguidos/trayectos.js';
 
 /** Topes: chats en total, cosas seguidas por chat (provincias incluidas), provincias por chat y menús. */
 export const LIMITS = Object.freeze({
@@ -35,11 +39,13 @@ const clipLabel = (s) => cutText(s, BUTTON_MAX);
  */
 
 /**
- * @param {{ read: { vehicles: () => object[], events: () => object[], station?: (code: string) => object|null },
+ * @param {{ read: { vehicles: () => object[], events: () => object[], station?: (code: string) => object|null,
+ *                   stops?: (vehicleId: string) => { stops: object[] }|null, stations?: () => object[] },
  *           store: import('../ports.js').FollowStorePort, clock: import('../ports.js').ClockPort,
  *           creditOf?: (source: string, operator?: string) => string|null, webUrl: string,
  *           log?: import('../ports.js').LoggerPort, limits?: Partial<typeof LIMITS> }} deps
- *   read: lo que se ve ahora (query-situation: vehículos, incidencias en vigor y la ficha de una estación).
+ *   read: lo que se ve ahora (query-situation: vehículos, incidencias en vigor y la ficha de una estación) y, para los
+ *   trayectos, las paradas del viaje de un vehículo y el catálogo de estaciones.
  *   creditOf: la atribución que pide la licencia de una fuente (por su id y, si agrupa a varios, el operador).
  */
 export function makeFollowBot({ read, store, clock, creditOf = () => null, webUrl, log, limits: custom = {} }) {
@@ -74,13 +80,41 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
   };
 
   const stationOf = (code) => (code && read.station ? read.station(code) : null);
-  const ctx = () => ({ vehicles: read.vehicles(), events: read.events(), now: clock.now(), stationOf, creditOf });
+  // Trayectos (domain/seguidos/trayectos.js): las paradas del viaje de cada vehículo, como mucho una vez por minuto
+  // (las piden la ronda, /estado y los partes de ese minuto); por dónde pasan, una vez por consulta (la ronda, con los
+  // partes de todos los chats, es una); el catálogo de estaciones, cada tanto.
+  let tripStops = { at: -Infinity, byId: new Map() };
+  const stopsOf = (id) => {
+    const now = clock.now();
+    if (now - tripStops.at >= 60_000) tripStops = { at: now, byId: new Map() };
+    if (!tripStops.byId.has(id)) tripStops.byId.set(id, read.stops?.(id)?.stops ?? null);
+    return tripStops.byId.get(id);
+  };
+  const passing = new WeakMap(); // ctx → passIndex
+  const passingOf = (c) => {
+    let index = passing.get(c);
+    if (!index) passing.set(c, (index = passIndex(c.vehicles, stopsOf)));
+    return index;
+  };
+  let catalog = { at: -Infinity, list: [] };
+  const stationList = () => {
+    if (clock.now() - catalog.at >= DIRECTORY_EVERY_MS) catalog = { at: clock.now(), list: read.stations?.() ?? [] };
+    return catalog.list;
+  };
+  const ctx = () => ({ vehicles: read.vehicles(), events: read.events(), now: clock.now(), stationOf, creditOf, stopsOf });
+  /** Los hechos de lo que se sigue: los de avisos.js y los de los trayectos. */
+  const factsOf = (keys, provinces, c) => {
+    const facts = collectFacts({ keys, provinces, ...c });
+    for (const [key, list] of collectTrayectoFacts({ keys, ...c })) facts.set(key, list);
+    return facts;
+  };
   const reply = (chatId, text, buttons) => ({ chatId, text: fitMessage(text), ...(buttons?.length ? { buttons } : {}) });
   const count = (chat) => (chat ? chat.subs.size + chat.provinces.size : 0);
   const provinceTitle = (p) => `Avisos en ${p.name}`;
 
   /** El nombre de lo que se ve (directorio o catálogo de estaciones); null si ahora no se conoce. */
   function knownName(key) {
+    if (followKind(key) === 'trayecto') return trayectoName(key, stationOf);
     if (followKind(key) === 'parada') {
       const st = stationOf(stopCode(key));
       return st?.name ? `Estación ${st.name}` : null;
@@ -94,15 +128,15 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
 
   /** Cómo está ahora, en texto: sus líneas y sus fuentes. */
   function statusText(sub, c = ctx()) {
-    const { lines, credits } = statusOf(sub, c);
+    const { lines, credits } = followKind(sub) === 'trayecto'
+      ? trayectoStatus(sub, { ...c, index: passingOf(c) })
+      : statusOf(sub, c);
     return [lines.join('\n'), credits.length ? credits.join(' · ') : null].filter(Boolean).join('\n\n');
   }
 
   /** Lo que ya se ve de algo al empezar a seguirlo no se avisa: se cuenta en la respuesta. */
   function baseline(sub, c) {
-    const facts = sub.startsWith('prov:')
-      ? collectFacts({ keys: [], provinces: [sub.slice(5)], ...c })
-      : collectFacts({ keys: [sub], ...c });
+    const facts = sub.startsWith('prov:') ? factsOf([], [sub.slice(5)], c) : factsOf([sub], [], c);
     seen = trackFacts(seen, facts, c.now);
   }
 
@@ -128,6 +162,9 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
     // Una estación está en el catálogo o no existe: de una que no está nunca llegaría nada.
     if (station && !stationOf(stopCode(key))) {
       return [reply(chatId, `Esa estación no la encuentro en el catálogo del radar. Búscala en el mapa y pulsa «Avísame por Telegram» en su ficha: ${webUrl}`)];
+    }
+    if (followKind(key) === 'trayecto' && !trayectoName(key, stationOf)) {
+      return [reply(chatId, 'Ese trayecto no lo puedo seguir: alguna de sus estaciones no está en el catálogo del radar. Escríbelo con /trayecto.')];
     }
     // Un enlace de la web trae sólo la clave: su nombre, de lo que se ve ahora.
     if (!name && !station) refreshDirectory(c, key);
@@ -255,6 +292,24 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
     footer: `Más en ${webUrl}`,
     more: (n) => `…y ${n === 1 ? 'otra cosa que no cabe' : `${n} cosas más que no caben`} aquí: pídela${n === 1 ? '' : 's'} con /estado y su nombre, o mírala${n === 1 ? '' : 's'} en la web.`,
   });
+
+  /**
+   * /trayecto Alcalá de Henares > Atocha 7:00-9:00 L-V: sus estaciones, del catálogo. Si con esos nombres sólo hay un
+   * trayecto posible, lo sigue; si hay varios (dos «Atocha»), una lista con cada combinación.
+   */
+  function trayectoCmd(chatId, arg) {
+    if (!arg) return [reply(chatId, trayectoHelpText())];
+    const parsed = parseTrayectoText(arg);
+    if (parsed.error) return [reply(chatId, trayectoErrorText(parsed))];
+    const found = trayectoOptions(stationList(), parsed, { limit: limits.menuItems });
+    if (found.error) return [reply(chatId, trayectoErrorText(found))];
+    if (found.total === 1) return follow(chatId, found.pairs[0].key, found.pairs[0].name);
+    const buttons = menu(chatId, 'add', found.pairs.map((p) => ({ sub: p.key, name: p.name, label: p.label })), clock.now());
+    const text = found.total > found.pairs.length
+      ? `Con esos nombres hay ${found.total} trayectos posibles; aquí van los ${found.pairs.length} primeros. Si no está el tuyo, escribe el nombre entero de las estaciones. ¿Cuál es?`
+      : 'Hay varias estaciones con esos nombres. ¿Cuál es tu trayecto?';
+    return [reply(chatId, text, buttons)];
+  }
 
   function provinceCmd(chatId, arg) {
     if (!arg) return [reply(chatId, 'Dime la provincia: /provincia Valencia, /provincia A Coruña, /provincia Bizkaia…')];
@@ -458,12 +513,14 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
         seguir: () => search(chatId, arg),
         // Texto sin orden: una búsqueda, salvo que sea charla («hola», «gracias», «vale»).
         buscar: () => {
+          if (looksLikeTrayecto(arg)) return trayectoCmd(chatId, arg);
           const talk = smallTalk(arg);
           if (!talk) return search(chatId, arg, { confirm: true });
           return [reply(chatId, talk === 'ayuda' ? helpText({ webUrl, limits }) : smallTalkText(talk))];
         },
         estado: () => status(chatId, arg),
         provincia: () => provinceCmd(chatId, arg),
+        trayecto: () => trayectoCmd(chatId, arg),
         mis: () => mine(chatId),
         dejar: () => drop(chatId, arg),
         parte: () => digestCmd(chatId, arg),
@@ -491,7 +548,7 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
         for (const p of chat.provinces.keys()) provinces.add(p);
       }
       if (!keys.size && !provinces.size) return [];
-      const facts = collectFacts({ keys, provinces, ...c });
+      const facts = factsOf(keys, provinces, c);
       seen = trackFacts(seen, facts, now);
       const out = [];
       const today = madridDay(now);

@@ -6,8 +6,8 @@
 import { followKind } from '../seguir.js';
 import { provinceById } from '../provincias.js';
 
-/** Tipos de lo que se sigue, en el orden del panel: los de las claves `follow` y las provincias. */
-export const USAGE_KINDS = Object.freeze(['servicio', 'linea', 'parada', 'provincia']);
+/** Tipos de lo que se sigue, en el orden del panel: los de las claves `follow` (con los trayectos) y las provincias. */
+export const USAGE_KINDS = Object.freeze(['servicio', 'linea', 'parada', 'trayecto', 'provincia']);
 /** Lo más seguido que se enseña, como mucho (cada cosa es una serie en Prometheus). */
 export const USAGE_TOP = 100;
 /** Por qué deja un chat el bot: deja de seguirlo todo, escribe /baja o lo bloquea (o ya no existe). */
