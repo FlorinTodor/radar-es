@@ -743,6 +743,11 @@ function setFollowed(item, on) {
     b.setAttribute('aria-pressed', String(now));
     b.innerHTML = S.followButtonText(b.dataset.followWhat, now);
     b.title = on && !now && S.follows.full ? `Ya sigues ${S.FOLLOW_MAX} cosas: deja de seguir alguna para añadir otra` : b.dataset.followName;
+    // En el móvil no hay `title`: el aviso del tope, también escrito debajo de los botones.
+    const group = b.closest('.follow');
+    if (group && on && !now && S.follows.full && !group.querySelector('.follow-full')) {
+      group.insertAdjacentHTML('beforeend', `<p class="follow-full" role="status">Ya sigues ${S.FOLLOW_MAX} cosas: deja de seguir alguna en «★ Siguiendo» para añadir otra.</p>`);
+    }
   }
   if (!now) state.following.delete(item.key);
   render('following');

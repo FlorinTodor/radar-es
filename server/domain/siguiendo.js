@@ -141,6 +141,8 @@ export function followStatus(key, { vehicles = [], events = [] } = {}) {
       delayed: vehicles.filter(isDelayed).length,
       list: sorted.slice(0, FOLLOW_LIST_MAX).map(vehicleOut),
     },
-    events: { total: events.length, active: active.length, list: sortedEvents.slice(0, FOLLOW_LIST_MAX).map(eventOut) },
+    // Los números, de todas; la lista, recortada (FOLLOW_LIST_MAX): contar sobre ella daría siempre 20 como mucho.
+    events: { total: events.length, active: active.length, cancellations: active.filter((e) => e.category === 'cancelacion').length,
+      list: sortedEvents.slice(0, FOLLOW_LIST_MAX).map(eventOut) },
   };
 }

@@ -4,6 +4,7 @@ import { PICTOS, pictoFor, vehicleImage } from './icons.js';
 import { headingAlong, matchTrack, pathBetween } from './track-match.js';
 import { STOP_SPACE_PX, stopLabelLayout, stopSpaceLayout, stopTipHtml, stopsCollection, stopsListHtml, tripFramePoints } from './trip-stops.js';
 import { followControls } from './siguiendo.js';
+import { modeNoun } from '../../server/domain/modos.js';
 import { punctualitySlot } from './puntualidad.js';
 import { telegramFollow } from './avisar.js';
 
@@ -1240,7 +1241,7 @@ export function cancellationDetail(e, now = Date.now()) {
     ...sourceRows(e.source).map((r) => (r && r[0] === 'Atribución' && e.credit ? ['Atribución', { html: creditHtml(e.credit) }] : r)),
   ].filter((r) => r && r[1]);
   const list = t.stops?.length > 1 ? cancelledStopsHtml(t.stops, e.type === 'cancelado') : '';
-  return `<div class="pop"><h3>${esc(e.title)}</h3>${followControls(t)}${telegramFollow(t.follow, t.mode, { line: t.line, service: t.service })}${e.description ? `<p>${esc(e.description)}</p>` : ''}
+  return `<div class="pop"><h3>${esc(e.title)}</h3>${followControls(t)}${telegramFollow(t.follow, t.mode, { line: t.line, service: t.service, operator: t.operator })}${e.description ? `<p>${esc(e.description)}</p>` : ''}
     <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
     ${punctualitySlot(t.follow)}${list}
     <div class="note">Las horas son las del horario del operador. Si el operador deja de publicarlo, sigue aquí hasta medianoche
@@ -1272,7 +1273,7 @@ export function missingTrainDetail(e, now = Date.now()) {
     ...sourceRows(e.source).map((r) => (r && r[0] === 'Atribución' && e.credit ? ['Atribución', { html: creditHtml(e.credit) }] : r)),
   ].filter((r) => r && r[1]);
   const list = t.stops?.length > 1 ? missingStopsHtml(t.stops) : '';
-  return `<div class="pop"><h3>${esc(e.title)}</h3>${followControls(t)}${telegramFollow(t.follow, t.mode, { line: t.line, service: t.service })}${e.description ? `<p>${esc(e.description)}</p>` : ''}
+  return `<div class="pop"><h3>${esc(e.title)}</h3>${followControls(t)}${telegramFollow(t.follow, t.mode, { line: t.line, service: t.service, operator: t.operator })}${e.description ? `<p>${esc(e.description)}</p>` : ''}
     <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
     ${punctualitySlot(t.follow)}${list}
     <div class="note">Sale si, según el horario publicado, debería llevar más de 10 minutos circulando y le quedan más de 5 para llegar,
@@ -1329,7 +1330,7 @@ function vehicleDetail(v, onRoute = false, stops = null) {
   const aheadText = (how) => `La <strong>línea azul clara continua</strong> (con borde oscuro) es lo que le queda hasta ${esc(v.destination ?? 'su destino')}${how}. `;
   const ahead = onRoute || v.ahead ? aheadText('') : '';
   const note = !v.estimated
-    ? `${ahead}La <strong>línea azul discontinua</strong> es el recorrido de este tren en los últimos 45 min (desde que el radar lo sigue). `
+    ? `${ahead}La <strong>línea azul discontinua</strong> es el recorrido de este ${esc(modeNoun(v.mode))} en los últimos 45 min (desde que el radar lo sigue). `
       + 'La × sólo cierra esta ficha; pulsa en una zona vacía del mapa para quitar el recorrido y «Ver todo» para volver a verlo todo.'
     : (v.delay !== null && v.delay !== undefined
       ? '<strong>Posición estimada</strong> a partir del horario y del retraso real que publica el operador: no es GPS. '
@@ -1344,7 +1345,7 @@ function vehicleDetail(v, onRoute = false, stops = null) {
   const list = stops ? stopsListHtml(stops, { open }) : '';
   const stopsNote = list ? ' Los <strong>puntos</strong> son sus paradas: blancos los que le quedan y grises por los que ya ha pasado.'
     + (v.estimated ? ' Sus horas son las del horario.' : '') : '';
-  return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}${followControls(v)}${telegramFollow(v.follow, v.mode, { line: v.line, service: v.service })}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
+  return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}${followControls(v)}${telegramFollow(v.follow, v.mode, { line: v.line, service: v.service, operator: v.operator })}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
     ${punctualitySlot(v.follow, { delayKnown: Number.isFinite(v.delay) || typeof v.late === 'boolean' })}
     ${list}<div class="note">${note}${stopsNote}</div></div>`;
 }

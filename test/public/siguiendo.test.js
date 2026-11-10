@@ -171,3 +171,10 @@ test('lista de «Siguiendo»: el botón de Telegram de cada cosa y la explicaci�
   assert.match(con, /<a class="tg-mini" data-k="l-emtmalaga-27">Avisos en Telegram<\/a>/);
   assert.match(con, /follow-tg-hint/);
 });
+
+test('una línea con muchas cancelaciones: el número de todas (del servidor), no el de la lista recortada', () => {
+  const item = { key: lineKey({ operator: 'Renfe', line: 'Regional' }), kind: 'linea', mode: 'md' };
+  const list = Array.from({ length: 20 }, (_, i) => ({ id: `c${i}`, category: 'cancelacion', type: 'cancelado', title: `Regional ${i}` }));
+  const status = { state: 'ninguno', mode: 'md', vehicles: { total: 0, list: [] }, events: { total: 104, active: 102, cancellations: 92, list } };
+  assert.match(followStatusText(item, status).text, /· 92 cancelaciones y 10 avisos\.$/);
+});

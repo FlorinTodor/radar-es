@@ -35,7 +35,7 @@ test('sólo línea (autobús sin servicio estable), una estación, un tipo que e
   assert.match(bus, /start=l-emtmalaga-27"/);
   assert.match(bus, /<small>de las cancelaciones y avisos de la línea 27<\/small>/);
   assert.doesNotMatch(bus, /tg-alt/, 'sin segunda opción');
-  assert.match(telegramFollow('p-71801'), /start=p-71801".*de las cancelaciones que pasan por esta estación/);
+  assert.match(telegramFollow('p-71801'), /start=p-71801".*de las cancelaciones que su operador publique en esta estación/);
   assert.match(telegramFollow(['s-amb-V15-0k3x9ab-0732'], 'barco'), /si este servicio se cancela/, 'un tipo que el registro aún no tiene');
   assert.equal(telegramFollow(['"><script>', 'x'], 'av'), '', 'sólo claves válidas');
   assert.equal(telegramFollow(undefined), '');
@@ -50,4 +50,11 @@ test('el botón pequeño de «Siguiendo»: sólo con bot y con una clave válida
   assert.match(link, /^<a class="tg-mini" href="https:\/\/t\.me\/RadarEspanaBot\?start=l-emtmalaga-27"/);
   assert.match(link, /aria-label="Avisos por Telegram de Autobús 27 · EMT Málaga"/);
   assert.equal(telegramLink('"><x>'), '');
+});
+
+test('una clave de red entera (sin línea): «toda la red de …», como el botón de seguir', () => {
+  setTelegram({ telegram: { bot: 'RadarEspanaBot' } }, MODES);
+  const html = telegramFollow(['l-metrobilbao'], 'metro', { operator: 'Metro Bilbao' });
+  assert.match(html, /<small>de las cancelaciones y avisos de toda la red de Metro Bilbao<\/small>/);
+  assert.match(telegramFollow(['s-renfe-00190', 'l-renfe-Alvia'], 'ld', { service: 'Alvia' }), />o de todos los Alvia</, 'una cancelación de Alvia sin `line`: de la clave');
 });

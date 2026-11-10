@@ -37,7 +37,8 @@ const startUrl = (key) => `https://t.me/${esc(bot)}?start=${esc(key)}`;
  * como en la larga distancia) o, sin nombre, «su línea».
  * @param {{ line?: string|null, service?: string|null }} [names]
  */
-function lineWords({ line = null, service = null } = {}) {
+function lineWords({ line = null, service = null, network = false, operator = null } = {}) {
+  if (network) return { all: `toda la red${operator ? ` de ${operator}` : ''}`, of: `toda la red${operator ? ` de ${operator}` : ''}` };
   if (!line) return { all: 'toda su línea', of: 'su línea' };
   if (service && line === service) return { all: `todos los ${line}`, of: `los ${line}` };
   return { all: `toda la línea ${line}`, of: `la línea ${line}` };
@@ -48,7 +49,8 @@ function lineWords({ line = null, service = null } = {}) {
  * el botón es el del servicio y la línea va debajo como segunda opción.
  * @param {string[]|string|undefined} follow  las claves de un vehículo o de un viaje (o la de una estación)
  * @param {string} [mode]  su tipo, para decir «este tren», «este autobús»…
- * @param {{ line?: string|null, service?: string|null }} [names]  su línea y su producto, para nombrar la línea
+ * @param {{ line?: string|null, service?: string|null, operator?: string|null }} [names]  su producto y su operador
+ *   (la línea se nombra por su clave; el operador, para «toda la red de …»)
  */
 export function telegramFollow(follow, mode, names = {}) {
   if (!bot) return '';
@@ -59,7 +61,8 @@ export function telegramFollow(follow, mode, names = {}) {
   const stop = first('p');
   // La línea, por su propia clave (como el botón «Seguir la línea …»): en una cancelación que junta el mismo tren
   // de dos feeds, la línea de la ficha (R16) puede ser de la otra clave (Regional Exprés).
-  const words = lineWords({ line: line ? parseFollowKey(line)?.parts.at(-1) ?? null : null, service: names.service ?? null });
+  const parts = line ? parseFollowKey(line)?.parts ?? [] : [];
+  const words = lineWords({ line: parts.at(-1) ?? null, service: names.service ?? null, network: Boolean(line) && !parts.length, operator: names.operator ?? null });
   let main = null;
   let alt = null;
   if (service) {
@@ -68,7 +71,8 @@ export function telegramFollow(follow, mode, names = {}) {
   } else if (line) {
     main = { key: line, what: `de las cancelaciones y avisos de ${words.of}` };
   } else if (stop) {
-    main = { key: stop, what: 'de las cancelaciones que pasan por esta estación' };
+    // No todas las redes publican cancelaciones (los metros y tranvías casi nunca): no prometer más de lo que hay.
+    main = { key: stop, what: 'de las cancelaciones que su operador publique en esta estación' };
   }
   if (!main) return '';
   return `<div class="tg-cta"><a class="tg-btn" href="${startUrl(main.key)}" target="_blank" rel="noopener">${PLANE}`

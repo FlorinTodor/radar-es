@@ -114,3 +114,12 @@ test('una línea de tren con un autobús que la sustituye en un tramo (misma cla
   assert.equal(s.vehicles.total, 3, 'el autobús sigue contando entre los de la línea');
   assert.equal(followStatus(C3, { vehicles: [bus], events: [] }).mode, 'bus', 'si sólo se ve el autobús, es lo que hay');
 });
+
+test('el número de cancelaciones es el de todas, aunque la lista vaya recortada', () => {
+  const C = lineKey({ operator: 'Renfe', line: 'Regional' });
+  const events = Array.from({ length: FOLLOW_LIST_MAX + 15 }, (_, i) => ({ id: `c${i}`, category: 'cancelacion', type: 'cancelado', title: `Regional ${i}` }));
+  events.push({ id: 'aviso', category: 'ferroviario', title: 'Obras' }, { id: 'vieja', category: 'cancelacion', type: 'cancelado', title: 'Ya no', withdrawn: 1 });
+  const s = followStatus(C, { vehicles: [], events });
+  assert.equal(s.events.list.length, FOLLOW_LIST_MAX);
+  assert.deepEqual([s.events.total, s.events.active, s.events.cancellations], [FOLLOW_LIST_MAX + 17, FOLLOW_LIST_MAX + 16, FOLLOW_LIST_MAX + 15]);
+});
