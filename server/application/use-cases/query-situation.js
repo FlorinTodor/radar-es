@@ -9,6 +9,8 @@ import { withCurrentCuts } from '../../domain/emergencias.js';
 import { withoutRepeatedQuakes } from '../../domain/sismos.js';
 import { GRID_METRICS } from '../../domain/alerts/rules.js';
 import { DEFAULT_THRESHOLDS } from '../../domain/alerts/thresholds.js';
+import { stopKey } from '../../domain/seguir.js';
+import { MODES } from '../../domain/modos.js';
 
 // Cálculos por tren que se guardan (recorrido por la vía, ~30 KB cada uno; lo que le queda): el mapa
 // pide los del tren seleccionado cada 15 s, /api/live la flecha de cada Cercanías, y sólo cambian
@@ -203,7 +205,15 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
     // Las de otras redes llevan además su red y su modo (metro, tranvía…), para filtrarlas y pintarlas.
     stations: () => [...stations.all(), ...(networkStations?.all() ?? [])].map(({ code, name, place, province, lat, lon, cercanias, metricGauge, accessible, network: net, networkId, mode }) => (
       { code, name, place, province, lat, lon, cercanias, metricGauge, accessible, ...(networkId ? { network: net, networkId, mode } : {}) })),
-    station: (code) => stations.get(code) ?? networkStations?.get(code) ?? null,
+    // Con la clave para seguirla (domain/seguir.js). La lista no la lleva: sale de su código y la engordaría
+    // un 13 %; quien la sigue la toma de aquí (y stopCode, de la clave, vuelve al código).
+    station: (code) => {
+      const station = stations.get(code) ?? networkStations?.get(code) ?? null;
+      const follow = station && stopKey(station.code);
+      return station && follow ? { ...station, follow } : station;
+    },
+    /** Los tipos de vehículo dados de alta (domain/modos.js), en orden: nombres y filtros del cliente salen de aquí. */
+    modes: () => MODES,
     lines: () => network.lines(),
     lineSources: () => network.sources(),
     /**

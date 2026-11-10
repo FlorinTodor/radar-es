@@ -50,6 +50,8 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     // Catálogos: cambian unas pocas veces al día.
     // Vacíos mientras el servidor los carga al arrancar: entonces no se guardan (ver isEmpty).
     '/api/stations': { fn: () => query.stations(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.length },
+    // Los tipos de vehículo (domain/modos.js): cambian sólo con un despliegue.
+    '/api/modes': { fn: () => query.modes(), ttl: 600_000, cache: CATALOG_CACHE },
     // Unas líneas provisionales (se están rehaciendo por la vía) se tratan como un catálogo vacío: no se guardan.
     '/api/lines': { fn: () => query.lines(), ttl: 600_000, cache: CATALOG_CACHE, isEmpty: (b) => !b?.features?.length || b.provisional === true },
     // Tres variantes (15, 30 y 45 min): van al memo general, sin presupuesto, como una ruta sin parámetros.
