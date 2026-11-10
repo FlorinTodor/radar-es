@@ -2,7 +2,7 @@
 // datos, columnas de como mucho 24 px, nombres escapados y la hora bajo el puntero.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { columnChart, dayShort, dayTitle, fmt, hbars, hourAt, lineChart, medianText, niceScale } from '../../public/js/dia-graficas.js';
+import { columnChart, dayShort, dayTitle, fmt, hbars, hourAt, lineChart, medianPhrase, niceScale } from '../../public/js/dia-graficas.js';
 
 test('escala redonda del eje: de 3 a 5 marcas desde cero', () => {
   assert.deepEqual(niceScale(87), { max: 100, ticks: [0, 25, 50, 75, 100] });
@@ -39,7 +39,7 @@ test('barras horizontales: de mayor a menor como vienen, con el valor al final y
   assert.match(html, /<span class="hb-val">69<\/span>/);
 });
 
-test('la hora bajo el puntero, dentro de 0–23; fechas, números y la mediana en palabras', () => {
+test('la hora bajo el puntero, dentro de 0–23; fechas, números y la mediana en una frase', () => {
   assert.equal(hourAt(0, 30, 260), 0);
   assert.equal(hourAt(145, 30, 260), 12);
   assert.equal(hourAt(9999, 30, 260), 23);
@@ -47,8 +47,9 @@ test('la hora bajo el puntero, dentro de 0–23; fechas, números y la mediana e
   assert.equal(dayShort('2026-11-03'), 'mar, 3 nov');
   assert.equal(fmt(1284.5), '1284,5');
   assert.equal(fmt(null), '–');
-  assert.equal(medianText({ minutes: 2 }), '2 min');
-  assert.equal(medianText({ from: 15, to: 29 }), 'de 15 a 29 min');
-  assert.equal(medianText({ from: 60, to: null }), '60 min o más');
-  assert.equal(medianText(null), '–');
+  // La mediana como frase que se pueda leer, también cuando cae en un tramo.
+  assert.equal(medianPhrase({ minutes: 2 }), 'la mitad, 2 min o menos');
+  assert.equal(medianPhrase({ from: 30, to: 59 }), 'retraso mediano: entre 30 y 59 min');
+  assert.equal(medianPhrase({ from: 60, to: null }), 'retraso mediano: 60 min o más');
+  assert.equal(medianPhrase(null), null);
 });

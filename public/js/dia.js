@@ -4,7 +4,7 @@
 // registro de tipos), así que un tipo nuevo sale aquí sin tocar nada.
 import { creditHtml, esc, fmtTime } from './format.js';
 import {
-  columnChart, dayShort, dayTitle, fmt, hbars, hourAt, hourLabel, lineChart, medianText,
+  columnChart, dayShort, dayTitle, fmt, hbars, hourAt, hourLabel, lineChart, medianPhrase,
 } from './dia-graficas.js';
 
 const el = document.getElementById('dia');
@@ -81,18 +81,24 @@ function renderNav() {
 const tile = (label, value, sub = '', hero = false) => `<div class="tile${hero ? ' hero' : ''}">
   <div class="t-label">${esc(label)}</div><div class="t-value">${value}</div>${sub ? `<div class="t-sub">${sub}</div>` : ''}</div>`;
 
+// Lo que no se sabe (un día sin registro, el histórico aún sin leer) sale como «sin dato», nunca como 0.
+const UNKNOWN = '<span class="t-unknown">sin dato</span>';
+const NOT_SAVED = 'de este día no se guardó';
+
 function tiles(d) {
   const c = d.cancellations;
   const peak = d.vehicles.peak;
   const em = d.emergencies;
-  const emTotal = em ? em.meteo.total + em.sismos.total + em.oficiales.total + em.gdacs.total : null;
+  const railOnly = !d.coverage.hoursAllModes;
+  const late = d.delay.lateShare;
+  const median = medianPhrase(d.delay.median);
   return `<div class="dia-tiles">
-    ${c ? tile('Cancelaciones', fmt(c.total), c.total ? `${fmt(c.whole)} sin circular y ${fmt(c.partial)} con paradas suprimidas, de ${fmt(c.operators)} ${c.operators === 1 ? 'operador' : 'operadores'}` : 'Ningún viaje cancelado', true) : ''}
-    ${peak ? tile('Máximo a la vez', fmt(peak.total), `vehículos vistos en tiempo real a las ${esc(fmtTime(peak.t))}`) : ''}
-    ${d.delay.lateShare !== null ? tile('Con 5 min o más de retraso', `${fmt(d.delay.lateShare)} %`, `de los que publican su retraso; la mitad, ${esc(medianText(d.delay.median))} o menos`) : ''}
-    ${d.missing ? tile('Trenes sin datos', fmt(d.missing.total), 'en algún momento del día') : ''}
-    ${tile('Alertas del radar', fmt(d.alerts.total), d.alerts.bySeverity.alta || d.alerts.bySeverity['muy alta'] ? `${fmt((d.alerts.bySeverity.alta ?? 0) + (d.alerts.bySeverity['muy alta'] ?? 0))} de gravedad alta` : '')}
-    ${em ? tile('Avisos de emergencia', fmt(emTotal), [em.meteo.total && `${fmt(em.meteo.total)} de AEMET`, em.sismos.total && `${fmt(em.sismos.total)} terremotos`, em.oficiales.total && `${fmt(em.oficiales.total)} oficiales`].filter(Boolean).join(' · ')) : ''}
+    ${tile('Cancelaciones', c ? fmt(c.total) : UNKNOWN, c ? (c.total ? `${fmt(c.whole)} sin circular y ${fmt(c.partial)} con paradas suprimidas, de ${fmt(c.operators)} ${c.operators === 1 ? 'operador' : 'operadores'}` : 'Ningún viaje cancelado') : NOT_SAVED, true)}
+    ${tile('Máximo a la vez', peak ? fmt(peak.total) : UNKNOWN, peak ? `${railOnly ? 'trenes, metros y tranvías' : 'vehículos'} vistos en tiempo real a las ${esc(fmtTime(peak.t))}` : '')}
+    ${tile('Con 5 min o más de retraso', late !== null ? `${fmt(late)} %` : UNKNOWN, late !== null ? `de los que publican su retraso${median ? `; ${esc(median)}` : ''}` : 'ningún operador publicó su retraso')}
+    ${tile('Trenes sin datos', d.missing ? fmt(d.missing.total) : UNKNOWN, d.missing ? 'en algún momento del día' : NOT_SAVED)}
+    ${tile('Alertas del radar', d.alerts ? fmt(d.alerts.total) : UNKNOWN, d.alerts ? (d.alerts.bySeverity.alta || d.alerts.bySeverity['muy alta'] ? `${fmt((d.alerts.bySeverity.alta ?? 0) + (d.alerts.bySeverity['muy alta'] ?? 0))} de gravedad alta` : '') : 'aún no se ha leído')}
+    ${tile('Avisos de emergencia', em ? fmt(em.meteo.total + em.sismos.total + em.oficiales.total + em.gdacs.total) : UNKNOWN, em ? [em.meteo.total && `${fmt(em.meteo.total)} de AEMET`, em.sismos.total && `${fmt(em.sismos.total)} terremotos`, em.oficiales.total && `${fmt(em.oficiales.total)} oficiales`].filter(Boolean).join(' · ') : NOT_SAVED)}
   </div>`;
 }
 
@@ -113,19 +119,19 @@ function delaySection(d) {
   const rows = d.vehicles.modes.filter((m) => m.delay);
   return `<h2>Retraso</h2>
     <div class="dia-grid one">${chartCard('delay', 'Con 5 min o más de retraso, por horas', 'Porcentaje de los vehículos que publican su retraso')}</div>
-    ${rows.length ? `<ul class="dia-list">${rows.map((m) => `<li><strong>${esc(m.label)}</strong>: ${fmt(m.delay.lateShare)} % con 5 min o más; la mitad, ${esc(medianText(m.delay.median))} o menos</li>`).join('')}</ul>` : ''}`;
+    ${rows.length ? `<ul class="dia-list">${rows.map((m) => `<li><strong>${esc(m.label)}</strong>: ${fmt(m.delay.lateShare)} % con 5 min o más${medianPhrase(m.delay.median) ? `; ${esc(medianPhrase(m.delay.median))}` : ''}</li>`).join('')}</ul>` : ''}`;
 }
 
 const origins = (g) => (g.origins?.length ? `sobre todo desde ${g.origins.join(' y ')}` : '');
 
 function cancellationsSection(d) {
   const c = d.cancellations;
-  if (!c) return '';
+  if (!c) return `<h2>Cancelaciones</h2><p class="muted">Sin dato: ${NOT_SAVED} (el radar empezó a guardar las cancelaciones de cada día más tarde).</p>`;
   if (!c.total) return '<h2>Cancelaciones</h2><p class="muted">Ningún operador ha dado viajes por cancelados en su tiempo real.</p>';
   return `<h2>Cancelaciones</h2>
     <p class="muted">${fmt(c.total)} viajes cancelados o con paradas suprimidas${c.byMode.length ? `: ${c.byMode.map((m) => `${fmt(m.n)} de ${esc(m.label.toLowerCase())}`).join(', ')}` : ''}.</p>
     <div class="dia-cols">
-      <div><h3>Las líneas con más</h3>${hbars(c.byLine.map((g) => ({ label: g.name, value: g.n, sub: origins(g) })))}</div>
+      <div><h3>Dónde más cancelaciones</h3>${hbars(c.byLine.map((g) => ({ label: g.name, value: g.n, sub: origins(g) })))}</div>
       <div><h3>Por operador</h3>${hbars(c.byOperator.map((o) => ({ label: o.name, value: o.n })))}</div>
     </div>`;
 }
@@ -135,12 +141,12 @@ function missingSection(d) {
   if (!m?.total) return '';
   return `<h2>Trenes sin datos</h2>
     <p class="muted">${fmt(m.total)} ${m.total === 1 ? 'tren debía' : 'trenes debían'} circular según su horario y su operador no publicaba nada de ${m.total === 1 ? 'él' : 'ellos'} en algún momento. No es una cancelación: no se sabe si circularon.</p>
-    <div class="dia-cols"><div><h3>Las líneas con más</h3>${hbars(m.byLine.map((g) => ({ label: g.name, value: g.n })))}</div></div>`;
+    <div class="dia-cols"><div><h3>Dónde más trenes sin datos</h3>${hbars(m.byLine.map((g) => ({ label: g.name, value: g.n })))}</div></div>`;
 }
 
 function alertsSection(d) {
   const a = d.alerts;
-  if (!a.total) return '';
+  if (!a?.total) return '';
   return `<h2>Alertas del radar</h2>
     <p class="muted">${fmt(a.total)} alertas (trenes detenidos, saltos de retraso, fuentes caídas, avisos…). Las de más gravedad:</p>
     <ul class="dia-list">${a.top.map((x) => `<li><span class="pill-sev">${esc(SEVERITY[x.severity] ?? x.severity ?? '')}</span> ${esc(x.title)}${x.since ? ` <span class="muted">· ${esc(fmtTime(x.since))}</span>` : ''}</li>`).join('')}</ul>`;
@@ -148,7 +154,8 @@ function alertsSection(d) {
 
 function emergenciesSection(d) {
   const e = d.emergencies;
-  if (!e || !(e.meteo.total + e.sismos.total + e.oficiales.total + e.gdacs.total)) return '';
+  if (!e) return `<h2>Avisos de emergencia</h2><p class="muted">Sin dato: ${NOT_SAVED}.</p>`;
+  if (!(e.meteo.total + e.sismos.total + e.oficiales.total + e.gdacs.total)) return '';
   const item = (x) => `<li>${x.level ? `<span class="pill-sev">${esc(x.level)}</span> ` : ''}${esc(x.title ?? '')}${x.area && !(x.title ?? '').includes(x.area) ? ` <span class="muted">· ${esc(x.area)}</span>` : ''}</li>`;
   const block = (title, sub, list) => (list.length ? `<div><h3>${esc(title)}</h3><p class="muted">${sub}</p><ul class="dia-list">${list.map(item).join('')}</ul></div>` : '');
   return `<h2>Avisos de emergencia</h2><div class="dia-cols">

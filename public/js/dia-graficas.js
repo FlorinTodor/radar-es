@@ -128,9 +128,12 @@ export const dayTitle = (date) => DAY_TITLE.format(new Date(`${date}T12:00:00Z`)
 /** «mar, 10 nov» */
 export const dayShort = (date) => DAY_SHORT.format(new Date(`${date}T12:00:00Z`));
 
-/** La mediana del retraso, en palabras («2 min», «de 15 a 29 min», «60 min o más»). */
-export function medianText(m) {
-  if (!m) return '–';
-  if (Number.isFinite(m.minutes)) return `${m.minutes} min`;
-  return m.to ? `de ${m.from} a ${m.to} min` : `${m.from} min o más`;
+/**
+ * La mediana del retraso como frase: «la mitad, 2 min o menos» si se sabe el minuto; si cae en un tramo,
+ * «retraso mediano: entre 30 y 59 min» o «retraso mediano: 60 min o más». null si no hay.
+ */
+export function medianPhrase(m) {
+  if (!m) return null;
+  if (Number.isFinite(m.minutes)) return `la mitad, ${m.minutes} min o menos`;
+  return m.to ? `retraso mediano: entre ${m.from} y ${m.to} min` : `retraso mediano: ${m.from} min o más`;
 }
