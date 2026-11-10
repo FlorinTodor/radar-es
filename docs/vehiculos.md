@@ -41,7 +41,7 @@ parámetro `start` de Telegram (`t.me/<bot>?start=<clave>`), sin tablas para vol
 |---|---|---|
 | Servicio con número propio | `s-<red>-<número>` | `s-renfe-8058` (Avant 08058) |
 | Servicio de un horario | `s-<red>-<línea>-<origen>-<HHMM>` | `s-amb-V15-0k3x9ab-0732` |
-| Línea | `l-<red>[-<ámbito>][-<línea>]` | `l-renfe-10-C4a`, `l-emtmalaga-27` |
+| Línea | `l-<red>[-<ámbito>][-<línea>]` | `l-renfe-Madrid-C5`, `l-renfe-C_C3_A1diz-C1`, `l-emtmalaga-27` |
 | Toda la red de un operador | `l-<red>` | `l-metrobilbao` |
 | Parada o estación | `p-[<catálogo>-]<código>` | `p-71801`, `p-tmb-123` |
 
@@ -49,9 +49,15 @@ parámetro `start` de Telegram (`t.me/<bot>?start=<clave>`), sin tablas para vol
   `emtmalaga`. Si pasa de 20 caracteres, se abrevia con su huella. **Cambiar el nombre de un operador cambia
   sus claves**: lo que la gente siguiera dejaría de encontrarse. Si hay que hacerlo, que su adaptador siga
   dando la clave con el nombre de antes.
-- Cada parte guarda letras y cifras; lo demás va como `_` y su código en hexadecimal: «L-1» → `L_2D1`. Una parte
-  de más de 24 caracteres (12 el ámbito) se cambia por `__` y una huella FNV-1a de 7 caracteres. Sirve para
-  comparar, pero no para leerla.
+- Cada parte guarda letras y cifras; lo demás va como `_` y su código en hexadecimal: «L-1» → `L_2D1`,
+  «Cádiz» → `C_C3_A1diz`. Una parte de más de 24 caracteres se cambia por `__` y una huella FNV-1a de 7
+  caracteres. Sirve para comparar, pero no para leerla. Si con el ámbito legible la clave pasara de 64, el
+  ámbito iría como huella.
+- El ámbito es lo que hace falta para distinguir dos líneas del mismo operador con el mismo nombre. En Cercanías
+  es el núcleo, por su nombre: Madrid, Asturias, Sevilla, Cádiz, Málaga, Valencia, Murcia/Alicante, Cartagena,
+  Ferrol, León, Catalunya, Bilbao, San Sebastián, Santander y Zaragoza. Están en `RENFE_NUCLEOS` (renfe.js),
+  sacados del prefijo de sus `route_id`. Un núcleo que no esté en la tabla sigue funcionando con su código y se
+  avisa una vez en el registro para añadirlo.
 - El número de un servicio va sin ceros a la izquierda: `08058` y `8058` son el mismo tren.
 - El servicio de un horario lleva la **huella del `stop_id`** de su parada de origen y su hora de salida (pasada la
   medianoche del horario, `2510`). Si otro día sale a otra hora, es otro servicio, porque así lo dice el horario.
@@ -59,15 +65,29 @@ parámetro `start` de Telegram (`t.me/<bot>?start=<clave>`), sin tablas para vol
 
 Funciones: `numberedServiceKey`, `scheduledServiceKey`, `lineKey`, `stopKey` y `stopCode` para construirlas;
 `isFollowKey`, `followKind` y `parseFollowKey` para validarlas y leerlas; `describeFollow` para nombrarlas con
-lo que se sepa del vehículo («Avant 08058», «Línea C4a · Cercanías · Renfe (Madrid)»); y `answersTo`,
+lo que se sepa del vehículo; y `answersTo`,
 `mergeFollow` y `followOf` para trabajar con listas. Quien guarde una clave para más adelante (el bot, Mis
 trenes) debe guardar también su nombre, porque las partes con huella no se pueden leer.
+
+### Cómo se llaman
+
+`describeFollow(clave, lo que se sepa)`:
+
+- Un servicio con número: «<servicio> <número>», por ejemplo «Avant 08058», «Cercanías 23065» o «AVE 05912».
+- Un servicio de un horario: «<tipo> <línea> · <operador>, el de las HH:MM, desde <origen>».
+- Una línea: «<servicio o tipo> <línea> · <operador>» y, si la clave trae ámbito, « (<ámbito>)».
+  - «Cercanías C5 · Renfe (Madrid)», «Rodalies R16 · Renfe (Catalunya)», «Autobús 71 · EMT Málaga»,
+    «Tren E4 · Euskotren».
+  - Si la línea es el propio producto, no se repite: «AVE · Renfe».
+  - Nunca lleva dónde está ahora el vehículo (`area`): eso no es de la línea.
+- Toda la red: «<operador>: toda la red».
 
 ### Qué da cada fuente hoy
 
 - **Renfe** (Cercanías, Rodalies, AV/LD/MD, sus cancelaciones y los trenes sin datos):
   - el servicio es el número de tren, el mismo cada día y en los dos feeds;
-  - la línea de Cercanías lleva su núcleo (`l-renfe-40-C2`, porque C2 hay en varios);
+  - la línea de Cercanías lleva el nombre de su núcleo (`l-renfe-Valencia-C2`, porque C2 hay en varios), y sus
+    vehículos de las líneas R se llaman Rodalies, como sus cancelaciones;
   - en AV/LD/MD, la línea es el producto (`l-renfe-Avant`), que es lo que el radar enseña como su línea.
   
   Al juntar el mismo tren de los feeds de Rodalies y de AV/LD/MD, la incidencia lleva las claves de los dos: el

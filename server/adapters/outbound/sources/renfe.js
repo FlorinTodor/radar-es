@@ -72,17 +72,30 @@ export const ldNumber = (tripId) => /^(\d{5})\d\d{4}-\d{2}-\d{2}$/.exec(tripId)?
 /** Número de un tren de Cercanías por su viaje: «1002V20109C3», «4008J31413C3» → «20109», «31413». */
 export const cercaniasNumber = (tripId) => /^\d{4}[A-Z](\d{5})/.exec(tripId)?.[1] ?? null;
 
+// Núcleos de Cercanías por el prefijo de sus route_id («10T0001C3» → 10, Madrid), comprobados en el
+// routes.txt de su GTFS. Su nombre va en la clave de la línea («l-renfe-Madrid-C5»): hay C1 en varios, y así
+// se lee y se puede buscar por ciudad.
+export const RENFE_NUCLEOS = Object.freeze({
+  10: 'Madrid', 20: 'Asturias', 30: 'Sevilla', 31: 'Cádiz', 32: 'Málaga', 40: 'Valencia', 41: 'Murcia/Alicante', 45: 'Cartagena',
+  46: 'Ferrol', 47: 'León', 51: 'Catalunya', 60: 'Bilbao', 61: 'San Sebastián', 62: 'Santander', 70: 'Zaragoza',
+});
+
+/** El código de núcleo de una línea o un viaje de Cercanías: de renfeLineKey («40|C2») o del viaje («4013M…»). */
+const nucleoCode = (key, tripId) => key?.split('|')[0] ?? /^(\d{2})\d{2}[A-Z]/.exec(tripId ?? '')?.[1] ?? null;
+
 /**
  * Lo que se puede seguir de un tren de Renfe (ver domain/seguir.js): su número, el mismo todos los días y en
  * los dos feeds (los regionales de Rodalies también van en el de AV/LD/MD), y su línea. En Cercanías, la
- * línea va con su núcleo («40|C2» → núcleo 40, línea C2: hay C2 en varios); en AV/LD/MD, el producto (AVE,
- * Avant…), que es lo que el radar enseña como su línea.
- * @param {{ number?: string|null, line?: string|null, lineKey?: string|null, tripId?: string }} t
- *   lineKey: la de renfeLineKey; sin ella, el núcleo sale del viaje de Cercanías («4013M…» → 40)
+ * línea va con el nombre de su núcleo (RENFE_NUCLEOS); en AV/LD/MD, el producto (AVE, Avant…), que es lo que
+ * el radar enseña como su línea.
+ * @param {{ number?: string|null, line?: string|null, lineKey?: string|null, tripId?: string,
+ *           nucleo?: (code: string) => string }} t
+ *   lineKey: la de renfeLineKey; sin ella, el núcleo sale del viaje de Cercanías («4013M…» → 40). nucleo: el
+ *   nombre de un código (por defecto, el de RENFE_NUCLEOS o, si no está, el propio código)
  */
-export function renfeFollow({ number = null, line = null, lineKey: key = null, tripId = '' }) {
-  const scope = key?.split('|')[0] ?? /^(\d{2})\d{2}[A-Z]/.exec(tripId)?.[1] ?? null;
-  return followOf(numberedServiceKey({ operator: 'Renfe', number }), lineKey({ operator: 'Renfe', scope, line }));
+export function renfeFollow({ number = null, line = null, lineKey: key = null, tripId = '', nucleo = (c) => RENFE_NUCLEOS[c] ?? c }) {
+  const code = nucleoCode(key, tripId);
+  return followOf(numberedServiceKey({ operator: 'Renfe', number }), lineKey({ operator: 'Renfe', scope: code ? nucleo(code) : null, line }));
 }
 
 /** Horarios oficiales de Renfe, cargados una vez al día y compartidos por las dos fuentes. */
@@ -540,6 +553,16 @@ export function cercaniasFrom(status, stopId, stops, after = 0) {
  */
 export function createRenfeSources({ http, cache, stations, log }) {
   const timetables = createTimetables({ cache, stations, log });
+  // Un núcleo nuevo que no está en RENFE_NUCLEOS sigue funcionando con su código; se avisa una vez para añadirlo.
+  const unknownNucleos = new Set();
+  const nucleo = (code) => {
+    const name = RENFE_NUCLEOS[code];
+    if (!name && !unknownNucleos.has(code)) {
+      unknownNucleos.add(code);
+      log?.warn(`[renfe] núcleo de Cercanías ${code} sin nombre en RENFE_NUCLEOS: sus líneas se siguen con el código`);
+    }
+    return name ?? code;
+  };
 
   /**
    * Paradas del viaje de un tren (ver domain/trip-stops.js) a partir de sus códigos de estación: nombre
@@ -669,10 +692,11 @@ export function createRenfeSources({ http, cache, stations, log }) {
           // Un autobús de Renfe no es un tren: va con los autobuses y no cuenta en los retrasos ni en las alertas de tren.
           mode: route?.bus ? 'bus' : 'cercanias',
           operator: 'Renfe',
-          service: route?.bus ? 'Autobús de Renfe' : 'Cercanías',
+          // Como en sus cancelaciones: las líneas R son Rodalies (Catalunya).
+          service: route?.bus ? 'Autobús de Renfe' : /^R/i.test(line ?? route?.line ?? '') ? 'Rodalies' : 'Cercanías',
           line: line ?? route?.line ?? null,
           label: number ?? v.vehicle?.id ?? tripId,
-          follow: renfeFollow({ number: number ?? cercaniasNumber(tripId), line: line ?? route?.line ?? null, lineKey: route?.lineKey, tripId }),
+          follow: renfeFollow({ number: number ?? cercaniasNumber(tripId), line: line ?? route?.line ?? null, lineKey: route?.lineKey, tripId, nucleo }),
           origin: route?.origin ?? null,
           destination: route?.destination ?? null,
           // La vía es la de stopId: con IN_TRANSIT_TO, la de la estación que acaba de dejar.
@@ -882,7 +906,7 @@ export function createRenfeSources({ http, cache, stations, log }) {
         line: route.line ?? null,
         lineKey: route.lineKey ?? null,
         number,
-        follow: renfeFollow({ number, line: route.line ?? null, lineKey: route.lineKey, tripId }),
+        follow: renfeFollow({ number, line: route.line ?? null, lineKey: route.lineKey, tripId, nucleo }),
         origin: route.origin ?? null,
         destination: route.destination ?? null,
         feed: 'GTFS-RT de Cercanías y Rodalies',
