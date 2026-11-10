@@ -874,7 +874,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   todo, quien escribe sobre el día, quien usa el bot, quien intenta romperlo y quien revisa las
   cancelaciones), con los datos reales del entorno de pruebas. De ahí salieron, ya hechos:
   - las seis pestañas del panel en dos filas de tres, también en el móvil, donde además el panel se puede
-    ocultar para ver el mapa entero;
+    ocultar para ver el mapa entero y vuelve con el botón «Panel», bajo «Capas» (lejos del borde de abajo,
+    que en el móvil comparten la barra del navegador y los gestos del sistema);
   - botones de seguir y de Telegram cómodos para el dedo; un servicio se nombra con su línea («Cercanías
     C3 20071») y una línea, por el tipo de vehículo que más se ve en ella;
   - el día en cifras: fechas que no existen, días sin datos con salida, sin porcentajes de retraso en
