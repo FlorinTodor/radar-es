@@ -161,3 +161,13 @@ test('la lista: lo que se sigue, su estado, sus cancelaciones, la atribución y 
   assert.match(followingHtml([], new Map()), /Aún no sigues nada/);
   assert.equal(followAttention(items, statuses), 1);
 });
+
+test('lista de «Siguiendo»: el botón de Telegram de cada cosa y la explicación, sólo si hay bot', async () => {
+  const { followingHtml } = await import('../../public/js/siguiendo.js');
+  const items = [{ key: 'l-emtmalaga-27', kind: 'linea', name: 'Autobús 27 · EMT Málaga', mode: 'bus', at: 1 }];
+  const sin = followingHtml(items, new Map());
+  assert.doesNotMatch(sin, /tg-mini|follow-tg-hint/);
+  const con = followingHtml(items, new Map(), { telegram: (item) => `<a class="tg-mini" data-k="${item.key}">Avisos en Telegram</a>` });
+  assert.match(con, /<a class="tg-mini" data-k="l-emtmalaga-27">Avisos en Telegram<\/a>/);
+  assert.match(con, /follow-tg-hint/);
+});

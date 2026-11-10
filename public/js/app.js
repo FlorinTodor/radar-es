@@ -4,7 +4,7 @@ import { delayClass, esc } from './format.js';
 import * as P from './panels.js';
 import { stationBoard } from './station-board.js';
 import * as S from './siguiendo.js';
-import { loadTelegram } from './avisar.js';
+import { loadTelegram, telegramLink } from './avisar.js';
 
 // ---------- Estado ----------
 const state = {
@@ -67,8 +67,8 @@ const map = createMap('map', {
 });
 
 const boardFor = (st) => stationBoard(st, { vehicles: allVehicles(), events: allEvents(), lines: state.lines });
-// Si el servidor tiene bot de Telegram, las fichas llevan «Avisarme por Telegram» (avisar.js).
-loadTelegram();
+// Si el servidor tiene bot de Telegram, las fichas y la lista de «Siguiendo» llevan su botón (avisar.js).
+loadTelegram().then(() => renderFollowing());
 
 // Con ?debug en la URL se expone el mapa para inspeccionarlo desde la consola o en pruebas.
 if (new URLSearchParams(location.search).has('debug')) window.radarDebug = { map, prefs };
@@ -677,6 +677,7 @@ function renderFollowing() {
       if (!status?.vehicles?.total || !mode || followedVehicles(item.key).length || P.modeOn(prefs, mode)) return null;
       return S.modeInfo(mode)?.label ?? null;
     },
+    telegram: (item) => telegramLink(item.key, item.name),
   });
 }
 

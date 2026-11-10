@@ -199,17 +199,19 @@ export function followAttention(items, statuses) {
  * @param {ReturnType<typeof cleanFollowItems>} items
  * @param {Map<string, object>} statuses  clave → respuesta de /api/live/siguiendo
  * @param {{ sourceCredit?: (source: string, operator?: string|null) => string|null,
- *           needsLayer?: (item: object, status: object|undefined) => string|null }} [opts]
+ *           needsLayer?: (item: object, status: object|undefined) => string|null,
+ *           telegram?: (item: object) => string }} [opts]
  *   sourceCredit: la atribución de una fuente (de /api/health); needsLayer: si para verlo en el mapa hay que
- *   encender una capa, su nombre
+ *   encender una capa, su nombre; telegram: el botón para recibir sus avisos por Telegram ('' si no hay bot)
  */
-export function followingHtml(items, statuses, { sourceCredit = () => null, needsLayer = () => null } = {}) {
+export function followingHtml(items, statuses, { sourceCredit = () => null, needsLayer = () => null, telegram = () => '' } = {}) {
   const note = '<p class="follow-note">Se guarda sólo en este navegador: sin cuentas, y el radar no sabe qué sigue cada cual.</p>';
   if (!items.length) {
     return `<div class="empty">Aún no sigues nada.<br>Abre la ficha de cualquier vehículo, de una cancelación o de una estación y pulsa
       <strong>☆ Seguir</strong>: aquí verás cómo está ahora (su retraso, si se ha cancelado o si su operador no publica nada).</div>${note}`;
   }
   const credits = new Set();
+  let withTelegram = false;
   const rows = items.map((item) => {
     const status = statuses.get(item.key);
     const { text, sev } = followStatusText(item, status);
@@ -219,6 +221,8 @@ export function followingHtml(items, statuses, { sourceCredit = () => null, need
     const shown = events.filter((e) => !e.withdrawn).slice(0, 3);
     const more = (status?.events?.active ?? 0) - shown.length;
     const layer = needsLayer(item, status);
+    const tg = telegram(item);
+    if (tg) withTelegram = true;
     return `
     <div class="item follow-item sev-${sev}">
       <div class="row"><span class="follow-kind">${esc(KIND_LABEL[item.kind] ?? '')}${item.mode && modeInfo(item.mode) ? ` · ${esc(modeInfo(item.mode).label)}` : ''}</span>
@@ -227,8 +231,10 @@ export function followingHtml(items, statuses, { sourceCredit = () => null, need
       <div class="desc">${esc(text)}</div>
       ${shown.length ? `<ul class="follow-events">${shown.map((e) => `<li><button type="button" class="link" data-kind="event" data-id="${esc(e.id)}">${esc(e.title)}</button></li>`).join('')}${more > 0 ? `<li>y ${fmtNum(more)} más</li>` : ''}</ul>` : ''}
       ${layer ? `<div class="meta"><span>Para verlo en el mapa se encenderá la capa «${esc(layer)}».</span></div>` : ''}
+      ${tg}
     </div>`;
   }).join('');
   const attribution = credits.size ? `<p class="follow-credit">Datos: ${[...credits].map(creditHtml).join(' · ')}</p>` : '';
-  return `<div class="section-title">Lo que sigues · pulsa uno para verlo en el mapa</div>${rows}${attribution}${note}`;
+  const hint = withTelegram ? '<p class="follow-tg-hint">Con «Avisos en Telegram» te llegan al móvil aunque no tengas la web abierta.</p>' : '';
+  return `<div class="section-title">Lo que sigues · pulsa uno para verlo en el mapa</div>${hint}${rows}${attribution}${note}`;
 }
