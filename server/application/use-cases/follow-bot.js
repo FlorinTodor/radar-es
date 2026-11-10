@@ -12,6 +12,8 @@ import {
 import { dataText, helpText, parseCommand, parseHour, smallTalk, smallTalkText, welcomeText } from '../../domain/seguidos/ordenes.js';
 import { cutText } from '../../domain/seguidos/texto.js';
 import { countEvent, emptyTotals, parseTotals, usageOf } from '../../domain/seguidos/uso.js';
+import { provinceExtrasText, provinceFacts, provinceOption } from '../../domain/seguidos/zona.js';
+import { withoutRepeats } from '../../domain/seguidos/estacion.js';
 import { findProvince, provinceById } from '../../domain/provincias.js';
 
 /** Topes: chats en total, cosas seguidas por chat (provincias incluidas), provincias por chat y menús. */
@@ -35,17 +37,19 @@ const clipLabel = (s) => cutText(s, BUTTON_MAX);
  */
 
 /**
- * @param {{ read: { vehicles: () => object[], events: () => object[], station?: (code: string) => object|null },
+ * @param {{ read: { vehicles: () => object[], events: () => object[], station?: (code: string) => object|null, alerts?: () => object[] },
  *           store: import('../ports.js').FollowStorePort, clock: import('../ports.js').ClockPort,
  *           creditOf?: (source: string, operator?: string) => string|null, webUrl: string,
  *           log?: import('../ports.js').LoggerPort, limits?: Partial<typeof LIMITS> }} deps
- *   read: lo que se ve ahora (query-situation: vehículos, incidencias en vigor y la ficha de una estación).
+ *   read: lo que se ve ahora (query-situation: vehículos, incidencias en vigor, la ficha de una estación y las alertas
+ *   abiertas, de las que el bot toma los posibles apagones de las islas).
  *   creditOf: la atribución que pide la licencia de una fuente (por su id y, si agrupa a varios, el operador).
  */
 export function makeFollowBot({ read, store, clock, creditOf = () => null, webUrl, log, limits: custom = {} }) {
   const limits = { ...LIMITS, ...custom };
   /** @type {Map<number, { id: number, since: number, subs: Map<string, { name: string, since: number, checkedAt: number }>,
-   *   provinces: Map<string, { since: number, checkedAt: number }>, digest: string|null, digestDay: string|null }>} */
+   *   provinces: Map<string, { since: number, checkedAt: number, fires?: boolean }>, digest: string|null, digestDay: string|null }>}
+   *   fires: en esa provincia también quiere los focos de calor por satélite (/provincia Granada incendios). */
   let chats = new Map();
   let seen = new Map();
   let offset = 0;
@@ -74,10 +78,11 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
   };
 
   const stationOf = (code) => (code && read.station ? read.station(code) : null);
-  const ctx = () => ({ vehicles: read.vehicles(), events: read.events(), now: clock.now(), stationOf, creditOf });
+  const ctx = () => ({ vehicles: read.vehicles(), events: read.events(), alerts: read.alerts?.() ?? [], now: clock.now(), stationOf, creditOf });
   const reply = (chatId, text, buttons) => ({ chatId, text: fitMessage(text), ...(buttons?.length ? { buttons } : {}) });
   const count = (chat) => (chat ? chat.subs.size + chat.provinces.size : 0);
   const provinceTitle = (p) => `Avisos en ${p.name}`;
+  const firesNote = (s) => (s?.fires ? ' (con focos de calor)' : '');
 
   /** El nombre de lo que se ve (directorio o catálogo de estaciones); null si ahora no se conoce. */
   function knownName(key) {
@@ -145,11 +150,19 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
     return [reply(chatId, `Hecho: te aviso de ${chat.subs.get(key).name}.\n\nAhora:\n${statusText(key, c)}\n\n/mis para ver lo que sigues · /dejar para dejar de seguirlo`)];
   }
 
-  function followProvince(chatId, p) {
+  /** Sigue una provincia; con `fires`, también sus focos de calor (y si ya la seguía, se los añade). */
+  function followProvince(chatId, p, { fires = false } = {}) {
     const sub = provinceSub(p.id);
     const c = ctx();
     const existing = chats.get(chatId);
-    if (existing?.provinces.has(p.id)) return [reply(chatId, `Ya sigues los avisos de ${p.name}.\n\nAhora:\n${statusText(sub, c)}`)];
+    const had = existing?.provinces.get(p.id);
+    if (had && fires && !had.fires) {
+      had.fires = true;
+      dirty = true;
+      return [reply(chatId, `Hecho: en ${p.name} ahora también te aviso de los focos de calor que detecta el satélite y pueden ser un incendio: `
+        + `sólo los más claros, y nunca son un incendio confirmado. Para quitarlos: /provincia ${p.name} sin incendios\n\nAhora:\n${statusText(sub, { ...c, fires: true })}`)];
+    }
+    if (had) return [reply(chatId, `Ya sigues los avisos de ${p.name}${firesNote(had)}.\n\nAhora:\n${statusText(sub, { ...c, fires: had.fires })}`)];
     if (count(existing) >= limits.subsPerChat) return [reply(chatId, `Ya sigues ${limits.subsPerChat} cosas, el máximo. Deja alguna con /dejar.`)];
     if ((existing?.provinces.size ?? 0) >= limits.provincesPerChat) {
       return [reply(chatId, `Ya sigues ${limits.provincesPerChat} provincias, el máximo. Deja alguna con /dejar.`)];
@@ -157,11 +170,21 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
     const chat = chatFor(chatId, c.now);
     if (!chat) return [reply(chatId, 'Ahora mismo no puedo atender a más gente. Prueba más tarde, por favor.')];
     baseline(sub, c);
-    chat.provinces.set(p.id, { since: c.now, checkedAt: c.now });
+    chat.provinces.set(p.id, { since: c.now, checkedAt: c.now, ...(fires ? { fires: true } : {}) });
     dirty = true;
     return [reply(chatId, `Hecho: te aviso en ${p.name} de los avisos naranja y rojo de AEMET, de los terremotos que puedan `
       + `sentirse y de los avisos oficiales (planes de emergencia y cortes de luz). La zona de cada provincia es aproximada: `
-      + `cerca de su límite puede llegarte alguno de la vecina.\n\nAhora:\n${statusText(sub, c)}`)];
+      + `cerca de su límite puede llegarte alguno de la vecina.\n\nAhora:\n${statusText(sub, { ...c, fires })}\n\n${provinceExtrasText(p, { fires })}`)];
+  }
+
+  /** Deja los focos de calor de una provincia que sigue (el resto de sus avisos, no). */
+  function dropFires(chatId, p) {
+    const had = chats.get(chatId)?.provinces.get(p.id);
+    if (!had) return [reply(chatId, `No sigues ${p.name}. Para seguirla: /provincia ${p.name}`)];
+    if (!had.fires) return [reply(chatId, `En ${p.name} no te aviso de los focos de calor; del resto de sus avisos, sí.`)];
+    delete had.fires;
+    dirty = true;
+    return [reply(chatId, `Hecho: en ${p.name} ya no te aviso de los focos de calor; del resto de sus avisos, sí.`)];
   }
 
   /** Lo que sigue un chat, en orden: lo que se ve en /mis y lo que numeran /dejar y los botones. */
@@ -169,7 +192,7 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
     if (!chat) return [];
     return [
       ...[...chat.subs].map(([key, s]) => ({ sub: key, name: s.name })),
-      ...[...chat.provinces.keys()].map((id) => ({ sub: provinceSub(id), name: provinceTitle(provinceById(id)) })),
+      ...[...chat.provinces].map(([id, s]) => ({ sub: provinceSub(id), name: `${provinceTitle(provinceById(id))}${firesNote(s)}`, fires: !!s.fires })),
     ];
   }
 
@@ -214,8 +237,9 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
     const all = searchDirectory(directory, arg, { limit: Infinity });
     const found = all.slice(0, limits.menuItems);
     if (!found.length) {
-      const p = findProvince(arg);
-      if (p) return followProvince(chatId, p);
+      const { place, fires } = provinceOption(arg);
+      const p = findProvince(place);
+      if (p) return fires === false ? dropFires(chatId, p) : followProvince(chatId, p, { fires: !!fires });
       return [reply(chatId, `No encuentro nada así entre lo que circula ahora o ha circulado hace poco. Prueba con el número `
         + `(«08058»), la línea y su ciudad u operador («C4 Madrid»), o búscalo en el mapa y pulsa «Avísame por Telegram» en su ficha: ${webUrl}`)];
     }
@@ -235,15 +259,18 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
     const blocks = [];
     if (!arg) {
       if (!chat) return [reply(chatId, 'No sigues nada todavía. Dime qué quieres seguir con /seguir, o mira cómo va algo: /estado 08058.')];
-      for (const it of listOf(chat)) blocks.push(`${it.name}:\n${statusText(it.sub, c)}`);
+      for (const it of listOf(chat)) blocks.push(`${it.name}:\n${statusText(it.sub, { ...c, fires: it.fires })}`);
     } else if (isFollowKey(arg)) {
       if (followKind(arg) !== 'parada') refreshDirectory(c, arg);
       blocks.push(`${nameOf(arg)}:\n${statusText(arg, c)}`);
     } else {
       refreshDirectory(c);
       const found = searchDirectory(directory, arg, { limit: 3 });
-      const p = !found.length ? findProvince(arg) : null;
-      if (p) blocks.push(`${provinceTitle(p)}:\n${statusText(provinceSub(p.id), c)}`);
+      // «/estado Granada incendios», con los focos de calor; sólo la provincia, si los sigue.
+      const option = provinceOption(arg);
+      const p = !found.length ? findProvince(option.place) : null;
+      const fires = option.fires ?? !!chat?.provinces.get(p?.id)?.fires;
+      if (p) blocks.push(`${provinceTitle(p)}:\n${statusText(provinceSub(p.id), { ...c, fires })}`);
       for (const e of found) blocks.push(`${entryLabel(e)}:\n${statusText(e.key, c)}`);
       if (!blocks.length) return [reply(chatId, 'No encuentro nada así entre lo que circula ahora o ha circulado hace poco.')];
     }
@@ -258,9 +285,11 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
 
   function provinceCmd(chatId, arg) {
     if (!arg) return [reply(chatId, 'Dime la provincia: /provincia Valencia, /provincia A Coruña, /provincia Bizkaia…')];
-    const p = findProvince(arg);
-    if (!p) return [reply(chatId, `No conozco la provincia «${arg}». Escríbela como en el mapa: /provincia Valencia, /provincia Illes Balears…`)];
-    return followProvince(chatId, p);
+    // «/provincia Granada incendios»: también los focos de calor; «/provincia Granada sin incendios»: sin ellos.
+    const { place, fires } = provinceOption(arg);
+    const p = findProvince(place);
+    if (!p) return [reply(chatId, `No conozco la provincia «${place}». Escríbela como en el mapa: /provincia Valencia, /provincia Illes Balears…`)];
+    return fires === false ? dropFires(chatId, p) : followProvince(chatId, p, { fires: !!fires });
   }
 
   function mine(chatId) {
@@ -320,7 +349,7 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
     const chat = chats.get(chatId);
     const view = chat && {
       id: chat.id, since: chat.since, digest: chat.digest,
-      subs: [...chat.subs.values()], provinces: [...chat.provinces.keys()].map((id) => ({ name: provinceById(id)?.name ?? id })),
+      subs: [...chat.subs.values()], provinces: [...chat.provinces].map(([id, s]) => ({ name: `${provinceById(id)?.name ?? id}${firesNote(s)}` })),
     };
     return [reply(chatId, dataText(view, { fmtWhen }))];
   }
@@ -368,7 +397,7 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
         }
         const provinces = new Map();
         for (const p of Array.isArray(c.provinces) ? c.provinces.slice(0, limits.provincesPerChat) : []) {
-          if (provinceById(p?.id)) provinces.set(p.id, { since: num(p.since), checkedAt: num(p.checkedAt) });
+          if (provinceById(p?.id)) provinces.set(p.id, { since: num(p.since), checkedAt: num(p.checkedAt), ...(p.fires === true ? { fires: true } : {}) });
         }
         if (!subs.size && !provinces.size) continue;
         chats.set(c.id, {
@@ -398,7 +427,7 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
         chats: [...chats.values()].map((c) => ({
           id: c.id, since: c.since, digest: c.digest, digestDay: c.digestDay,
           subs: [...c.subs].map(([key, s]) => ({ key, name: s.name, since: s.since, checkedAt: s.checkedAt, ...(s.guessed ? { guessed: true } : {}) })),
-          provinces: [...c.provinces].map(([id, s]) => ({ id, since: s.since, checkedAt: s.checkedAt })),
+          provinces: [...c.provinces].map(([id, s]) => ({ id, since: s.since, checkedAt: s.checkedAt, ...(s.fires ? { fires: true } : {}) })),
         })),
         seen: [...seen].map(([k, v]) => [k, v.first, v.last]),
         totals: structuredClone(totals),
@@ -497,6 +526,7 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
       const today = madridDay(now);
       const hour = madridHourMinute(now);
       for (const chat of chats.values()) {
+        const sent = new Set(); // los avisos ya contados a este chat en esta ronda: no se repiten (estación y línea)
         for (const [key, s] of chat.subs) {
           // Lo que se siguió sin verse lleva un nombre provisional: el de verdad, en cuanto se vuelve a ver.
           if (s.guessed) {
@@ -507,7 +537,7 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
               dirty = true;
             }
           }
-          const fresh = newFacts(key, facts.get(key), seen, s.checkedAt);
+          const fresh = withoutRepeats(newFacts(key, facts.get(key), seen, s.checkedAt), sent);
           s.checkedAt = now;
           if (fresh.length) {
             out.push(reply(chat.id, factsMessage(s.name, fresh, { webUrl })));
@@ -516,7 +546,8 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
         }
         for (const [id, s] of chat.provinces) {
           const sub = provinceSub(id);
-          const fresh = newFacts(sub, facts.get(sub), seen, s.checkedAt);
+          // Los focos de calor, sólo a quien los ha pedido en esa provincia.
+          const fresh = provinceFacts(newFacts(sub, facts.get(sub), seen, s.checkedAt), { fires: s.fires });
           s.checkedAt = now;
           if (fresh.length) {
             out.push(reply(chat.id, factsMessage(provinceTitle(provinceById(id)), fresh, { webUrl })));
@@ -525,7 +556,7 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
         }
         if (chat.digest && chat.digestDay !== today && hour >= chat.digest) {
           chat.digestDay = today;
-          const blocks = listOf(chat).map((it) => `${it.name}:\n${statusText(it.sub, c)}`);
+          const blocks = listOf(chat).map((it) => `${it.name}:\n${statusText(it.sub, { ...c, fires: it.fires })}`);
           for (const text of packed([`Parte de las ${chat.digest}:`, ...blocks])) out.push(reply(chat.id, text));
           note('aviso', 'parte');
         }

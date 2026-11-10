@@ -139,7 +139,8 @@ if (!config.telegram) {
   const sourceById = new Map(sources.map((s) => [s.id, s]));
   const creditOf = (id, operator) => sourceById.get(id)?.operatorLicenses?.[operator] ?? sourceById.get(id)?.license ?? null;
   const followBot = makeFollowBot({
-    read: { vehicles: () => query.vehicles(), events: () => query.events(), station: (code) => query.station(code) },
+    // Las alertas, por los posibles apagones de las islas que ve el motor de alertas (para quien sigue su provincia).
+    read: { vehicles: () => query.vehicles(), events: () => query.events(), station: (code) => query.station(code), alerts: () => query.alerts() },
     store: assertPort('FollowStore', createFollowStore({ dir: botDir, log }), PORT_MEMBERS.FollowStore),
     clock,
     creditOf,

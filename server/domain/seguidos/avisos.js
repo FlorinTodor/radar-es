@@ -9,6 +9,9 @@ import { distanceKm } from '../geo.js';
 import { quakeWhen } from '../sismos.js';
 import { modeNoun } from '../modos.js';
 import { cutText } from './texto.js';
+import { noticesAtStation } from '../avisos-estacion.js';
+import { noticeText, stationNoticeFact } from './estacion.js';
+import { DAY_FACT_FORGET_MS, fireFacts, fireZones, gridFacts, isDayFact, provinceFacts } from './zona.js';
 
 /** Retraso (min) a partir del cual se avisa, y cada cuánto más se vuelve a avisar si empeora. */
 export const DELAY_MIN = 15;
@@ -45,7 +48,8 @@ const clip = (s, n) => cutText(String(s ?? '').replace(/\s+/g, ' ').trim(), n);
 /**
  * @typedef {object} Fact
  * @property {string} id       Único para lo que cuenta (una cancelación: su id; un retraso: el vehículo y su escalón).
- * @property {string} kind     'cancelado' | 'parcial' | 'sin-datos' | 'aviso' | 'retraso' | 'meteo' | 'sismo' | 'emergencia'
+ * @property {string} kind     'cancelado' | 'parcial' | 'sin-datos' | 'aviso' | 'retraso' | 'meteo' | 'sismo' | 'emergencia' |
+ *                             'apagon' | 'incendio'
  * @property {string} text     Lo que se cuenta, en una o dos frases.
  * @property {string|null} credit  Atribución de su fuente.
  */
@@ -169,15 +173,18 @@ function zoneFact(e, p, creditOf) {
  *   retraso desde `delayMin` (un hecho por escalón de DELAY_STEP: se vuelve a avisar si empeora; los escalones de
  *   debajo van callados, `silent`, para no avisar si mejora).
  * - Línea: sus cancelaciones y paradas suprimidas, y los avisos de su operador que la nombran (`follow` del aviso).
- * - Parada: las cancelaciones y trenes sin datos que pasaban por ella.
- * - Provincia: avisos naranja y rojo de AEMET, terremotos que pueden sentirse y avisos oficiales (eventInProvince).
+ * - Parada: las cancelaciones y trenes sin datos que pasaban por ella, y los avisos de Renfe de la estación
+ *   (avisos-estacion.js).
+ * - Provincia: avisos naranja y rojo de AEMET, terremotos que pueden sentirse y avisos oficiales (eventInProvince);
+ *   los posibles apagones de sus islas, de las alertas (`alerts`), y los focos de calor por satélite (zona.js: se
+ *   cuentan sólo a quien los pide, provinceFacts).
  * Las cancelaciones que su fuente ya no publica (retiradas) no cuentan: ya se avisó cuando salieron.
- * @param {{ keys: Iterable<string>, provinces?: Iterable<string>, vehicles?: object[], events?: object[], now: number,
+ * @param {{ keys: Iterable<string>, provinces?: Iterable<string>, vehicles?: object[], events?: object[], alerts?: object[], now: number,
  *           stationOf?: (code: string) => object|null, creditOf?: (source: string, operator?: string) => string|null,
  *           delayMin?: number }} ctx
  * @returns {Map<string, Fact[]>}  clave (o provinceSub) → sus hechos
  */
-export function collectFacts({ keys, provinces = [], vehicles = [], events = [], now, stationOf = () => null, creditOf = () => null, delayMin = DELAY_MIN }) {
+export function collectFacts({ keys, provinces = [], vehicles = [], events = [], alerts = [], now, stationOf = () => null, creditOf = () => null, delayMin = DELAY_MIN }) {
   const wanted = new Set(keys);
   const out = new Map();
   const add = (sub, fact) => {
@@ -214,26 +221,31 @@ export function collectFacts({ keys, provinces = [], vehicles = [], events = [],
       const station = stationOf(stopCode(key));
       if (!station) continue;
       for (const { e, here } of tripsAt(events, station)) if (!e.withdrawn) add(key, tripFact(e, credited(e, creditOf), here));
+      for (const e of noticesAtStation(station, live)) add(key, stationNoticeFact(e, credited(e, creditOf)));
     }
   }
+  let fires = null; // los focos de calor de la ronda, una vez para todas las provincias
   for (const id of provinces) {
     const p = provinceById(id);
     if (!p) continue;
     for (const e of events) if (eventInProvince(e, p, { now })) add(provinceSub(id), zoneFact(e, p, creditOf));
+    for (const f of gridFacts(alerts, id)) add(provinceSub(id), f);
+    for (const f of fireFacts(fires ??= fireZones(events, now), id, (e) => credited(e, creditOf))) add(provinceSub(id), f);
   }
   return out;
 }
 
 /**
  * Desde cuándo se ve cada hecho de cada suscripción (`<sub>|<id del hecho>` → { first, last }): los que siguen
- * guardan su primera vez; los que no se ven desde hace `forgetMs`, fuera; como mucho `max`, los más recientes.
+ * guardan su primera vez; los que no se ven desde hace `forgetMs`, fuera (los de un día, como los focos de calor de
+ * una zona, no antes de que acabe su día: zona.js, isDayFact); como mucho `max`, los más recientes.
  * @param {Map<string, { first: number, last: number }>} seen
  * @param {Map<string, Fact[]>} factsBySub
  * @returns {Map<string, { first: number, last: number }>}  otro mapa (el de antes no cambia)
  */
 export function trackFacts(seen, factsBySub, now, { forgetMs = FACT_FORGET_MS, max = SEEN_MAX } = {}) {
   const next = new Map();
-  for (const [k, v] of seen) if (now - v.last <= forgetMs) next.set(k, v);
+  for (const [k, v] of seen) if (now - v.last <= (isDayFact(k) ? Math.max(forgetMs, DAY_FACT_FORGET_MS) : forgetMs)) next.set(k, v);
   for (const [sub, facts] of factsBySub) {
     for (const f of facts) {
       const k = `${sub}|${f.id}`;
@@ -313,24 +325,27 @@ export function packBlocks(blocks, { footer = null, max = MESSAGE_MAX, maxMessag
 /**
  * Cómo está ahora lo que se sigue, en unas líneas (para /estado, al suscribirse y en el parte diario).
  * @param {string} sub  clave `follow` o provinceSub
- * @param {{ vehicles?: object[], events?: object[], now: number, stationOf?: (code: string) => object|null,
- *           creditOf?: (source: string, operator?: string) => string|null }} ctx
+ * @param {{ vehicles?: object[], events?: object[], alerts?: object[], now: number, stationOf?: (code: string) => object|null,
+ *           creditOf?: (source: string, operator?: string) => string|null, fires?: boolean }} ctx
+ *   fires: en una provincia, también los focos de calor (quien los ha pedido)
  * @returns {{ lines: string[], credits: string[] }}
  */
-export function statusOf(sub, { vehicles = [], events = [], now, stationOf = () => null, creditOf = () => null }) {
+export function statusOf(sub, { vehicles = [], events = [], alerts = [], now, stationOf = () => null, creditOf = () => null, fires = false }) {
   const lines = [];
   const credits = new Set();
   const credit = (c) => c && credits.add(c);
   if (sub.startsWith('prov:')) {
     const p = provinceById(sub.slice(5));
     if (!p) return { lines: ['Esa provincia no la conozco.'], credits: [] };
-    const facts = collectFacts({ keys: [], provinces: [p.id], events, now, creditOf }).get(sub) ?? [];
+    const all = collectFacts({ keys: [], provinces: [p.id], events, alerts, now, creditOf }).get(sub) ?? [];
+    const facts = provinceFacts(all, { fires });
     if (!facts.length) lines.push(`Ahora no hay avisos naranja o rojo de AEMET, terremotos que puedan sentirse ni avisos oficiales en ${p.name}.`);
     for (const f of facts.slice(0, MAX_FACTS_PER_MESSAGE)) {
       lines.push(f.text);
       credit(f.credit);
     }
     if (facts.length > MAX_FACTS_PER_MESSAGE) lines.push(`…y ${facts.length - MAX_FACTS_PER_MESSAGE} más.`);
+    if (fires && !facts.some((f) => f.kind === 'incendio')) lines.push('Focos de calor por satélite: ahora ninguno de los que aviso (confianza alta y potencia alta).');
     return { lines, credits: [...credits] };
   }
   const kind = followKind(sub);
@@ -396,6 +411,14 @@ export function statusOf(sub, { vehicles = [], events = [], now, stationOf = () 
       lines.push(gone === 1 ? 'Además, 1 que se había cancelado y su operador ya no publica: puede que al final circule.'
         : `Además, ${gone} que se habían cancelado y su operador ya no publica: puede que al final circulen.`);
     }
+    // Los avisos de Renfe de la estación, como en su ficha de la web: su texto tal cual.
+    const notices = noticesAtStation(station, events);
+    if (notices.length) lines.push('Avisos de Renfe en la estación:');
+    for (const e of notices.slice(0, 5)) {
+      lines.push(`- ${noticeText(e)}`);
+      credit(credited(e, creditOf));
+    }
+    if (notices.length > 5) lines.push(`…y ${notices.length - 5} más.`);
   }
   return { lines, credits: [...credits] };
 }
