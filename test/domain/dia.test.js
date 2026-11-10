@@ -143,7 +143,8 @@ test('resumen: por horas del registro (todos los tipos) o, antes de él, de los 
     foldVehicles(record, [{ mode: 'cercanias', delay: 6 }, { mode: 'cercanias', delay: 0 }, { mode: 'bus', delay: 1 }], at(m));
   }
   const kpiRows = [kpiRow('07:00', { cercanias: 50 }), kpiRow('07:30', { cercanias: 30, metro: 4 }), kpiRow('10:00', { cercanias: 999 })];
-  const compare = { date: '2026-11-03', record: null, kpiRows: [{ ...kpiRow('07:00', { cercanias: 80 }), t: at('07:00') - 7 * 86_400_000 }] };
+  const week = (hhmm, n) => ({ ...kpiRow(hhmm, { cercanias: n }), t: at(hhmm) - 7 * 86_400_000 });
+  const compare = { date: '2026-11-03', record: null, kpiRows: [week('05:00', 60), week('06:00', 70), week('07:00', 80), week('08:00', 90), week('09:00', 85), week('10:00', 75)] };
   const s = summarizeDay({ date: DATE, now: at('10:30'), today: true, record, kpiRows, compare, days: ['2026-11-09', DATE, '2026-11-03'] });
   const cerc = s.vehicles.modes.find((m) => m.id === 'cercanias');
   const bus = s.vehicles.modes.find((m) => m.id === 'bus');
@@ -299,4 +300,13 @@ test('alertas: la misma situación reabierta muchas veces sale una vez en las m�
     ['Rodalies R1 25653: el retraso sube 33 min de golpe', 1, at('08:10')],
     ['Fuente sin datos: FGC', 1, at('07:00')],
   ]);
+});
+
+test('la semana anterior, sólo si de ese día hay horas suficientes (una o dos dejarían una raya suelta)', () => {
+  const record = emptyDay(DATE);
+  foldVehicles(record, [{ mode: 'cercanias', delay: 0 }], at('10:00'));
+  const kpi = (hh) => ({ t: Date.parse(`2026-11-03T${hh}:00:00+01:00`), vehicles: 40, byMode: { cercanias: 40 } });
+  const short = summarizeDay({ date: DATE, now: at('10:30'), today: true, record, compare: { date: '2026-11-03', record: null, kpiRows: [kpi('10'), kpi('11')] }, days: [DATE] });
+  assert.equal(short.vehicles.modes[0].compare, null);
+  assert.equal(short.vehicles.compareDate, null);
 });

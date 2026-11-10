@@ -302,8 +302,8 @@ button { font: inherit; color: inherit; }
 @media (max-width: 860px) {
   .pop .tg-btn { min-height: 56px; }
   .pop .tg-txt strong { font-size: 16px; }
-  .pop .tg-alt { font-size: 14px; padding: 6px 4px; }
-  .tg-mini { padding: 6px 12px 6px 6px; font-size: 13.5px; }
+  .pop .tg-alt { display: inline-flex; align-items: center; min-height: 44px; font-size: 14px; padding: 0 4px; }
+  .tg-mini { min-height: 44px; padding: 6px 12px 6px 6px; font-size: 13.5px; }
 }
 /* Aviso de posición estimada por horario: en la ficha y en la lista de trenes. */
 .est-badge { display: inline-block; margin: 0 0 8px; padding: 2px 8px; border: 1px dashed var(--st-warning); border-radius: 4px;
@@ -574,7 +574,8 @@ body.doc { overflow: auto; display: block; }
 .follow-credit a { color: var(--ink-2); }
 /* En el móvil, botones más altos para el dedo (como las pastillas de las capas). */
 @media (max-width: 860px) {
-  .follow-btn { min-height: 34px; padding: 5px 12px; font-size: 13px; }
+  .follow-btn { min-height: 44px; padding: 5px 12px; font-size: 13px; }
+  .follow-x { min-width: 44px; min-height: 44px; margin: -12px -10px -12px 0; font-size: 20px; }
 }
 
 /* ---------- Puntualidad en la ficha (public/js/puntualidad.js) ---------- */

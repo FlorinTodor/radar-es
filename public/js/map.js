@@ -1149,7 +1149,7 @@ function stationDetail(st, { stopped, arriving, notices, lines, connections = []
     link(st.sheet, 'Ficha técnica de Renfe (PDF, 2019)'),
     link(`https://www.openstreetmap.org/?mlat=${st.lat}&mlon=${st.lon}#map=17/${st.lat}/${st.lon}`, 'OpenStreetMap'),
   ].filter(Boolean);
-  return `<div class="pop">${photo}<h3>${esc(st.name)}</h3>${followControls(st)}${meta.length ? `<p class="st-meta">${esc(meta.join(' · '))}</p>` : ''}${telegramFollow(st.follow)}
+  return `<div class="pop">${photo}<h3>${esc(st.name)}</h3>${followControls(st)}${telegramFollow(st.follow)}${meta.length ? `<p class="st-meta">${esc(meta.join(' · '))}</p>` : ''}
     ${lines.length ? chips(lines) : ''}
     <h4>En la estación ahora</h4>${list(stopped.map((v) => train(v)), 'Ningún tren parado ahora mismo.')}
     <h4>Próximos trenes</h4>${list(arriving.map((v) => train(v, when(v))), 'Ningún tren en camino con datos en directo.')}

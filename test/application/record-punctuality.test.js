@@ -95,5 +95,5 @@ test('el informe de una línea de Cercanías lleva su núcleo en el nombre (el d
   const p = makeRecordPunctuality({ ...f, log: quiet });
   p.tick();
   assert.equal(p.report('l-renfe-Madrid-C5').name, 'Cercanías C5 · Renfe (Madrid)');
-  assert.equal(p.report('s-renfe-23719').name, 'Cercanías 23719');
+  assert.equal(p.report('s-renfe-23719').name, 'Cercanías C5 23719', 'con su línea: «Cercanías C5 23719»');
 });

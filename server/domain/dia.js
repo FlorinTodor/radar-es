@@ -27,6 +27,9 @@ const TOP_ALERTS = 8;
 // Una hora en la que, de media, menos vehículos que éstos dieron su retraso no tiene porcentaje: con tres o cuatro
 // trenes de madrugada, uno solo cambia el resultado de 25 en 25 puntos y una barra al 100 % engaña.
 export const MIN_LATE_SAMPLE = 5;
+// La semana anterior se dibuja al lado sólo si de ese día hay al menos estas horas: con una o dos, en la gráfica
+// queda una raya gris suelta que parece un error.
+const MIN_COMPARE_HOURS = 6;
 const TOP_EMERGENCIES = 6;
 
 // ---------- Días y horas de Madrid ----------
@@ -525,7 +528,7 @@ export function summarizeDay({ date, now, today, record, kpiRows = [], alertRows
     return {
       id, label: info?.label ?? id, noun: info?.noun ?? 'vehículo', nounPlural: info?.nounPlural ?? 'vehículos', family: info?.family ?? 'otros',
       max, hourly: series(hours, id, 'avg'),
-      compare: compareHours.size ? series(compareHours, id, 'avg') : null,
+      compare: compareHours.size >= MIN_COMPARE_HOURS ? series(compareHours, id, 'avg') : null,
       delay: withDelay ? { lateShare: share(delayed, withDelay), median: medianDelay(ownDelays) } : null,
     };
   });
@@ -567,7 +570,7 @@ export function summarizeDay({ date, now, today, record, kpiRows = [], alertRows
     vehicles: {
       peak: record?.peak ?? peakFromKpis(kpiRows),
       modes: vehicleModes,
-      compareDate: compare?.date ?? null,
+      compareDate: compareHours.size >= MIN_COMPARE_HOURS ? compare?.date ?? null : null,
     },
     delay: {
       lateMin: LATE_MIN,
