@@ -146,12 +146,15 @@
     <aside class="sidebar">
       <button type="button" class="sheet-handle" id="sheet-handle" aria-expanded="false" aria-label="Abrir el panel"><span></span></button>
       <nav class="tabs" role="tablist">
+        <button role="tab" data-tab="following" aria-selected="false" title="Lo que sigues: vehículos, líneas o estaciones">★ Siguiendo <span class="badge" id="b-following">0</span></button>
         <button role="tab" data-tab="alerts" aria-selected="true">Alertas <span class="badge" id="b-alerts">0</span></button>
         <button role="tab" data-tab="events" aria-selected="false">Incidencias <span class="badge" id="b-events">0</span></button>
         <button role="tab" data-tab="vehicles" aria-selected="false">Vehículos</button>
         <button role="tab" data-tab="stations" aria-selected="false">Estaciones</button>
         <button role="tab" data-tab="sources" aria-selected="false">Fuentes</button>
       </nav>
+
+      <div class="panel" id="panel-following" role="tabpanel" hidden></div>
 
       <div class="panel" id="panel-alerts" role="tabpanel"></div>
 

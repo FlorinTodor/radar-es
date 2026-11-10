@@ -107,6 +107,25 @@ trenes) debe guardar también su nombre, porque las partes con huella no se pued
   (`/api/stations/<código>`, campo `follow`). La lista `/api/stations` no la lleva, porque sale del código y la
   engordaría un 13 %. Los autobuses aún no tienen catálogo de paradas.
 
+## Cómo está lo que se sigue (`domain/siguiendo.js`)
+
+- **`/api/live/siguiendo?clave=<clave>`** da cómo está ahora lo de una clave, de cualquier tipo de vehículo:
+  - un servicio: `circula`, `cancelado`, `parcial`, `sin-datos`, `cancelado-retirado` o `no-se-ve`;
+  - una línea: `circulan` o `ninguno`, con cuántos vehículos hay, cuántos dan su retraso y cuántos van con 5 min o
+    más;
+  - siempre, sus incidencias (las que llevan la clave en `follow` o en `trip.follow`).
+  
+  Sale de un índice por clave que se rehace como mucho cada 5 s. Tiene memo y presupuesto propios y la caché del
+  directo (Cloudflare la guarda unos segundos para todos). También da el estado de los autobuses aunque su capa esté
+  apagada, sin descargarlos todos. Una clave que no es válida da 400.
+- **El navegador usa los mismos módulos del dominio**: `seguir.js`, `modos.js` y `siguiendo.js` se sirven tal cual
+  en `/server/domain/<fichero>` (`SHARED_DOMAIN_MODULES` en el adaptador HTTP), la misma ruta relativa que tienen
+  desde `public/js` en el repositorio. Por eso el cliente los importa igual en el navegador y en los tests de Node.
+  Sólo pueden importarse entre ellos (lo comprueba `test/adapters/http-siguiendo.test.js`). Así las claves,
+  sus nombres y los tipos no están escritos dos veces.
+- «Siguiendo» (`public/js/siguiendo.js`) guarda en el navegador la clave y el nombre de lo que se marca con la
+  estrella, y pide su estado a esa ruta.
+
 ## Añadir un tipo de vehículo nuevo (barco, avión…)
 
 1. Darlo de alta en `server/domain/modos.js`, con su nombre y su familia (`agua`, `aire`…), y en el tipo
@@ -136,6 +155,6 @@ Con eso, Mis trenes, la puntualidad, el día en cifras y el bot funcionan con el
   En el servidor conviene que miren `modeInfo(mode).family`. Que los barcos o aviones vayan en su propia ruta,
   como los autobuses, depende de cuántos haya.
 - El cliente sigue teniendo su copia de los nombres y del orden. Un test la mantiene alineada, pero lo ideal es
-  que la saque de `/api/modes` al arrancar.
+  que la saque del registro: ahora puede importar `/server/domain/modos.js` directamente, como ya hace «Siguiendo».
 - AUVASA: la línea de sus vehículos sale de su viaje (`L16A1`) y la de sus avisos, del texto («Línea 16»). No
   casan hasta normalizarlas.
