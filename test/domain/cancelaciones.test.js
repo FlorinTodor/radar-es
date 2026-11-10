@@ -358,16 +358,16 @@ test('withoutCancelledTrains: un tren cancelado (en cualquier feed) no es un tre
 
 test('mergeSameTrain: quien siga el número o cualquiera de las dos líneas encuentra la incidencia juntada', () => {
   const withKeys = (e, follow) => ({ ...e, trip: { ...e.trip, follow } });
-  const a = withKeys(r16(), ['s-renfe-18093', 'l-renfe-51-R16']);
+  const a = withKeys(r16(), ['s-renfe-18093', 'l-renfe-Catalunya-R16']);
   const b = withKeys(re18093(), ['s-renfe-18093', 'l-renfe-Regional_20Expr_C3_A9s']);
   const [one] = mergeSameTrain([a, b]);
-  assert.deepEqual(one.trip.follow, ['s-renfe-18093', 'l-renfe-Regional_20Expr_C3_A9s', 'l-renfe-51-R16']);
-  assert.deepEqual(one.trip.alsoIn[0].follow, ['s-renfe-18093', 'l-renfe-51-R16'], 'y la otra, con las suyas');
+  assert.deepEqual(one.trip.follow, ['s-renfe-18093', 'l-renfe-Regional_20Expr_C3_A9s', 'l-renfe-Catalunya-R16']);
+  assert.deepEqual(one.trip.alsoIn[0].follow, ['s-renfe-18093', 'l-renfe-Catalunya-R16'], 'y la otra, con las suyas');
   // Una retirada guardada en disco por una versión anterior no trae claves: se junta igual.
   const old = withdrawnCancellation(re18093(), { now: 9_000, clock: '11:21', endOfDay: MIDNIGHT });
   assert.equal(old.trip.follow, undefined);
   const [mixed] = mergeSameTrain([old, a]);
-  assert.deepEqual(mixed.trip.follow, ['s-renfe-18093', 'l-renfe-51-R16']);
+  assert.deepEqual(mixed.trip.follow, ['s-renfe-18093', 'l-renfe-Catalunya-R16']);
   assert.equal(mixed.trip.alsoIn[0].follow, undefined);
   const [none] = mergeSameTrain([old, withdrawnCancellation(r16(), { now: 8_000, clock: '11:00', endOfDay: MIDNIGHT })]);
   assert.equal(none.trip.follow, undefined, 'ninguna trae claves: sin lista');
