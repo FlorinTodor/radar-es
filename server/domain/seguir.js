@@ -8,7 +8,7 @@
 // tal cual el parámetro start de Telegram (t.me/<bot>?start=<clave>), sin tablas para volver a ella.
 //   s-<red>-<número>                         servicio con número propio (trenes de Renfe, Ouigo)
 //   s-<red>-<línea>-<origen>-<HHMM>          servicio de un horario: su línea, su parada de origen y su hora de salida
-//   l-<red>[-<ámbito>][-<línea>]             línea (el ámbito: el núcleo de Cercanías; sin línea: toda la red)
+//   l-<red>[-<ámbito>][-<línea>]             línea (el ámbito: el núcleo de Cercanías, «Madrid»; sin línea: toda la red)
 //   p-[<catálogo>-]<código>                  parada o estación de un catálogo del radar
 // <red> es el operador tal como lo muestra el radar, en minúsculas y sin signos («EMT Málaga» → «emtmalaga»).
 // Cada parte guarda letras y cifras; lo demás va como «_» y su código en hexadecimal («L-1» → «L_2D1»), y una
@@ -20,7 +20,7 @@ const KIND_OF_PREFIX = { s: 'servicio', l: 'linea', p: 'parada' };
 export const FOLLOW_KEY_MAX = 64;
 const NETWORK_MAX = 20;
 const PART_MAX = 24;
-const SCOPE_MAX = 12;
+const SCOPE_MAX = 24;
 // Una parte: letras, cifras y «_XX» (un byte escapado); «__» y una huella; la red abreviada con su huella; o
 // «_» sola (un servicio de un horario sin nombre de línea).
 const PART_RE = /^(?:(?:[A-Za-z0-9]|_[0-9A-F]{2})+|__[0-9a-z]{7}|[a-z0-9]+__[0-9a-z]{7}|_)$/;
@@ -107,8 +107,10 @@ export function scheduledServiceKey({ operator, line, origin, departure }) {
 export function lineKey({ operator, line = null, scope = null }) {
   const net = networkPart(operator);
   if (!net) return null;
-  // El ámbito sólo con línea: «l-renfe-40» se leería como la línea 40.
-  return join('l', [net, ...(scope && line ? [part(scope, SCOPE_MAX)] : []), ...(line ? [part(line)] : [])]);
+  if (!line) return join('l', [net]); // el ámbito sólo con línea: «l-renfe-Madrid» se leería como la línea Madrid
+  const key = join('l', [net, ...(scope ? [part(scope, SCOPE_MAX)] : []), part(line)]);
+  // Si con el ámbito legible pasa de 64, el ámbito va como huella (la red y la línea siguen legibles).
+  return key ?? (scope ? join('l', [net, part(scope, 0), part(line)]) : null);
 }
 
 /**
@@ -186,9 +188,13 @@ export function describeFollow(key, known = {}) {
   if (parsed.kind === 'parada') return known.name ?? parsed.parts.filter(Boolean).join(':');
   if (parsed.kind === 'linea') {
     if (!parsed.parts.length) return `${known.service && known.service !== operator ? `${known.service} · ` : ''}${operator}: toda la red`;
+    // «<servicio o tipo> <línea> · <operador> (<ámbito>)»: el ámbito es el de la clave (el núcleo), nunca dónde
+    // está ahora el vehículo; y si la línea es el propio producto (AVE), sin repetirlo.
     const line = known.line ?? parsed.parts.at(-1) ?? '(sin nombre legible)';
-    const who = known.service && known.service !== operator ? `${known.service} · ${operator}` : operator;
-    return `${known.modeLabel ?? 'Línea'} ${line} · ${who}${known.area ? ` (${known.area})` : ''}`;
+    const scope = parsed.parts.length > 1 ? parsed.parts[0] : null;
+    const kind = known.service && known.service !== operator ? known.service : known.modeLabel ?? 'Línea';
+    const name = kind === line ? line : `${kind} ${line}`;
+    return `${name} · ${operator}${scope ? ` (${scope})` : ''}`;
   }
   if (parsed.number !== undefined) return `${known.service ?? operator} ${known.number ?? known.label ?? parsed.number}`;
   const line = known.line ?? parsed.parts[0];

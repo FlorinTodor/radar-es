@@ -32,10 +32,14 @@ test('servicio de un horario: su línea, su parada de origen y su hora; otro ori
 });
 
 test('línea: con su núcleo en Cercanías; sin línea, toda la red; los signos se escapan', () => {
-  assert.equal(lineKey({ operator: 'Renfe', scope: '10', line: 'C4a' }), 'l-renfe-10-C4a');
-  assert.notEqual(lineKey({ operator: 'Renfe', scope: '40', line: 'C1' }), lineKey({ operator: 'Renfe', scope: '10', line: 'C1' }));
+  assert.equal(lineKey({ operator: 'Renfe', scope: 'Madrid', line: 'C4a' }), 'l-renfe-Madrid-C4a');
+  assert.equal(lineKey({ operator: 'Renfe', scope: 'Cádiz', line: 'C1' }), 'l-renfe-C_C3_A1diz-C1');
+  assert.notEqual(lineKey({ operator: 'Renfe', scope: 'Valencia', line: 'C1' }), lineKey({ operator: 'Renfe', scope: 'Madrid', line: 'C1' }));
   assert.equal(lineKey({ operator: 'Metro Bilbao' }), 'l-metrobilbao');
-  assert.equal(lineKey({ operator: 'Renfe', scope: '40' }), 'l-renfe', 'un ámbito sin línea se leería como una línea');
+  assert.equal(lineKey({ operator: 'Renfe', scope: 'Valencia' }), 'l-renfe', 'un ámbito sin línea se leería como una línea');
+  const crowded = lineKey({ operator: 'Operador con un nombre larguísimo', scope: 'Ámbito de veinte letras', line: 'Línea larga de 20 chr' });
+  assert.ok(isFollowKey(crowded) && crowded.length <= FOLLOW_KEY_MAX, crowded);
+  assert.equal(parseFollowKey(crowded).parts[0], null, 'si no cabe todo, el ámbito va como huella');
   assert.equal(lineKey({ operator: 'Sagalés Vic', line: 'L-1' }), 'l-sagalesvic-L_2D1');
   assert.equal(lineKey({ operator: 'Renfe', line: 'Regional Exprés' }), 'l-renfe-Regional_20Expr_C3_A9s');
   assert.equal(lineKey({ operator: 'EMT València', line: ' 4 ' }), lineKey({ operator: 'EMT Valencia', line: '4' }), 'sin tildes ni espacios de más');
@@ -95,7 +99,7 @@ test('las partes se leen de la clave; la huella, no', () => {
   assert.equal(s.network, 'sagalesvic');
   assert.equal(s.parts[0], 'L-1');
   assert.equal(s.departure, '07:05');
-  assert.deepEqual(parseFollowKey('l-renfe-10-C4a').parts, ['10', 'C4a']);
+  assert.deepEqual(parseFollowKey('l-renfe-C_C3_A1diz-C1').parts, ['Cádiz', 'C1']);
   assert.deepEqual(parseFollowKey(lineKey({ operator: 'X', line: 'una línea con un nombre muy largo' })).parts, [null]);
   assert.equal(parseFollowKey('roto'), null);
 });
@@ -105,7 +109,15 @@ test('cómo se llama: con lo que se sepa de él, o lo que diga la clave', () => 
   assert.equal(describeFollow('s-renfe-8058'), 'renfe 8058');
   const bus = scheduledServiceKey({ operator: 'EMT Málaga', line: '27', origin: '2354', departure: h(7, 32) });
   assert.equal(describeFollow(bus, { operator: 'EMT Málaga', origin: 'Plaza Mayor', modeLabel: 'Autobús' }), 'Autobús 27 · EMT Málaga, el de las 07:32, desde Plaza Mayor');
-  assert.equal(describeFollow('l-renfe-10-C4a', { operator: 'Renfe', service: 'Cercanías', area: 'Madrid' }), 'Línea C4a · Cercanías · Renfe (Madrid)');
+  assert.equal(describeFollow('l-renfe-Madrid-C5', { operator: 'Renfe', service: 'Cercanías', line: 'C5', area: 'Getafe' }), 'Cercanías C5 · Renfe (Madrid)',
+    'el ámbito de la clave, nunca dónde está ahora el vehículo');
+  assert.equal(describeFollow('l-renfe-Catalunya-R16', { operator: 'Renfe', service: 'Rodalies' }), 'Rodalies R16 · Renfe (Catalunya)');
+  assert.equal(describeFollow('l-renfe-Madrid-C5'), 'Línea C5 · renfe (Madrid)', 'sin nada más, lo que dice la clave');
+  assert.equal(describeFollow('l-emtmalaga-71', { operator: 'EMT Málaga', service: 'EMT Málaga', modeLabel: 'Autobús' }), 'Autobús 71 · EMT Málaga');
+  assert.equal(describeFollow('l-euskotren-E4', { operator: 'Euskotren', service: 'Euskotren', modeLabel: 'Tren' }), 'Tren E4 · Euskotren');
+  assert.equal(describeFollow('l-renfe-AVE', { operator: 'Renfe', service: 'AVE', line: 'AVE', area: 'Orihuela', modeLabel: 'Tren' }), 'AVE · Renfe',
+    'la línea es el propio producto: sin repetirlo');
+  assert.equal(describeFollow('s-renfe-23065', { service: 'Cercanías', number: '23065' }), 'Cercanías 23065');
   assert.equal(describeFollow('l-metrobilbao', { operator: 'Metro Bilbao' }), 'Metro Bilbao: toda la red');
   assert.equal(describeFollow('p-tmb-123', { name: 'Diagonal' }), 'Diagonal');
   assert.equal(describeFollow('p-tmb-123'), 'tmb:123');
