@@ -123,7 +123,7 @@ export function createTelegramBot({ api, bot, lease, log, waitSec = 50, tickMs =
       }
       for (const r of res.replies) queue.push(r);
       if (msg.callbackId) await api.answer({ id: msg.callbackId, text: res.answer }).catch(() => {});
-      // Ha cambiado de idioma: su menú de órdenes, en el suyo.
+      // Ha cambiado de idioma: su menú de órdenes, en el suyo; tras /baja (sin órdenes), el de siempre.
       if (res.menu) {
         await api.setCommands(res.menu.commands, { chatId: res.menu.chatId })
           .catch((err) => log.warn(`[telegram] no se pudo poner el menú de órdenes de un chat: ${err.message}`));

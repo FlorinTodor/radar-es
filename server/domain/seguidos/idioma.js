@@ -138,15 +138,24 @@ export const ES = translator('es');
 
 // ---------- Cómo se elige el idioma ----------
 
-/** Lo que se escribe para elegir un idioma (/idioma inglés, /language english…): 'es', 'en' o null. */
-const LANG_WORDS = { es: ['es', 'espanol', 'castellano', 'spanish'], en: ['en', 'ingles', 'english'] };
-export function parseLang(text) {
-  const t = plainName(text);
-  return BOT_LANGS.find((l) => LANG_WORDS[l].includes(t)) ?? null;
+/**
+ * Lo que se escribe para elegir un idioma (/idioma inglés, /language english, «in English», «English please», «en
+ * español»): 'es', 'en' o null. Con `codes: false`, sin los códigos («en», «es»): un texto sin orden tan corto no es
+ * pedir un idioma.
+ */
+const LANG_WORDS = { es: ['espanol', 'castellano', 'spanish'], en: ['ingles', 'english'] };
+const LANG_CODES = { es: 'es', en: 'en' };
+export function parseLang(text, { codes = true } = {}) {
+  const t = plainName(text)
+    .replace(/^(?:(?:habla(?:me)?|escribe(?:me)?|speak|write|talk)(?: to me)?\s+)?(?:(?:en|in)\s+)?(?=\S)/, '')
+    .replace(/\s+(?:please|pls|por favor|porfa)$/, '').replace(/^(?:please|por favor)\s+/, '');
+  return BOT_LANGS.find((l) => LANG_WORDS[l].includes(t) || (codes && LANG_CODES[l] === t)) ?? null;
 }
 
 // Los idiomas de España: quien tiene Telegram en catalán, euskera o gallego está en España y lee español.
 const SPAIN = /^(?:es|ca|eu|gl|ast|oc)(?:[-_]|$)/i;
+/** ¿Tiene el Telegram en un idioma de España? (a quien escribe «/help» así no se le pasa al inglés) */
+export const spainLang = (clientLang) => typeof clientLang === 'string' && SPAIN.test(clientLang);
 /**
  * ¿Hay que ofrecerle el inglés? Si su Telegram está en otro idioma (`language_code` que Telegram manda con cada
  * mensaje: «en», «de», «pt-br»…) que no es de España. Sin él, no.

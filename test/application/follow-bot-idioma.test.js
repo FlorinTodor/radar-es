@@ -102,19 +102,64 @@ test('el enlace de la web en inglés (start=en-<clave>) sigue y contesta ya en i
   assert.match(say('/start fr-s-renfe-8058', 4004)[0].text, /^Hola\. Soy el bot/, 'un idioma que no hay: no es una clave');
 });
 
-test('el primer /start de un Telegram en otro idioma ofrece el inglés con un botón, sin imponerlo; en español o catalán, no', () => {
+const OFFER = 'Would you like me to write in English? Tap the button, or send /language at any time.\n'
+  + '¿Prefieres que te escriba en inglés? Pulsa el botón, o escribe /idioma cuando quieras.';
+
+test('el primer /start de un Telegram en otro idioma ofrece el inglés, antes de la bienvenida y en los dos idiomas; su botón trae la bienvenida en inglés', () => {
   const { say, press } = setup();
   const replies = say('/start', CHAT, 'en-GB');
   assert.equal(replies.length, 2);
-  assert.match(replies[0].text, /^Hola\. Soy el bot de Radar España/, 'la bienvenida, en el de siempre');
-  assert.equal(replies[1].text, 'Would you like me to write in English? Tap the button, or send /language at any time.');
-  assert.deepEqual(replies[1].buttons, [[{ text: 'English', data: 'l:en' }]]);
+  assert.equal(replies[0].text, OFFER, 'corta, bilingüe y primero');
+  assert.deepEqual(replies[0].buttons, [[{ text: 'English', data: 'l:en:w' }]]);
+  assert.match(replies[1].text, /^Hola\. Soy el bot de Radar España/, 'la bienvenida, en el de siempre');
   assert.equal(say('/start', CHAT, 'en-GB').length, 1, 'no se ofrece cada vez: ya ha hablado con el bot');
-  assert.match(press('l:en').replies[0].text, /^Done/);
+  const pressed = press('l:en:w');
+  assert.match(pressed.replies[0].text, /^Done/);
+  assert.match(pressed.replies[1].text, /^Hello\. I'm the Radar España bot\./, 'y la bienvenida, en inglés');
+  assert.equal(pressed.menu.commands[0][0], 'follow');
   assert.equal(say('/start', 2002, 'es-ES').length, 1);
   assert.equal(say('/start', 3003, 'ca').length, 1, 'quien tiene Telegram en catalán está en España');
-  assert.equal(say(`/start ${AVANT}`, 4004, 'de').length, 2, 'también si llega desde un enlace');
+  const linked = say(`/start ${AVANT}`, 4004, 'de');
+  assert.equal(linked.length, 2, 'también si llega desde un enlace: detrás de la respuesta');
+  assert.deepEqual(linked[1].buttons, [[{ text: 'English', data: 'l:en' }]]);
   assert.equal(say(`/start en-${AVANT}`, 5005, 'de').length, 1, 'si el enlace ya es en inglés, no hace falta');
+  // La primera vez, escriba lo que escriba (no sólo /start).
+  const first = say('/seguir 08058', 6006, 'fr');
+  assert.equal(first.length, 2);
+  assert.equal(first[1].text, OFFER);
+  assert.equal(say('/mis', 6006, 'fr').length, 1, 'una vez');
+});
+
+test('una orden escrita en inglés, sin haber elegido idioma: contesta en inglés y cambia su menú; con Telegram en español o eligiendo español, no', () => {
+  const { bot, say } = setup();
+  const handled = bot.handle({ chatId: 7007, text: '/follow 08058' });
+  assert.match(handled.replies[0].text, /^Done: I'll alert you about Avant 08058\./);
+  assert.equal(handled.menu.commands[0][0], 'follow', 'como con /language english');
+  assert.match(say('/seguir C4', 7007)[0].text, /^I found several things/, 'se queda en inglés');
+  assert.match(bot.handle({ chatId: 7008, text: '/help', clientLang: 'es' }).replies[0].text, /^Te aviso de lo que sigas/, 'Telegram en español: /help es /help');
+  say('/idioma español', 7009);
+  assert.match(say('/help', 7009)[0].text, /^Te aviso de lo que sigas/, 'quien ha elegido español, en español');
+  assert.match(say('/data', 7010)[0].text, /^I store nothing about this chat/);
+  const stop = bot.handle({ chatId: 7007, text: '/stop' });
+  assert.match(stop.replies[0].text, /^Done: I've deleted everything/);
+  assert.deepEqual(stop.menu, { chatId: 7007, commands: null }, 'tras /baja, su menú vuelve al de siempre');
+});
+
+test('el idioma escrito sin orden («english», «in English», «English please», «en español») o como orden (/english, /spanish)', () => {
+  const { say } = setup();
+  for (const [text, start] of [['english', /^Done: from now on/], ['en español', /^Hecho: a partir de ahora te escribo en español/], ['in English', /^Done/],
+    ['Spanish please', /^Hecho/], ['English, please!', /^Done/], ['/spanish', /^Hecho/], ['/english', /^Done/], ['/ingles', /^Done/], ['/espanol', /^Hecho/]]) {
+    assert.match(say(text)[0].text, start, text);
+  }
+  assert.match(say('en')[0].text, /^No encuentro nada así|^I can't find anything/, '«en» solo no es pedir un idioma');
+});
+
+test('/start en-<clave>: también su menú de órdenes en inglés', () => {
+  const { bot } = setup();
+  const handled = bot.handle({ chatId: 8008, text: `/start en-${AVANT}` });
+  assert.match(handled.replies[0].text, /^Done: I'll alert you about Avant 08058/);
+  assert.equal(handled.menu.commands[0][0], 'follow');
+  assert.equal(bot.handle({ chatId: 8008, text: `/start en-${C4A}` }).menu, undefined, 'si ya era su idioma, no hace falta');
 });
 
 test('todo en inglés: seguir, buscar, /mis, /estado, /dejar, /parte, /datos y /baja; los nombres y las fuentes, tal cual', () => {

@@ -60,6 +60,10 @@ test('API: cada llamada va a su método con su cuerpo; los errores dicen el esta
   assert.deepEqual(calls[6].body, { short_description: 'Corta', language_code: 'en' });
   await api.setDescriptions({ description: 'Larga', shortDescription: 'Corta' });
   assert.deepEqual(calls[7].body, { description: 'Larga' }, 'sin idioma, la de siempre');
+  // Sin órdenes, se quita el menú de ese chat (tras /baja vuelve a ver el de siempre).
+  await api.setCommands(null, { chatId: 7 });
+  assert.ok(calls.at(-1).url.endsWith('/deleteMyCommands'));
+  assert.deepEqual(calls.at(-1).body, { scope: { type: 'chat', chat_id: 7 } });
   calls.length = 0;
 
   fail = Object.assign(new Error('HTTP 429 en api.telegram.org'), { status: 429, body: { ok: false, description: 'Too Many Requests: retry after 7', parameters: { retry_after: 7 } } });
@@ -210,9 +214,9 @@ test('bucle: al coger el turno pone el menú y las descripciones de cada idioma 
     h.advance(1000);
     await h.tg.drainOnce();
   }
-  assert.deepEqual(h.sent.map((m) => m.text.split('\n')[0]), ['Hola. Soy el bot de Radar España.',
-    'Would you like me to write in English? Tap the button, or send /language at any time.', "Done: from now on I'll write to you in English. /help to see what I do; /language to change it."]);
-  assert.deepEqual(h.sent[1].buttons, [[{ text: 'English', data: 'l:en' }]]);
+  assert.deepEqual(h.sent.map((m) => m.text.split('\n')[0]), ['Would you like me to write in English? Tap the button, or send /language at any time.',
+    'Hola. Soy el bot de Radar España.', "Done: from now on I'll write to you in English. /help to see what I do; /language to change it."]);
+  assert.deepEqual(h.sent[0].buttons, [[{ text: 'English', data: 'l:en:w' }]]);
 });
 
 test('bucle: la ronda manda los avisos y guarda; un chat que bloquea el bot se olvida; 429 espera; token malo, desactivado', async () => {

@@ -71,9 +71,17 @@ export function createTelegramApi({ http, token, timeoutMs = 15_000 }) {
     },
     /**
      * El menú de órdenes: el de siempre; con `lang`, el de quien tiene Telegram en ese idioma (language_code); con
-     * `chatId`, el de un chat (el idioma que ha elegido en el bot, aunque su Telegram esté en otro).
+     * `chatId`, el de un chat (el idioma que ha elegido en el bot, aunque su Telegram esté en otro). Sin órdenes
+     * (null), se quita el de ese chat y vuelve a ver el de siempre.
      */
     async setCommands(commands, { lang = null, chatId = null } = {}) {
+      if (!commands) {
+        await call('deleteMyCommands', {
+          ...(chatId !== null ? { scope: { type: 'chat', chat_id: chatId } } : {}),
+          ...(lang ? { language_code: lang } : {}),
+        });
+        return;
+      }
       await call('setMyCommands', {
         commands: commands.map(([command, description]) => ({ command, description: description.slice(0, 256) })),
         ...(chatId !== null ? { scope: { type: 'chat', chat_id: chatId } } : {}),

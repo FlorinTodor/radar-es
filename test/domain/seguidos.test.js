@@ -188,7 +188,9 @@ test('estado: un servicio que circula, cancelado o que no se ve; una línea; una
 test('órdenes: con su argumento, con @bot, alias, texto sin orden y horas', () => {
   assert.deepEqual(parseCommand('/seguir C4 Madrid'), { command: 'seguir', arg: 'C4 Madrid' });
   assert.deepEqual(parseCommand('/seguir@RadarEspanaBot   08058 '), { command: 'seguir', arg: '08058' });
-  assert.deepEqual(parseCommand('/help'), { command: 'ayuda', arg: '' });
+  assert.deepEqual(parseCommand('/help'), { command: 'ayuda', arg: '', english: true }, 'escrita en inglés');
+  assert.deepEqual(parseCommand('/english'), { command: 'idioma', arg: 'english' });
+  assert.deepEqual(parseCommand('/Spanish'), { command: 'idioma', arg: 'spanish' });
   assert.deepEqual(parseCommand('/start s-renfe-8058'), { command: 'start', arg: 's-renfe-8058' });
   assert.deepEqual(parseCommand('/inventada'), { command: 'desconocida', arg: '' });
   assert.deepEqual(parseCommand('C4 Madrid'), { command: 'buscar', arg: 'C4 Madrid' });

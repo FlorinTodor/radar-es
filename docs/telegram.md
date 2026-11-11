@@ -219,12 +219,17 @@ Cada chat tiene su idioma: español por defecto e inglés si lo elige. Mismo cri
 
 - **Cómo se elige**:
   - `/idioma` (o `/language`) con sus botones «Español» / «English», o con el idioma escrito (`/idioma inglés`,
-    `/language english`). Al cambiarlo, el bot pone también el menú de órdenes de ese chat en su idioma;
-  - al primer `/start`, si el Telegram de quien escribe está en otro idioma (su `language_code`, que Telegram manda
-    con cada mensaje) que no es de España (ni `es`, ni `ca`, `eu` o `gl`), se le ofrece el inglés con un botón, una
-    vez y sin imponerlo;
+    `/language english`, `/english`, `/spanish`, o sin orden: «English», «in English», «English please», «en
+    español»). Al cambiarlo, el bot pone también el menú de órdenes de ese chat en su idioma, y tras `/baja` lo
+    devuelve al de siempre;
+  - una orden escrita con su nombre en inglés (`/follow`, `/help`, `/status`…) de quien no ha elegido idioma pasa el
+    chat al inglés, como `/language english` (también su menú), salvo que su Telegram esté en un idioma de España;
+  - la primera vez que escribe (cualquier cosa), si el Telegram de quien escribe está en otro idioma (su
+    `language_code`, que Telegram manda con cada mensaje) que no es de España (ni `es`, ni `ca`, `eu` o `gl`), se le
+    ofrece el inglés con un botón y en los dos idiomas, una vez y sin imponerlo. Con `/start`, antes de la
+    bienvenida, y su botón trae la bienvenida en inglés;
   - desde la web en inglés: el botón «Alert me on Telegram» abre `t.me/<bot>?start=en-<clave>` y el bot sigue lo
-    elegido y contesta ya en inglés. Ninguna clave ni provincia empieza por un idioma (las claves son `s-`, `l-`,
+    elegido y contesta ya en inglés (y pone su menú en inglés). Ninguna clave ni provincia empieza por un idioma (las claves son `s-`, `l-`,
     `p-`, `t-` o, las de carretera, `c-`), así que los enlaces de siempre, sin idioma, siguen igual. También el botón
     de la ficha de una incidencia de tráfico (`start=en-c-A7`). Si con `en-` la clave pasara de los 64
     caracteres que admite Telegram, la web la manda sin él.

@@ -17,7 +17,7 @@ import {
   LANG_NAMES, botProfiles, commandsFor, dataText, helpText, langLabel, parseCommand, parseHour, smallTalk, smallTalkText, welcomeText,
 } from '../../domain/seguidos/ordenes.js';
 import {
-  BOT_LANGS, DEFAULT_LANG, ES, frase, isBotLang, offerEnglish, parseLang, parseStartPayload, translator,
+  BOT_LANGS, DEFAULT_LANG, ES, frase, isBotLang, offerEnglish, parseLang, parseStartPayload, spainLang, translator,
 } from '../../domain/seguidos/idioma.js';
 import { cutText } from '../../domain/seguidos/texto.js';
 import { countEvent, emptyTotals, parseTotals, usageOf } from '../../domain/seguidos/uso.js';
@@ -64,8 +64,8 @@ function webIn(webUrl, lang) {
  * @typedef {{ chatId: number, text: string, buttons?: Array<Array<{ text: string, data: string }>> }} Reply
  * @typedef {{ chatId: number, text?: string, callback?: string, callbackId?: string, clientLang?: string }} Incoming
  *   clientLang: el idioma del Telegram de quien escribe (language_code), sólo para ofrecerle el inglés.
- * @typedef {{ replies: Reply[], answer?: string, menu?: { chatId: number, commands: Array<[string, string]> } }} Handled
- *   menu: el menú de órdenes de ese chat cambia (ha elegido otro idioma).
+ * @typedef {{ replies: Reply[], answer?: string, menu?: { chatId: number, commands: Array<[string, string]>|null } }} Handled
+ *   menu: el menú de órdenes de ese chat cambia (ha elegido otro idioma); sin órdenes (null), vuelve al de siempre (/baja).
  */
 
 /**
@@ -96,6 +96,13 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
   const spoken = new Map();
   // A quién se le ha ofrecido ya el inglés (en memoria): se ofrece una vez, no en cada /start.
   const offered = new Set();
+  // Quién ha elegido idioma a propósito (/idioma, un botón, un enlace de la web en un idioma), en memoria: a ésos no
+  // se les cambia por escribir una orden en inglés.
+  const chosen = new Set();
+  const choose = (chatId) => {
+    if (chosen.size >= limits.chats) chosen.clear();
+    chosen.add(chatId);
+  };
   // Altas, bajas, avisos y mensajes por orden desde que se empezó a contar (domain/seguidos/uso.js): se guardan con
   // lo demás, así que un arranque o un relevo no los pone a cero.
   let totals = emptyTotals(clock.now());
@@ -581,8 +588,12 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
       remember(chatId, chat.lang);
       note('baja', 'baja');
     }
-    return [reply(chatId, chat ? t('Hecho: he borrado todo lo de este chat. Si vuelves a seguir algo, empezará de cero.')
-      : t('De este chat no tenía nada guardado.'))];
+    return {
+      replies: [reply(chatId, chat ? t('Hecho: he borrado todo lo de este chat. Si vuelves a seguir algo, empezará de cero.')
+        : t('De este chat no tenía nada guardado.'))],
+      // Su menú de órdenes vuelve al de siempre (el del idioma de su Telegram).
+      menu: { chatId, commands: null },
+    };
   }
 
   function data(chatId) {
@@ -596,22 +607,38 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
     return [reply(chatId, dataText(view, { tr }))];
   }
 
+  /** @returns {Handled} */
   function start(chatId, arg) {
-    // La web en inglés pone el idioma delante de la clave («en-s-renfe-8058», «en-c-A7»): el bot habla ya en ese idioma.
+    // La web en inglés pone el idioma delante de la clave («en-s-renfe-8058», «en-c-A7»): el bot habla ya en ese idioma
+    // y pone el menú de órdenes de ese chat en él.
     const { lang, rest } = parseStartPayload(arg);
-    if (lang) setLang(chatId, lang);
-    if (isFollowKey(rest)) return follow(chatId, rest);
-    // Una carretera, desde la ficha de una incidencia de tráfico en la web («c-A7»); con una provincia que no existe, no.
-    const road = isRoadKey(rest) ? roadSub(rest) : null;
-    if (road) return followRoad(chatId, road);
-    const prov = /^prov-([a-z0-9-]{2,40})$/.exec(rest);
-    if (prov && provinceById(prov[1])) return followProvince(chatId, provinceById(prov[1]));
-    const tr = trOf(chatId);
-    return [reply(chatId, welcomeText({ webUrl: web(tr), limits, tr }))];
+    const menu = lang && langOf(chatId) !== lang ? { chatId, commands: commandsFor(lang) } : null;
+    if (lang) {
+      setLang(chatId, lang);
+      choose(chatId);
+    }
+    const replies = (() => {
+      if (isFollowKey(rest)) return follow(chatId, rest);
+      // Una carretera, desde la ficha de una incidencia de tráfico en la web («c-A7»); con una provincia que no existe, no.
+      const road = isRoadKey(rest) ? roadSub(rest) : null;
+      if (road) return followRoad(chatId, road);
+      const prov = /^prov-([a-z0-9-]{2,40})$/.exec(rest);
+      if (prov && provinceById(prov[1])) return followProvince(chatId, provinceById(prov[1]));
+      return [welcome(chatId)];
+    })();
+    return menu ? { replies, menu } : { replies };
   }
 
-  /** Los botones para elegir idioma: cada uno, con su nombre en su idioma. */
-  const langButtons = (langs = BOT_LANGS) => langs.map((l) => [{ text: langLabel(l), data: `l:${l}` }]);
+  const welcome = (chatId) => {
+    const tr = trOf(chatId);
+    return reply(chatId, welcomeText({ webUrl: web(tr), limits, tr }));
+  };
+
+  /**
+   * Los botones para elegir idioma: cada uno, con su nombre en su idioma. Con `welcome` (el que se ofrece con la
+   * bienvenida), al pulsarlo llega también la bienvenida en ese idioma.
+   */
+  const langButtons = (langs = BOT_LANGS, { welcome: withWelcome = false } = {}) => langs.map((l) => [{ text: langLabel(l), data: `l:${l}${withWelcome ? ':w' : ''}` }]);
 
   /** /idioma: con el idioma, lo cambia; sin él (o si no se entiende), pregunta en todos con un botón por idioma. */
   function language(chatId, arg) {
@@ -622,12 +649,13 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
   }
 
   /** @returns {Handled} */
-  function changeLang(chatId, lang) {
+  function changeLang(chatId, lang, { withWelcome = false } = {}) {
     setLang(chatId, lang);
+    choose(chatId);
     const tr = trOf(chatId);
     return {
       replies: [reply(chatId, tr.t('Hecho: a partir de ahora te escribo en {lang}. /ayuda para ver lo que hago; /idioma para cambiarlo.',
-        { lang: tr.t(LANG_NAMES[lang]) }))],
+        { lang: tr.t(LANG_NAMES[lang]) })), ...(withWelcome ? [welcome(chatId)] : [])],
       answer: tr.t('Hecho'),
       // Su menú de órdenes, en su idioma (sin esto, el que corresponde al idioma de su Telegram).
       menu: { chatId, commands: commandsFor(lang) },
@@ -638,8 +666,8 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
   function callback(chatId, dataStr) {
     const { t } = trOf(chatId);
     // Un botón de idioma vale siempre: no es de una lista.
-    const chosen = /^l:([a-z]{2})$/.exec(String(dataStr ?? ''));
-    if (chosen && isBotLang(chosen[1])) return changeLang(chatId, chosen[1]);
+    const picked = /^l:([a-z]{2})(:w)?$/.exec(String(dataStr ?? ''));
+    if (picked && isBotLang(picked[1])) return changeLang(chatId, picked[1], { withWelcome: Boolean(picked[2]) });
     const m = /^([ad]):([0-9a-z]{1,8}):(\d{1,2})$/.exec(String(dataStr ?? ''));
     const open = menus.get(chatId);
     // Sólo vale la última lista de cada chat, y un rato: un botón de un mensaje anterior no escoge nada.
@@ -772,12 +800,24 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
         note('orden', 'boton');
         return callback(chatId, msg.callback);
       }
-      const { command, arg } = parseCommand(msg.text);
+      const { command, arg, english } = parseCommand(msg.text);
       const payload = command === 'start' ? parseStartPayload(arg) : null;
       // /start con una clave o una provincia: llega desde un enlace de la web («Avísame por Telegram»).
-      note('orden', payload && (isFollowKey(payload.rest) || isRoadKey(payload.rest) || /^prov-/.test(payload.rest)) ? 'enlace' : command);
-      // La primera vez (nada de este chat, ni en memoria), si su Telegram está en otro idioma, se le ofrece el inglés.
-      const offer = payload && !payload.lang && !chats.has(chatId) && !spoken.has(chatId) && !offered.has(chatId) && offerEnglish(msg.clientLang);
+      const link = Boolean(payload && (isFollowKey(payload.rest) || isRoadKey(payload.rest) || /^prov-/.test(payload.rest)));
+      note('orden', link ? 'enlace' : command);
+      // Una orden escrita en inglés («/follow», «/help») de quien no ha elegido idioma ni tiene Telegram en uno de
+      // España: lee inglés. Como si hubiera escrito /language english (también su menú de órdenes).
+      let switched = null;
+      if (english && langOf(chatId) === DEFAULT_LANG && !chosen.has(chatId) && !spainLang(msg.clientLang)) {
+        setLang(chatId, 'en');
+        switched = { chatId, commands: commandsFor('en') };
+      }
+      // La primera vez (nada de este chat, ni en memoria), si su Telegram está en otro idioma, se le ofrece el inglés,
+      // escriba lo que escriba (con un enlace en inglés o pidiendo un idioma, no hace falta).
+      const offer = !switched && !payload?.lang && command !== 'idioma' && !chats.has(chatId) && !spoken.has(chatId) && !offered.has(chatId)
+        && !chosen.has(chatId) && offerEnglish(msg.clientLang);
+      // Con la bienvenida (/start sin enlace), la oferta va antes, y su botón trae la bienvenida en inglés.
+      const welcoming = command === 'start' && !link && !payload?.lang;
       const run = {
         start: () => start(chatId, arg),
         // «/seguir Alcalá > Atocha 7-9» es un trayecto.
@@ -786,6 +826,9 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
         // Texto sin orden: una búsqueda, salvo que sea charla («hola», «gracias», «vale»).
         buscar: () => {
           if (looksLikeTrayecto(arg)) return trayectoCmd(chatId, arg);
+          // «english», «in English», «English please», «en español»: el idioma.
+          const lang = parseLang(arg.replace(/^\//, ''), { codes: false });
+          if (lang) return changeLang(chatId, lang);
           const talk = smallTalk(arg);
           if (!talk) return search(chatId, arg, { confirm: true });
           const tr = trOf(chatId);
@@ -807,11 +850,15 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
       }[command];
       const out = run ? run() : [reply(chatId, trOf(chatId).t('No conozco esa orden. Mira /ayuda.'))];
       const handled = Array.isArray(out) ? { replies: out } : out;
+      if (switched && !handled.menu) handled.menu = switched;
       if (offer && langOf(chatId) === DEFAULT_LANG) {
         if (offered.size >= limits.chats) offered.clear();
         offered.add(chatId);
-        handled.replies.push(reply(chatId, EN.t('¿Prefieres que te escriba en inglés? Pulsa el botón, o escribe /idioma cuando quieras.'),
-          langButtons(['en'])));
+        // Corta y en los dos idiomas: quien la recibe aún no ha dicho cuál lee.
+        const ask = frase('¿Prefieres que te escriba en inglés? Pulsa el botón, o escribe /idioma cuando quieras.');
+        const offerReply = reply(chatId, `${EN.t(ask)}\n${ES.t(ask)}`, langButtons(['en'], { welcome: welcoming }));
+        if (welcoming) handled.replies.unshift(offerReply);
+        else handled.replies.push(offerReply);
       }
       return handled;
     },
@@ -906,6 +953,7 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
       menus.delete(chatId);
       spoken.delete(chatId);
       offered.delete(chatId);
+      chosen.delete(chatId);
       if (chats.delete(chatId)) {
         note('baja', 'bloqueo');
         log?.info(`[telegram] un chat ha bloqueado el bot o ya no existe: borrado (quedan ${chats.size})`);

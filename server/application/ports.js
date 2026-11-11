@@ -190,8 +190,9 @@
  *   esperando hasta `waitSec` si no hay nada (long polling).
  * @property {(m: { chatId: number, text: string, buttons?: Array<Array<{ text: string, data: string }>> }) => Promise<void>} send
  * @property {(o: { id: string, text?: string }) => Promise<void>} answer  Respuesta breve a un botón pulsado.
- * @property {(commands: Array<[string, string]>, o?: { lang?: string|null, chatId?: number|null }) => Promise<void>} setCommands
- *   El menú de órdenes del bot: el de siempre, el de un idioma (`lang`) o el de un chat (`chatId`).
+ * @property {(commands: Array<[string, string]>|null, o?: { lang?: string|null, chatId?: number|null }) => Promise<void>} setCommands
+ *   El menú de órdenes del bot: el de siempre, el de un idioma (`lang`) o el de un chat (`chatId`); sin órdenes (null),
+ *   se quita (un chat vuelve a ver el de siempre).
  * @property {(o: { description: string, shortDescription: string, lang?: string|null }) => Promise<void>} setDescriptions
  *   Lo que se enseña del bot antes de escribirle y en su perfil, en un idioma (sin `lang`, el de siempre).
  */

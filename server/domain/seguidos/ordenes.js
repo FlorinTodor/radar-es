@@ -35,6 +35,10 @@ const ALIASES = {
   ...Object.fromEntries(COMMANDS.map((c) => [c.en, c.name])),
 };
 const KNOWN = new Set(['start', ...COMMANDS.map((c) => c.name)]);
+/** Los nombres en inglés de las órdenes: quien escribe así, sin haber elegido idioma, lee inglés (follow-bot.js). */
+const ENGLISH_NAMES = new Set([...COMMANDS.map((c) => c.en), 'list']);
+// El idioma como orden («/english», «/spanish»): es /idioma con ese idioma.
+const LANG_COMMANDS = { english: 'english', ingles: 'english', spanish: 'spanish', espanol: 'spanish', castellano: 'spanish' };
 
 /**
  * Lo que Telegram enseña del bot en cada idioma (setMyDescription, setMyShortDescription) y su menú de órdenes.
@@ -56,17 +60,19 @@ export function botProfiles() {
 
 /**
  * Qué pide un mensaje: una orden con su argumento («/seguir C4 Madrid», «/seguir@RadarBot C4», «/follow C4») o, si
- * es texto sin orden, una búsqueda (`buscar`).
+ * es texto sin orden, una búsqueda (`buscar`). «/english» y «/spanish» son /idioma con ese idioma.
  * @param {string} text
- * @returns {{ command: string, arg: string }}  command: el nombre de COMMANDS, 'start', 'buscar' o 'desconocida'
+ * @returns {{ command: string, arg: string, english?: true }}  command: el nombre de COMMANDS, 'start', 'buscar' o
+ *   'desconocida'; english: la orden se ha escrito con su nombre en inglés («/follow»)
  */
 export function parseCommand(text) {
   const t = cutText(String(text ?? ''), INPUT_MAX, '').trim();
   const m = /^\/([A-Za-z_]+)(?:@[A-Za-z0-9_]+)?(?:\s+([\s\S]*))?$/.exec(t);
   if (!m) return { command: t ? 'buscar' : 'ayuda', arg: t };
   const name = m[1].toLowerCase();
+  if (Object.hasOwn(LANG_COMMANDS, name)) return { command: 'idioma', arg: LANG_COMMANDS[name] };
   const command = (Object.hasOwn(ALIASES, name) ? ALIASES[name] : null) ?? (KNOWN.has(name) ? name : 'desconocida');
-  return { command, arg: (m[2] ?? '').replace(/\s+/g, ' ').trim() };
+  return { command, arg: (m[2] ?? '').replace(/\s+/g, ' ').trim(), ...(ENGLISH_NAMES.has(name) ? { english: true } : {}) };
 }
 
 // Lo que se escribe en un chat sin buscar nada («hola», «gracias», «vale»): no es una búsqueda (por el principio
