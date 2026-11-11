@@ -631,11 +631,11 @@ atribución. Con ellas, las 550 pruebas del proyecto pasaron tres veces en local
   Badajoz (Tubasa) y Terrassa, Samar, los autobuses de la Junta de Extremadura y Metrotenerife. No se
   pueden usar hasta que publiquen otro. Los de Metro de Málaga y del interurbano de la Comunitat
   Valenciana vencen el 19 y el 25 de noviembre: si no llega uno nuevo, sus vehículos dejarán de salir.
-- **FGC, AMB y EMSC (robots.txt)**: sus robots.txt prohíben a los programas las rutas donde publican sus
-  datos abiertos: la API de posiciones de FGC y sus GTFS-RT, la carpeta de tiempo real de AMB y las
-  consultas del servicio de terremotos del EMSC. Las publican precisamente para que las usen programas.
-  Como con Baleares y el Ayuntamiento de Madrid, se usan las direcciones que dan sus catálogos, con la
-  frecuencia de siempre, y se les pide confirmación por correo; si no lo aceptan, se retiran.
+- **FGC, AMB y EMSC (robots.txt)**: sus robots.txt, pensados para los buscadores que rastrean la web,
+  excluyen las rutas donde publican sus datos abiertos: la API de posiciones de FGC y sus GTFS-RT, la
+  carpeta de tiempo real de AMB y las consultas del servicio de terremotos del EMSC. Radar España no
+  rastrea: lee unas pocas direcciones fijas, documentadas para que las usen programas, con su licencia.
+  Aun así, se les avisa por correo; si no lo aceptan, se retiran.
 - **Tiempo real que la normativa europea ya exige**: el Reglamento Delegado (UE) 2024/490 (art. 5.3)
   obliga a publicar en el Punto de Acceso Nacional los desvíos, retrasos, cancelaciones y horas
   estimadas, y el estado de andenes y ascensores. Plazos:
