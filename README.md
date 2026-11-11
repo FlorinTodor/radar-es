@@ -627,6 +627,23 @@ atribución. Con ellas, las 550 pruebas del proyecto pasaron tres veces en local
 - **Metro de Madrid**: solo publica tiempos de llegada, y su horario del NAP caducó en mayo de 2026;
   sin un horario vigente no se pueden estimar sus posiciones. Metro Ligero, Metrovalencia, Granada
   y Zaragoza ya salen con posición estimada.
+- **Otros horarios caducados en el NAP** (revisado el 11-11-2026): TUS Santander, los urbanos de Burgos,
+  Badajoz (Tubasa) y Terrassa, Samar, los autobuses de la Junta de Extremadura y Metrotenerife. No se
+  pueden usar hasta que publiquen otro. Los de Metro de Málaga y del interurbano de la Comunitat
+  Valenciana vencen el 19 y el 25 de noviembre: si no llega uno nuevo, sus vehículos dejarán de salir.
+- **FGC, AMB y EMSC (robots.txt)**: sus robots.txt prohíben a los programas las rutas donde publican sus
+  datos abiertos: la API de posiciones de FGC y sus GTFS-RT, la carpeta de tiempo real de AMB y las
+  consultas del servicio de terremotos del EMSC. Las publican precisamente para que las usen programas.
+  Como con Baleares y el Ayuntamiento de Madrid, se usan las direcciones que dan sus catálogos, con la
+  frecuencia de siempre, y se les pide confirmación por correo; si no lo aceptan, se retiran.
+- **Tiempo real que la normativa europea ya exige**: el Reglamento Delegado (UE) 2024/490 (art. 5.3)
+  obliga a publicar en el Punto de Acceso Nacional los desvíos, retrasos, cancelaciones y horas
+  estimadas, y el estado de andenes y ascensores. Plazos:
+  - servicios de la red transeuropea global (RTE-T): desde el 1-12-2025;
+  - resto de la red: antes del 1-12-2028.
+
+  ALSA, Iryo, Ouigo, Adif y el Consorcio de Transportes de Madrid no publican nada de eso en abierto;
+  ALSA, solo su horario. Hay que pedirlo al Ministerio y a cada uno.
 - El catálogo de fuentes de Cowork está en `Radar ES · Catálogo de fuentes públicas — Resumen.md`.
 - SEO (páginas, sitemap, datos estructurados y lo que hay que hacer en Search Console): [`docs/seo.md`](docs/seo.md).
 
@@ -1106,10 +1123,42 @@ Ninguna por ahora.
   - incidencias de Adif por tramo, si llegan a publicarse con licencia de reutilización (hoy su web
     responde 403; ver *Pendiente y conocido*);
   - posiciones reales de Iryo, si las publica (hoy no publica nada).
-- Cancelaciones de Metro Bilbao y de los autobuses de Euskadi cuando las publiquen: ya publican el
-  tiempo real de sus viajes, pero hasta ahora sin ninguna cancelación. Las paradas suprimidas de EMT
-  Fuenlabrada, cuando su dato sea fiable (marca como suprimidas paradas por las que el autobús ya ha
-  pasado).
+- Más información de autobuses y trenes (revisión del NAP y de las webs de operadores y
+  ayuntamientos, 11-11-2026):
+  - Avisos, retrasos y cancelaciones que ya se publican y el radar aún no lee:
+    - **Autobuses de Euskadi** (unos 25 operadores, Open Data Euskadi, CC BY 4.0): hoy solo se leen sus
+      posiciones, pero publican también avisos de servicio y, muchos, retrasos y cancelaciones. El
+      11-11, Bizkaibus tenía 181 avisos y TUVISA avisaba de una huelga y tenía 3 viajes cancelados.
+    - **FGC**: avisos de servicio (59 el 11-11) y retrasos y cancelaciones en GTFS-RT. Su fichero de
+      retrasos llega con texto de error del servidor delante de los datos y da horas, no retrasos:
+      hay que compararlas con su horario.
+    - **EMT Fuenlabrada**: avisos (líneas modificadas por obras, con las paradas anuladas) y retrasos.
+      Sus paradas suprimidas, solo cuando el dato sea fiable: marca como suprimidas paradas por las
+      que el autobús ya ha pasado.
+    - **EMT Málaga**: retrasos de cada viaje (sus avisos y posiciones ya se leen).
+    - **AMB**: avisos de servicio, junto a los retrasos y cancelaciones que ya se leen.
+    - **Metro Bilbao, Euskotren y Autobuses La Unión**: avisos de servicio.
+    - **Vigo**: los avisos de transporte del Ayuntamiento (desvíos, cortes y huelgas, con las líneas y
+      paradas afectadas; JSON, CC BY 4.0).
+    - **AUCORSA (Córdoba)**: avisos, retrasos y posiciones en GTFS-RT. Antes hay que pedirle la
+      licencia por escrito: su aviso legal es no comercial y se contradice.
+  - Más redes con posición estimada, que tienen horario vigente en el NAP:
+    - los interurbanos de Madrid (Consorcio de Transportes, 354 líneas, muchas de ALSA);
+    - Cataluña (Generalitat, con Alsina Graells, de ALSA);
+    - los consorcios de Andalucía (492 líneas);
+    - la Xunta de Galicia (7.675 líneas);
+    - Ibiza, Sagalés en Mallorca y tres líneas de Aragón.
+
+    Antes, medir la memoria en el VPS. EMT Madrid se queda fuera, porque su horario va por
+    frecuencias.
+  - Contexto para avisar de posibles desvíos: las incidencias en la vía pública de Madrid (Ayuntamiento,
+    CC BY 4.0, cada 5 minutos) y los tiempos de paso por poste de Zaragoza.
+  - Renfe no publica en abierto la composición, la ocupación ni la serie del tren que hace cada
+    servicio. Sus fichas por serie (data.renfe.com, de 2019-2020) solo servirían si se supiera qué
+    serie hace cada tren.
+  - Pedir el tiempo real a ALSA, Iryo, Ouigo, Adif y al Consorcio de Transportes de Madrid, con la
+    normativa europea como base (ver *Pendiente y conocido*).
+- Barcos, con una fuente de posiciones AIS que tenga licencia de reutilización (por investigar).
 - Trenes sin datos también en Cercanías y Rodalies.
 - Pedir a Renfe que publique la posición de todos sus trenes de Alta Velocidad, Larga y Media
   Distancia: la tarde del 5-nov-2026 faltaba la de unos 80 de 200, casi la mitad en el eje de Andalucía.
