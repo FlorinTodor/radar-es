@@ -673,6 +673,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Cada suceso sale del mapa cuando deja de estar vigente:
   - los terremotos, a los dos días (la capa del IGN trae los de diez);
   - las obras de la DGT, al llegar su fin previsto, que se muestra en su ficha con su última revisión;
+  - las incidencias de los ayuntamientos de Bilbao y Vitoria-Gasteiz (de Tráfico de Euskadi), al llegar
+    su fin, que sí dicen; salen con su nombre («Manifestación», «Corte total en…»);
   - las incidencias de tráfico de una fuente que lleva una hora sin responder.
 - Avisos oficiales de emergencias: planes de protección civil activados y cortes de luz que publican
   Canarias, Baleares, Cataluña, Andalucía, Castilla-La Mancha, La Rioja y Castilla y León, y los de las

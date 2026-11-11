@@ -2,7 +2,7 @@
 // Cataluña (Servei Català de Trànsit, GML) y Euskadi (Trafikoa, API JSON). Sin clave. Ninguna da el fin
 // previsto: cada incidencia se muestra mientras su fuente la publique (ver domain/carreteras.js).
 import { roadExpires } from '../../../domain/carreteras.js';
-import { arr, lookup, madridLocalToMs, madridToday, num, text, xmlParser } from './parse.js';
+import { arr, htmlText, lookup, madridLocalToMs, madridToday, num, text, xmlParser } from './parse.js';
 
 // ---------- Cataluña ----------
 const SCT_URL = 'https://www.gencat.cat/transit/opendata/incidenciesGML.xml';
@@ -85,16 +85,25 @@ export function createTraficoEuskadiSource({ http, now = Date.now }) {
           const isWork = /^obra/i.test(i.incidenceType ?? '');
           const start = madridLocalToMs(i.startDate);
           if (!isWork && start && read - start > TRANSIENT_MAX_AGE_MS) continue;
+          // Las de los ayuntamientos (Bilbao, Vitoria-Gasteiz) dicen cuándo acaban: las que ya han acabado, fuera.
+          const end = madridLocalToMs(i.endDate);
+          if (end && end <= read) continue;
           const km = num(i.pkStart);
+          const road = typeof i.road === 'string' && i.road ? i.road : null;
+          // Qué es: su causa o su tipo y, si no trae ninguno (las de Vitoria-Gasteiz), su nombre («Manifestación:
+          // Huelga General»). El nombre dice lo que pasa en las de los ayuntamientos («Corte total en Portal de
+          // Legutiano…»): va en la descripción. Sin carretera no hay punto kilométrico (todas dan «0.0»).
+          const name = i.incidenceName ? htmlText(i.incidenceName) || null : null;
+          const what = i.cause || i.incidenceType || name || 'Incidencia';
           events.push({
             id: `euskadi:${i.incidenceId}`,
             category: 'carretera',
             type: isWork ? 'roadMaintenance' : /accidente/i.test(i.incidenceType) ? 'accident' : 'otro',
             severity: lookup(EUSKADI_LEVEL, i.incidenceLevel) ?? 'media',
             closed: i.incidenceLevel === 'Negro',
-            road: typeof i.road === 'string' && i.road ? i.road : null, // tal cual: el bot de Telegram avisa por ella
-            title: `${i.cause || i.incidenceType}${i.road ? ` · ${i.road}` : ''}${km !== null ? ` km ${km.toFixed(1)}` : ''}`,
-            description: [i.incidenceType, i.cityTown, i.direction && `sentido ${i.direction}`].filter(Boolean).join(' · '),
+            road, // tal cual: el bot de Telegram avisa por ella
+            title: `${what}${road ? ` · ${road}` : ''}${road && km !== null ? ` km ${km.toFixed(1)}` : ''}`,
+            description: [name !== what && name, i.incidenceType, i.cityTown, i.direction && `sentido ${i.direction}`].filter(Boolean).join(' · '),
             lat,
             lon,
             start,

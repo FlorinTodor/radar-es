@@ -59,3 +59,25 @@ test('Servei Català de Trànsit y Tráfico de Euskadi: su carretera, tal cual',
   assert.deepEqual([crash.road, crash.title], ['GI-627', 'Alcance · GI-627 km 38.0']);
   assert.equal(works.road, null, 'las obras de una ciudad, sin carretera');
 });
+
+test('Tráfico de Euskadi, las de los ayuntamientos: su nombre (sin «undefined» ni «km 0.0») y fuera las que ya han acabado', async () => {
+  // NOW es el 10-11-2026 a las 22:00 en Madrid.
+  const json = async () => ({ totalPages: 1, incidences: [
+    // Vitoria-Gasteiz: sin causa ni tipo, sólo su nombre.
+    { incidenceId: '2903', sourceId: '6', cityTown: 'Vitoria-Gasteiz', startDate: '2026-11-10T21:30', endDate: '2026-11-10T23:00',
+      pkStart: '0.0', direction: 'LA PROVINCIA, PLAZA DE', incidenceName: 'Manifestación: Huelga General', latitude: '42.84', longitude: '-2.67' },
+    // Bilbao: obra con su nombre, con entidades HTML.
+    { incidenceId: 'b1', sourceId: '5', incidenceType: 'Obra', cause: 'Obra', cityTown: 'Bilbao', startDate: '2026-11-01T00:00', endDate: '2026-11-12T00:00',
+      pkStart: '0.0', incidenceName: 'OBRAS PARA REMODELACI&#211;N TUNEL KARMELO BERNAOLA', latitude: '43.26', longitude: '-2.93' },
+    // Ya acabada.
+    { incidenceId: '2904', sourceId: '6', cityTown: 'Vitoria-Gasteiz', startDate: '2026-11-10T19:00', endDate: '2026-11-10T20:00',
+      pkStart: '0.0', incidenceName: 'Manifestación', latitude: '42.86', longitude: '-2.67' },
+  ] });
+  const events = (await createTraficoEuskadiSource({ http: { json }, now: () => NOW }).fetch()).events;
+  assert.deepEqual(events.map((e) => e.id), ['euskadi:2903', 'euskadi:b1'], 'la que acabó a las 20:00, fuera');
+  const [demo, works] = events;
+  assert.equal(demo.title, 'Manifestación: Huelga General');
+  assert.equal(demo.description, 'Vitoria-Gasteiz · sentido LA PROVINCIA, PLAZA DE');
+  assert.equal(works.title, 'Obra');
+  assert.equal(works.description, 'OBRAS PARA REMODELACIÓN TUNEL KARMELO BERNAOLA · Obra · Bilbao');
+});
