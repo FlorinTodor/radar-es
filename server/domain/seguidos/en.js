@@ -136,6 +136,10 @@ export const EN = {
   'Con esos nombres hay {total} trayectos posibles; aquí van los {n} primeros. Si no está el tuyo, escribe el nombre entero de las estaciones. ¿Cuál es?':
     "With those names there are {total} possible journeys; here are the first {n}. If yours isn't here, write the full names of the stations. Which one is it?",
   'Hay varias estaciones con esos nombres. ¿Cuál es tu trayecto?': 'There are several stations with those names. Which one is your journey?',
+  'Dime también la provincia: /provincia Granada incendios (o, para quitarlos, /provincia Granada sin incendios).':
+    'Tell me the province too: /province Granada fires (or, to remove them, /province Granada no fires).',
+  '{island} es de la provincia de {province}: sigues la provincia entera, también sus otras islas.':
+    '{island} belongs to the province of {province}: you follow the whole province, its other islands too.',
   'Ahora no veo ningún tren que vaya de {origin} a {destination}: si no hay trenes directos entre ellas, no te llegará nada; comprueba las estaciones.':
     "Right now I can't see any train going from {origin} to {destination}: if there are no direct trains between them, you won't get anything; check the stations.",
   'No sigues nada.': "You aren't following anything.",
@@ -265,7 +269,7 @@ export const EN = {
   'una quema agrícola, actividad volcánica o una fuente de calor industrial': 'an agricultural burn, volcanic activity or an industrial heat source',
   'una quema agrícola o una fuente de calor industrial': 'an agricultural burn or an industrial heat source',
   'un foco de calor de {mw} MW, detectado el {when}': 'a {mw} MW hotspot, detected {when}',
-  '{n} focos de calor juntos, el más fuerte de {mw} MW; el último, detectado el {when}': '{n} hotspots close together, the strongest {mw} MW; the latest detected {when}',
+  '{n} focos de calor en la zona, el más fuerte de {mw} MW; el último, detectado el {when}': '{n} hotspots in the area, the strongest {mw} MW; the latest detected {when}',
   'Posible incendio: {what}. Es una detección por satélite, no un incendio confirmado: también puede ser {also}. Dónde: {map}':
     'Possible wildfire: {what}. It is a satellite detection, not a confirmed fire: it may also be {also}. Where: {map}',
 

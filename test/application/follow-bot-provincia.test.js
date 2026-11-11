@@ -79,7 +79,7 @@ test('focos de calor: sólo a quien los pide en su provincia, uno por zona y dí
   const out = tick();
   assert.equal(out.length, 1, 'quien no los ha pedido, nada');
   assert.equal(out[0].chatId, CHAT);
-  assert.equal(out[0].text, 'Avisos en Granada:\n\nPosible incendio: 3 focos de calor juntos, el más fuerte de 45 MW; el último, detectado el 10/11, 10:00. '
+  assert.equal(out[0].text, 'Avisos en Granada:\n\nPosible incendio: 3 focos de calor en la zona, el más fuerte de 45 MW; el último, detectado el 10/11, 10:00. '
     + 'Es una detección por satélite, no un incendio confirmado: también puede ser una quema agrícola o una fuente de calor industrial. '
     + `Dónde: https://www.openstreetmap.org/?mlat=37.0500&mlon=-3.3500#map=13/37.0500/-3.3500\n\n${FIRMS}\n\nMás en https://radarespana.es`);
   // Crece por la tarde: el mismo aviso. Pasa otra vez el satélite al rato y no ve nada: tampoco se repite.
@@ -90,7 +90,7 @@ test('focos de calor: sólo a quien los pide en su provincia, uno por zona y dí
   assert.deepEqual(tick(4 * HOUR), []);
   world.events = growing;
   assert.deepEqual(tick(), [], 'vuelve en la misma zona el mismo día: no se repite');
-  assert.match(say('/estado')[0].text, /Avisos en Granada \(con focos de calor\):\nPosible incendio: 4 focos de calor juntos, el más fuerte de 90 MW/);
+  assert.match(say('/estado')[0].text, /Avisos en Granada \(con focos de calor\):\nPosible incendio: 4 focos de calor en la zona, el más fuerte de 90 MW/);
   assert.match(say('/estado', 2002)[0].text, /^Avisos en Granada:\nAhora no hay avisos naranja o rojo/, 'a quien no los pidió, tampoco en /estado');
   assert.match(say('/estado Granada incendios', 2002)[0].text, /Posible incendio/, 'salvo que los pida');
   // Al día siguiente sigue ardiendo: otro aviso.
@@ -148,8 +148,10 @@ test('estación seguida: los avisos de Renfe de la estación, con su texto tal c
 
 test('una isla es su provincia: «/provincia La Palma» sigue Santa Cruz de Tenerife, y «Menorca», Illes Balears', () => {
   const { say } = setup();
-  assert.match(say('/provincia La Palma')[0].text, /^Hecho: te aviso en Santa Cruz de Tenerife de los avisos naranja y rojo de AEMET/);
-  assert.match(say('/provincia menorca incendios')[0].text, /^Hecho: te aviso en Illes Balears de los avisos/);
+  assert.ok(say('/provincia La Palma')[0].text.startsWith('La Palma es de la provincia de Santa Cruz de Tenerife: sigues la provincia entera, también sus '
+    + 'otras islas.\n\nHecho: te aviso en Santa Cruz de Tenerife de los avisos naranja y rojo de AEMET'));
+  assert.match(say('/provincia menorca incendios')[0].text, /^Menorca es de la provincia de Illes Balears: .*\n\nHecho: te aviso en Illes Balears de los avisos/);
+  assert.match(say('/provincia Santa Cruz de Tenerife')[0].text, /^Ya sigues los avisos de Santa Cruz de Tenerife\./, 'con la provincia, nada más');
   assert.match(say('/mis')[0].text, /1\. Avisos en Santa Cruz de Tenerife\n2\. Avisos en Illes Balears \(con focos de calor\)/);
 });
 
@@ -168,4 +170,11 @@ test('el parte de la mañana cuenta los apagones, los focos (si se piden) y los 
   assert.match(text, /Fuente: Red Eléctrica/);
   assert.match(text, /NASA FIRMS/);
   assert.match(text, /Origen de los datos: Renfe Operadora/);
+});
+
+test('/provincia sólo con los focos («incendios», «sin incendios»): pide la provincia', () => {
+  const { say } = setup();
+  for (const text of ['/provincia incendios', '/provincia sin incendios', '/province no fires', '/provincia focos de calor']) {
+    assert.match(say(text)[0].text, /^(Dime también la provincia: \/provincia Granada incendios|Tell me the province too: \/province Granada fires)/, text);
+  }
 });

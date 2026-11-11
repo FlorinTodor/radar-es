@@ -132,7 +132,7 @@ test('el texto de un aviso de focos: detección por satélite, no un incendio co
   const [f] = fireFacts(zones, 'granada', (e) => creditOf(e.source));
   assert.equal(f.kind, 'incendio');
   assert.equal(f.id, `incendio|${zones[0].zone}`);
-  assert.equal(f.text, 'Posible incendio: 3 focos de calor juntos, el más fuerte de 45 MW; el último, detectado el 10/11, 10:00. '
+  assert.equal(f.text, 'Posible incendio: 3 focos de calor en la zona, el más fuerte de 45 MW; el último, detectado el 10/11, 10:00. '
     + 'Es una detección por satélite, no un incendio confirmado: también puede ser una quema agrícola o una fuente de calor industrial. '
     + 'Dónde: https://www.openstreetmap.org/?mlat=37.0500&mlon=-3.3500#map=13/37.0500/-3.3500');
   assert.equal(f.credit, FIRMS_CREDIT);

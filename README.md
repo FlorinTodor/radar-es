@@ -1059,8 +1059,8 @@ Ninguna por ahora.
   núcleo, porque la lista enseña las primeras 250.
 - Bot, «Mi trayecto»: la hora de cada tren de Cercanías en el origen sale de por dónde va (Renfe no la
   publica en su tiempo real); con la de su horario, el aviso de retraso llegaría antes y sin aproximar.
-- Bot: «/estado <provincia>» y «/seguir <provincia>» que ofrezcan la provincia, y ciudades e islas como
-  provincia (Bilbao, Mallorca, Gran Canaria); no avisar de la cancelación de un tren que ya ha salido.
+- Bot: «/seguir <provincia>» que ofrezca también la provincia, y ciudades como provincia (Bilbao, Gijón);
+  no avisar de la cancelación de un tren que ya ha salido.
 - Si tras un reinicio falla uno de los ficheros de Renfe en la primera lectura, sus cancelaciones salen
   un minuto como retiradas y pierden desde cuándo se ven: recordar qué fichero no se ha leído aún.
 - En el móvil, el cuadro de atribuciones del mapa empieza desplegado y tapa parte del mapa.

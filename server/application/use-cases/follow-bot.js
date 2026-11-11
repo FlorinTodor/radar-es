@@ -23,7 +23,7 @@ import { cutText } from '../../domain/seguidos/texto.js';
 import { countEvent, emptyTotals, parseTotals, usageOf } from '../../domain/seguidos/uso.js';
 import { provinceExtrasText, provinceFacts, provinceOption } from '../../domain/seguidos/zona.js';
 import { withoutRepeats } from '../../domain/seguidos/estacion.js';
-import { findProvince, provinceById } from '../../domain/provincias.js';
+import { findProvince, plainName, provinceById } from '../../domain/provincias.js';
 import {
   collectTrayectoFacts, connectedBy, looksLikeTrayecto, parseTrayectoText, passIndex, trayectoErrorText, trayectoHelpText, trayectoName,
   trayectoOptions, trayectoProblem, trayectoStations, trayectoStatus,
@@ -314,9 +314,10 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
   }
 
   /** Sigue una provincia; con `fires`, también sus focos de calor (y si ya la seguía, se los añade). */
-  function followProvince(chatId, p, { fires = false } = {}) {
+  function followProvince(chatId, p, { fires = false, island = null } = {}) {
     const tr = trOf(chatId);
     const { t } = tr;
+    const whole = island ? t('{island} es de la provincia de {province}: sigues la provincia entera, también sus otras islas.', { island, province: p.name }) : null;
     const sub = provinceSub(p.id);
     const c = ctx();
     const existing = chats.get(chatId);
@@ -331,7 +332,7 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
     }
     if (had) {
       const already = had.fires ? t('Ya sigues los avisos de {province} (con focos de calor).', { province }) : t('Ya sigues los avisos de {province}.', { province });
-      return answer(chatId, tr, [already, statusBlock(t('Ahora:'), sub, c, tr, had.fires)]);
+      return answer(chatId, tr, [whole, already, statusBlock(t('Ahora:'), sub, c, tr, had.fires)]);
     }
     if (count(existing) >= limits.subsPerChat) return [reply(chatId, t('Ya sigues {n} cosas, el máximo. Deja alguna con /dejar.', { n: limits.subsPerChat }))];
     if ((existing?.provinces.size ?? 0) >= limits.provincesPerChat) {
@@ -342,7 +343,7 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
     baseline(sub, c);
     chat.provinces.set(p.id, { since: c.now, checkedAt: c.now, ...(fires ? { fires: true } : {}) });
     dirty = true;
-    return answer(chatId, tr, [`${t('Hecho: te aviso en {province} de los avisos naranja y rojo de AEMET, de los terremotos que puedan '
+    return answer(chatId, tr, [whole, `${t('Hecho: te aviso en {province} de los avisos naranja y rojo de AEMET, de los terremotos que puedan '
       + 'sentirse y de los avisos oficiales (planes de emergencia y cortes de luz).', { province })} ${t(PROVINCE_TRAFFIC_TEXT)} `
       + `${t('La zona de cada provincia es aproximada: cerca de su límite puede llegarte alguno de la vecina.')}`,
     statusBlock(t('Ahora:'), sub, c, tr, fires), provinceExtrasText(p, { fires, tr })]);
@@ -544,9 +545,12 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
     if (!arg) return [reply(chatId, t('Dime la provincia: /provincia Valencia, /provincia A Coruña, /provincia Bizkaia…'))];
     // «/provincia Granada incendios»: también los focos de calor; «/provincia Granada sin incendios»: sin ellos.
     const { place, fires } = provinceOption(arg);
+    if (!place) return [reply(chatId, t('Dime también la provincia: /provincia Granada incendios (o, para quitarlos, /provincia Granada sin incendios).'))];
     const p = findProvince(place);
     if (!p) return [reply(chatId, t('No conozco la provincia «{name}». Escríbela como en el mapa: /provincia Valencia, /provincia Illes Balears…', { name: place }))];
-    return fires === false ? dropFires(chatId, p) : followProvince(chatId, p, { fires: !!fires });
+    // «/provincia La Palma»: se sigue su provincia entera (los avisos son de la provincia), y así se dice.
+    const island = p.circles.length > 1 ? p.circles.find((c) => c.name && plainName(c.name) === plainName(place))?.name ?? null : null;
+    return fires === false ? dropFires(chatId, p) : followProvince(chatId, p, { fires: !!fires, island });
   }
 
   function mine(chatId) {

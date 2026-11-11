@@ -213,7 +213,8 @@ destino** y **salen del origen en esa franja**, uno de esos días. No hace falta
   ve en la ronda (se perderían unos avisos y se repetirían otros): si eso solo ya no cabe, se apunta en el registro.
 - **Las provincias son círculos aproximados**, uno por isla en Baleares y Canarias
   (`server/domain/provincias.js`). Cerca de un límite puede llegar algún aviso de la vecina, y así se avisa al
-  seguir una. Se puede escribir la isla (`/provincia La Palma`, `/provincia Menorca`): se sigue su provincia. El
+  seguir una. Se puede escribir la isla (`/provincia La Palma`, `/provincia Menorca`): se sigue su provincia entera, y
+  así se dice («La Palma es de la provincia de Santa Cruz de Tenerife…»). El
   tráfico de la DGT usa la provincia que da ella (con los círculos, una de cada once caía en la vecina); el de
   Cataluña y Euskadi, que no la dan, el círculo.
 - **Un aviso no se repite en la misma ronda**: si un chat sigue una estación y la línea de la que habla un aviso de
@@ -315,7 +316,8 @@ una quema o una fábrica. Para que un aviso sea casi siempre un fuego de verdad:
 - fuera de las fuentes de calor fijas que el satélite ve a diario (refinerías, siderurgias y los volcanes de
   Canarias; lista `STATIC_HEAT` en `zona.js`, con círculos aproximados);
 - encadenados a menos de 2 km, un grupo es un solo aviso, y sólo si su foco más fuerte llega a **30 MW** o junta
-  **3 focos**: lo que el motor de alertas llama gravedad «alta» en un posible incendio cerca de trenes;
+  **3 focos**: lo que el motor de alertas llama gravedad «alta» en un posible incendio cerca de trenes. El aviso
+  dice cuántos focos hay en la zona (pueden ser de varios grupos a unos kilómetros);
 - sólo los de hoy (hora peninsular), no los de las últimas 12 horas como el motor de alertas: así nunca hay dos
   avisos de la misma zona el mismo día. El satélite pasa de madrugada y a primera hora de la tarde;
 - **como mucho un aviso por zona** (casillas de unos 25 km) **y día**: aunque el fuego crezca o haya otro grupo en

@@ -1313,6 +1313,18 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "idioma"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "/idioma"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "ayuda"
             },
             "properties": [

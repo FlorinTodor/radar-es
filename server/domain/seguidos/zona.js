@@ -228,7 +228,7 @@ export function fireFacts(zones, provinceId, creditOf = () => null, tr = ES) {
   return (zones ?? []).filter((z) => z.provinces.includes(provinceId)).map((z) => {
     const at = { mw: Math.round(z.maxFrp), when: tr.when(z.last), n: z.focos };
     const what = z.focos === 1 ? t('un foco de calor de {mw} MW, detectado el {when}', at)
-      : t('{n} focos de calor juntos, el más fuerte de {mw} MW; el último, detectado el {when}', at);
+      : t('{n} focos de calor en la zona, el más fuerte de {mw} MW; el último, detectado el {when}', at);
     return {
       id: `incendio|${z.zone}`,
       kind: 'incendio',
@@ -246,17 +246,21 @@ const FIRE_WORDS = '(?:incendios?|fuegos?|focos?(?:\\s+de\\s+calor)?|(?:wild)?fi
 const WITHOUT_FIRES = new RegExp(`^(.+?)\\s+(?:sin|without|no)\\s+${FIRE_WORDS}$`, 'iu');
 const WITH_FIRES = new RegExp(`^(.+?)\\s+(?:con\\s+|y\\s+|with\\s+|and\\s+)?${FIRE_WORDS}$`, 'iu');
 const FIRES_FIRST = new RegExp(`^${FIRE_WORDS}\\s+(?:en\\s+|de\\s+|in\\s+)?(.+)$`, 'iu');
+// Sólo los focos, sin la provincia («incendios», «sin incendios», «no fires»).
+const ONLY_FIRES = new RegExp(`^(?:(sin|without|no)\\s+|(?:con|with)\\s+)?${FIRE_WORDS}$`, 'iu');
 
 /**
  * Lo que se pide con /provincia: la provincia y si quiere los focos de calor («Granada incendios», «incendios en
  * Granada», «Granada fires»: true; «Granada sin incendios», «Granada no fires»: false; sólo la provincia: null, lo
- * que ya tuviera).
+ * que ya tuviera). Sólo los focos, sin la provincia («incendios», «sin incendios»): `place` vacío.
  * @param {string} arg
  * @returns {{ place: string, fires: boolean|null }}
  */
 export function provinceOption(arg) {
   const t = String(arg ?? '').trim();
-  let m = WITHOUT_FIRES.exec(t);
+  let m = ONLY_FIRES.exec(t);
+  if (m) return { place: '', fires: !m[1] };
+  m = WITHOUT_FIRES.exec(t);
   if (m) return { place: m[1], fires: false };
   m = WITH_FIRES.exec(t) ?? FIRES_FIRST.exec(t);
   if (m) return { place: m[1], fires: true };
