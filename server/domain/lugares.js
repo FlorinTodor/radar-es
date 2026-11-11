@@ -89,6 +89,7 @@ export const COMUNIDADES = {
   'illes-balears': { name: 'Illes Balears', lat: 39.5, lon: 2.75 },
   'la-rioja': { name: 'La Rioja', lat: 42.27, lon: -2.52 },
   madrid: { name: 'Comunidad de Madrid', lat: 40.5, lon: -3.72 },
+  asturias: { name: 'Principado de Asturias', lat: 43.29, lon: -5.99 },
   murcia: { name: 'Región de Murcia', lat: 38.0, lon: -1.49 },
   cantabria: { name: 'Cantabria', lat: 43.2, lon: -4.03 },
   galicia: { name: 'Galicia', lat: 42.76, lon: -7.87 },

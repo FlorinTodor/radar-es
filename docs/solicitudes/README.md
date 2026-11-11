@@ -10,9 +10,11 @@ corchetes, revisa el texto y preséntalos por la vía indicada en cada uno.
 | 3 | Adif | Reutilización del estado de la red, incidencias y circulaciones en formato abierto | Sede electrónica de Adif, o REC dirigido a Adif |
 | 4 | Iryo (Intermodalidad de Levante, S.A.) | GTFS estático y datos en tiempo real (GTFS-RT o SIRI) en el NAP | Formulario de contacto corporativo o correo a su departamento legal |
 | 5 | Ouigo España, S.A.U. | Datos en tiempo real (GTFS-RT o SIRI) en el NAP | Formulario de contacto corporativo o correo a su departamento legal |
-| 6 | Comunidades sin canal de avisos de emergencias (Extremadura, Aragón, Asturias, Navarra, Comunitat Valenciana, el 112 de Galicia, Ceuta y Melilla) | Que publiquen en abierto, con licencia, los planes activados y los cortes de luz, o que autoricen reutilizarlos | Correo o registro de cada organismo (tabla del borrador) |
+| 6 | Comunidades sin canal de avisos de emergencias (Extremadura, Aragón, Navarra, Comunitat Valenciana, Ceuta y Melilla), los 112 de Asturias y Galicia, y el RSS de las noticias del Principado de Asturias | Que publiquen en abierto, con licencia, los planes activados y los cortes de luz, o que autoricen reutilizarlos; a Asturias, que active el RSS de su lista de noticias | Correo o registro de cada organismo (tabla del borrador) |
 | 7 | e-distribución (Endesa) | Autorización para reutilizar sus incidencias del suministro (los cortes por barrio) | Canal de contacto de su aviso legal o formulario corporativo |
 | 8 | Comunidad de Madrid (portal comunidad.madrid) | Que su web deje leer el RSS «Últimas noticias» desde el servidor de Radar España, que hoy recibe un error en cualquier página | Formulario de contacto del portal o el 012 (atención a la ciudadanía) |
+| 9 | Ayuntamiento de Madrid (datos.madrid.es) | Confirmar el uso del RSS de su conjunto «Notas de prensa» (CC BY 4.0), cuya ruta prohíbe su robots.txt | Formulario de contacto de datos.madrid.es |
+| 10 | Govern de les Illes Balears (dades obertes) | Confirmar el uso del RSS de la sala de prensa (CC BY), cuya ruta prohíbe su robots.txt; pendiente desde el 2-11-2026 | Correo a dadesobertes@caib.es |
 
 ## Antes de enviar
 

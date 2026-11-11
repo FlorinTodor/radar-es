@@ -5,8 +5,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  createCantabriaNewsSource, createGaliciaNewsSource, createMadridNewsSource, createMurciaNewsSource, createPaisVascoNewsSource, parseMadridNews,
-  pressNotices,
+  createAsturiasNewsSource, createCantabriaNewsSource, createGaliciaNewsSource, createMadridCityNewsSource, createMadridNewsSource, createMurciaNewsSource,
+  createPaisVascoNewsSource, parseAsturiasNews, parseMadridNews, pressNotices,
 } from '../../server/adapters/outbound/sources/emergencias-oficiales.js';
 
 const NOW = Date.parse('2026-11-02T12:00:00Z');
@@ -229,4 +229,83 @@ test('País Vasco: el plan en su territorio histórico, con la atribución de Op
   assert.equal(events[0].description, 'Primer párrafo de 114000');
   assert.equal(events[0].credit, 'Irekia (Gobierno Vasco) · Open Data Euskadi (CC BY 4.0)');
   assert.equal(sourceTime, Date.parse('2026-11-02T08:00:00Z'), 'la fecha de la última actualización');
+});
+
+// ---------- Ayuntamiento de Madrid ----------
+const aytoItem = (oid, title, date, description = '') => `<item>
+  <guid isPermaLink="true">https://www.madrid.es/ContentPublisher/new/redirect.jsp?vgnextfmt=referer&amp;vgnextoid=${oid}&amp;vgnextchannel=e40362215c483510VgnVCM2000001f4a900aRCRD</guid>
+  <title>${title}</title><description>${description}</description>
+  <link>https://www.madrid.es/ContentPublisher/new/redirect.jsp?vgnextfmt=referer&amp;vgnextoid=${oid}&amp;vgnextchannel=e40362215c483510VgnVCM2000001f4a900aRCRD</link>
+  <pubDate>${date}</pubDate></item>`;
+const AYTO_XML = rss([
+  aytoItem('aa11VgnVCM1', 'El Ayuntamiento activa el nivel naranja del plan de emergencias invernales', 'Mon, 02 Nov 2026 10:30:00 +0100', 'Ante la previsión de nevadas, el Ayuntamiento refuerza sus servicios'),
+  aytoItem('bb22VgnVCM1', 'El Ayuntamiento garantiza los servicios esenciales durante la huelga', 'Mon, 02 Nov 2026 11:00:00 +0100'),
+  aytoItem('cc33VgnVCM1', 'Sin luz varias calles de Chamberí por una avería en la red', 'Mon, 02 Nov 2026 11:30:00 +0100'),
+  aytoItem('dd44VgnVCM1', 'El Ayuntamiento aprueba el nuevo Plan Territorial de Emergencia Municipal PEMAM para la ciudad', 'Mon, 02 Nov 2026 12:00:00 +0100'),
+].join(''));
+
+test('Ayuntamiento de Madrid: sus planes y cortes de luz, en la ciudad (no en la Comunidad) y sin buscar pueblos', async () => {
+  const geocoder = fakeGeocoder({ Chamberí: [40.43, -3.70] });
+  const src = createMadridCityNewsSource({ http: fakeHttp(() => AYTO_XML), geocoder, now: clock });
+  const { events, sourceTime } = await src.fetch();
+  assert.deepEqual(events.map((e) => e.title).sort(), [
+    'El Ayuntamiento activa el nivel naranja del plan de emergencias invernales',
+    'Sin luz varias calles de Chamberí por una avería en la red',
+  ], 'ni la huelga ni la aprobación del plan son avisos');
+  for (const e of events) {
+    assert.deepEqual([e.area, e.approx, e.lat, e.lon], ['Madrid', 'municipio', 40.4168, -3.7038]);
+    assert.equal(e.credit, 'Origen de los datos: Ayuntamiento de Madrid (CC BY 4.0)');
+  }
+  const plan = events.find((e) => e.type === 'plan');
+  assert.equal(plan.severity, 'alta', 'nivel naranja');
+  assert.equal(plan.description, 'Ante la previsión de nevadas, el Ayuntamiento refuerza sus servicios');
+  assert.equal(plan.issued, Date.parse('2026-11-02T09:30:00Z'));
+  assert.match(plan.url, /^https:\/\/www\.madrid\.es\/ContentPublisher\/new\/redirect\.jsp\?vgnextfmt=referer&vgnextoid=aa11VgnVCM1&/);
+  assert.equal(plan.id, 'emergencias-madrid-ciudad:aa11VgnVCM1:madrid');
+  assert.equal(events.find((e) => e.power).type, 'apagon');
+  assert.deepEqual(geocoder.calls, [], 'todo es de la ciudad: no se busca Chamberí');
+  assert.equal(sourceTime, Date.parse('2026-11-02T11:00:00Z'), 'la fecha de la última actualización, que pide su licencia');
+});
+
+// ---------- Asturias ----------
+const asturiasNota = (slug, day, title) => `<div class="nota"> <a href="https://actualidad.asturias.es/-/${slug}?redirect=%2Fnoticias">
+  <div class="row col-md-12"> <div class="item-image col-md-3"><picture><img alt="Imagen - ${title}" src="/documents/1/foto.jpeg" /></picture></div>
+  <div class="item-texto col-md-9"> <div class="item-date">${day}</div> <h2>${title}</h2> </div> </div> </a> </div>`;
+const ASTURIAS_HTML = `<html><body><div class="listado-notas-horizontal">${[
+  asturiasNota('infopa0211', '2 de noviembre de 2026', 'El Principado activa el INFOPA en situación 1 por los incendios del suroccidente'),
+  asturiasNota('presupuestos0211', '2 de noviembre de 2026', 'El Gobierno de Asturias presentará el proyecto de presupuestos'),
+  asturiasNota('luzcangas0211', '1 de noviembre de 2026', 'Corte de luz en Cangas del Narcea por el temporal'),
+].join(' ')}</div><footer><h2>Gobierno del Principado de Asturias</h2></footer></body></html>`;
+
+test('Asturias: lee la lista de noticias en HTML (sin RSS): el día sin hora, el plan en la comunidad y el corte en su concejo', async () => {
+  const geocoder = fakeGeocoder({ 'Cangas del Narcea': [43.18, -6.55] });
+  const morning = Date.parse('2026-11-02T08:00:00Z');
+  const src = createAsturiasNewsSource({ http: fakeHttp(() => ASTURIAS_HTML), geocoder, now: () => morning });
+  const { events, sourceTime } = await src.fetch();
+  assert.equal(events.length, 2, 'la nota de los presupuestos no es un aviso');
+  const plan = events.find((e) => e.type === 'plan');
+  assert.equal(plan.title, 'El Principado activa el INFOPA en situación 1 por los incendios del suroccidente');
+  assert.deepEqual([plan.area, plan.approx], ['Principado de Asturias', 'comunidad']);
+  assert.equal(plan.severity, 'alta');
+  assert.equal(plan.issued, morning, 'sin hora: antes del mediodía, la hora a la que se leyó');
+  assert.equal(plan.issuedDayOnly, true);
+  assert.equal(plan.url, 'https://actualidad.asturias.es/-/infopa0211');
+  assert.equal(plan.credit, 'Origen de los contenidos: Administración del Principado de Asturias (CC BY 4.0)');
+  const cut = events.find((e) => e.power);
+  assert.deepEqual([cut.area, cut.approx], ['Cangas del Narcea', 'municipio']);
+  assert.equal(cut.issued, Date.parse('2026-11-01T11:00:00Z'), 'el día anterior, a su mediodía');
+  assert.deepEqual(geocoder.calls.map((c) => c.region), ['03']);
+  assert.equal(sourceTime, morning);
+  assert.ok(!JSON.stringify(events).includes('foto.jpeg'), 'sin sus fotos');
+});
+
+test('Asturias: una página sin notas, con otro diseño o con notas a medias no da avisos ni rompe nada', () => {
+  assert.deepEqual(parseAsturiasNews('<html><h2>Plan</h2></html>', NOW).notices, []);
+  assert.deepEqual(parseAsturiasNews('<div class="nota"><a href="x"><h2></h2></a></div><div class="nota">sin enlace</div>', NOW).notices, []);
+  assert.deepEqual(parseAsturiasNews(undefined, NOW), { notices: [], updated: null });
+  // Una fecha que no se entiende: la nota cuenta, pero sin día (0), y no es la última actualización.
+  const odd = parseAsturiasNews(asturiasNota('x1', 'ayer', 'El Principado activa el PLATERPA en fase de alerta por las inundaciones'), NOW);
+  assert.equal(odd.notices.length, 1);
+  assert.equal(odd.notices[0].at, 0);
+  assert.equal(odd.updated, null);
 });

@@ -319,6 +319,8 @@ Todas son públicas. Las marcadas con 🔑 necesitan una clave gratuita: casi to
 | Gobierno de Cantabria (RSS de notas de prensa, CC BY 3.0 ES) | planes de emergencia con nombre (PLATERCANT…) y cortes de luz; solo el día, sin hora | 15 min |
 | Xunta de Galicia (RSS de notas de prensa: Emergencias y todas) | PLATERGA, alertas por nivel por provincia y cortes de luz | 10 min |
 | Gobierno Vasco (RSS de noticias de Seguridad en Irekia, Open Data Euskadi, CC BY 4.0) | planes de emergencia con nombre (LABI, ITSASERTZA…) por territorio histórico y cortes de luz | 15 min |
+| Ayuntamiento de Madrid (RSS de notas de prensa de su catálogo de datos abiertos, CC BY 4.0) | planes de emergencia de la ciudad (PEMAM, plan de emergencias invernales…) y cortes de luz | 15 min |
+| Principado de Asturias (lista de noticias del Gobierno, CC BY 4.0; sin RSS) | planes de emergencia con nombre (PLATERPA, INFOPA…) y cortes de luz; solo el día, sin hora | 15 min |
 | CartoCiudad (IGN-CNIG, CC BY 4.0) | ubicación de los pueblos que citan esos avisos y municipio de los terremotos del EMSC en España (los del IGN ya traen su sitio) | al leerlos |
 
 El mapa base es de OpenFreeMap (datos de OpenStreetMap), sin clave.
@@ -328,7 +330,8 @@ las alertas ni para los KPIs**.
 
 ### Emergencias y cortes de luz: qué hay de cada comunidad
 
-Para ser transparentes con lo que se ve y con lo que **no** se ve. Revisado el 2-11-2026: de cada
+Para ser transparentes con lo que se ve y con lo que **no** se ve. Revisado el 2-11-2026 y otra vez el
+11-11-2026, buscando canales nuevos para las comunidades que faltaban: de cada
 fuente se leyó su licencia o aviso legal y su robots.txt. Solo se usan las que permiten reutilizar sus
 datos. Ninguna sustituye a los avisos oficiales: ante una emergencia, llama al **112**.
 
@@ -352,24 +355,24 @@ oficial.
 | Comunidad | Avisos oficiales | Apagón total automático | Fuente o motivo |
 |---|---|---|---|
 | Andalucía | ✅ Planes activados y cortes de luz en los pueblos que citan | Solo el general de la península | Noticias de Emergencias 112 de la Junta (CC BY 4.0) |
-| Aragón | ❌ | Solo el general de la península | Licencia contradictoria (el pie de la web dice CC BY 4.0 y el aviso legal, «uso personal», sin fines comerciales ni modificación) y ningún conjunto de emergencias |
-| Asturias | ❌ | Solo el general de la península | Ni el 112 (SEPA) ni las noticias del Principado tienen RSS, solo páginas web. La licencia no comercial es la de la app del 112, no la de su web; asturias.es publica con CC BY 4.0 |
+| Aragón | ❌ | Solo el general de la península | Licencia contradictoria (el pie de la web dice CC BY 4.0 y el aviso legal, «uso personal», sin fines comerciales ni modificación) y ningún conjunto de emergencias. El RSS de Aragón Hoy prohíbe el uso comercial y lleva parado desde abril de 2026; su portal de datos abiertos no tiene avisos |
+| Asturias | ✅ Planes con nombre (PLATERPA, INFOPA…) y cortes de luz de las noticias del Gobierno | Solo el general de la península | Lista de noticias de actualidad.asturias.es (CC BY 4.0, también con fines comerciales). No tiene RSS: se lee la lista. Solo da el día, sin hora: una nota cuenta desde el mediodía. Sin ubicación: los planes van al centro del Principado. El 112 (SEPA) no tiene canal ni condiciones de reutilización |
 | Illes Balears | ✅ Alertas y emergencias por isla, su fin y cortes de luz | ❌ | Sala de prensa del Govern, en catalán (CC BY, conjunto de su catálogo de datos abiertos). Su robots.txt prohíbe esa ruta, en contra de su propio catálogo: se usa la URL exacta que publica el catálogo cada 15 minutos y se pide confirmación al Govern; si no lo aceptan, se retira. Red Eléctrica no publica en tiempo real la demanda real de Baleares, solo la programada |
 | Canarias | ✅ Declaraciones del PLATECA por isla (prealerta, alerta, emergencia y su fin), ceros energéticos incluidos | ✅ Cada isla o grupo de islas | Gobierno de Canarias (CC BY 4.0) y e·sios |
 | Cantabria | ✅ Planes con nombre (PLATERCANT, INFOCANT…) y cortes de luz de las notas de prensa del Gobierno | Solo el general de la península | RSS de notas de prensa de www.cantabria.es (CC BY 3.0 ES). Solo da el día, sin hora: una nota cuenta desde el mediodía. El RSS del 112 publica poco y va con semanas de retraso |
 | Castilla-La Mancha | ✅ Planes activados por provincia (PLATECAM, METEOCAM…) | Solo el general de la península | RSS del 112 Castilla-La Mancha (aviso legal: reutilización citando la fuente) |
 | Castilla y León | ✅ Cortes de luz por localidad | Solo el general de la península | RSS «Última hora» del 112 (condiciones de reutilización de la Junta) |
 | Cataluña | ✅ Planes activados (fase y comunicado del CECAT), sin comarcas | Solo el general de la península | Conjunto «Plans de protecció civil activats» (Llicència oberta de Catalunya) |
-| Comunitat Valenciana | ❌ | Solo el general de la península | No se ha encontrado ningún canal: el 112 no tiene RSS conocido, la app usa una API interna y el catálogo de dades obertes no tiene avisos. Su robots.txt solo cierra el paso a una lista de robots con nombre (los de IA entre ellos), no a cualquier programa: falta mirar a mano si la sala de prensa (comunica.gva.es) tiene RSS y qué dice su aviso legal |
-| Extremadura | ❌ | Solo el general de la península | Su aviso legal prohíbe reproducir los contenidos sin autorización expresa y no tiene RSS |
+| Comunitat Valenciana | ❌ | Solo el general de la península | No hay ningún canal: el 112 no tiene RSS conocido, la app usa una API interna, el catálogo de dades obertes no tiene avisos y la sala de prensa (comunica.gva.es) solo ofrece suscribirse por correo, sin RSS ni aviso legal de reutilización (comprobado el 11-11-2026). Se le pide un canal (ver *Posibles mejoras*) |
+| Extremadura | ❌ | Solo el general de la península | Publica en su web las activaciones de sus planes (INFOEX, INUNCAEX…), pero su aviso legal prohíbe reproducir los contenidos sin autorización expresa, no tiene RSS y su catálogo de datos abiertos no tiene avisos |
 | Galicia | ✅ PLATERGA y alertas por nivel por provincia, y cortes de luz, de las notas de prensa de la Xunta | Solo el general de la península | RSS de notas de prensa de la Xunta (aviso legal del portal: reutilización citando la fuente). Solo cuentan los grandes sucesos. El 112 (AXEGA) exige autorización por escrito y no se usa |
-| Madrid | ⏸ En pausa: la web de la Comunidad de Madrid responde con un error a todo lo que se le pide desde nuestro servidor (desde otras redes funciona). Se le pide acceso; mientras tanto no se muestran sus planes ni sus cortes de luz | Solo el general de la península | RSS «Últimas noticias» de comunidad.madrid (aviso legal: sin alterar, con la fuente y la fecha de extracción). La ASEM 112 no tiene canal propio. Solo cuentan los grandes sucesos |
+| Madrid | ✅ Solo la ciudad: planes del Ayuntamiento (PEMAM, plan de emergencias invernales…) y cortes de luz. ⏸ Los de la Comunidad, en pausa: su web rechaza lo que le pide nuestro servidor (desde otras redes funciona). Se le pide acceso | Solo el general de la península | Notas de prensa del Ayuntamiento (conjunto de su catálogo de datos abiertos, CC BY 4.0). Su robots.txt prohíbe la ruta del RSS, en contra de su propio catálogo: se usa la URL que publica el catálogo cada 15 minutos y se pide confirmación al Ayuntamiento; si no lo aceptan, se retira. De la Comunidad, RSS «Últimas noticias» de comunidad.madrid (aviso legal: sin alterar, con la fuente y la fecha de extracción); no hay otro canal suyo: su portal de datos abiertos no admite programas y la ASEM 112 no publica nada. Solo cuentan los grandes sucesos |
 | Región de Murcia | ✅ Planes con nombre (PLATEMUR, INUNMUR…) y cortes de luz de las noticias de la CARM | Solo el general de la península | Conjunto «Noticias de la CARM en los últimos 7 días» de datos abiertos. Sin ubicación: los planes van al centro de la región. La web del 112 y carm.es bloquean los programas automáticos, así que no se usan |
-| Navarra | ❌ | Solo el general de la península | Su ley permite reutilizar sin autorización (Ley Foral 5/2018, art. 16.4), pero no hay ningún canal: ni RSS ni conjunto de datos abiertos de SOS Navarra o de protección civil |
+| Navarra | ❌ | Solo el general de la península | Su ley permite reutilizar sin autorización (Ley Foral 5/2018, art. 16.4), pero no hay ningún canal: ni RSS ni conjunto de datos abiertos de SOS Navarra o de protección civil, y el aviso legal de navarra.es no da licencia |
 | País Vasco | ✅ Planes con nombre (LABI, ITSASERTZA…) por territorio histórico y cortes de luz de las noticias de Seguridad | Solo el general de la península | RSS del Departamento de Seguridad en Irekia (conjunto de Open Data Euskadi, CC BY 4.0). Solo cuentan los grandes sucesos; SOS Deiak 112 no publica sus avisos en abierto |
 | La Rioja | ✅ Cortes de luz por pueblo y cuándo vuelve la luz | Solo el general de la península | RSS de SOS Rioja 112 (aviso legal: reproducción citando la fuente) |
 | Ceuta | ❌ | ✅ | Su aviso legal prohíbe la reproducción sin autorización; demanda de e·sios |
-| Melilla | ❌ | ✅ | Su web no tiene RSS ni condiciones de reutilización; demanda de e·sios |
+| Melilla | ❌ | ✅ | Su web no tiene RSS ni condiciones de reutilización; su portal de datos abiertos (CC BY 4.0) solo tiene informes anuales del 112. Demanda de e·sios |
 
 «Por ahora» quiere decir que la fuente se puede usar, pero aporta poco. Las que no se pueden usar se
 pueden pedir: ver *Posibles mejoras*.
@@ -617,9 +620,10 @@ atribución. Con ellas, las 550 pruebas del proyecto pasaron tres veces en local
   posiciones de los autobuses de EMT Madrid: el NAP no las publica y su horario va por frecuencias
   (estimarlas con él da cifras irreales). Su API sí las da, con nuestra aplicación de MobilityLabs,
   cuando EMT la apruebe (está pendiente de moderación).
-- **Comunidad de Madrid (avisos de emergencia)**: su web responde con un error (404) a todo lo que se le
-  pide desde la red de nuestro servidor, también a la portada, aunque desde otras redes funciona. No se
+- **Comunidad de Madrid (avisos de emergencia)**: su web responde con un error (404) a todo lo que el
+  radar le pide desde nuestro servidor, también a la portada, aunque desde otras redes funciona. No se
   esquiva el bloqueo: la fuente está en pausa y se pide acceso ([`docs/solicitudes/`](docs/solicitudes/)).
+  No hay otro canal suyo; mientras tanto, de la ciudad de Madrid salen los avisos del Ayuntamiento.
 - **Metro de Madrid**: solo publica tiempos de llegada, y su horario del NAP caducó en mayo de 2026;
   sin un horario vigente no se pueden estimar sus posiciones. Metro Ligero, Metrovalencia, Granada
   y Zaragoza ya salen con posición estimada.
@@ -678,7 +682,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   - las incidencias de tráfico de una fuente que lleva una hora sin responder.
 - Avisos oficiales de emergencias: planes de protección civil activados y cortes de luz que publican
   Canarias, Baleares, Cataluña, Andalucía, Castilla-La Mancha, La Rioja y Castilla y León, y los de las
-  notas de prensa de los gobiernos de Madrid, Murcia, Cantabria, Galicia y el País Vasco. Su texto se
+  notas de prensa de los gobiernos de Madrid, Murcia, Cantabria, Galicia, el País Vasco y Asturias y del
+  Ayuntamiento de Madrid. Su texto se
   cita tal cual, con la atribución de cada administración; se sitúan en el centro de su isla, pueblo,
   provincia o comunidad, y dejan de verse cuando se publica su fin. Los cortes de luz y los planes en
   alerta o emergencia dan alerta, y a igual gravedad los cortes de luz salen los primeros de la lista.
@@ -1149,8 +1154,9 @@ Ninguna por ahora.
   - Baleares: Red Eléctrica sólo publica en tiempo real su demanda programada, no la real, así que su
     apagón no se puede detectar como el de las islas de Canarias, Ceuta o Melilla;
   - avisos de las comunidades que no tienen un canal que se pueda leer con su licencia (Comunitat
-    Valenciana, Aragón, Extremadura, Asturias, Navarra, Ceuta y Melilla), y los del 112 de Galicia
-    (AXEGA): pedirles permiso o que lo publiquen como datos abiertos (borradores en
+    Valenciana, Aragón, Extremadura, Navarra, Ceuta y Melilla), los del 112 de Asturias y de Galicia
+    (AXEGA) y un RSS de las noticias del Principado de Asturias: pedirles permiso o que lo publiquen
+    como datos abiertos; y el acceso a la web de la Comunidad de Madrid (borradores en
     [docs/solicitudes](docs/solicitudes/README.md));
   - los cortes por barrio o por calle sólo los tienen las distribuidoras eléctricas, que no los
     publican con licencia de reutilización: pedir permiso a e-distribución, i-DE y UFD.

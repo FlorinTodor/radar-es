@@ -30,6 +30,16 @@
 //   sin logotipos (no se usan las fotos). Distinto del de la AXEGA (el 112), que no se usa.
 // - País Vasco: noticias de Irekia, conjunto de Open Data Euskadi con CC BY 4.0: citar la fuente y la
 //   fecha de la última actualización, sin alterar ni desnaturalizar.
+// - Principado de Asturias: contenidos de la Administración del Principado con CC BY 4.0 (licencias y
+//   términos de uso de asturias.es, revisados el 11-11-2026), también con fines comerciales: «Origen de los
+//   contenidos: Administración del Principado de Asturias», con enlace, la fecha de la última actualización
+//   y sin desnaturalizar. No tiene RSS: se lee la lista de noticias de actualidad.asturias.es, que su
+//   robots.txt permite entera.
+// - Ayuntamiento de Madrid: conjunto «Notas de prensa» de su catálogo de datos abiertos, CC BY 4.0 (sus
+//   condiciones generales permiten fines comerciales): «Origen de los datos: Ayuntamiento de Madrid», la fecha
+//   de la última actualización y sin desnaturalizar. Su robots.txt prohíbe la ruta del RSS
+//   (/ContentPublisher/), en contra de su propio catálogo: como con Baleares, se usa la URL exacta que publica
+//   el catálogo, cada 15 minutos y avisándoles (decisión del titular de Radar España, 11-11-2026).
 //
 // Cada descarga lleva su tope (maxBytes): los feeds pesan de unos cientos de bytes a 800 KB y se leen
 // en el hilo principal.
@@ -54,10 +64,12 @@ export const CREDITS = {
   'emergencias-cantabria': 'Fuente: Gobierno de Cantabria',
   'emergencias-galicia': 'Fuente: Xunta de Galicia',
   'emergencias-pais-vasco': 'Irekia (Gobierno Vasco) · Open Data Euskadi (CC BY 4.0)',
+  'emergencias-asturias': 'Origen de los contenidos: Administración del Principado de Asturias (CC BY 4.0)',
+  'emergencias-madrid-ciudad': 'Origen de los datos: Ayuntamiento de Madrid (CC BY 4.0)',
 };
 
 // Códigos de comunidad del INE, los que usa CartoCiudad (sólo las fuentes que geocodifican).
-const REGION = { andalucia: '01', cantabria: '06', 'castilla-y-leon': '07', galicia: '12', madrid: '13', murcia: '14', 'pais-vasco': '16', 'la-rioja': '17' };
+const REGION = { andalucia: '01', asturias: '03', cantabria: '06', 'castilla-y-leon': '07', galicia: '12', madrid: '13', murcia: '14', 'pais-vasco': '16', 'la-rioja': '17' };
 // Topes de descarga, muy por encima de lo que pesa hoy cada feed (como mucho, unos 150 KB).
 const FEED_MAX_BYTES = 2 * 1024 * 1024;
 const SMALL_MAX_BYTES = 1024 * 1024;
@@ -180,13 +192,12 @@ async function locateNotices(notices, geocoder, region) {
  * Eventos del mapa de los avisos que siguen en vigor, igual para todas las fuentes: cuáles lo están (y
  * cuánto dura cada uno) lo decide el dominio con currentNotices. `where` sitúa cada lugar (isla,
  * provincia o municipio ya geocodificado); un aviso sin lugar, o con uno que `where` no sitúa, va al
- * centro de la comunidad `region`.
+ * centro de la comunidad `region` (o a `fallback`: el Ayuntamiento de Madrid, a la ciudad).
  * @param {string} sourceId
  * @param {OfficialNotice[]} notices
- * @param {{ now: number, region: keyof typeof COMUNIDADES, where?: Map<string, Where>, wholeNotice?: boolean }} opts
+ * @param {{ now: number, region: keyof typeof COMUNIDADES, where?: Map<string, Where>, wholeNotice?: boolean, fallback?: Where }} opts
  */
-function eventsFrom(sourceId, notices, { now, region, where = new Map(), wholeNotice = false }) {
-  const fallback = { ...COMUNIDADES[region], approx: 'comunidad' };
+function eventsFrom(sourceId, notices, { now, region, where = new Map(), wholeNotice = false, fallback = { ...COMUNIDADES[region], approx: 'comunidad' } }) {
   // Un «ha vuelto la luz» que no se ha podido situar no cierra nada: sin lugares, cerraría los cortes
   // de toda la comunidad.
   const usable = notices.filter((n) => !(n.end && n.candidates && !n.places.length));
@@ -677,7 +688,7 @@ export function pressNotices(items, region) {
 }
 
 /** Fuente de notas de prensa: descarga, lee, sitúa los pueblos de los cortes y da los avisos en vigor. */
-function pressSource({ id, name, interval, url, page, license, region, read, geocoder, now, sourceTime = (updated) => updated }) {
+function pressSource({ id, name, interval, url, page, license, region, read, geocoder, now, sourceTime = (updated) => updated, fallback }) {
   return {
     id, name, kind: 'events', interval, url, page, license,
     async fetch() {
@@ -691,7 +702,7 @@ function pressSource({ id, name, interval, url, page, license, region, read, geo
           if (prov) where.set(p, { ...prov, approx: 'provincia' });
         }
       }
-      return { sourceTime: sourceTime(updated), events: eventsFrom(id, notices, { now: t, region, where }) };
+      return { sourceTime: sourceTime(updated), events: eventsFrom(id, notices, { now: t, region, where, ...(fallback ? { fallback } : {}) }) };
     },
   };
 }
@@ -729,6 +740,90 @@ export function createMadridNewsSource({ http, geocoder, now = Date.now }) {
     read: async () => parseMadridNews(await http.text(MADRID, { timeout: 30_000, maxBytes: FEED_MAX_BYTES })),
     // Su aviso legal pide la fecha de extracción: sin sourceTime, la ficha da la hora a la que se leyó.
     sourceTime: () => null,
+    geocoder, now,
+  });
+}
+
+// Ayuntamiento de Madrid: conjunto «Notas de prensa» de su catálogo de datos abiertos (datos.madrid.es,
+// 200034-0-notas-prensa), las 25 últimas de la ciudad, con la URL que da el catálogo. Todo lo que publica es de
+// la ciudad: sus avisos van al centro de Madrid (no a la Comunidad), sin buscar pueblos ni provincias.
+const MADRID_CIUDAD = 'https://www.madrid.es/ContentPublisher/jsp/apl/obtenerRSS.jsp?tipoContenido=Noticia&idCanal=6091317d3d2a7010VgnVCM100000dc0ca8c0RCRD';
+const MADRID_CIUDAD_LUGAR = Object.freeze({ name: 'Madrid', lat: 40.4168, lon: -3.7038, approx: 'municipio' });
+
+/** @returns {{ notices: OfficialNotice[], updated: number|null }} */
+export function parseMadridCityNews(xml) {
+  const doc = xmlParser.parse(xml);
+  const items = arr(doc.rss?.channel?.item).map((it) => {
+    const title = htmlText(text(it.title));
+    const link = text(it.link) || null;
+    return {
+      id: String(link ?? '').match(/vgnextoid=([0-9a-z]+)/i)?.[1] ?? slug(title),
+      at: Date.parse(text(it.pubDate)) || 0,
+      title,
+      summary: firstParagraph(String(text(it.description) ?? '')),
+      url: link,
+    };
+  });
+  // De la ciudad: ni pueblos que buscar ni provincias que nombrar (un «Madrid» del título no es la provincia).
+  const notices = pressNotices(items, 'madrid').map(({ candidates, province, ...n }) => ({ ...n, places: [MADRID_CIUDAD_LUGAR.name] }));
+  return { notices, updated: newest(items.map((i) => i.at)) };
+}
+
+/** @param {{ http: import('../http/http-client.js').HttpClient, geocoder: import('../geo/cartociudad-geocoder.js').Geocoder, now?: () => number }} deps */
+export function createMadridCityNewsSource({ http, geocoder, now = Date.now }) {
+  return pressSource({
+    id: 'emergencias-madrid-ciudad',
+    name: 'Ayuntamiento de Madrid: planes de emergencia y cortes de luz (notas de prensa)',
+    interval: 900_000,
+    url: MADRID_CIUDAD,
+    page: 'https://datos.madrid.es/dataset/200034-0-notas-prensa',
+    license: CREDITS['emergencias-madrid-ciudad'],
+    region: 'madrid',
+    read: async () => parseMadridCityNews(await http.text(MADRID_CIUDAD, { timeout: 30_000, maxBytes: FEED_MAX_BYTES })),
+    fallback: MADRID_CIUDAD_LUGAR,
+    geocoder, now,
+  });
+}
+
+// Principado de Asturias: lista de noticias del Gobierno (actualidad.asturias.es/noticias), las 10 últimas de
+// todas las consejerías. No tiene RSS: se lee su HTML, en el que cada nota es un «<div class="nota">» con su
+// enlace, su día («11 de noviembre de 2026», sin hora) y su título.
+const ASTURIAS = 'https://actualidad.asturias.es/noticias';
+const MESES = { enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6, julio: 7, agosto: 8, septiembre: 9, setiembre: 9, octubre: 10, noviembre: 11, diciembre: 12 };
+const NOTA_MAX_CHARS = 6000; // lo que se mira de cada nota (la última sigue hasta el final de la página)
+
+/**
+ * Sin hora, como Cantabria: una nota del día cuenta desde que se lee hasta el mediodía y, después, desde el
+ * mediodía. La ficha sólo da el día (`dayOnly`).
+ * @returns {{ notices: OfficialNotice[], updated: number|null }}
+ */
+export function parseAsturiasNews(html, now) {
+  const items = [];
+  for (const part of String(html ?? '').split('<div class="nota">').slice(1)) {
+    const block = part.slice(0, NOTA_MAX_CHARS);
+    const href = block.match(/<a href="([^"]+)"/)?.[1];
+    const title = htmlText(block.match(/<h2[^>]*>([^<]*(?:<(?!\/h2>)[^<]*)*)<\/h2>/)?.[1] ?? '');
+    if (!href || !title) continue;
+    const day = htmlText(block.match(/<div class="item-date">([^<]*)<\/div>/)?.[1] ?? '').match(/(\d{1,2}) de (\p{L}+) de (\d{4})/u);
+    const month = day ? MESES[fold(day[2])] : null;
+    const noon = month ? madridLocalToMs(`${day[3]}-${String(month).padStart(2, '0')}-${day[1].padStart(2, '0')}T12:00:00`) : null;
+    const url = htmlText(href).replace(/\?redirect=.*$/, '');
+    items.push({ id: lastSegment(url) ?? slug(title), at: noon ? Math.min(now, noon) : 0, title, url, dayOnly: true });
+  }
+  return { notices: pressNotices(items, 'asturias'), updated: newest(items.map((i) => i.at)) };
+}
+
+/** @param {{ http: import('../http/http-client.js').HttpClient, geocoder: import('../geo/cartociudad-geocoder.js').Geocoder, now?: () => number }} deps */
+export function createAsturiasNewsSource({ http, geocoder, now = Date.now }) {
+  return pressSource({
+    id: 'emergencias-asturias',
+    name: 'Principado de Asturias: planes de emergencia y cortes de luz (noticias del Gobierno)',
+    interval: 900_000,
+    url: ASTURIAS,
+    page: 'https://actualidad.asturias.es/noticias',
+    license: CREDITS['emergencias-asturias'],
+    region: 'asturias',
+    read: async (t) => parseAsturiasNews(await http.text(ASTURIAS, { timeout: 30_000, maxBytes: FEED_MAX_BYTES }), t),
     geocoder, now,
   });
 }
