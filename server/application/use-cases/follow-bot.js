@@ -6,7 +6,7 @@
 // Cada chat tiene su idioma (domain/seguidos/idioma.js): español salvo que elija otro con /idioma, con un botón o
 // desde la web en inglés (su enlace lo dice). Se guarda con lo demás del chat; mientras no siga nada, sólo en
 // memoria, como todo lo de quien no sigue nada.
-import { canonicalKey, isFollowKey, isRoadKey, followKind, stopCode } from '../../domain/seguir.js';
+import { canonicalKey, isFollowKey, isRoadKey, followKind, stopCode, stopKey } from '../../domain/seguir.js';
 import { PROVINCE_TRAFFIC_TEXT, asksForRoad, parseRoadRequest, roadFollowedText, roadName, roadRequestHelp, roadSeen, roadSub, roadTitle } from '../../domain/seguidos/trafico.js';
 import { entryLabel, guessedName, knownNames, searchDirectory, updateDirectory } from '../../domain/seguidos/directorio.js';
 import {
@@ -23,6 +23,7 @@ import { cutText } from '../../domain/seguidos/texto.js';
 import { countEvent, emptyTotals, parseTotals, usageOf } from '../../domain/seguidos/uso.js';
 import { provinceExtrasText, provinceFacts, provinceOption } from '../../domain/seguidos/zona.js';
 import { withoutRepeats } from '../../domain/seguidos/estacion.js';
+import { searchStations, stationAsked, stationCandidates, stationFollowName, stationLabel } from '../../domain/seguidos/estaciones.js';
 import { findProvince, plainName, provinceById } from '../../domain/provincias.js';
 import {
   collectTrayectoFacts, connectedBy, looksLikeTrayecto, parseTrayectoText, passIndex, trayectoErrorText, trayectoHelpText, trayectoName,
@@ -40,6 +41,12 @@ const SAVE_EVERY_MS = 10 * 60_000;
 // El directorio de lo que se puede seguir se pone al día como mucho cada tanto (son miles de vehículos).
 const DIRECTORY_EVERY_MS = 5 * 60_000;
 const BUTTON_MAX = 60;
+// Estaciones que se llaman tal cual lo buscado que salen, como mucho, en /seguir (delante de las líneas) y en /estado.
+const STATIONS_IN_SEARCH = 3;
+const STATIONS_IN_STATUS = 3;
+// Lo que se avisa de una estación, al empezar a seguirla.
+const STATION_FOLLOW_TEXT = frase('De esta estación te aviso de lo que pasa por ella y se cancela o se queda sin datos (si su operador lo publica) '
+  + 'y, en las de Renfe, de los avisos de la estación (ascensores, accesos…).');
 const EN = translator('en');
 // Cada cuánto, como mucho, se apunta en el registro un mismo problema de la ronda (lo recordado pasa del tope, no se
 // pueden leer las paradas de un viaje).
@@ -203,7 +210,7 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
     if (followKind(key) === 'trayecto') return trayectoName(key, stationOf);
     if (followKind(key) === 'parada') {
       const st = stationOf(stopCode(key));
-      return st?.name ? ES.t('Estación {name}', { name: st.name }) : null;
+      return st?.name ? stationFollowName(st) : null;
     }
     return directory.get(key)?.name ?? null;
   }
@@ -302,7 +309,7 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
     chat.subs.set(key, label ? { name: label, since: c.now, checkedAt: c.now } : { name: nameOf(key), since: c.now, checkedAt: c.now, guessed: true });
     dirty = true;
     return answer(chatId, tr, [t('Hecho: te aviso de {name}.', { name: tr.name(chat.subs.get(key).name) }), statusBlock(t('Ahora:'), key, c, tr),
-      unlinked(key, c, tr), t('/mis para ver lo que sigues · /dejar para dejar de seguirlo')]);
+      unlinked(key, c, tr), station ? t(STATION_FOLLOW_TEXT) : null, t('/mis para ver lo que sigues · /dejar para dejar de seguirlo')]);
   }
 
   /** De un trayecto que ningún tren que se ve une: que lo compruebe (se sigue igual: de noche apenas hay trenes). */
@@ -447,17 +454,26 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
     const c = ctx();
     if (!arg) {
       return [reply(chatId, t('Dime qué quieres seguir: un número de tren («08058»), una línea con su ciudad u operador («C4 Madrid», '
-        + '«27 EMT Málaga») o una provincia (/provincia Valencia).'))];
+        + '«27 EMT Málaga»), una estación (/estacion Sants) o una provincia (/provincia Valencia).'))];
     }
     if (isFollowKey(arg)) return follow(chatId, arg);
+    // «/seguir estación Atocha», «station Sants»: una estación.
+    const asked = stationAsked(arg);
+    if (asked !== null) return stationCmd(chatId, asked, { confirm });
     refreshDirectory(c);
-    const all = searchDirectory(directory, arg, { limit: Infinity });
+    const lines = searchDirectory(directory, arg, { limit: Infinity });
+    // Una estación que se llama tal cual («Guadalajara»), delante de las líneas que van a ella; una que sólo tiene esas
+    // palabras («Atocha»), sólo si no hay nada más (y si no, se dice cómo buscarla).
+    const stations = stationCandidates(stationList(), arg, { limit: limits.menuItems });
+    const exact = keyed(stations.exact).slice(0, STATIONS_IN_SEARCH);
+    const all = [...exact.map((st) => stationItem(st, tr, { mixed: true })), ...lines.map((e) => ({ sub: e.key, name: e.name, label: tr.name(entryLabel(e)) }))];
     const found = all.slice(0, limits.menuItems);
     if (!found.length) {
       // «Granada incendios» o «Granada sin incendios», también sin orden.
       const { place, fires } = provinceOption(arg);
       const p = findProvince(place);
       if (p) return fires === false ? dropFires(chatId, p) : followProvince(chatId, p, { fires: !!fires });
+      if (stations.partial.length) return stationChoice(chatId, searchStations(stationList(), arg), { confirm, tr });
       // Algo que parece una carretera («A-7», «C-31»: con guion): no se sigue sin preguntar (también podría ser una línea
       // que ahora no circula). «C1 Barcelona» no lo parece.
       const road = asksForRoad(arg) ?? (/\b[a-z]{1,4}-[0-9ivx]/i.test(arg) ? parseRoadRequest(arg) : {});
@@ -468,15 +484,17 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
         + '(«08058»), la línea y su ciudad u operador («C4 Madrid»), o búscalo en el mapa y pulsa «Avísame por Telegram» en su ficha: {web}',
       { web: web(tr) }))];
     }
-    if (found.length === 1 && !confirm) return follow(chatId, found[0].key, found[0].name);
+    // «Atocha» encuentra las líneas que van allí; la estación, con /estacion (y así se dice, sin seguir nada sin preguntar).
+    const hint = !exact.length && stations.partial.length ? t('Si buscas una estación: /estacion {name}', { name: cutText(arg, 60) }) : null;
+    if (found.length === 1 && !confirm && !hint) return follow(chatId, found[0].sub, found[0].name);
     // Se sigue con el nombre en español (el que se guarda); el botón, en el idioma del chat.
-    const buttons = menu(chatId, 'add', found.map((e) => ({ sub: e.key, name: e.name, label: tr.name(entryLabel(e)) })), c.now);
+    const buttons = menu(chatId, 'add', found, c.now);
     // Si hay más de las que caben en la lista, se dice: quien busca «C1» sabe que tiene que decir la ciudad.
     const text = found.length === 1 ? t('¿Quieres seguir esto?')
       : all.length > found.length ? t('He encontrado {total}; aquí van las {n} primeras. Si no está la que buscas, añade la '
         + 'ciudad o el operador («C1 Madrid», «27 EMT Málaga»). ¿Cuál quieres seguir?', { total: all.length, n: found.length })
         : t('He encontrado varias cosas. ¿Cuál quieres seguir?');
-    return [reply(chatId, text, buttons)];
+    return [reply(chatId, hint ? `${text}\n\n${hint}` : text, buttons)];
   }
 
   function status(chatId, arg) {
@@ -492,6 +510,12 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
       const key = canonicalKey(arg);
       if (followKind(key) !== 'parada' && followKind(key) !== 'trayecto') refreshDirectory(c, key);
       blocks.push(statusBlock(`${tr.name(nameOf(key))}:`, key, c, tr));
+    } else if (stationAsked(arg) !== null) {
+      // «/estado estación Atocha»: las estaciones con ese nombre.
+      const name = stationAsked(arg);
+      const list = name ? keyed(searchStations(stationList(), name)).slice(0, STATIONS_IN_STATUS) : [];
+      for (const st of list) blocks.push(statusBlock(`${tr.name(stationFollowName(st))}:`, stopKey(st.code), c, tr));
+      if (!blocks.length) return [reply(chatId, t('No encuentro ninguna estación así en el catálogo del radar.'))];
     } else {
       refreshDirectory(c);
       // «/estado A-7»: la carretera, no el autobús 7 (asksForRoad); «/estado C4 Madrid», la línea.
@@ -503,9 +527,16 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
       const found = roadFirst || p ? [] : searchDirectory(directory, arg, { limit: 3 });
       const fires = option.fires ?? !!chat?.provinces.get(p?.id)?.fires;
       if (p) blocks.push(statusBlock(`${provinceTitle(p, tr)}:`, provinceSub(p.id), c, tr, fires));
-      const road = roadFirst ?? (!found.length && !p ? parseRoadRequest(arg) : null); // cómo está esa carretera
+      // Una estación que se llama tal cual («/estado Guadalajara»), con las líneas.
+      const stations = roadFirst || p ? null : stationCandidates(stationList(), arg, { limit: STATIONS_IN_STATUS });
+      for (const st of keyed(stations?.exact ?? [])) blocks.push(statusBlock(`${tr.name(stationFollowName(st))}:`, stopKey(st.code), c, tr));
+      const road = roadFirst ?? (!found.length && !p && !stations?.exact.length ? parseRoadRequest(arg) : null); // cómo está esa carretera
       if (road?.key) blocks.push(statusBlock(`${tr.name(roadTitle(roadName(road.road, c.events), road.province))}:`, road.key, c, tr));
       for (const e of found) blocks.push(statusBlock(`${tr.name(entryLabel(e))}:`, e.key, c, tr));
+      // Si no hay nada más, las estaciones que tienen esas palabras («/estado Atocha»).
+      if (!blocks.length) {
+        for (const st of keyed(stations?.partial ?? [])) blocks.push(statusBlock(`${tr.name(stationFollowName(st))}:`, stopKey(st.code), c, tr));
+      }
       if (!blocks.length) return [reply(chatId, t('No encuentro nada así entre lo que circula ahora o ha circulado hace poco.'))];
     }
     return packed(blocks, tr).map((text) => reply(chatId, text));
@@ -517,6 +548,54 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
     more: (n) => tr.tn('…y otra cosa que no cabe aquí: pídela con /estado y su nombre, o mírala en la web.',
       '…y {n} cosas más que no caben aquí: pídelas con /estado y su nombre, o míralas en la web.', n),
   });
+
+  /** Las estaciones que tienen clave (todas las del catálogo; por si acaso, una con un código raro no se ofrece). */
+  const keyed = (list) => list.filter((st) => stopKey(st.code));
+
+  /**
+   * Una estación en una lista de botones. Se sigue con su nombre en español (el que se guarda); el botón, en una lista
+   * sólo de estaciones, como en /trayecto («Sants Estació (Barcelona) · Metro de Barcelona (TMB)»), y mezclada con líneas
+   * (`mixed`), con «Estación» delante, en el idioma del chat.
+   */
+  function stationItem(st, tr, { mixed = false } = {}) {
+    const name = stationFollowName(st);
+    return { sub: stopKey(st.code), name, label: mixed ? tr.name(name) : stationLabel(st) };
+  }
+
+  /**
+   * /estacion Sants: una estación del catálogo del radar por su nombre (como las de /trayecto: las de Renfe y las de
+   * las redes de metro y tranvía). Si sólo puede ser una, la sigue; si hay varias, una lista. Con `confirm` (escrito
+   * sin orden), aunque sea una, se pregunta con su botón.
+   */
+  function stationCmd(chatId, arg, { confirm = false } = {}) {
+    const tr = trOf(chatId);
+    const { t } = tr;
+    if (!arg) return [reply(chatId, t('Dime la estación: /estacion Sants, /estacion Alcalá de Henares…'))];
+    const list = stationList();
+    let all = searchStations(list, arg);
+    // «/estacion estación de Atocha»: tal cual no hay ninguna, y sin «estación de», sí.
+    const bare = stationAsked(arg);
+    if (!all.length && bare) all = searchStations(list, bare);
+    if (!all.length) {
+      return [reply(chatId, t('No encuentro ninguna estación «{name}» en el catálogo del radar. Escribe su nombre como en el mapa («Sants», '
+        + '«Alcalá de Henares»), o búscala en el mapa y pulsa «Avísame por Telegram» en su ficha: {web}', { name: cutText(arg, 60), web: web(tr) }))];
+    }
+    return stationChoice(chatId, all, { confirm, tr });
+  }
+
+  /** Seguir una de unas estaciones: si es una (y no hay que confirmar), directamente; si no, con una lista. */
+  function stationChoice(chatId, all, { confirm = false, tr }) {
+    const { t } = tr;
+    const items = keyed(all).map((st) => stationItem(st, tr));
+    if (items.length === 1 && !confirm) return follow(chatId, items[0].sub, items[0].name);
+    const found = items.slice(0, limits.menuItems);
+    const buttons = menu(chatId, 'add', found, clock.now());
+    const text = items.length === 1 ? t('¿Quieres seguir esta estación?')
+      : items.length > found.length ? t('He encontrado {total} estaciones; aquí van las {n} primeras. Si no está la tuya, escribe su nombre '
+        + 'entero o añade su ciudad o su red («Sants metro»). ¿Cuál quieres seguir?', { total: items.length, n: found.length })
+        : t('He encontrado varias estaciones. ¿Cuál quieres seguir?');
+    return [reply(chatId, text, buttons)];
+  }
 
   /**
    * /trayecto Alcalá de Henares > Atocha 7:00-9:00 L-V: sus estaciones, del catálogo. Si con esos nombres sólo hay un
@@ -864,6 +943,7 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
         // «/seguir Alcalá > Atocha 7-9» es un trayecto.
         seguir: () => (looksLikeTrayecto(arg) ? trayectoCmd(chatId, arg) : search(chatId, arg)),
         trayecto: () => trayectoCmd(chatId, arg),
+        estacion: () => stationCmd(chatId, arg),
         // Texto sin orden: una búsqueda, salvo que sea charla («hola», «gracias», «vale»).
         buscar: () => {
           if (looksLikeTrayecto(arg)) return trayectoCmd(chatId, arg);

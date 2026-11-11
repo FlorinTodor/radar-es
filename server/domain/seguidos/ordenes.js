@@ -14,6 +14,7 @@ export const INPUT_MAX = 200;
  */
 export const COMMANDS = Object.freeze([
   { name: 'seguir', en: 'follow', about: frase('Seguir un tren, autobús, metro o línea: /seguir 08058, /seguir C4 Madrid') },
+  { name: 'estacion', en: 'station', about: frase('Avisos de una estación: trenes cancelados y avisos de Renfe. /estacion Sants') },
   { name: 'trayecto', en: 'journey', about: frase('Tus trenes de una estación a otra: /trayecto Alcalá de Henares > Atocha 7:00-9:00 L-V') },
   { name: 'estado', en: 'status', about: frase('Cómo va ahora lo que sigues, o lo que busques') },
   { name: 'provincia', en: 'province', about: frase('Avisos de tu provincia: AEMET, terremotos, emergencias, apagones y cortes de carretera') },
@@ -105,7 +106,7 @@ export function smallTalkText(kind, { t } = ES) {
     return kind === 'gracias' ? `${t('De nada.')} ${more}` : more;
   }
   const what = t('Dime qué quieres seguir: un número de tren («08058»), una línea con su ciudad u operador '
-    + '(«C4 Madrid», «27 EMT Málaga») o una provincia (/provincia Valencia). /ayuda para ver todo lo que hago.');
+    + '(«C4 Madrid», «27 EMT Málaga»), una estación (/estacion Sants) o una provincia (/provincia Valencia). /ayuda para ver todo lo que hago.');
   return kind === 'saludo' ? `${t('Hola.')} ${what}` : what;
 }
 
@@ -133,7 +134,7 @@ export function helpText({ webUrl, limits, tr = ES }) {
       + 'cada día, los avisos de tu provincia (y, si los pides, sus focos de calor) y los cortes y accidentes de una carretera.'),
     t('Órdenes:'),
     commandsFor(tr.lang).map(([c, d]) => `/${c}: ${d}`).join('\n'),
-    t('También puedes escribirme sin orden lo que buscas («08058», «C4 Madrid», «27 EMT Málaga»).'),
+    t('También puedes escribirme sin orden lo que buscas («08058», «C4 Madrid», «27 EMT Málaga», «estación Sants»).'),
     t('Desde la web, en la ficha de un vehículo o de una estación, el botón «Avísame por Telegram» lo sigue directamente: {web}', { web: webUrl }),
     t('Avisos: si se cancela o se suprimen paradas, si va con {delay} min de retraso o más (y otra vez si empeora), si su operador deja de '
       + 'publicarlo y los avisos del operador sobre su línea. Puedes seguir hasta {max} cosas.', { delay: limits.delayMin, max: limits.subsPerChat }),

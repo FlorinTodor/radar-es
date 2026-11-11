@@ -75,10 +75,11 @@ test('/idioma pregunta en los dos idiomas con un botón por idioma; el botón ca
   assert.equal(chosen.replies[0].text, "Done: from now on I'll write to you in English. /help to see what I do; /language to change it.");
   assert.equal(chosen.menu.chatId, CHAT);
   assert.deepEqual(chosen.menu.commands.map(([c]) => c),
-    ['follow', 'journey', 'status', 'province', 'road', 'following', 'unfollow', 'summary', 'data', 'stop', 'language', 'help']);
+    ['follow', 'station', 'journey', 'status', 'province', 'road', 'following', 'unfollow', 'summary', 'data', 'stop', 'language', 'help']);
   const help = say('/help')[0].text;
   assert.match(help, /^I alert you about what you follow/);
   assert.match(help, new RegExp(['\\/follow: Follow a train, bus, metro or line: \\/follow 08058, \\/follow C4 Madrid',
+    '\\/station: Alerts for a station: cancelled trains and Renfe notices\\. \\/station Sants',
     '\\/journey: Your trains from one station to another: \\/journey Alcalá de Henares > Atocha 7:00-9:00 Mon-Fri', '\\/status: '].join('\\n')));
   assert.match(help, /https:\/\/radarespana\.es\/\?lang=en/, 'la web, en inglés');
   assertEnglish(help, 'ayuda');

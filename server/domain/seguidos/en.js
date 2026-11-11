@@ -48,6 +48,7 @@ export const EN = {
 
   // ---------- Órdenes, menú y descripción del bot (ordenes.js) ----------
   'Seguir un tren, autobús, metro o línea: /seguir 08058, /seguir C4 Madrid': 'Follow a train, bus, metro or line: /follow 08058, /follow C4 Madrid',
+  'Avisos de una estación: trenes cancelados y avisos de Renfe. /estacion Sants': 'Alerts for a station: cancelled trains and Renfe notices. /station Sants',
   'Tus trenes de una estación a otra: /trayecto Alcalá de Henares > Atocha 7:00-9:00 L-V':
     'Your trains from one station to another: /journey Alcalá de Henares > Atocha 7:00-9:00 Mon-Fri',
   'Cómo va ahora lo que sigues, o lo que busques': 'How what you follow is doing now, or anything you look up',
@@ -70,8 +71,8 @@ export const EN = {
   'Te aviso de lo que sigas: cualquier tren, autobús, metro o tranvía que publique el radar, su línea, una estación o tu trayecto de cada día, los avisos de tu provincia (y, si los pides, sus focos de calor) y los cortes y accidentes de una carretera.':
     'I alert you about what you follow: any train, bus, metro or tram the radar shows, its line, a station or your daily journey, the alerts for your province (and its hotspots, if you ask for them) and closures and accidents on a road.',
   'Órdenes:': 'Commands:',
-  'También puedes escribirme sin orden lo que buscas («08058», «C4 Madrid», «27 EMT Málaga»).':
-    'You can also just type what you are looking for (“08058”, “C4 Madrid”, “27 EMT Málaga”).',
+  'También puedes escribirme sin orden lo que buscas («08058», «C4 Madrid», «27 EMT Málaga», «estación Sants»).':
+    'You can also just type what you are looking for (“08058”, “C4 Madrid”, “27 EMT Málaga”, “Sants station”).',
   'Desde la web, en la ficha de un vehículo o de una estación, el botón «Avísame por Telegram» lo sigue directamente: {web}':
     'On the website, the “Alert me on Telegram” button on any vehicle or station card follows it straight away: {web}',
   'Avisos: si se cancela o se suprimen paradas, si va con {delay} min de retraso o más (y otra vez si empeora), si su operador deja de publicarlo y los avisos del operador sobre su línea. Puedes seguir hasta {max} cosas.':
@@ -80,8 +81,8 @@ export const EN = {
     'The data is what operators and public bodies publish: the radar is not official and may be wrong. Do not use it for safety decisions.',
   'Hola.': 'Hello.',
   'De nada.': "You're welcome.",
-  'Dime qué quieres seguir: un número de tren («08058»), una línea con su ciudad u operador («C4 Madrid», «27 EMT Málaga») o una provincia (/provincia Valencia). /ayuda para ver todo lo que hago.':
-    'Tell me what you want to follow: a train number (“08058”), a line with its city or operator (“C4 Madrid”, “27 EMT Málaga”) or a province (/province Valencia). /help to see everything I do.',
+  'Dime qué quieres seguir: un número de tren («08058»), una línea con su ciudad u operador («C4 Madrid», «27 EMT Málaga»), una estación (/estacion Sants) o una provincia (/provincia Valencia). /ayuda para ver todo lo que hago.':
+    'Tell me what you want to follow: a train number (“08058”), a line with its city or operator (“C4 Madrid”, “27 EMT Málaga”), a station (/station Sants) or a province (/province Valencia). /help to see everything I do.',
   'Si quieres seguir algo más, dime su número o su línea («08058», «C4 Madrid»). /mis para ver lo que sigues.':
     'To follow something else, tell me its number or its line (“08058”, “C4 Madrid”). /following to see what you follow.',
   español: 'Spanish',
@@ -153,14 +154,26 @@ export const EN = {
   'Hecho: ya no te mando los avisos de {province}.': "Done: I'll no longer send you the alerts for {province}.",
   'Hecho: ya no te aviso de la {road}.': "Done: I'll no longer alert you about the {road}.",
   'Hecho: ya no te aviso de la {road} en {province}.': "Done: I'll no longer alert you about the {road} in {province}.",
-  'Dime qué quieres seguir: un número de tren («08058»), una línea con su ciudad u operador («C4 Madrid», «27 EMT Málaga») o una provincia (/provincia Valencia).':
-    'Tell me what you want to follow: a train number (“08058”), a line with its city or operator (“C4 Madrid”, “27 EMT Málaga”) or a province (/province Valencia).',
+  'Dime qué quieres seguir: un número de tren («08058»), una línea con su ciudad u operador («C4 Madrid», «27 EMT Málaga»), una estación (/estacion Sants) o una provincia (/provincia Valencia).':
+    'Tell me what you want to follow: a train number (“08058”), a line with its city or operator (“C4 Madrid”, “27 EMT Málaga”), a station (/station Sants) or a province (/province Valencia).',
   'No encuentro nada así entre lo que circula ahora o ha circulado hace poco. Prueba con el número («08058»), la línea y su ciudad u operador («C4 Madrid»), o búscalo en el mapa y pulsa «Avísame por Telegram» en su ficha: {web}':
     "I can't find anything like that among what is running now or ran recently. Try the number (“08058”), the line and its city or operator (“C4 Madrid”), or find it on the map and tap “Alert me on Telegram” on its card: {web}",
   '¿Quieres seguir esto?': 'Do you want to follow this?',
   'He encontrado {total}; aquí van las {n} primeras. Si no está la que buscas, añade la ciudad o el operador («C1 Madrid», «27 EMT Málaga»). ¿Cuál quieres seguir?':
     "I found {total}; here are the first {n}. If the one you want isn't here, add the city or the operator (“C1 Madrid”, “27 EMT Málaga”). Which one do you want to follow?",
   'He encontrado varias cosas. ¿Cuál quieres seguir?': 'I found several things. Which one do you want to follow?',
+  // Estaciones por su nombre (follow-bot.js stationCmd).
+  'Si buscas una estación: /estacion {name}': 'If you are looking for a station: /station {name}',
+  'Dime la estación: /estacion Sants, /estacion Alcalá de Henares…': 'Tell me the station: /station Sants, /station Alcalá de Henares…',
+  'No encuentro ninguna estación «{name}» en el catálogo del radar. Escribe su nombre como en el mapa («Sants», «Alcalá de Henares»), o búscala en el mapa y pulsa «Avísame por Telegram» en su ficha: {web}':
+    "I can't find any station “{name}” in the radar's catalogue. Write its name as on the map (“Sants”, “Alcalá de Henares”), or find it on the map and tap “Alert me on Telegram” on its card: {web}",
+  'No encuentro ninguna estación así en el catálogo del radar.': "I can't find any station like that in the radar's catalogue.",
+  '¿Quieres seguir esta estación?': 'Do you want to follow this station?',
+  'He encontrado {total} estaciones; aquí van las {n} primeras. Si no está la tuya, escribe su nombre entero o añade su ciudad o su red («Sants metro»). ¿Cuál quieres seguir?':
+    "I found {total} stations; here are the first {n}. If yours isn't here, write its full name or add its city or network (“Sants metro”). Which one do you want to follow?",
+  'He encontrado varias estaciones. ¿Cuál quieres seguir?': 'I found several stations. Which one do you want to follow?',
+  'De esta estación te aviso de lo que pasa por ella y se cancela o se queda sin datos (si su operador lo publica) y, en las de Renfe, de los avisos de la estación (ascensores, accesos…).':
+    "For this station I'll alert you about services through it that are cancelled or have no data (if their operator publishes it) and, at Renfe stations, about the station's notices (lifts, entrances…).",
   'No sigues nada todavía. Dime qué quieres seguir con /seguir, o mira cómo va algo: /estado 08058.':
     "You aren't following anything yet. Tell me what to follow with /follow, or check how something is doing: /status 08058.",
   'No encuentro nada así entre lo que circula ahora o ha circulado hace poco.': "I can't find anything like that among what is running now or ran recently.",

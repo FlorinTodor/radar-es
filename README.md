@@ -894,6 +894,9 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   alguna de las dos, si van con retraso y si su operador no publica nada de ellos. `/estado` y el parte
   dicen cómo van los próximos. Las estaciones se eligen del catálogo, con una lista si hay varias con ese
   nombre.
+- Seguir una estación escribiendo su nombre: `/estacion Sants` (o `/seguir estación de Atocha`, o sin orden),
+  con una lista si hay varias; `/seguir` pone delante la estación que se llama así y `/estado` dice cómo está.
+  Las de metro y tranvía llevan su red en el nombre, porque hay nombres repetidos entre redes.
 - El bot, revisado con datos reales (seis probadores, uno de ellos intentando romperlo, y una revisión del
   código): la ronda de avisos y el parte siguen siendo rápidos con miles de chats, trayectos y huelgas con
   decenas de cancelaciones; ningún aviso se pierde ni se repite por muchos que se recuerden; los avisos largos van

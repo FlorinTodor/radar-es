@@ -3,6 +3,7 @@
 // una estación tal cual, sólo esa (o las que se llaman igual); si no, todas las que tienen esas palabras, para
 // elegir de una lista. Puro: sin red, ni reloj, ni disco.
 import { plainName } from '../provincias.js';
+import { ES } from './idioma.js';
 
 /** Palabras que se miran, como mucho: más no es el nombre de una estación. */
 const TOKENS_MAX = 8;
@@ -84,3 +85,23 @@ export function stationLabel(st) {
 
 /** ¿Son de la misma red? (un tren de Renfe no para en una estación de metro, ni el metro de una ciudad en el de otra) */
 export const sameNetwork = (a, b) => (a?.networkId ?? null) === (b?.networkId ?? null);
+
+/**
+ * ¿Pide una estación? «estación Atocha», «la estación de Atocha», «estacion del Arte», «station Sants», «Sants station»:
+ * el nombre que queda («Atocha», «Arte», «Sants»; '' si sólo dice «estación»); si no lo dice, null. El nombre de la
+ * estación se busca luego tal cual y, si así no sale, sin esto («/estacion Estación del Arte» es el nombre de una).
+ * @param {string} text
+ * @returns {string|null}
+ */
+export function stationAsked(text) {
+  const t = String(text ?? '').replace(/\s+/g, ' ').trim();
+  const m = /^(?:(?:la|the) )?(?:estaci[oó]n|station)(?: (?:(?:de la|de|del|of) )?(.*))?$/i.exec(t) ?? /^(?:the )?(.+?) station$/i.exec(t);
+  return m ? (m[1] ?? '').trim() : null;
+}
+
+/**
+ * El nombre con el que se sigue una estación (en español, como se guarda; el bot lo enseña en el idioma del chat). La
+ * de una red de metro o tranvía, con su red: hay nombres repetidos («Jaén» de Renfe y del Metro de Granada,
+ * «Tarragona» de Renfe y del Metro de Barcelona) y una sola con un nombre («Gran Vía») puede ser de otra ciudad.
+ */
+export const stationFollowName = (st) => `${ES.t('Estación {name}', { name: st.name })}${st.network ? ` · ${st.network}` : ''}`;

@@ -27,7 +27,8 @@ tipo nuevo funciona sin tocarlo.
 
 Desde la web, la ficha de cada vehículo, cancelación, tren sin datos o estación lleva «Avísame por Telegram»:
 abre el bot con `t.me/<bot>?start=<clave>` y lo sigue con un toque. La de una incidencia de tráfico, igual con
-su carretera entera (`start=c-A7`).
+su carretera entera (`start=c-A7`). Una estación se sigue también escribiendo su nombre: `/estacion Sants` (ver
+[Estaciones por su nombre](#estaciones-por-su-nombre)).
 
 Habla español y, si cada chat lo elige, inglés (ver [Idioma](#idioma)): con `/idioma` (o `/language`), con el botón
 que ofrece al primer `/start` a quien tiene Telegram en otro idioma, o abriéndolo desde la web en inglés.
@@ -60,6 +61,7 @@ otro lee lo que le escribe la gente.
 
      ```
      seguir    · follow     Seguir un tren, autobús, metro o línea: /seguir 08058, /seguir C4 Madrid
+     estacion  · station    Avisos de una estación: trenes cancelados y avisos de Renfe. /estacion Sants
      trayecto  · journey    Tus trenes de una estación a otra: /trayecto Alcalá de Henares > Atocha 7:00-9:00 L-V
      estado    · status     Cómo va ahora lo que sigues, o lo que busques
      provincia · province   Avisos de tu provincia: AEMET, terremotos, emergencias, apagones y cortes de carretera
@@ -292,6 +294,28 @@ Cada chat tiene su idioma: español por defecto e inglés si lo elige. Mismo cri
 - caso de uso: `server/application/use-cases/follow-bot.js`;
 - adaptadores: `server/adapters/inbound/telegram/` y `server/adapters/outbound/telegram/`, más el almacén y el
   turno en `server/adapters/outbound/persistence/`.
+
+## Estaciones por su nombre
+
+- **Cómo se pide**: `/estacion Sants` (en inglés, `/station Sants`), `/seguir estación de Atocha`, o escrito sin
+  orden («estación Sants», «Sants station»; sin orden, pregunta con un botón aunque sólo haya una).
+- **Las estaciones** salen del catálogo del radar, como las de `/trayecto`: las de Renfe y las de las redes de metro y
+  tranvía que tiene el mapa. Si el nombre es el de una estación tal cual, ésa (si sólo hay una, la sigue); si no, las
+  que tienen esas palabras en su nombre, su ciudad o su red, en una lista (8 como mucho, primero las que empiezan
+  así y, a igual encaje, las de Renfe), que dice cuántas hay si son más.
+- **Con `/seguir`** (y escrito sin orden): una estación que se llama tal cual («Guadalajara») sale delante de las
+  líneas que van a ella. Con parte de su nombre («Atocha»), si salen líneas, no sigue ninguna sin preguntar y dice
+  cómo buscar la estación (`/estacion Atocha`); si no sale nada más, la lista de estaciones.
+- **Con `/estado`**: `/estado estación Atocha` cuenta cómo están las que se llaman así (3 como mucho); `/estado
+  Alcalá de Henares`, la estación y las líneas. El nombre de una provincia sigue siendo la provincia.
+- **El nombre** de una estación de metro o tranvía lleva su red («Estación Jaén · Metro de Granada»), en `/mis`, en
+  los avisos y en lo que se guarda: hay nombres repetidos (Jaén de Renfe y del Metro de Granada) y una sola con un
+  nombre puede ser de otra ciudad («Gran Vía» es del tranvía de Zaragoza). En inglés, «Jaén station · Metro de
+  Granada»: el nombre y la red, tal cual.
+- **Al seguirla** dice de qué avisa: de lo que pasa por ella y se cancela o se queda sin datos (si su operador lo
+  publica) y, en las de Renfe, de los avisos de la estación.
+- **Código**: `server/domain/seguidos/estaciones.js` (buscar por nombre, qué pide una estación y su nombre) y, en
+  el caso de uso, la orden `/estacion` y lo que añade a `/seguir` y `/estado`.
 
 ## Estaciones: avisos de Renfe
 

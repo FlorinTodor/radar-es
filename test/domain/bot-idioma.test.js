@@ -268,6 +268,7 @@ test('los nombres de lo que se sigue: nuestras palabras en inglés, los nombres 
     [describeFollow(scheduledServiceKey({ operator: 'Euskotren', line: 'E4', origin: 'x', departure: 13 * 3600 + 600 }),
       { operator: 'Euskotren', line: 'E4', modeLabel: 'Tren', origin: 'Matiko-Bilbao' }), 'Train E4 · Euskotren, departing 13:10, from Matiko-Bilbao'],
     ['Estación Valladolid-Campo Grande', 'Valladolid-Campo Grande station'],
+    ['Estación Sants Estació · Metro de Barcelona (TMB)', 'Sants Estació station · Metro de Barcelona (TMB)'],
     ['Tranvía T1 · Metro Ligero Oeste', 'Tram T1 · Metro Ligero Oeste'],
   ];
   for (const [es, want] of cases) assert.equal(en(es), want, es);

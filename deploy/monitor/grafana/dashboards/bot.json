@@ -1193,6 +1193,18 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "estacion"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "/estacion"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "buscar"
             },
             "properties": [
