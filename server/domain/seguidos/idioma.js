@@ -42,8 +42,9 @@ const WEEKDAYS_EN = Array.from({ length: 7 }, (_, i) => new Intl.DateTimeFormat(
 const MASK_OF_DAYS = new Map(Array.from({ length: ALL_DAYS }, (_, i) => [daysText(i + 1), i + 1]));
 
 /**
- * Los días de una máscara en inglés, con las mismas formas que daysText: «every day», «Monday to Friday» (seguidos,
- * tres o más, también pasando del domingo al lunes), «on Saturdays», «on Mondays, Wednesdays and Fridays».
+ * Los días de una máscara en inglés, con las mismas formas que daysText y siempre con el mismo estilo (sin «on»
+ * delante): «every day», «Monday to Friday» (seguidos, tres o más, también pasando del domingo al lunes),
+ * «Saturdays and Sundays», «Mondays, Wednesdays and Fridays».
  * @param {number} mask  @param {(es: string, params?: object) => string} t  el traductor inglés
  */
 function daysTextEn(mask, t) {

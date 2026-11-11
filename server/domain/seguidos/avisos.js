@@ -627,7 +627,9 @@ export function statusOf(sub, { vehicles = [], events = [], alerts = [], now, st
     const texts = new Set();
     const notices = liveOf(events).filter((x) => x.type === 'aviso' && answersTo(x.follow, sub) && !texts.has(sameText(x)) && texts.add(sameText(x)));
     for (const e of notices.slice(0, LINE_NOTICES)) {
-      lines.push(t('Aviso: {title}: {notice}', { title: whole(title(e)), notice: whole(e.description) }));
+      // «Aviso Renfe · C4a: …» ya dice que es un aviso: sin «Aviso:» delante.
+      const named = /^Aviso\b/.test(String(e.title ?? ''));
+      lines.push(named ? `${whole(title(e))}: ${whole(e.description)}` : t('Aviso: {title}: {notice}', { title: whole(title(e)), notice: whole(e.description) }));
       credit(credited(e, creditOf));
     }
     if (notices.length > LINE_NOTICES) lines.push(t('…y {n} más.', { n: notices.length - LINE_NOTICES }));

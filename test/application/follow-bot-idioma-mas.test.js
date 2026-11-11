@@ -109,7 +109,7 @@ test('/journey en inglés: cómo se escribe, los días en inglés, la lista, los
   const [list] = say('Alcalá > Atocha from 6 to 9 weekends');
   assert.equal(list.text, 'There are several stations with those names. Which one is your journey?');
   assert.equal(list.buttons[0][0].text, 'Alcalá de Henares → Madrid-Atocha Cercanías');
-  assert.match(press(list.buttons[0][0].data).replies[0].text, /^Done: I'll alert you about Alcalá de Henares → Madrid-Atocha Cercanías \(06:00-09:00, on Saturdays and Sundays\)\.\n\nNow:\nToday isn't one of your days: I alert you on Saturdays and Sundays\./);
+  assert.match(press(list.buttons[0][0].data).replies[0].text, /^Done: I'll alert you about Alcalá de Henares → Madrid-Atocha Cercanías \(06:00-09:00, Saturdays and Sundays\)\.\n\nNow:\nToday isn't one of your days \(Saturdays and Sundays\)\./);
   world.vehicles = [md(3)];
   const [r] = say('/journey Alcalá de Henares > Madrid-Atocha Cercanías 6:00-9:00 Mon-Fri');
   assert.equal(r.text, "Done: I'll alert you about Alcalá de Henares → Madrid-Atocha Cercanías (06:00-09:00, Monday to Friday).\n\nNow:\n"
@@ -117,8 +117,8 @@ test('/journey en inglés: cómo se escribe, los días en inglés, la lista, los
     + `\n\n${RENFE}\n\n/following to see what you follow · /unfollow to stop following it`);
   assertEnglish(r.text, '/journey');
   say('/journey Alcalá de Henares > Madrid-Atocha Cercanías 6-9 Mon,Wed,Fri');
-  assert.match(say('/following')[0].text, /\n3\. Alcalá de Henares → Madrid-Atocha Cercanías \(06:00-09:00, on Mondays, Wednesdays and Fridays\)\n/);
-  assert.match(say('/data')[0].text, /- Following: Alcalá de Henares → Madrid-Atocha Cercanías \(06:00-09:00, on Saturdays and Sundays\); /);
+  assert.match(say('/following')[0].text, /\n3\. Alcalá de Henares → Madrid-Atocha Cercanías \(06:00-09:00, Mondays, Wednesdays and Fridays\)\n/);
+  assert.match(say('/data')[0].text, /- Following: Alcalá de Henares → Madrid-Atocha Cercanías \(06:00-09:00, Saturdays and Sundays\); /);
   // Sus avisos en la ronda: la cancelación (el título de nuestro servidor, traducido) y el retraso.
   world.events = [{
     id: 'renfe-cancelado:c:21516', source: 'renfe-avisos', category: 'cancelacion', type: 'cancelado', credit: RENFE,
@@ -129,14 +129,14 @@ test('/journey en inglés: cómo se escribe, los días en inglés, la lista, los
   world.vehicles = [md(17)];
   const msg = tick().find((m) => m.text.includes('Monday to Friday')).text;
   assert.equal(msg, 'Alcalá de Henares → Madrid-Atocha Cercanías (06:00-09:00, Monday to Friday):\n\n'
-    + '- Cercanías C2 21516 cancelled: Guadalajara → Madrid-Atocha Cercanías. It was due through Alcalá de Henares at 07:37.\n'
+    + '- Cercanías C2 21516 cancelled: Guadalajara → Madrid-Atocha Cercanías. It was due to call at Alcalá de Henares at 07:37.\n'
     + '- Media Distancia 18001, the 07:10 from Alcalá de Henares, is running 17 min late. Next stop: Guadalajara.'
     + `\n\n${RENFE}\n\nMore at https://radarespana.es/?lang=en`);
   assertEnglish(msg.replaceAll('Cercanías', ''), 'aviso del trayecto');
   const status = say('/status').map((m) => m.text).join('\n\n');
   assert.match(status, /\n- 07:10 Media Distancia 18001: running 17 min late\. Next stop: Guadalajara\.\n/);
   assert.match(status, /\n- 07:37 Cercanías C2 21516: cancelled\.\n/);
-  assert.match(status, /on Saturdays and Sundays\):\nToday isn't one of your days: I alert you on Saturdays and Sundays\./);
+  assert.match(status, /Saturdays and Sundays\):\nToday isn't one of your days \(Saturdays and Sundays\)\./);
 });
 
 test('provincias en inglés: apagones de las islas, focos de calor (pedirlos y quitarlos, «fires» y «no fires») y tráfico', () => {
@@ -178,4 +178,15 @@ test('los avisos de Renfe de una estación en inglés: el título por defecto, t
   assert.equal(m.text, 'Majadahonda station:\n\nRenfe notice: Ascensor de la estación Majadahonda que da acceso a la vía 2, se encuentra fuera de servicio.'
     + `\n\n${RENFE}\n\nMore at https://radarespana.es/?lang=en`);
   assert.match(say('/status')[0].text, /\nRenfe notices at the station:\n- Renfe notice: Ascensor de la estación Majadahonda/);
+});
+
+test('dejar de seguir, en inglés: «the alerts for Málaga», «about the M-30» (no «about Alerts in…», «about M-30 road»)', () => {
+  const { say } = setup();
+  say('/language english');
+  say('/province Málaga');
+  say('/road M-30');
+  say('/road A-7 Málaga');
+  assert.equal(say('/unfollow 1')[0].text, "Done: I'll no longer alert you about the M-30.");
+  assert.equal(say('/unfollow 1')[0].text, "Done: I'll no longer alert you about the A-7 in Málaga.");
+  assert.equal(say('/unfollow 1')[0].text, "Done: I'll no longer send you the alerts for Málaga. You aren't following anything else, so I don't store anything about this chat.");
 });

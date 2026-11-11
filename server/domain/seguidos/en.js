@@ -32,7 +32,7 @@ export const EN = {
   'todos los días': 'every day',
   'ningún día': 'no days',
   'de {from} a {to}': '{from} to {to}',
-  'los {days}': 'on {days}',
+  'los {days}': '{days}',
   '{list} y {last}': '{list} and {last}',
   // Los tipos de vehículo del registro (domain/modos.js), como en la web.
   tren: 'train',
@@ -141,8 +141,10 @@ export const EN = {
   'No sigues nada.': "You aren't following anything.",
   'Eso ya no lo sigues.': 'You no longer follow that.',
   'Hecho: ya no te aviso de {name}.': "Done: I'll no longer alert you about {name}.",
-  'Hecho: ya no te aviso de {name}. No sigues nada más, así que no guardo nada de este chat.':
-    "Done: I'll no longer alert you about {name}. You aren't following anything else, so I store nothing about this chat.",
+  'No sigues nada más, así que no guardo nada de este chat.': "You aren't following anything else, so I don't store anything about this chat.",
+  'Hecho: ya no te mando los avisos de {province}.': "Done: I'll no longer send you the alerts for {province}.",
+  'Hecho: ya no te aviso de la {road}.': "Done: I'll no longer alert you about the {road}.",
+  'Hecho: ya no te aviso de la {road} en {province}.': "Done: I'll no longer alert you about the {road} in {province}.",
   'Dime qué quieres seguir: un número de tren («08058»), una línea con su ciudad u operador («C4 Madrid», «27 EMT Málaga») o una provincia (/provincia Valencia).':
     'Tell me what you want to follow: a train number (“08058”), a line with its city or operator (“C4 Madrid”, “27 EMT Málaga”) or a province (/province Valencia).',
   'No encuentro nada así entre lo que circula ahora o ha circulado hace poco. Prueba con el número («08058»), la línea y su ciudad u operador («C4 Madrid»), o búscalo en el mapa y pulsa «Avísame por Telegram» en su ficha: {web}':
@@ -191,8 +193,8 @@ export const EN = {
   'No conozco esa orden. Mira /ayuda.': "I don't know that command. See /help.",
 
   // ---------- Avisos y estado de lo que se sigue (avisos.js) ----------
-  'Por esta estación pasaba a las {time}.': 'It was due through this station at {time}.',
-  'Por esta estación pasaba a las {time} (es una de las suprimidas).': 'It was due through this station at {time} (one of the skipped stops).',
+  'Por esta estación pasaba a las {time}.': 'It was due to call at this station at {time}.',
+  'Por esta estación pasaba a las {time} (es una de las suprimidas).': 'It was due to call at this station at {time} (one of the skipped stops).',
   'No se sabe si circula: su operador no publica nada de él.': "It isn't known whether it is running: its operator publishes nothing about it.",
   'Motivo: {reason}': 'Reason: {reason}',
   'Aviso del operador: {notice}': 'Operator notice: {notice}',
@@ -234,12 +236,12 @@ export const EN = {
   '- {title} (ya no lo publica)': '- {title} (no longer published)',
   'Aviso: {title}: {notice}': 'Notice: {title}: {notice}',
   'Esa estación no la encuentro ahora en el catálogo del radar.': "I can't find that station in the radar's catalogue right now.",
-  'Hoy no hay cancelaciones en vigor ni servicios sin datos que pasen por {station}.': 'Today there are no current cancellations or services with no data through {station}.',
+  'Hoy no hay cancelaciones en vigor ni servicios sin datos que pasen por {station}.': 'Today there are no current cancellations or services with no data due to call at {station}.',
   'Pasaban hoy por {station} y su operador no publica nada de ellos (sin datos): {missing}.':
-    'Due through {station} today with nothing published by their operator (no data): {missing}.',
-  'Pasaban hoy por {station} y están cancelados o con paradas suprimidas: {cancelled}.': 'Due through {station} today and cancelled or with skipped stops: {cancelled}.',
+    'Due to call at {station} today, with nothing published by their operator (no data): {missing}.',
+  'Pasaban hoy por {station} y están cancelados o con paradas suprimidas: {cancelled}.': 'Due to call at {station} today and cancelled or with skipped stops: {cancelled}.',
   'Pasaban hoy por {station} y están cancelados o con paradas suprimidas: {cancelled}; sin datos: {missing}.':
-    'Due through {station} today and cancelled or with skipped stops: {cancelled}; no data: {missing}.',
+    'Due to call at {station} today and cancelled or with skipped stops: {cancelled}; no data: {missing}.',
   '- {title} (aquí a las {time})': '- {title} (here at {time})',
   'Además, {n} que se había cancelado y su operador ya no publica: puede que al final circule.':
     'Also, {n} that had been cancelled and that its operator no longer publishes: it may run after all.',
@@ -327,10 +329,10 @@ export const EN = {
   'No para en {origin} ni en {destination}': 'It skips {origin} and {destination}',
   'no para en {station}': 'skips {station}',
   'no para en {origin} ni en {destination}': 'skips {origin} and {destination}',
-  'Pasaba por {station} a las {time}.': 'It was due through {station} at {time}.',
+  'Pasaba por {station} a las {time}.': 'It was due to call at {station} at {time}.',
   '{train}, {which}, va con {n} min de retraso.': '{train}, {which}, is running {n} min late.',
   'Alguna de las estaciones de este trayecto ya no está en el catálogo del radar.': "One of this journey's stations is no longer in the radar's catalogue.",
-  'Hoy no es uno de tus días: te aviso {days}.': "Today isn't one of your days: I alert you {days}.",
+  'Hoy no es uno de tus días: te aviso {days}.': "Today isn't one of your days ({days}).",
   'Ahora no se ve ningún tren de tu franja de {origin} a {destination}. Los trenes salen aquí cuando empiezan su recorrido, y las cancelaciones, cuando su operador las publica.':
     'No trains in your time window from {origin} to {destination} are visible right now. Trains appear here when they start their trip, and cancellations when their operator publishes them.',
   'Trenes de tu franja que se ven ahora (hora en {station}):': 'Trains in your time window visible now (time at {station}):',

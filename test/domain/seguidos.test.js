@@ -177,7 +177,7 @@ test('estado: un servicio que circula, cancelado o que no se ve; una línea; una
   const c4 = statusOf(C4A, ctx).lines;
   assert.equal(c4[0], 'Ahora circula 1 tren; no lleva 5 min o más de retraso.');
   assert.equal(c4[1], 'Cancelados o con paradas suprimidas hoy: 1.');
-  assert.match(c4.at(-1), /^Aviso: Aviso Renfe · C4a, C4b: Por huelga/);
+  assert.match(c4.at(-1), /^Aviso Renfe · C4a, C4b: Por huelga/, 'sin «Aviso:» delante de «Aviso Renfe»');
   assert.deepEqual(statusOf(EMT27, ctx).lines, ['Ahora circula 1 autobús.'], 'el nombre de los vehículos, del registro de tipos');
   const two = statusOf(EMT27, { ...ctx, vehicles: [...vehicles, { ...vehicles[4], id: 'emt-malaga:662', delay: 9 }, { ...vehicles[4], id: 'x', delay: 1 }] }).lines;
   assert.equal(two[0], 'Ahora circulan 3 autobuses; 1 de los 2 que dicen su retraso llevan 5 min o más.');
@@ -378,7 +378,7 @@ test('avisos de Renfe de una línea: una vez cada texto (Renfe publica a veces e
   const events = [notice, same, ...others];
   assert.deepEqual(collectFacts({ keys: [C4A], events, now: NOW }).get(C4A).map((f) => f.id), ['renfe-aviso:1', 'renfe-aviso:o0', 'renfe-aviso:o1', 'renfe-aviso:o2']);
   const { lines } = statusOf(C4A, { vehicles, events, now: NOW });
-  assert.equal(lines.filter((l) => l.startsWith('Aviso: ')).length, 3);
+  assert.equal(lines.filter((l) => l.startsWith('Aviso Renfe')).length, 3);
   assert.equal(lines.filter((l) => l.includes('servicios mínimos')).length, 1, 'el repetido, una vez');
   assert.equal(lines.at(-1), '…y 1 más.', 'antes se cortaba a 2 sin decirlo');
 });

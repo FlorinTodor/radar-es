@@ -182,7 +182,7 @@ test('todo en inglés: seguir, buscar, /mis, /estado, /dejar, /parte, /datos y /
     + '\n\nTo unfollow something: /unfollow (or /unfollow and its number).');
   world.events = [cancellation(), redWarning];
   const status = say('/status').map((r) => r.text).join('\n\n');
-  assert.match(status, /Valladolid-Campo Grande station:\nDue through Valladolid-Campo Grande today and cancelled or with skipped stops: 1\.\n- Avant 08058 cancelled: /);
+  assert.match(status, /Valladolid-Campo Grande station:\nDue to call at Valladolid-Campo Grande today and cancelled or with skipped stops: 1\.\n- Avant 08058 cancelled: /);
   assert.match(status, /Alerts in Valencia:\nAviso rojo por lluvias · Litoral sur de Valencia, from 10\/11, 06:00 until 10\/11, 07:00\. Issued 10\/11, 06:00\.\nRoads: no closures or serious accidents right now\.\n\n© AEMET/,
     'el aviso de AEMET, tal cual; lo nuestro, la fecha y el tráfico, en inglés');
   assert.match(status, /More at https:\/\/radarespana\.es\/\?lang=en$/);

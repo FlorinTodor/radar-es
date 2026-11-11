@@ -292,8 +292,8 @@ test('trayectos y carreteras: sus nombres y sus días en inglés; y lo que se es
   const route = 'Alcalá de Henares → Madrid-Atocha Cercanías';
   assert.equal(en(`${route} (07:00-09:00, de lunes a viernes)`), `${route} (07:00-09:00, Monday to Friday)`);
   assert.equal(en(`${route} (07:00-09:00, todos los días)`), `${route} (07:00-09:00, every day)`);
-  assert.equal(en(`${route} (07:00-09:00, los sábados)`), `${route} (07:00-09:00, on Saturdays)`);
-  assert.equal(en(`${route} (07:00-09:00, lunes, miércoles y viernes)`), `${route} (07:00-09:00, on Mondays, Wednesdays and Fridays)`);
+  assert.equal(en(`${route} (07:00-09:00, los sábados)`), `${route} (07:00-09:00, Saturdays)`);
+  assert.equal(en(`${route} (07:00-09:00, lunes, miércoles y viernes)`), `${route} (07:00-09:00, Mondays, Wednesdays and Fridays)`);
   assert.equal(en(`${route} (07:00-09:00, de viernes a lunes)`), `${route} (07:00-09:00, Friday to Monday)`);
   // Todas las máscaras: el nombre guardado en español (daysText) se lee y sale en inglés, sin nada en español.
   for (let mask = 1; mask <= 0x7f; mask++) {

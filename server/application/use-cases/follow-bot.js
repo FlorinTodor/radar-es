@@ -402,19 +402,23 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
     const { t } = tr;
     const chat = chats.get(chatId);
     if (!chat) return [reply(chatId, t('No sigues nada.'))];
-    let name = null;
+    let done = null;
     if (sub.startsWith('prov:')) {
       const id = sub.slice(5);
-      if (chat.provinces.delete(id)) name = provinceTitle(provinceById(id), tr);
+      if (chat.provinces.delete(id)) done = t('Hecho: ya no te mando los avisos de {province}.', { province: provinceById(id).name });
     } else if (chat.subs.has(sub)) {
-      name = tr.name(chat.subs.get(sub).name);
+      // Una carretera, por su nombre («la M-30», «la A-7 en Málaga»); lo demás, por el suyo en el idioma del chat.
+      const saved = chat.subs.get(sub).name;
+      const road = isRoadKey(sub) ? /^Carretera (.+?)(?: \(([^()]+)\))?$/.exec(saved) : null;
+      done = !road ? t('Hecho: ya no te aviso de {name}.', { name: tr.name(saved) })
+        : road[2] ? t('Hecho: ya no te aviso de la {road} en {province}.', { road: road[1], province: road[2] })
+          : t('Hecho: ya no te aviso de la {road}.', { road: road[1] });
       chat.subs.delete(sub);
     }
-    if (!name) return [reply(chatId, t('Eso ya no lo sigues.'))];
+    if (!done) return [reply(chatId, t('Eso ya no lo sigues.'))];
     dirty = true;
     dropIfEmpty(chat);
-    return [reply(chatId, chats.has(chatId) ? t('Hecho: ya no te aviso de {name}.', { name })
-      : t('Hecho: ya no te aviso de {name}. No sigues nada más, así que no guardo nada de este chat.', { name }))];
+    return [reply(chatId, chats.has(chatId) ? done : `${done} ${t('No sigues nada más, así que no guardo nada de este chat.')}`)];
   }
 
   /**

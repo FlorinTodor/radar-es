@@ -105,7 +105,7 @@ test('/mis, /dejar (con número, por nombre y con botones), /datos y /baja; quie
   assert.match(data, /^Esto es todo lo que guardo de este chat:\n- Número del chat: 1001\n/);
   assert.match(data, /Lo que sigues: Avant 08058/);
   assert.match(data, /Provincias: Valencia/);
-  assert.match(say('/dejar 2')[0].text, /^Hecho: ya no te aviso de Avisos en Valencia\.$/);
+  assert.match(say('/dejar 2')[0].text, /^Hecho: ya no te mando los avisos de Valencia\.$/);
   const [menu] = say('/dejar');
   assert.deepEqual(menu.buttons.map((row) => row[0].text), ['Avant 08058']);
   assert.match(press(menu.buttons[0][0].data).replies[0].text, /^Hecho: ya no te aviso de Avant 08058\. No sigues nada más, así que no guardo nada de este chat\.$/);
@@ -321,7 +321,7 @@ test('/dejar con un número que no está en la lista: lo dice y no busca esa cif
   assert.deepEqual(bot.stats(), { chats: 1, subs: 3 }, 'no ha dejado nada («Avant 08058» tiene un 0, un 5 y un 8)');
   assert.match(say('/dejar 1')[0].text, /^Hecho: ya no te aviso de Avant 08058/);
   const [menu] = say('/dejar 9');
-  assert.match(press(menu.buttons[1][0].data).replies[0].text, /^Hecho: ya no te aviso de Avisos en Valencia/);
+  assert.match(press(menu.buttons[1][0].data).replies[0].text, /^Hecho: ya no te mando los avisos de Valencia/);
   assert.match(say('/dejar 3')[0].text, /^En tu lista no hay un 3: sólo tiene el 1\./);
 });
 
