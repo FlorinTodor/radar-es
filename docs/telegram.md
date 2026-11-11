@@ -175,7 +175,10 @@ destino** y **salen del origen en esa franja**, uno de esos días. No hace falta
   repite el texto de su clave. Se nombra con lo que se puede comprobar (el operador si se conoce su red, el número,
   la hora, un código de línea corto) o con un nombre genérico, y se renueva en cuanto se vuelve a ver. Una estación
   que no está en el catálogo no se sigue. Una carretera sólo vale si su código lo parece (letras, una cifra y lo
-  que siga) y su provincia existe; se nombra como la escribe su fuente si se ve, o por su código.
+  que siga) y su provincia existe; se nombra como la escribe su fuente si se ve, o por su código. Cada cosa tiene
+  una sola clave: la de un enlace se rehace al leerla (`canonicalKey`), así que escribir la misma de otra forma es
+  seguir lo mismo; y un trayecto por enlace pasa las mismas comprobaciones que `/trayecto` (estaciones distintas y de
+  la misma red).
 - **Charla**: «hola», «gracias», «vale»… escritos sin orden no se buscan (por el principio de una palabra, «hola»
   encontraba «Naciones-Holanda»). Una búsqueda con más resultados de los que caben en la lista dice cuántos hay
   y pide la ciudad o el operador; a igual encaje, primero trenes, metros y tranvías (orden del registro de tipos).

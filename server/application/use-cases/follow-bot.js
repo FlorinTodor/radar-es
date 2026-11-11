@@ -6,7 +6,7 @@
 // Cada chat tiene su idioma (domain/seguidos/idioma.js): español salvo que elija otro con /idioma, con un botón o
 // desde la web en inglés (su enlace lo dice). Se guarda con lo demás del chat; mientras no siga nada, sólo en
 // memoria, como todo lo de quien no sigue nada.
-import { isFollowKey, isRoadKey, followKind, stopCode } from '../../domain/seguir.js';
+import { canonicalKey, isFollowKey, isRoadKey, followKind, stopCode } from '../../domain/seguir.js';
 import { PROVINCE_TRAFFIC_TEXT, asksForRoad, parseRoadRequest, roadFollowedText, roadName, roadRequestHelp, roadSeen, roadSub, roadTitle } from '../../domain/seguidos/trafico.js';
 import { entryLabel, guessedName, knownNames, searchDirectory, updateDirectory } from '../../domain/seguidos/directorio.js';
 import {
@@ -26,7 +26,7 @@ import { withoutRepeats } from '../../domain/seguidos/estacion.js';
 import { findProvince, provinceById } from '../../domain/provincias.js';
 import {
   collectTrayectoFacts, connectedBy, looksLikeTrayecto, parseTrayectoText, passIndex, trayectoErrorText, trayectoHelpText, trayectoName,
-  trayectoOptions, trayectoStations, trayectoStatus,
+  trayectoOptions, trayectoProblem, trayectoStations, trayectoStatus,
 } from '../../domain/seguidos/trayectos.js';
 
 /** Topes: chats en total, cosas seguidas por chat (provincias incluidas), provincias por chat y menús. */
@@ -266,10 +266,12 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
     }
   }
 
-  function follow(chatId, key, name = null) {
+  function follow(chatId, link, name = null) {
     const tr = trOf(chatId);
     const { t } = tr;
-    if (!isFollowKey(key)) return [reply(chatId, t('Eso no es algo que se pueda seguir. Búscalo con /seguir o desde la web.'))];
+    // Cada cosa con una sola clave: un enlace inventado puede escribir la misma de muchas formas («p-_37_30…»).
+    const key = canonicalKey(link);
+    if (!key) return [reply(chatId, t('Eso no es algo que se pueda seguir. Búscalo con /seguir o desde la web.'))];
     const c = ctx();
     const station = followKind(key) === 'parada';
     // Una estación está en el catálogo o no existe: de una que no está nunca llegaría nada.
@@ -280,6 +282,9 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
     if (followKind(key) === 'trayecto' && !trayectoName(key, stationOf)) {
       return [reply(chatId, t('Ese trayecto no lo puedo seguir: alguna de sus estaciones no está en el catálogo del radar. Escríbelo con /trayecto.'))];
     }
+    // Un trayecto por enlace, con lo mismo que comprueba /trayecto: estaciones distintas y de la misma red.
+    const wrong = followKind(key) === 'trayecto' ? trayectoProblem(key, stationOf) : null;
+    if (wrong) return [reply(chatId, trayectoErrorText(wrong, tr))];
     // Un enlace de la web trae sólo la clave: su nombre, de lo que se ve ahora.
     if (!name && !station) refreshDirectory(c, key);
     const existing = chats.get(chatId);
@@ -481,9 +486,10 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
     if (!arg) {
       if (!chat) return [reply(chatId, t('No sigues nada todavía. Dime qué quieres seguir con /seguir, o mira cómo va algo: /estado 08058.'))];
       for (const it of listOf(chat, tr)) blocks.push(statusBlock(`${it.name}:`, it.sub, c, tr, it.fires));
-    } else if (isFollowKey(arg)) {
-      if (followKind(arg) !== 'parada') refreshDirectory(c, arg);
-      blocks.push(statusBlock(`${tr.name(nameOf(arg))}:`, arg, c, tr));
+    } else if (canonicalKey(arg)) {
+      const key = canonicalKey(arg);
+      if (followKind(key) !== 'parada') refreshDirectory(c, key);
+      blocks.push(statusBlock(`${tr.name(nameOf(key))}:`, key, c, tr));
     } else {
       refreshDirectory(c);
       // «/estado A-7»: la carretera, no el autobús 7 (asksForRoad); «/estado C4 Madrid», la línea.
@@ -717,8 +723,10 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
         if (!Number.isSafeInteger(c?.id)) continue;
         const subs = new Map();
         for (const s of Array.isArray(c.subs) ? c.subs.slice(0, limits.subsPerChat) : []) {
-          if (!(isFollowKey(s?.key) || roadSub(s?.key)) || typeof s.name !== 'string') continue;
-          subs.set(s.key, { name: cutText(s.name, 200), since: num(s.since), checkedAt: num(s.checkedAt), ...(s.guessed === true ? { guessed: true } : {}) });
+          // Cada cosa con su clave única (las guardadas antes de que se rehicieran, también): dos formas de la misma, una.
+          const key = roadSub(s?.key) ? s.key : canonicalKey(s?.key);
+          if (!key || typeof s.name !== 'string' || subs.has(key)) continue;
+          subs.set(key, { name: cutText(s.name, 200), since: num(s.since), checkedAt: num(s.checkedAt), ...(s.guessed === true ? { guessed: true } : {}) });
         }
         const provinces = new Map();
         for (const p of Array.isArray(c.provinces) ? c.provinces.slice(0, limits.provincesPerChat) : []) {

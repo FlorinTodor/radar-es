@@ -244,3 +244,32 @@ test('/parte con la hora sola («7», «7h») y, sin seguir nada, la hora mal es
   assert.match(say('/parte 8h')[0].text, /a las 08:00/);
   assert.match(say('/summary 7pm')[0].text, /at 19:00/, 'en inglés, también');
 });
+
+test('claves de enlace: la misma cosa escrita de otra forma es la misma; un trayecto por enlace, con lo que comprueba /trayecto', async () => {
+  const { say, bot, disk } = setup();
+  const esc = (s) => [...new TextEncoder().encode(s)].map((b) => `_${b.toString(16).toUpperCase().padStart(2, '0')}`).join('');
+  assert.match(say(`/start ${KEY}`)[0].text, /^Hecho: te aviso de /);
+  const same = KEY.replace(`t-${ST.al.code}-`, `t-${esc(ST.al.code)}-`);
+  assert.notEqual(same, KEY);
+  assert.match(say(`/start ${same}`)[0].text, /^Ya sigues /, 'escrita de otra forma: la misma');
+  assert.match(say('/start p-70103')[0].text, /^Hecho: te aviso de Estación Alcalá de Henares/);
+  assert.match(say(`/start p-${esc('70103')}`)[0].text, /^Ya sigues Estación Alcalá de Henares/);
+  assert.deepEqual(bot.stats(), { chats: 1, subs: 2 });
+  // Origen y destino, la misma estación escrita de dos formas; o de redes distintas: no se sigue.
+  assert.match(say(`/start t-${ST.al.code}-${esc(ST.al.code)}-07000900-1f`, 2)[0].text, /^Eso no es algo que se pueda seguir/);
+  const otherNet = { code: 'tmb:P.1', name: 'Pinar', place: null, lat: 41.4, lon: 2.1, network: 'Metro de Barcelona (TMB)', networkId: 'tmb' };
+  CATALOG.push(otherNet);
+  try {
+    const { say: say2 } = setup();
+    assert.match(say2(`/start t-${ST.al.code}-tmb_3AP_2E1-07000900-1f`, 3)[0].text, /^Alcalá de Henares y Pinar · Metro de Barcelona \(TMB\) no son de la misma red/);
+  } finally {
+    CATALOG.pop();
+  }
+  // Lo guardado con dos formas de la misma clave: una.
+  await bot.save({ always: true });
+  disk.value.chats[0].subs.push({ ...disk.value.chats[0].subs[0], key: same });
+  const b = setup();
+  b.disk.value = disk.value;
+  await b.bot.load();
+  assert.deepEqual(b.bot.stats(), { chats: 1, subs: 2 });
+});

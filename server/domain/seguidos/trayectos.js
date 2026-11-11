@@ -272,6 +272,19 @@ export function trayectoStations(key, stationOf) {
   return { origin, destination, from: toMin(p.from), to: toMin(p.to), days: p.days };
 }
 
+/**
+ * Lo que tiene mal un trayecto que llega por un enlace (que se puede inventar), con las mismas comprobaciones que
+ * /trayecto: que sus estaciones sean distintas y de la misma red. null si está bien (o no es un trayecto); si alguna
+ * estación no está en el catálogo, eso lo dice trayectoName.
+ * @returns {{ error: 'misma' } | { error: 'red', origin: string, destination: string } | null}
+ */
+export function trayectoProblem(key, stationOf) {
+  const t = trayectoStations(key, stationOf);
+  if (!t) return null;
+  if (t.origin.code === t.destination.code) return { error: 'misma' };
+  return sameNetwork(t.origin, t.destination) ? null : { error: 'red', origin: stationLabel(t.origin), destination: stationLabel(t.destination) };
+}
+
 /** «Alcalá de Henares → Madrid-Atocha Cercanías (07:00-09:00, de lunes a viernes)»; null si no se encuentran sus estaciones. */
 export function trayectoName(key, stationOf) {
   const t = trayectoStations(key, stationOf);

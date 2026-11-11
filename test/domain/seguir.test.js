@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ALL_DAYS, FOLLOW_KEY_MAX, answersTo, daysText, describeFollow, followKind, followOf, isFollowKey, lineKey, mergeFollow, networkPart,
+  ALL_DAYS, FOLLOW_KEY_MAX, answersTo, canonicalKey, daysText, describeFollow, followKind, followOf, isFollowKey, lineKey, mergeFollow, networkPart,
   numberedServiceKey, parseFollowKey, scheduledServiceKey, shortHash, stopCode, stopKey, trayectoKey,
 } from '../../server/domain/seguir.js';
 
@@ -177,4 +177,20 @@ test('trayecto: dos estaciones, la franja y los días; reversible, válido para 
   assert.equal(daysText(0x71), 'de viernes a lunes', 'seguidos pasando del domingo al lunes');
   assert.equal(daysText(0x40), 'los domingos');
   assert.equal(daysText(ALL_DAYS), 'todos los días');
+});
+
+test('la forma única de una clave: lo que hacen los constructores, tal cual; otras escrituras de lo mismo, a ella', () => {
+  const esc = (s) => [...new TextEncoder().encode(s)].map((b) => `_${b.toString(16).toUpperCase().padStart(2, '0')}`).join('');
+  const built = [stopKey('70103'), stopKey('tmb:P.6660111'), lineKey({ operator: 'EMT Madrid', line: 'L-1' }), lineKey({ operator: 'Renfe', scope: 'Madrid', line: 'C4a' }),
+    numberedServiceKey({ operator: 'Renfe', number: '08058' }), scheduledServiceKey({ operator: 'Euskotren', line: 'E4', origin: 'stop-matiko', departure: 47400 }),
+    lineKey({ operator: 'Autobuses Urbanos de Valladolid AUVASA', line: '1' }), lineKey({ operator: 'Renfe' }),
+    trayectoKey({ origin: '70103', destination: '18000', from: 420, to: 540, days: 31 })];
+  for (const key of built) assert.equal(canonicalKey(key), key, key);
+  assert.equal(canonicalKey(`p-${esc('70103')}`), 'p-70103');
+  assert.equal(canonicalKey('s-renfe-08058'), 's-renfe-8058');
+  assert.equal(canonicalKey(`s-${esc('renfe')}-8058`), 's-renfe-8058');
+  assert.equal(canonicalKey(`l-renfe-${esc('Madrid')}-C4a`), 'l-renfe-Madrid-C4a');
+  assert.equal(canonicalKey(`t-${esc('70103')}-18000-07000900-1f`), 't-70103-18000-07000900-1f');
+  assert.equal(canonicalKey(`t-70103-${esc('70103')}-07000900-1f`), null, 'el origen y el destino, la misma estación');
+  assert.equal(canonicalKey('no-es-una-clave'), null);
 });

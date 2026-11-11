@@ -237,6 +237,36 @@ export function parseFollowKey(key) {
   return out;
 }
 
+// Una parte que es una huella («__1a2b3c4», «emtmadridyalg__1a2b3c4»): no se puede leer, va tal cual.
+const HASHED = /__[0-9a-z]{7}$/;
+/** Una parte en su única forma: lo que dice, escapado como lo escribe escapePart («_37_30» → «70»). */
+const canonicalPart = (p) => (p === '_' || HASHED.test(p) ? p : escapePart(unescapePart(p)));
+
+/**
+ * La forma única de una clave: una misma cosa admite varias escrituras en un enlace inventado («p-70103» y
+ * «p-_37_30_31_30_33», «s-renfe-08058»), y cada una sería otra suscripción con los mismos avisos. Se rehace con lo
+ * que dice: sus partes escapadas como las escribe escapePart, el número de un servicio sin ceros a la izquierda y un
+ * trayecto con trayectoKey (que no deja que el origen sea el destino). null si no es una clave válida o su forma
+ * única no lo es.
+ * @param {string} key
+ * @returns {string|null}
+ */
+export function canonicalKey(key) {
+  if (!isFollowKey(key)) return null;
+  const [prefix, ...raw] = key.split('-');
+  if (prefix === 't') {
+    const t = readTrayecto(key);
+    return t && t.origin !== t.destination ? trayectoKey(t) : null;
+  }
+  if (prefix === 'p') return join('p', raw.map(canonicalPart));
+  const [network, ...rest] = raw;
+  const net = HASHED.test(network) ? network : networkPart(unescapePart(network));
+  if (!net) return null;
+  const parts = rest.map(canonicalPart);
+  if (prefix === 's' && parts.length === 1 && /^\d+$/.test(parts[0])) parts[0] = parts[0].replace(/^0+(?=\d)/, '');
+  return join(prefix, [net, ...parts]);
+}
+
 /** El tipo de una clave («servicio», «linea», «parada», «trayecto») o null. */
 export const followKind = (key) => (isFollowKey(key) ? KIND_OF_PREFIX[key[0]] : null);
 
