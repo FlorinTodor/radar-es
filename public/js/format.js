@@ -138,6 +138,8 @@ export function photoTitleOf(page) {
 const CREDIT_LINKS = [
   ['MITRAMS', 'https://www.transportes.gob.es/'], ['CRTM', 'https://www.crtm.es/'], ['TRAM Barcelona', 'https://www.tram.cat/'],
   ['CC BY 3.0 ES', 'https://creativecommons.org/licenses/by/3.0/es/'], // Gobierno de Cantabria: la licencia pide enlazarla
+  // Asturias: «Origen de los contenidos: Administración del Principado de Asturias», con enlace a su web oficial.
+  ['Administración del Principado de Asturias', 'https://www.asturias.es/'],
 ];
 
 /** Texto de atribución como HTML, escapado y con el enlace de las que lo piden. */

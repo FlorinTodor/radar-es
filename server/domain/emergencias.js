@@ -137,6 +137,9 @@ const PLAN_NAMES = [
   'plateca', 'platecam', 'meteocam', 'pricam', 'infocam', 'infoca', 'procicat', 'inuncat', 'neucat', 'ventcat', 'infocat',
   'platerbal', 'meteobal', 'inunbal', 'infobal', 'sismibal',
   'platercam', 'platemur', 'inunmur', 'platercant?', 'infocant', 'platerga', 'labi', 'itsasertza',
+  // Asturias (PLATERPA, el territorial; INFOPA, incendios; RADIOPA, radiológico) y el Ayuntamiento de Madrid (PEMAM,
+  // su plan territorial; CALORMAD, el de calor, dentro del PEMAM).
+  'platerpa', 'infopa', 'radiopa', 'pemam', 'calormad',
   'plan (?:territorial |especial )?de emergencias?', 'plan (?:de )?(?:infoca|sismico|inundaciones|emergencia por incendios)',
   'plan (?:territorial )?de proteccion civil', 'pla (?:territorial |especial )?de proteccio civil',
 ];
@@ -174,7 +177,7 @@ const HAZARDS = [
   ['infoca|infobal|infocat|infocam|incendi|forestal', 'incendio'],
   ['inundaci|inunbal|inuncat|inunmur|lluvia|pluj|pluge|precipitaci|dana|riada|avenida', 'lluvia'],
   ['sismic|sismo|terremoto|terratremol|sismibal', 'sismo'],
-  ['nevada|nieve|helada|neu\\b|neucat|glacada', 'nieve'],
+  ['nevada|nieve|helada|neu\\b|neucat|glacada|invernal', 'nieve'],
   ['tormenta|tempest', 'tormenta'],
   ['viento|vents?\\b|ventcat|temporal|borrasca', 'viento'],
   ['calima|polvo', 'calima'],
@@ -228,6 +231,10 @@ export function severityOf(text) {
   if (/\balerta\b/.test(t) && /\b(?:roj[ao]s?|vermell[ae]s?)\b/.test(t)) return 'muy alta';
   if (/\balerta\b/.test(t) && /\b(?:naranjas?|taronj[ae]s?)\b/.test(t)) return 'alta';
   if (/\balerta\b/.test(t) && /\b(?:amarill[ao]s?|grog(?:a|ues)?|groc)\b/.test(t)) return 'media';
+  // Por color del nivel del plan («activa el nivel naranja del plan de emergencias invernales», en el PEMAM).
+  if (/\bnivel (?:rojo|roja)\b/.test(t)) return 'muy alta';
+  if (/\bnivel naranja\b/.test(t)) return 'alta';
+  if (/\bnivel amarillo\b/.test(t)) return 'media';
   if (/\b(?:alerta maxima|emergencia|situacion? (?:operativa )?[23]|nivell? [23])\b/.test(t)) return 'muy alta';
   if (/\b(?:alerta|preemergencia|situacion? (?:operativa )?1|nivell? 1)\b/.test(t)) return 'alta';
   if (/\b(?:prealerta|situacion? (?:operativa )?0|nivell? 0)\b/.test(t)) return 'media';

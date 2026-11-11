@@ -15,10 +15,10 @@ D./D.ª **[NOMBRE Y APELLIDOS]**, con DNI/NIE **[NÚMERO]**, domicilio a efectos
    en España: tráfico, avisos meteorológicos, incendios, terremotos, el estado de la red eléctrica y los avisos
    oficiales de protección civil (planes activados y cortes de luz).
 
-2. Que esos avisos oficiales ya se muestran para doce comunidades autónomas: Andalucía, Illes Balears,
-   Canarias, Cantabria, Castilla-La Mancha, Castilla y León, Cataluña, Galicia, La Rioja, Comunidad de Madrid,
-   Región de Murcia y País Vasco. Se usan sus canales RSS o de datos abiertos, con su licencia de reutilización,
-   citando la fuente y la fecha y sin alterar el texto.
+2. Que esos avisos oficiales ya se muestran para doce comunidades autónomas: Andalucía, Principado de
+   Asturias, Illes Balears, Canarias, Cantabria, Castilla-La Mancha, Castilla y León, Cataluña, Galicia, La
+   Rioja, Región de Murcia y País Vasco, y para la ciudad de Madrid. Se usan sus canales RSS o de datos
+   abiertos, con su licencia de reutilización, citando la fuente y la fecha y sin alterar el texto.
 
 3. Que de **[COMUNIDAD O CIUDAD]** no se pueden mostrar, porque **[MOTIVO: ver la tabla del final]**. Por ello,
    ante una emergencia como el apagón del 28 de abril de 2025, el mapa no puede mostrar los avisos de
@@ -47,16 +47,18 @@ Firmado: **[NOMBRE Y APELLIDOS]**
 
 ## A quién y por qué
 
-Revisado el 2-11-2026. **Comprueba el contacto antes de enviar**: solo el de Extremadura se leyó en la web
-oficial del organismo; los demás salen de las páginas de datos abiertos o de búsquedas.
+Revisado el 2-11-2026 y otra vez el 11-11-2026. **Comprueba el contacto antes de enviar**: solo el de
+Extremadura se leyó en la web oficial del organismo; los demás salen de las páginas de datos abiertos o de
+búsquedas.
 
 | Comunidad o ciudad | Motivo (para el punto 3) | Contacto |
 |---|---|---|
-| Extremadura | Su aviso legal prohíbe reproducir los contenidos sin autorización expresa y no tiene RSS | Dirección General de Protección Civil y Respuesta a la Emergencia: dgpcre.prs@juntaex.es, tel. 924 006 205 |
-| Aragón | Aragón Hoy solo permite el uso personal o el de los medios de comunicación, y no hay RSS ni conjunto de emergencias | Aragón Open Data: opendata@aragon.es |
-| Principado de Asturias | Ni el 112 (SEPA) ni las noticias del Principado tienen RSS ni conjunto de datos abiertos | 112 Asturias: informacion.sepa@asturias.org; formulario de contacto de miprincipado.asturias.es |
-| Navarra | La Ley Foral 5/2018 permite reutilizar sin autorización, pero SOS Navarra y Protección Civil no publican sus avisos en ningún canal legible por máquina (solo hace falta el punto 1) | Datos abiertos: opendata@navarra.es |
-| Comunitat Valenciana | No se ha encontrado ningún canal del 112 ni de la sala de prensa con licencia. **Antes de enviar**, mira en el navegador si comunica.gva.es tiene RSS («Suscripciones a noticias») y qué dice su aviso legal: si lo tiene y lo permite, no hace falta pedirlo | Agencia Valenciana de Seguridad y Respuesta a las Emergencias, o el gabinete de prensa (comunica.gva.es/es/contacte) |
+| Extremadura | Publica en su web las activaciones de sus planes (por ejemplo, el INUNCAEX el 9-11-2026, en la categoría «Emergencias y protección civil»), pero su aviso legal prohíbe reproducir los contenidos sin autorización expresa, no tiene RSS y su catálogo de datos abiertos no tiene avisos. Pide, además, un RSS de esa categoría | Dirección General de Protección Civil y Respuesta a la Emergencia: dgpcre.prs@juntaex.es, tel. 924 006 205 |
+| Aragón | El RSS de Aragón Hoy solo permite el uso personal o el de los medios de comunicación (prohíbe el uso comercial) y lleva parado desde el 29-04-2026; el 112 Aragón no tiene canal propio y el nivel de alerta de incendios solo sale en PDF. Aragón Open Data no tiene ningún conjunto de emergencias | Aragón Open Data: opendata@aragon.es |
+| Principado de Asturias (112, SEPA) | Las noticias del Gobierno ya se usan (CC BY 4.0). El 112 (SEPA) no tiene RSS ni condiciones de reutilización en su web (las de su app son de uso no comercial) | 112 Asturias: informacion.sepa@asturias.org |
+| Principado de Asturias (noticias) | No hace falta permiso (CC BY 4.0), pero la lista de noticias de actualidad.asturias.es no tiene RSS: hoy se lee la página. Pide que activen el RSS de esa lista o que den la dirección del de «Actualidad del Gobierno» que usa la portada de asturias.es (en el punto 1 de la solicitud basta con esto) | Formulario de contacto de miprincipado.asturias.es |
+| Navarra | La Ley Foral 5/2018 permite reutilizar sin autorización, pero SOS Navarra y Protección Civil no publican sus avisos en ningún canal legible por máquina, y el aviso legal de navarra.es no da licencia (solo hace falta el punto 1) | Datos abiertos: opendata@navarra.es |
+| Comunitat Valenciana | Comprobado el 11-11-2026: la sala de prensa (comunica.gva.es) solo ofrece suscribirse por correo, sin RSS, y ni ella ni gva.es tienen aviso legal de reutilización; el 112 no tiene canal y el catálogo de dades obertes no tiene avisos | Agencia Valenciana de Seguridad y Respuesta a las Emergencias, o el gabinete de prensa (comunica.gva.es/es/contacte) |
 | Galicia (112, AXEGA) | Su aviso legal exige autorización escrita previa. Ya se usan las notas de prensa de la Xunta, pero solo cuentan los grandes sucesos | Axencia Galega de Emerxencias (axega112.gal) |
-| Ceuta | Su aviso legal prohíbe la reproducción sin autorización. El apagón total ya se detecta con la demanda de Red Eléctrica | Ciudad Autónoma de Ceuta: [contacto por confirmar] |
-| Melilla | Su web no tiene RSS ni condiciones de reutilización. El apagón total ya se detecta con la demanda de Red Eléctrica | Ciudad Autónoma de Melilla: [contacto por confirmar] |
+| Ceuta | Su aviso legal prohíbe la reproducción sin autorización y no tiene ni portal de datos abiertos ni avisos de protección civil en su RSS. El apagón total ya se detecta con la demanda de Red Eléctrica | Ciudad Autónoma de Ceuta: [contacto por confirmar] |
+| Melilla | Su web no tiene RSS ni condiciones de reutilización; su portal de datos abiertos (CC BY 4.0) solo tiene informes anuales del 112: pide que publique allí los avisos. El apagón total ya se detecta con la demanda de Red Eléctrica | Ciudad Autónoma de Melilla: [contacto por confirmar] (portal melilla-datosabiertos.tao.es) |
