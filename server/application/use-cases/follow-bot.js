@@ -51,6 +51,10 @@ const EN = translator('en');
 // Cada cuánto, como mucho, se apunta en el registro un mismo problema de la ronda (lo recordado pasa del tope, no se
 // pueden leer las paradas de un viaje).
 const SEEN_WARN_EVERY_MS = 3600_000;
+// Lo que se guarda se copia por partes, cediendo el turno entre una y otra: con el tope de chats, copiarlo y pasarlo a
+// JSON de golpe paraba el servidor (web y bot) de 1,7 a 5,7 s en el VPS. Chats y avisos recordados por parte.
+const SAVE_SLICE = Object.freeze({ chats: 250, seen: 10_000 });
+const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
 
 const num = (x) => (Number.isFinite(x) ? x : 0);
 const clipLabel = (s) => cutText(s, BUTTON_MAX);
@@ -79,15 +83,16 @@ function webIn(webUrl, lang) {
  * @param {{ read: { vehicles: () => object[], events: () => object[], station?: (code: string) => object|null, alerts?: () => object[] },
  *           store: import('../ports.js').FollowStorePort, clock: import('../ports.js').ClockPort,
  *           creditOf?: (source: string, operator?: string) => string|null, webUrl: string, trayectos?: TrayectoReads,
- *           log?: import('../ports.js').LoggerPort, limits?: Partial<typeof LIMITS> }} deps
+ *           log?: import('../ports.js').LoggerPort, limits?: Partial<typeof LIMITS>, pause?: () => Promise<void> }} deps
  *   read: lo que se ve ahora (query-situation: vehículos, incidencias en vigor, la ficha de una estación y las alertas
  *   abiertas, de las que el bot toma los posibles apagones de las islas).
  *   creditOf: la atribución que pide la licencia de una fuente (por su id y, si agrupa a varios, el operador).
  *   trayectos: lo que hace falta para «Mi trayecto» (query-situation): las paradas del viaje de un vehículo y el
  *   catálogo de estaciones. Sin ello, los trayectos no encuentran estaciones ni trenes.
+ *   pause: cómo se cede el turno entre parte y parte al guardar (para los tests).
  * @typedef {{ stops?: (vehicleId: string) => { stops: object[] }|null, stations?: () => object[] }} TrayectoReads
  */
-export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = () => null, webUrl, log, limits: custom = {} }) {
+export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = () => null, webUrl, log, limits: custom = {}, pause = nextTurn }) {
   const limits = { ...LIMITS, ...custom };
   /** @type {Map<number, { id: number, since: number, subs: Map<string, { name: string, since: number, checkedAt: number }>,
    *   provinces: Map<string, { since: number, checkedAt: number, fires?: boolean }>, digest: string|null, digestDay: string|null, lang: string }>}
@@ -115,6 +120,7 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
   let totals = emptyTotals(clock.now());
   let dirty = false;
   let savedAt = 0;
+  let saving = null; // el guardado en curso: el siguiente espera a que acabe (si no, uno viejo podría pisar al nuevo)
   let directoryAt = -Infinity;
   let known = null; // operadores y ámbitos del directorio (knownNames), hasta que cambie
   let menuSeq = 0;
@@ -793,6 +799,44 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
     return { replies: follow(chatId, item.sub, item.name), answer: t('Hecho') };
   }
 
+  /** Lo que se guarda de un chat; apunta en `followed` lo que sigue (de lo avisado sólo se guarda lo de eso). */
+  function chatRecord(c, followed) {
+    for (const k of c.subs.keys()) followed.add(k);
+    for (const id of c.provinces.keys()) followed.add(provinceSub(id));
+    return {
+      id: c.id, since: c.since, digest: c.digest, digestDay: c.digestDay, ...(c.lang !== DEFAULT_LANG ? { lang: c.lang } : {}),
+      subs: [...c.subs].map(([key, s]) => ({ key, name: s.name, since: s.since, checkedAt: s.checkedAt, ...(s.guessed ? { guessed: true } : {}) })),
+      provinces: [...c.provinces].map(([id, s]) => ({ id, since: s.since, checkedAt: s.checkedAt, ...(s.fires ? { fires: true } : {}) })),
+    };
+  }
+  const seenRows = (map, followed) => [...map].filter(([k]) => followed.has(subOfSeen(k))).map(([k, v]) => [k, v.first, v.last]);
+
+  /**
+   * Lo mismo que snapshot(), por partes (SAVE_SLICE), cediendo el turno entre una y otra. Cada chat se copia entero de
+   * una vez; uno que se da de baja antes de que llegue su parte ya no está (se recorre el Map vivo), y uno que se da
+   * de baja después sale en esta copia y no en la siguiente.
+   */
+  async function snapshotInParts() {
+    // El punto de lectura de Telegram, el del principio: lo que se atienda mientras tanto no consta como leído.
+    const readUpTo = offset;
+    const followed = new Set();
+    const list = [];
+    let n = 0;
+    for (const c of chats.values()) {
+      if (n > 0 && n % SAVE_SLICE.chats === 0) await pause();
+      n++;
+      list.push(chatRecord(c, followed));
+    }
+    const rows = [];
+    n = 0;
+    for (const [k, v] of seen) {
+      if (n % SAVE_SLICE.seen === 0) await pause();
+      n++;
+      if (followed.has(subOfSeen(k))) rows.push([k, v.first, v.last]);
+    }
+    return { version: 1, offset: readUpTo, chats: list, seen: rows, totals: structuredClone(totals) };
+  }
+
   return {
     /** Lo guardado (al arrancar o al pasar a ser el servidor que atiende el bot): lo de memoria se cambia por ello. */
     async load() {
@@ -847,37 +891,37 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
     /**
      * Lo que hay que guardar para seguir igual tras un reinicio o un relevo. El idioma, sólo si no es el de siempre.
      * De lo avisado, sólo lo de lo que sigue alguien (tras /baja, nada de lo que seguía, aunque aún no haya pasado la
-     * ronda que lo poda).
+     * ronda que lo poda). De golpe; save() lo copia por partes (snapshotInParts).
      */
     snapshot() {
       const followed = new Set();
-      for (const c of chats.values()) {
-        for (const k of c.subs.keys()) followed.add(k);
-        for (const id of c.provinces.keys()) followed.add(provinceSub(id));
-      }
-      return {
-        version: 1,
-        offset,
-        chats: [...chats.values()].map((c) => ({
-          id: c.id, since: c.since, digest: c.digest, digestDay: c.digestDay, ...(c.lang !== DEFAULT_LANG ? { lang: c.lang } : {}),
-          subs: [...c.subs].map(([key, s]) => ({ key, name: s.name, since: s.since, checkedAt: s.checkedAt, ...(s.guessed ? { guessed: true } : {}) })),
-          provinces: [...c.provinces].map(([id, s]) => ({ id, since: s.since, checkedAt: s.checkedAt, ...(s.fires ? { fires: true } : {}) })),
-        })),
-        seen: [...seen].filter(([k]) => followed.has(subOfSeen(k))).map(([k, v]) => [k, v.first, v.last]),
-        totals: structuredClone(totals),
-      };
+      const list = [];
+      for (const c of chats.values()) list.push(chatRecord(c, followed));
+      return { version: 1, offset, chats: list, seen: seenRows(seen, followed), totals: structuredClone(totals) };
     },
 
     /**
      * Guarda si ha cambiado algo; con `force`, también cada SAVE_EVERY_MS (por la hora de la última ronda); con
-     * `always`, siempre (al apagarse).
+     * `always`, siempre (al apagarse). La copia se hace por partes, cediendo el turno entre una y otra (con miles de
+     * chats, de golpe paraba el servidor), y el almacén la escribe igual. Mientras tanto se siguen atendiendo
+     * mensajes: lo que cambie entra en esta copia o, si su parte ya pasó, en la siguiente (vuelve a haber cambios).
+     * Un guardado espera a que acabe el anterior: al apagarse, el último que se escribe es el de ese momento.
      */
     async save({ force = false, always = false } = {}) {
+      while (saving) await saving.catch(() => {});
       const now = clock.now();
       if (!always && !dirty && !(force && now - savedAt >= SAVE_EVERY_MS)) return false;
       dirty = false;
       savedAt = now;
-      await store.save(this.snapshot());
+      saving = (async () => store.save(await snapshotInParts()))();
+      try {
+        await saving;
+      } catch (err) {
+        dirty = true; // lo de esta copia no se ha guardado: en la siguiente
+        throw err;
+      } finally {
+        saving = null;
+      }
       return true;
     },
 

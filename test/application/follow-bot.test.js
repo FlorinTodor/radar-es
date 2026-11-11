@@ -14,7 +14,7 @@ const C4B = lineKey({ operator: 'Renfe', scope: 'Madrid', line: 'C4b' });
 const EMT27 = lineKey({ operator: 'EMT Málaga', line: '27' });
 const CHAT = 1001;
 
-function setup({ limits } = {}) {
+function setup({ limits, pause } = {}) {
   let now = T0;
   const world = {
     vehicles: [
@@ -37,6 +37,7 @@ function setup({ limits } = {}) {
     creditOf: (source) => (source.startsWith('renfe') ? 'Origen de los datos: Renfe Operadora' : null),
     webUrl: 'https://radarespana.es',
     limits,
+    ...(pause ? { pause } : {}),
   });
   const say = (text, chatId = CHAT) => bot.handle({ chatId, text }).replies;
   const press = (data, chatId = CHAT) => bot.handle({ chatId, callback: data, callbackId: 'q1' });
@@ -511,4 +512,73 @@ test('/datos nombra todo lo que se guarda (también desde cuándo, la última ve
   assert.match(data, /En memoria, un rato y sin guardarlo: las listas de botones que te mando, cuántos mensajes me has escrito en el último minuto y si ya te he ofrecido el inglés\./);
   say('/baja');
   assert.match(say('/datos')[0].text, /^De este chat no guardo nada.*En memoria, un rato y sin guardarlo/);
+});
+
+test('se guarda por partes, cediendo el turno, y lo escrito es lo mismo que snapshot()', async () => {
+  let pauses = 0;
+  const { say, bot, disk, world, tick } = setup({ pause: async () => { pauses++; } });
+  for (let id = 1; id <= 600; id++) say(`/start ${id % 2 ? AVANT : C4A}`, id);
+  world.events = [cancellation()];
+  tick();
+  assert.equal(await bot.save({ always: true }), true);
+  assert.deepEqual(disk.value, bot.snapshot());
+  assert.equal(disk.value.chats.length, 600);
+  assert.ok(pauses >= 3, `600 chats y lo avisado en varias partes (${pauses} pausas)`);
+});
+
+test('mientras se guarda se siguen atendiendo mensajes: una baja no queda guardada, y lo que cambia entra en el siguiente', async () => {
+  let during = null;
+  const { say, bot, disk } = setup({ pause: async () => { const f = during; during = null; f?.(); } });
+  for (let id = 1; id <= 600; id++) say(`/start ${AVANT}`, id);
+  // En la primera pausa (tras los 250 primeros chats): se da de baja uno que aún no se ha copiado, otro que ya, y
+  // sigue algo un chat nuevo.
+  during = () => {
+    say('/baja', 500);
+    say('/baja', 3);
+    say(`/start ${C4A}`, 9999);
+  };
+  await bot.save({ always: true });
+  const ids = new Set(disk.value.chats.map((c) => c.id));
+  assert.equal(ids.has(500), false, 'el de la baja, antes de copiarlo: fuera');
+  assert.equal(ids.has(3), true, 'éste ya estaba copiado: sale en esta copia…');
+  assert.equal(await bot.save(), true, '…y como ha habido cambios, se vuelve a guardar');
+  const now = new Set(disk.value.chats.map((c) => c.id));
+  assert.equal(now.has(3), false, '…sin él');
+  assert.equal(now.has(9999), true, 'y con el chat nuevo');
+  assert.equal(await bot.save(), false, 'ya no hay nada nuevo');
+});
+
+test('un guardado espera a que acabe el que está en marcha: nunca se escriben dos a la vez ni gana uno viejo', async () => {
+  const writes = [];
+  let open = 0;
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const disk = [];
+  // Un almacén lento: el primer guardado tarda hasta que se abre la puerta.
+  const slowBot = makeFollowBot({
+    read: { vehicles: () => [], events: () => [], station: () => null },
+    store: {
+      load: async () => null,
+      save: async (v) => {
+        open++;
+        assert.equal(open, 1, 'sólo uno a la vez');
+        writes.push(v.chats.map((c) => c.id));
+        if (writes.length === 1) await gate;
+        disk.push(v);
+        open--;
+      },
+    },
+    clock: { now: () => T0 },
+    webUrl: 'https://radarespana.es',
+  });
+  slowBot.handle({ chatId: 1, text: `/start ${AVANT}` });
+  const first = slowBot.save();
+  await new Promise((r) => setImmediate(r));
+  slowBot.handle({ chatId: 2, text: `/start ${AVANT}` });
+  const second = slowBot.save();
+  const third = slowBot.save({ always: true }); // al apagarse
+  release();
+  assert.deepEqual(await Promise.all([first, second, third]), [true, true, true]);
+  assert.deepEqual(writes, [[1], [1, 2], [1, 2]]);
+  assert.deepEqual(disk.at(-1).chats.map((c) => c.id), [1, 2], 'lo último escrito es lo último');
 });

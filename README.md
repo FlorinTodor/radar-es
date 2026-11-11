@@ -905,6 +905,8 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   inglés lee inglés; los trayectos eligen estaciones de la misma red y avisan si ningún tren las une; y se guarda
   menos: una sola clave por cosa, nada de lo que ya no sigue nadie y, en lo más seguido, sólo lo que siguen varias
   personas (nunca un trayecto).
+- Guardar lo que sigue cada chat del bot ya no para el servidor: con miles de chats se hace y se escribe por partes,
+  y la web y el bot siguen atendiendo mientras tanto.
 - Probado a fondo antes de subirlo, haciendo de distintos tipos de usuario (en el móvil, quien sigue de
   todo, quien escribe sobre el día, quien usa el bot, quien intenta romperlo y quien revisa las
   cancelaciones), con los datos reales del entorno de pruebas. De ahí salieron, ya hechos:

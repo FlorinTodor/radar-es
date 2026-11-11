@@ -269,6 +269,10 @@ test('almacén y turno en disco: se guarda y se lee; el turno es de uno solo has
     await store.save({ version: 1, chats: [] });
     assert.deepEqual(await store.load(), { version: 1, chats: [] });
     assert.deepEqual(JSON.parse(await readFile(join(dir, 'bot', 'seguidos.v1.json'), 'utf8')), { version: 1, chats: [] });
+    // Algo grande se escribe por trozos (jsonChunks) y queda el mismo JSON.
+    const big = { version: 1, offset: 7, chats: Array.from({ length: 3000 }, (_, i) => ({ id: i, subs: [{ key: `s-renfe-${i}`, name: `Tren «${i}»` }] })) };
+    await store.save(big);
+    assert.equal(await readFile(join(dir, 'bot', 'seguidos.v1.json'), 'utf8'), JSON.stringify(big));
 
     let now = 1_000_000;
     const a = createFileLease({ dir: url, id: 'a', ttlMs: 90_000, now: () => now });
