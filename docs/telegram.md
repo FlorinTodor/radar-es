@@ -196,7 +196,8 @@ destino** y **salen del origen en esa franja**, uno de esos días. No hace falta
 - **Cuánto se usa**, en el panel «Radar · Bot de Telegram» de la monitorización
   ([despliegue.md](despliegue.md#monitorización)):
   - las personas (cada chat privado que sigue algo), lo que siguen por tipo, quién pide el parte y lo más
-    seguido, con cuántas personas lo siguen;
+    seguido, con cuántas personas lo siguen: sólo lo que siguen al menos tres y nunca un trayecto (con su franja y
+    sus días diría demasiado de quien lo sigue);
   - altas y bajas, avisos y mensajes por orden, de 24 horas, de cada día y desde el principio.
 
   Todo va en conjunto, sin el número de ningún chat (`server/domain/seguidos/uso.js`), y sólo lo da el

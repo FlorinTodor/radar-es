@@ -108,7 +108,7 @@ test('un enlace (/start <clave del trayecto>) lo sigue; cuenta en el tope de cos
   assert.match(say('/trayecto Guadalajara > Madrid-Atocha Cercanías 7-8')[0].text, /^Ya sigues 2 cosas, el máximo/);
   const usage = bot.usage();
   assert.deepEqual(usage.follows, { servicio: 0, linea: 0, parada: 0, trayecto: 1, carretera: 0, provincia: 1 });
-  assert.deepEqual(usage.top[0], { kind: 'trayecto', key: KEY, name: NAME, chats: 1 });
+  assert.equal(usage.top.some((t) => t.kind === 'trayecto'), false, 'un trayecto es personal: nunca en lo más seguido');
   assert.equal(usage.totals.commands.enlace, 1);
   assert.equal(usage.totals.commands.trayecto, 1);
   assert.doesNotMatch(JSON.stringify(usage), /1001/);

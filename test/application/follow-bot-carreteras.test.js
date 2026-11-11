@@ -135,7 +135,8 @@ test('topes, lo que se guarda y las métricas: una carretera cuenta como una cos
   assert.deepEqual(disk.value.chats[0].subs.map((s) => [s.key, s.name]), [['c-A7', 'Carretera A-7']]);
   const usage = bot.usage();
   assert.equal(usage.follows.carretera, 1);
-  assert.deepEqual(usage.top.find((t) => t.kind === 'carretera'), { kind: 'carretera', key: 'c-A7', name: 'Carretera A-7', chats: 1 });
+  assert.equal(usage.distinct.carretera, 1);
+  assert.deepEqual(usage.top, [], 'lo que sigue una sola persona no sale en lo más seguido');
   assert.equal(usage.totals.commands.carretera, 2);
   // Otro servidor con el mismo disco: la carretera sigue; una clave mal escrita o de una provincia que no existe, fuera.
   disk.value.chats[0].subs.push({ key: 'c-A7-atlantida', name: 'x', since: T0, checkedAt: T0 }, { key: 'c-hola', name: 'y', since: T0, checkedAt: T0 });

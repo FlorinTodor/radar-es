@@ -11,6 +11,13 @@ import { provinceById } from '../provincias.js';
 export const USAGE_KINDS = Object.freeze(['servicio', 'linea', 'parada', 'trayecto', 'carretera', 'provincia']);
 /** Lo más seguido que se enseña, como mucho (cada cosa es una serie en Prometheus). */
 export const USAGE_TOP = 100;
+/**
+ * Lo más seguido sólo enseña lo que siguen al menos estos chats, y nunca un trayecto: lo que sigue una sola persona
+ * (su trayecto de cada día, con su franja y sus días) diría de ella más de lo que hace falta, y Prometheus lo guarda
+ * 30 días.
+ */
+export const USAGE_TOP_MIN_CHATS = 3;
+const PERSONAL_KINDS = new Set(['trayecto']);
 /** Por qué deja un chat el bot: deja de seguirlo todo, escribe /baja o lo bloquea (o ya no existe). */
 export const REMOVAL_REASONS = Object.freeze(['dejar', 'baja', 'bloqueo']);
 /** Lo que manda el bot sin que se lo pidan: avisos de lo seguido y partes diarios. */
@@ -71,7 +78,8 @@ export function parseTotals(saved, now) {
  * @returns {{ chats: number, digest: number, follows: Record<string, number>, distinct: Record<string, number>,
  *   top: Array<{ kind: string, key: string, name: string, chats: number }> }}
  *   follows: cosas seguidas por tipo (una cosa que siguen tres chats cuenta tres); distinct: cosas distintas por
- *   tipo; top: las más seguidas, de más a menos chats (a igualdad, por tipo y nombre).
+ *   tipo; top: las más seguidas, de más a menos chats (a igualdad, por tipo y nombre), sólo las que siguen al menos
+ *   USAGE_TOP_MIN_CHATS y sin trayectos.
  */
 export function usageOf(chats, { top = USAGE_TOP } = {}) {
   const follows = Object.fromEntries(USAGE_KINDS.map((k) => [k, 0]));
@@ -108,6 +116,7 @@ export function usageOf(chats, { top = USAGE_TOP } = {}) {
     digest,
     follows,
     distinct,
-    top: [...items.values()].sort(order).slice(0, Math.max(0, top)).map(({ kind, key, name, chats: n }) => ({ kind, key, name, chats: n })),
+    top: [...items.values()].filter((it) => it.chats >= USAGE_TOP_MIN_CHATS && !PERSONAL_KINDS.has(it.kind)).sort(order)
+      .slice(0, Math.max(0, top)).map(({ kind, key, name, chats: n }) => ({ kind, key, name, chats: n })),
   };
 }
