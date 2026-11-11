@@ -208,8 +208,9 @@ destino** y **salen del origen en esa franja**, uno de esos días. No hace falta
   tráfico de la DGT usa la provincia que da ella (con los círculos, una de cada once caía en la vecina); el de
   Cataluña y Euskadi, que no la dan, el círculo.
 - **Un aviso no se repite en la misma ronda**: si un chat sigue una estación y la línea de la que habla un aviso de
-  Renfe, le llega en uno de los dos mensajes. Las cancelaciones sí van en cada cosa a la que afectan, con lo suyo
-  (la hora en esa estación).
+  Renfe, le llega en uno de los dos mensajes; igual una incidencia de tráfico (carretera y provincia) y el retraso de
+  un tren que sigue por su número y en un trayecto. Las cancelaciones sí van en cada cosa a la que afectan, con lo
+  suyo (la hora en esa estación), salvo que el texto sea el mismo (dos trayectos desde la misma estación).
 
 ## Idioma
 

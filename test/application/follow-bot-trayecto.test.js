@@ -205,3 +205,21 @@ test('si fallan las paradas de un viaje, ese tren no cuenta y la ronda de todos 
   assert.equal(warned.length, 1, 'una vez, no por cada vehículo ni cada ronda');
   assert.match(warned[0], /paradas de un viaje: fichero de paradas roto/);
 });
+
+test('lo mismo no llega dos veces en la misma ronda: el retraso de un tren seguido también en un trayecto; la misma cancelación en dos trayectos', () => {
+  const { say, world, tick } = setup();
+  const SERVICE = numberedServiceKey({ operator: 'Renfe', number: '18001' });
+  const OTHER = trayectoKey({ origin: ST.al.code, destination: ST.at.code, from: 7 * 60, to: 8 * 60, days: 0x7f });
+  world.vehicles = [md(0)];
+  say(`/start ${KEY}`);
+  say(`/start ${SERVICE}`);
+  say(`/start ${OTHER}`);
+  tick();
+  world.vehicles = [md(20)];
+  world.events = [cancelled('c1', '21516', '07:37')];
+  const out = tick();
+  const all = out.map((m) => m.text).join('\n----\n');
+  assert.equal(all.match(/va con 20 min de retraso/g).length, 1, all);
+  assert.equal(all.match(/Cercanías C2 21516 cancelado/g).length, 1, all);
+  assert.match(out[0].text, new RegExp(`^${NAME.replace(/[()]/g, '\\$&')}:`), 'en lo primero que sigue');
+});
