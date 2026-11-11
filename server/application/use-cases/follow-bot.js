@@ -11,7 +11,7 @@ import { PROVINCE_TRAFFIC_TEXT, asksForRoad, parseRoadRequest, roadFollowedText,
 import { entryLabel, guessedName, knownNames, searchDirectory, updateDirectory } from '../../domain/seguidos/directorio.js';
 import {
   DELAY_MIN, SEEN_HARD_MAX, SEEN_MAX, capSeen, collectFacts, factsMessages, fitMessage, gravity, joinCredits, madridDay, madridHourMinute,
-  markSeen, newFactsOf, packBlocks, provinceSub, statusOf, trackFacts,
+  markSeen, newFactsOf, packBlocks, provinceSub, statusOf, subOfSeen, trackFacts,
 } from '../../domain/seguidos/avisos.js';
 import {
   LANG_NAMES, botProfiles, commandsFor, dataText, helpText, langLabel, parseCommand, parseHour, smallTalk, smallTalkText, welcomeText,
@@ -765,8 +765,17 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
       return chats.size;
     },
 
-    /** Lo que hay que guardar para seguir igual tras un reinicio o un relevo. El idioma, sólo si no es el de siempre. */
+    /**
+     * Lo que hay que guardar para seguir igual tras un reinicio o un relevo. El idioma, sólo si no es el de siempre.
+     * De lo avisado, sólo lo de lo que sigue alguien (tras /baja, nada de lo que seguía, aunque aún no haya pasado la
+     * ronda que lo poda).
+     */
     snapshot() {
+      const followed = new Set();
+      for (const c of chats.values()) {
+        for (const k of c.subs.keys()) followed.add(k);
+        for (const id of c.provinces.keys()) followed.add(provinceSub(id));
+      }
       return {
         version: 1,
         offset,
@@ -775,7 +784,7 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
           subs: [...c.subs].map(([key, s]) => ({ key, name: s.name, since: s.since, checkedAt: s.checkedAt, ...(s.guessed ? { guessed: true } : {}) })),
           provinces: [...c.provinces].map(([id, s]) => ({ id, since: s.since, checkedAt: s.checkedAt, ...(s.fires ? { fires: true } : {}) })),
         })),
-        seen: [...seen].map(([k, v]) => [k, v.first, v.last]),
+        seen: [...seen].filter(([k]) => followed.has(subOfSeen(k))).map(([k, v]) => [k, v.first, v.last]),
         totals: structuredClone(totals),
       };
     },
@@ -915,10 +924,18 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
       }
       const allKeys = new Set(BOT_LANGS.flatMap((l) => [...keys.get(l)]));
       const allProvinces = new Set(BOT_LANGS.flatMap((l) => [...provinces.get(l)]));
-      if (!allKeys.size && !allProvinces.size) return [];
+      // Lo recordado de lo que ya no sigue nadie, fuera (también si nadie sigue nada).
+      const followed = new Set([...allKeys, ...[...allProvinces].map(provinceSub)]);
+      if (!allKeys.size && !allProvinces.size) {
+        if (seen.size) {
+          seen = new Map();
+          dirty = true;
+        }
+        return [];
+      }
       const facts = factsOf(allKeys, allProvinces, c);
       const firsts = new Map();
-      seen = trackFacts(seen, facts, now, { firsts });
+      seen = trackFacts(seen, facts, now, { firsts, subs: followed });
       // Lo de esta ronda no se olvida por el tope (avisos perdidos o repetidos): si sólo eso ya pasa, se dice.
       if (seen.size > SEEN_MAX && now - seenWarnedAt >= SEEN_WARN_EVERY_MS) {
         seenWarnedAt = now;

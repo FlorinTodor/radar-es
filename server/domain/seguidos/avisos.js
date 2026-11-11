@@ -328,21 +328,29 @@ export function capSeen(seen, { max = SEEN_MAX, hardMax = SEEN_HARD_MAX, keepFro
   return seen;
 }
 
+/** La suscripción de una clave de lo recordado («<sub>|<id del hecho>»): las suscripciones no llevan «|». */
+export const subOfSeen = (k) => k.slice(0, k.indexOf('|'));
+
 /**
  * Desde cuándo se ve cada hecho de cada suscripción (`<sub>|<id del hecho>` → { first, last }): los que siguen
  * guardan su primera vez; los que no se ven desde hace `forgetMs`, fuera (los de un día, como los focos de calor de
- * una zona, no antes de que acabe su día: zona.js, isDayFact). Como mucho `max` (capSeen): lo visto en esta ronda
- * nunca sale por el tope.
+ * una zona, no antes de que acabe su día: zona.js, isDayFact); con `subs` (lo que sigue alguien), fuera también lo
+ * de lo que ya no sigue nadie (tras /baja no queda ni rastro de lo que seguía). Como mucho `max` (capSeen): lo visto
+ * en esta ronda nunca sale por el tope.
  * @param {Map<string, { first: number, last: number }>} seen
  * @param {Map<string, Fact[]>} factsBySub
- * @param {{ forgetMs?: number, max?: number, hardMax?: number, firsts?: Map<string, number[]> }} [opts]
+ * @param {{ forgetMs?: number, max?: number, hardMax?: number, firsts?: Map<string, number[]>, subs?: Set<string>|null }} [opts]
  *   firsts: si se da, apunta en él la primera vez de cada hecho de cada suscripción (en el orden de sus hechos), para
  *   newFactsOf: así no se vuelve a buscar cada par en lo recordado.
  * @returns {Map<string, { first: number, last: number }>}  otro mapa (el de antes no cambia)
  */
-export function trackFacts(seen, factsBySub, now, { forgetMs = FACT_FORGET_MS, max = SEEN_MAX, hardMax = SEEN_HARD_MAX, firsts = null } = {}) {
+export function trackFacts(seen, factsBySub, now, { forgetMs = FACT_FORGET_MS, max = SEEN_MAX, hardMax = SEEN_HARD_MAX, firsts = null, subs = null } = {}) {
   const next = new Map();
-  for (const [k, v] of seen) if (now - v.last <= (isDayFact(k) ? Math.max(forgetMs, DAY_FACT_FORGET_MS) : forgetMs)) next.set(k, v);
+  for (const [k, v] of seen) {
+    if (now - v.last > (isDayFact(k) ? Math.max(forgetMs, DAY_FACT_FORGET_MS) : forgetMs)) continue;
+    if (subs && !subs.has(subOfSeen(k))) continue;
+    next.set(k, v);
+  }
   for (const [sub, facts] of factsBySub) {
     const list = firsts ? new Array(facts.length) : null;
     facts.forEach((f, i) => {

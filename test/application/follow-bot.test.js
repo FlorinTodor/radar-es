@@ -484,3 +484,21 @@ test('/seguir algo que no se encuentra: /carretera sólo si parece una carretera
   assert.match(say('/seguir A-7')[0].text, /Si es una carretera, para sus cortes y accidentes: \/carretera A-7$/);
   assert.match(say('/seguir C-31')[0].text, /\/carretera C-31$/, 'con guion, puede serlo');
 });
+
+test('tras /baja no queda en lo guardado ni rastro de lo que seguía; y si ya nadie sigue nada, la ronda lo olvida todo', async () => {
+  const { say, world, tick, bot, disk } = setup();
+  world.events = [cancellation()];
+  say(`/start ${AVANT}`);
+  say(`/start ${C4A}`, 2);
+  tick();
+  await bot.save({ always: true });
+  assert.ok(disk.value.seen.some(([k]) => k.startsWith(`${AVANT}|`)));
+  say('/baja');
+  await bot.save({ always: true });
+  assert.equal(disk.value.seen.some(([k]) => k.startsWith(`${AVANT}|`)), false, 'antes quedaban las claves de lo que seguía');
+  say('/baja', 2);
+  tick();
+  assert.deepEqual(bot.snapshot().seen, []);
+  await bot.save({ always: true });
+  assert.deepEqual(disk.value.seen, []);
+});

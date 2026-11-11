@@ -187,7 +187,8 @@ destino** y **salen del origen en esa franja**, uno de esos días. No hace falta
 - **Lo que guarda**, en `data/bot/seguidos.v1.json`:
   - el número de cada chat, lo que sigue (con su nombre y, en una provincia, si ha pedido los focos de calor), desde
     cuándo, la hora de su parte y su idioma (`lang`, sólo si no es el español);
-  - para no repetir avisos tras un reinicio, qué se ha avisado ya;
+  - para no repetir avisos tras un reinicio, qué se ha avisado ya (de lo que sigue alguien: lo de lo que ya no sigue
+    nadie, por ejemplo tras un `/baja`, se olvida);
   - y los totales de uso (`totals`), sin ningún número de chat: altas, bajas por motivo, avisos y partes, y
     mensajes por orden, desde que se cuentan.
 

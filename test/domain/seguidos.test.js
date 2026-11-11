@@ -391,3 +391,9 @@ test('los avisos de las fuentes conservan sus saltos de línea (los de Windows, 
   assert.match(statusOf(C4A, { events: [e], now: NOW }).lines.join('\n'), /Renfe informa:\n\nCon motivo de las obras, los trenes\nno paran en Parla\./);
   assert.equal(cutText(sourceText(' a \n\n\n b '), 10), 'a\n\nb');
 });
+
+test('lo recordado de lo que ya no sigue nadie se olvida en la ronda', () => {
+  const seen = new Map([[`${AVANT}|a`, { first: NOW, last: NOW }], [`${C4A}|b`, { first: NOW, last: NOW }], ['prov:valencia|c', { first: NOW, last: NOW }]]);
+  const next = trackFacts(seen, new Map(), NOW + 60_000, { subs: new Set([C4A, 'prov:valencia']) });
+  assert.deepEqual([...next.keys()], [`${C4A}|b`, 'prov:valencia|c']);
+});
