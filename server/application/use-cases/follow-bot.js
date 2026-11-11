@@ -44,8 +44,8 @@ const EN = translator('en');
 // Cada cuánto, como mucho, se apunta en el registro un mismo problema de la ronda (lo recordado pasa del tope, no se
 // pueden leer las paradas de un viaje).
 const SEEN_WARN_EVERY_MS = 3600_000;
-// Lo que se guarda se copia por partes, cediendo el turno entre una y otra: con el tope de chats, copiarlo de golpe
-// paraba el servidor (y el bot) casi un segundo en el VPS. Chats y avisos recordados por parte.
+// Lo que se guarda se copia por partes, cediendo el turno entre una y otra: con el tope de chats, copiarlo y pasarlo a
+// JSON de golpe paraba el servidor (web y bot) de 1,7 a 5,7 s en el VPS. Chats y avisos recordados por parte.
 const SAVE_SLICE = Object.freeze({ chats: 250, seen: 10_000 });
 const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
 

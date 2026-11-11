@@ -199,6 +199,14 @@ destino** y **salen del origen en esa franja**, uno de esos días. No hace falta
 
   Nada de nombres, usuarios ni teléfonos. Un chat que deja de seguirlo todo, escribe `/baja` o bloquea el bot
   se borra. La política de privacidad de `/legal` lo explica.
+- **Se guarda sin parar el servidor**, tras cada ronda con cambios (o cada 10 minutos) y al apagarse. La copia se
+  hace por partes (250 chats, 10.000 avisos recordados) y el JSON se escribe por trozos
+  (`server/adapters/outbound/persistence/json-chunks.js`, el mismo texto que `JSON.stringify`), cediendo el turno
+  entre una y otra: la web y el bot siguen atendiendo. Lo que cambia mientras tanto entra en el siguiente guardado
+  (un chat que se da de baja antes de que llegue su parte ya no sale), y un guardado espera al anterior. Con el tope
+  (20.000 chats, 38 MB), en el VPS con 2 CPU, la parada más larga pasó de 1,7-5,7 s a 0,08-0,22 s; lo que queda son
+  las pausas del recolector de memoria de Node con tantos chats en memoria (se ven con `--trace-gc`), no el guardado.
+  Leerlo al coger el turno (al arrancar o en un relevo) sigue siendo de golpe: 1,7-3,3 s con 20.000 chats.
 - **Cuánto se usa**, en el panel «Radar · Bot de Telegram» de la monitorización
   ([despliegue.md](despliegue.md#monitorización)):
   - las personas (cada chat privado que sigue algo), lo que siguen por tipo, quién pide el parte y lo más
