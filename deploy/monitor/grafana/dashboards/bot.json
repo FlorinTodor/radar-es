@@ -154,7 +154,7 @@
     {
       "type": "stat",
       "title": "Cosas distintas",
-      "description": "Trenes, líneas, estaciones y provincias distintos que sigue alguien.",
+      "description": "Trenes, líneas, estaciones, carreteras y provincias distintos que sigue alguien.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -493,12 +493,36 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "carretera"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Carreteras"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "provincia"
             },
             "properties": [
               {
                 "id": "displayName",
                 "value": "Provincias"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trayecto"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Trayectos"
               }
             ]
           }
@@ -538,7 +562,7 @@
     {
       "type": "table",
       "title": "Lo más seguido",
-      "description": "Cada cosa que sigue alguien y cuántas personas la siguen (las 100 más seguidas). Sin el número de ningún chat: no dice quién sigue qué.",
+      "description": "Lo que siguen al menos 3 personas y cuántas la siguen (las 100 más seguidas); los trayectos, nunca (son personales). Sin el número de ningún chat: no dice quién sigue qué.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -604,8 +628,14 @@
                       "parada": {
                         "text": "Estaciones y paradas"
                       },
+                      "carretera": {
+                        "text": "Carreteras"
+                      },
                       "provincia": {
                         "text": "Provincias"
+                      },
+                      "trayecto": {
+                        "text": "Trayectos"
                       }
                     }
                   }
@@ -1151,6 +1181,30 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "trayecto"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "/trayecto"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "estacion"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "/estacion"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "buscar"
             },
             "properties": [
@@ -1193,6 +1247,18 @@
               {
                 "id": "displayName",
                 "value": "/provincia"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "carretera"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "/carretera"
               }
             ]
           },
@@ -1253,6 +1319,18 @@
               {
                 "id": "displayName",
                 "value": "/baja"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "idioma"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "/idioma"
               }
             ]
           },

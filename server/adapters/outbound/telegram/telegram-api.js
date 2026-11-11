@@ -1,6 +1,7 @@
 // Adaptador de salida: la API de bots de Telegram (https://core.telegram.org/bots/api), por el cliente HTTP
 // compartido. Cumple el puerto ChatChannel: recibir mensajes (long polling con getUpdates, sin webhook: no hay
-// que abrir nada hacia dentro), contestar, responder a los botones y poner el menú de órdenes.
+// que abrir nada hacia dentro), contestar, responder a los botones y poner el menú de órdenes y las descripciones
+// del bot en cada idioma.
 // El token va en la ruta de cada llamada: no sale nunca en un error ni en el registro (el cliente HTTP sólo
 // dice el host, y aquí se tapa por si acaso).
 const API = 'https://api.telegram.org';
@@ -68,8 +69,30 @@ export function createTelegramApi({ http, token, timeoutMs = 15_000 }) {
     async answer({ id, text }) {
       await call('answerCallbackQuery', { callback_query_id: id, ...(text ? { text: text.slice(0, 200) } : {}) });
     },
-    async setCommands(commands) {
-      await call('setMyCommands', { commands: commands.map(([command, description]) => ({ command, description: description.slice(0, 256) })) });
+    /**
+     * El menú de órdenes: el de siempre; con `lang`, el de quien tiene Telegram en ese idioma (language_code); con
+     * `chatId`, el de un chat (el idioma que ha elegido en el bot, aunque su Telegram esté en otro). Sin órdenes
+     * (null), se quita el de ese chat y vuelve a ver el de siempre.
+     */
+    async setCommands(commands, { lang = null, chatId = null } = {}) {
+      if (!commands) {
+        await call('deleteMyCommands', {
+          ...(chatId !== null ? { scope: { type: 'chat', chat_id: chatId } } : {}),
+          ...(lang ? { language_code: lang } : {}),
+        });
+        return;
+      }
+      await call('setMyCommands', {
+        commands: commands.map(([command, description]) => ({ command, description: description.slice(0, 256) })),
+        ...(chatId !== null ? { scope: { type: 'chat', chat_id: chatId } } : {}),
+        ...(lang ? { language_code: lang } : {}),
+      });
+    },
+    /** Lo que Telegram enseña del bot antes de escribirle (descripción) y en su perfil (descripción corta). */
+    async setDescriptions({ description, shortDescription, lang = null }) {
+      const language = lang ? { language_code: lang } : {};
+      await call('setMyDescription', { description: description.slice(0, 512), ...language });
+      await call('setMyShortDescription', { short_description: shortDescription.slice(0, 120), ...language });
     },
   };
 }

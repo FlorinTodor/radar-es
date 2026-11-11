@@ -1,22 +1,37 @@
 # Bot de Telegram «Sigue tu tren»
 
 Quien escribe al bot puede seguir cualquier vehículo que publique el radar (un tren, un autobús, un metro, un
-tranvía y los tipos que se añadan), su línea, una estación o una provincia. El bot le avisa:
+tranvía y los tipos que se añadan), su línea, una estación, una provincia o una carretera. El bot le avisa:
 
 - si lo que sigue se cancela o se le suprimen paradas;
 - si va con 15 minutos o más de retraso, y otra vez cada 15 minutos más (cuando empeora; si recupera, no);
 - si su operador deja de publicar sus datos (trenes «sin datos»);
 - de los avisos del operador sobre su línea;
-- en una provincia, de los avisos naranja y rojo de AEMET, los terremotos que pueden sentirse y los avisos
-  oficiales (planes de emergencia y cortes de luz).
+- en una estación, de los trenes cancelados o sin datos que pasan por ella y de los avisos de Renfe de la estación
+  (ascensores fuera de servicio, accesos cerrados…), los mismos que enseña su ficha en la web;
+- en una provincia, de los avisos naranja y rojo de AEMET, los terremotos que pueden sentirse, los avisos
+  oficiales (planes de emergencia y cortes de luz) y los cortes de carretera y accidentes graves; en Canarias, Ceuta
+  y Melilla, también de los posibles apagones que se ven en la demanda eléctrica de cada isla; y, si los pide
+  (`/provincia Granada incendios`), de los focos de calor por satélite que pueden ser un incendio
+  ([más abajo](#provincias-apagones-y-focos-de-calor));
+- en una carretera (`/carretera A-7`, o `/carretera A-7 Málaga` para un tramo), de sus cortes, sus accidentes y
+  sus incidencias de gravedad alta o muy alta. Ver [Tráfico](#tráfico).
 
 Con `/parte 07:30` manda cada día un resumen de lo que sigue. El parte y `/estado` cuentan cada cosa entera: si no
-caben en un mensaje, van en varios (hasta 6) y, si ni así, dicen cuántas cosas quedan fuera. Lo que se puede seguir son las claves de
+caben en un mensaje, van en varios (hasta 6) y, si ni así, dicen cuántas cosas quedan fuera. Los avisos, igual: si los
+de una ronda no caben en un mensaje, van en varios («(1/2)», «(2/2)»), cada uno con las atribuciones de lo que lleva y
+la web. Lo que publica una fuente nunca se recorta (sus licencias): un texto que solo no cabe se parte por sus líneas
+en varios mensajes. Una atribución que ya va dentro de otra del mismo mensaje no se repite. Lo que se puede seguir son las claves de
 [`docs/vehiculos.md`](vehiculos.md): el bot no sabe de qué fuente ni de qué tipo es cada vehículo, así que un
 tipo nuevo funciona sin tocarlo.
 
 Desde la web, la ficha de cada vehículo, cancelación, tren sin datos o estación lleva «Avísame por Telegram»:
-abre el bot con `t.me/<bot>?start=<clave>` y lo sigue con un toque.
+abre el bot con `t.me/<bot>?start=<clave>` y lo sigue con un toque. La de una incidencia de tráfico, igual con
+su carretera entera (`start=c-A7`). Una estación se sigue también escribiendo su nombre: `/estacion Sants` (ver
+[Estaciones por su nombre](#estaciones-por-su-nombre)).
+
+Habla español y, si cada chat lo elige, inglés (ver [Idioma](#idioma)): con `/idioma` (o `/language`), con el botón
+que ofrece al primer `/start` a quien tiene Telegram en otro idioma, o abriéndolo desde la web en inglés.
 
 ## Crear el bot (una vez)
 
@@ -29,23 +44,35 @@ otro lee lo que le escribe la gente.
 4. BotFather contesta con el **token** (`123456789:AA…`). Es la contraseña del bot: no lo pegues en ningún
    chat, issue ni commit.
 5. Opcional, también en BotFather:
-   - `/setdescription`: «Te aviso de lo que sigas en Radar España: cancelaciones, retrasos, avisos de tu
-     línea y de tu provincia. Datos públicos de los operadores; no es un servicio oficial.»
-   - `/setabouttext`: «Avisos de trenes, autobuses, metro y tranvía de radarespana.es.»
    - `/setuserpic`: el icono de la web.
    - `/setjoingroups` → `Disable`: el bot sólo atiende chats privados.
-   - `/setcommands`: no hace falta, porque el servidor pone el menú al arrancar. Si quieres ponerlo a mano:
+   - `/setdescription`, `/setabouttext` y `/setcommands`: no hace falta. El servidor pone al arrancar, en español
+     (para todos) y en inglés (para quien tiene Telegram en inglés, con el `language_code` de la API), el menú de
+     órdenes (`setMyCommands`), la descripción que se ve antes de escribirle (`setMyDescription`) y la de su perfil
+     (`setMyShortDescription`). Lo que se ponga a mano en BotFather lo cambia el siguiente arranque. Los textos están
+     en `server/domain/seguidos/ordenes.js` (`botProfiles`) y su traducción, en `server/domain/seguidos/en.js`:
+
+     | | Español | English |
+     |---|---|---|
+     | Descripción | Te aviso de lo que sigas en Radar España: cancelaciones, retrasos, avisos de tu línea y de tu provincia, y cortes y accidentes de tu carretera. Datos públicos de los operadores y de tráfico; no es un servicio oficial. | I alert you about what you follow on Radar España: cancellations, delays, notices for your line, alerts for your province, and closures and accidents on your road. Public data from the operators and traffic authorities; not an official service. |
+     | Perfil | Avisos de trenes, autobuses, metro y tranvía de radarespana.es. | Train, bus, metro and tram alerts from radarespana.es. |
+
+     El menú en español usa las órdenes de siempre y, en inglés, sus nombres en inglés (las dos formas valen siempre):
 
      ```
-     seguir - Seguir un tren, autobús, metro o línea: /seguir 08058, /seguir C4 Madrid
-     estado - Cómo va ahora lo que sigues, o lo que busques
-     provincia - Avisos de tu provincia: AEMET, terremotos y emergencias
-     mis - Lo que sigues
-     dejar - Dejar de seguir algo
-     parte - Un resumen cada día a la hora que digas: /parte 07:30
-     datos - Qué guardo de este chat
-     baja - Borrar todo lo de este chat
-     ayuda - Cómo funciona
+     seguir    · follow     Seguir un tren, autobús, metro o línea: /seguir 08058, /seguir C4 Madrid
+     estacion  · station    Avisos de una estación: trenes cancelados y avisos de Renfe. /estacion Sants
+     trayecto  · journey    Tus trenes de una estación a otra: /trayecto Alcalá de Henares > Atocha 7:00-9:00 L-V
+     estado    · status     Cómo va ahora lo que sigues, o lo que busques
+     provincia · province   Avisos de tu provincia: AEMET, terremotos, emergencias, apagones y cortes de carretera
+     carretera · road       Cortes y accidentes de una carretera: /carretera A-7, /carretera AP-7 Tarragona
+     mis       · following  Lo que sigues
+     dejar     · unfollow   Dejar de seguir algo
+     parte     · summary    Un resumen cada día a la hora que digas: /parte 07:30
+     datos     · data       Qué guardo de este chat
+     baja      · stop       Borrar todo lo de este chat
+     idioma    · language   Cambiar de idioma: español o inglés
+     ayuda     · help       Cómo funciona
      ```
 
 ## Ponerlo en marcha
@@ -70,6 +97,72 @@ El `.env` se lee al crear el contenedor. Se aplica en el siguiente despliegue: e
 nuevo con el `.env` nuevo, sin corte. Sin token, el registro dice `[telegram] bot desactivado: falta
 TELEGRAM_BOT_TOKEN` y la web no enseña el botón.
 
+## Mi trayecto
+
+Además de un tren, una línea o una estación, el bot sigue el trayecto de cada día:
+`/trayecto Alcalá de Henares > Atocha 7:00-9:00 L-V` sigue los trenes que **paran en el origen y luego en el
+destino** y **salen del origen en esa franja**, uno de esos días. No hace falta saber su número.
+
+- **Cómo se escribe**: las dos estaciones separadas por `>` (o `→`), la franja (`7:00-9:00`, `7-9`, `de 7 a
+  9:30`) y los días (`L-V`, `S-D`, `L,X,V`, `LXV`, `V-L`, `laborables`, `fin de semana`; sin días, todos; en inglés,
+  `Mon-Fri`, `Mon,Wed,Fri`, `weekdays`, `weekends`, `every day`, y la franja `from 7 to 9`, `7pm-9pm`, `7-9pm`). Los
+  días pueden ir antes o después de la franja. La franja va de una hora a otra más tarde del mismo día. Escrito
+  sin orden («Alcalá > Atocha 7-9»), también vale.
+- **Las estaciones** salen del catálogo del radar (las de Renfe y las de las redes de metro y tranvía), como en el
+  mapa. Si el nombre es el de una estación tal cual, ésa; si no, todas las que tienen esas palabras en su nombre,
+  su ciudad o su red. Si las que se llaman tal cual no dan ningún trayecto de la misma red («Aeroport» es una de
+  Metrovalencia; con «Sants», se busca en Barcelona), se miran todas las que encajan. Si con esos nombres hay más de
+  un trayecto posible (hay dos «Atocha»), el bot pregunta con una lista de combinaciones, sólo de estaciones
+  distintas y de la misma red: primero las que une algún tren que se ve (vehículos con sus paradas y cancelaciones
+  con las suyas), luego las demás por distancia, y sin las muy lejanas que ningún tren une. Un trayecto que ningún
+  tren que se ve une se sigue igual, pero el bot lo dice («comprueba las estaciones»): de noche apenas hay trenes,
+  y si no hay trenes directos entre las dos, no llegará nada.
+- **Qué avisa**, de los trenes del trayecto:
+  - si se cancelan, o si se les suprime la parada del origen o la del destino (las demás paradas suprimidas, no);
+  - si van con 15 minutos de retraso o más, y otra vez cada 15 más (como un tren seguido: si mejora, no);
+  - si su operador no publica nada de ellos («sin datos»), mientras según su horario no hayan llegado al destino.
+
+  Los avisos salen en la misma ronda que los demás, uno por trayecto con lo nuevo; lo que ya había al seguirlo se
+  cuenta en la respuesta y no se avisa. De una cancelación de un tren que según su horario ya habría llegado al
+  destino no se avisa: a esas horas ya no sirve.
+- **`/estado` y el parte** dicen los trenes de la franja que se ven ahora, por su hora en el origen: los que
+  circulan, con su retraso y su próxima parada, y los cancelados, sin parar en el origen o el destino o sin datos
+  (los que salían hace más de un cuarto de hora ya no salen). Un tren cancelado que se ve circulando sale una vez,
+  como cancelado. Fuera de sus días lo dice; de noche, en general, no hay nada que contar: un tren se ve cuando
+  empieza su recorrido, y una cancelación, cuando su operador la publica.
+- **La hora en el origen**:
+  - de las cancelaciones y los trenes sin datos, la de su horario;
+  - de los trenes que circulan, la de su horario si la fuente la da (Alta Velocidad, Larga y Media Distancia,
+    horarios GTFS). Si no, la que prevé su operador menos su retraso.
+  - En Cercanías y Rodalies no hay ninguna de las dos (Renfe no publica la hora de cada parada en su tiempo real y
+    el radar no guarda ese horario: son 140.000 viajes), así que se calcula por dónde va. Es lo que le falta hasta
+    el origen por sus paradas, en línea recta, a 45 km/h, menos su retraso. Es aproximada y se dice así («hora
+    aproximada», «aprox.»). Un tren justo en el borde de la franja puede entrar o no.
+- **Qué fuentes valen**: cualquiera que diga las paradas de sus viajes con su nombre. Las estaciones se comparan
+  como en su ficha de la web: mismo nombre y a menos de 3 km. Con lo que publica hoy cada una:
+  - **Renfe** (Cercanías, Rodalies, AV, LD y MD): todo. Tiene cancelaciones con su horario, paradas suprimidas,
+    retraso y trenes sin datos.
+  - **Metros, tranvías y FGC**: sus trenes salen en `/estado`, pero de ellos no hay cancelaciones ni retraso que
+    avisar. FGC sólo dice las paradas que le quedan.
+  - Una fuente cuyas paradas se llaman de otra forma que en el catálogo (Ouigo: «Madrid-Puerta De Atocha») no
+    encaja con esa estación.
+
+  Los autobuses no entran: aún no hay catálogo de sus paradas.
+- **Como lo demás que se sigue**: cuenta en el tope de cosas por chat, sale en `/mis`, `/dejar` y `/datos`, y en
+  el panel del bot es un tipo más («Trayectos», y `/trayecto` entre las órdenes).
+- **Lo que guarda** de un trayecto es lo mismo que de lo demás: su clave (el código de sus dos estaciones, la franja
+  y los días; ver [vehiculos.md](vehiculos.md)) y su nombre, que los dice («Alcalá de Henares → Madrid-Atocha
+  Cercanías (07:00-09:00, de lunes a viernes)»). La política de privacidad de `/legal` lo dice.
+- **Cuánto cuesta**: en cada ronda sólo se miran las paradas de los trenes que van con retraso, y las
+  cancelaciones salen del mismo índice de paradas que las estaciones seguidas. Lo que pasa entre dos estaciones se
+  busca una vez por ronda para todos los trayectos que las tienen (cada uno sólo mira su franja y sus días). Para
+  `/estado` y el parte se miran las de todos los que no van por carretera: como mucho una vez por minuto (y una sola
+  vez para los partes de todos los chats de esa ronda). Si las paradas de un tren no se pueden leer, ese tren no
+  cuenta y la ronda sigue.
+- **Código**: `server/domain/seguidos/trayectos.js` (qué se escribe, qué trenes son, qué se avisa y cómo van) y
+  `server/domain/seguidos/estaciones.js` (buscar una estación del catálogo por su nombre); en el caso de uso, la
+  orden `/trayecto` y lo que pide a `query-situation` (las paradas de cada viaje y el catálogo de estaciones).
+
 ## Cómo funciona por dentro
 
 - **Recibe por long polling** (`getUpdates`), no por webhook: no hay que abrir nada en Cloudflare ni en el
@@ -78,31 +171,59 @@ TELEGRAM_BOT_TOKEN` y la web no enseña el botón.
   total. Si Telegram pide esperar (`retry_after`), espera.
 - **Avisa en rondas de un minuto**: un mensaje por cosa seguida con lo nuevo, nunca lo que ya había al empezar a
   seguirla. Lo que pasa por cada estación seguida sale de un índice de la ronda (nombre de parada → viajes
-  cancelados o sin datos): seguir cientos de estaciones no alarga la ronda. En una estación, las cancelaciones que
-  su operador ya no publica van aparte, como en su ficha de la web.
+  cancelados o sin datos): seguir cientos de estaciones no alarga la ronda. Lo mismo con el tráfico (las incidencias
+  de la ronda, indexadas una vez por carretera y por provincia) y con lo nuevo de cada cosa (se mira una vez para
+  todos los chats que la siguen). En el parte y `/estado`, cómo está cada cosa se calcula una vez por ronda e idioma,
+  aunque la sigan miles de chats. En una estación, las cancelaciones que su operador ya no publica van aparte, como en
+  su ficha de la web.
 - **Los botones de cada lista llevan su id** (`a:<id>:<n>`): un botón de un mensaje anterior no escoge nada de la
   lista nueva, sólo contesta que esa lista ya no vale.
 - **Un enlace se puede inventar** (`t.me/<bot>?start=<clave>`): de lo que no se ve ni está en el directorio no se
   repite el texto de su clave. Se nombra con lo que se puede comprobar (el operador si se conoce su red, el número,
   la hora, un código de línea corto) o con un nombre genérico, y se renueva en cuanto se vuelve a ver. Una estación
-  que no está en el catálogo no se sigue.
+  que no está en el catálogo no se sigue. Una carretera sólo vale si su código lo parece (letras, una cifra y lo
+  que siga) y su provincia existe; se nombra como la escribe su fuente si se ve, o por su código. Cada cosa tiene
+  una sola clave: la de un enlace se rehace al leerla (`canonicalKey`), así que escribir la misma de otra forma es
+  seguir lo mismo; y un trayecto por enlace pasa las mismas comprobaciones que `/trayecto` (estaciones distintas y de
+  la misma red).
 - **Charla**: «hola», «gracias», «vale»… escritos sin orden no se buscan (por el principio de una palabra, «hola»
   encontraba «Naciones-Holanda»). Una búsqueda con más resultados de los que caben en la lista dice cuántos hay
   y pide la ciudad o el operador; a igual encaje, primero trenes, metros y tranvías (orden del registro de tipos).
+- **Líneas de muchos recorridos**: una línea se encuentra también por sus extremos (el directorio guarda seis), pero
+  algunas no son un recorrido: «Avant · Renfe», «Media Distancia · Renfe» o «Alvia · Renfe» son todos los trenes de
+  ese producto en toda España, y «Autobús L4 · ALSA», la L4 de varias ciudades. La que se ve con más de seis orígenes
+  y destinos distintos (`wide`, `server/domain/seguidos/directorio.js`) no se encuentra por un sitio («/seguir
+  Lleida» ofrecía «Avant · Renfe (Sevilla – Málaga)», que son todos los Avant): sólo si se escribe su nombre
+  («/seguir Avant», «/seguir Avant Toledo»). Su botón dice que son todos («Avant · Renfe (todos sus trenes)», en
+  inglés «all its trains») y nunca se sigue sin preguntar, aunque sea lo único que se encuentra. Para los trenes de
+  una ciudad a otra está `/trayecto`. El 11-nov eran 38 de unas 2.000 líneas.
 - **Atiende un solo servidor a la vez.** Durante un relevo hay dos contenedores, y un turno en
   `data/bot/turno.json` decide cuál atiende el bot. El que se apaga lo suelta y el nuevo lo coge.
 - **Lo que guarda**, en `data/bot/seguidos.v1.json`:
-  - el número de cada chat, lo que sigue (con su nombre), desde cuándo y la hora de su parte;
-  - para no repetir avisos tras un reinicio, qué se ha avisado ya;
+  - el número de cada chat, lo que sigue (con su nombre y, en una provincia, si ha pedido los focos de calor), desde
+    cuándo, la hora de su parte y su idioma (`lang`, sólo si no es el español);
+  - para no repetir avisos tras un reinicio, qué se ha avisado ya (de lo que sigue alguien: lo de lo que ya no sigue
+    nadie, por ejemplo tras un `/baja`, se olvida);
   - y los totales de uso (`totals`), sin ningún número de chat: altas, bajas por motivo, avisos y partes, y
     mensajes por orden, desde que se cuentan.
 
   Nada de nombres, usuarios ni teléfonos. Un chat que deja de seguirlo todo, escribe `/baja` o bloquea el bot
   se borra. La política de privacidad de `/legal` lo explica.
+- **Se guarda sin parar el servidor**, tras cada ronda con cambios (o cada 10 minutos) y al apagarse. La copia se
+  hace por partes (250 chats, 10.000 avisos recordados) y el JSON se escribe por trozos
+  (`server/adapters/outbound/persistence/json-chunks.js`, el mismo texto que `JSON.stringify`), cediendo el turno
+  entre una y otra: la web y el bot siguen atendiendo. Los chats que cambian mientras tanto se vuelven a copiar al
+  final, de golpe, y en ese momento se toman el punto de lectura de Telegram y los totales: lo guardado es justo lo
+  leído hasta entonces, así que si el servidor cae, Telegram vuelve a dar sólo lo que no consta (un «/dejar 1» no se
+  aplica dos veces). Un guardado espera al anterior, y si no se puede escribir se reintenta en la ronda siguiente. Con el tope
+  (20.000 chats, 38 MB), en el VPS con 2 CPU, la parada más larga pasó de 1,7-5,7 s a 0,08-0,22 s; lo que queda son
+  las pausas del recolector de memoria de Node con tantos chats en memoria (se ven con `--trace-gc`), no el guardado.
+  Leerlo al coger el turno (al arrancar o en un relevo) sigue siendo de golpe: 1,7-3,3 s con 20.000 chats.
 - **Cuánto se usa**, en el panel «Radar · Bot de Telegram» de la monitorización
   ([despliegue.md](despliegue.md#monitorización)):
   - las personas (cada chat privado que sigue algo), lo que siguen por tipo, quién pide el parte y lo más
-    seguido, con cuántas personas lo siguen;
+    seguido, con cuántas personas lo siguen: sólo lo que siguen al menos tres y nunca un trayecto (con su franja y
+    sus días diría demasiado de quien lo sigue);
   - altas y bajas, avisos y mensajes por orden, de 24 horas, de cada día y desde el principio.
 
   Todo va en conjunto, sin el número de ningún chat (`server/domain/seguidos/uso.js`), y sólo lo da el
@@ -112,15 +233,189 @@ TELEGRAM_BOT_TOKEN` y la web no enseña el botón.
   quienes ya seguían algo, desde la primera de ellas; las bajas de antes no constan. Lo único que se pierde
   es lo de un apagón brusco del contenedor (sin cerrarse bien), como mucho el último minuto, igual que lo
   que sigue cada chat. Las gráficas abarcan lo que guarda Prometheus: 30 días.
-- **Topes**: 20.000 chats y 20 cosas por chat, de ellas 5 provincias como mucho. Una cola de 5.000 mensajes:
-  si se llena, se tiran los más viejos y se apunta en el registro.
+- **Topes**: 20.000 chats y 20 cosas por chat (las carreteras cuentan como una más), de ellas 5 provincias como
+  mucho. Una cola de 5.000 mensajes: si se llena, se tiran los más viejos y se apunta en el registro. De lo ya
+  avisado se recuerda, como mucho, lo de las últimas horas que quepa en un tope, y nunca se olvida por él lo que se
+  ve en la ronda (se perderían unos avisos y se repetirían otros): si eso solo ya no cabe, se apunta en el registro.
 - **Las provincias son círculos aproximados**, uno por isla en Baleares y Canarias
   (`server/domain/provincias.js`). Cerca de un límite puede llegar algún aviso de la vecina, y así se avisa al
-  seguir una.
+  seguir una. Se puede escribir la isla (`/provincia La Palma`, `/provincia Menorca`): se sigue su provincia entera, y
+  así se dice («La Palma es de la provincia de Santa Cruz de Tenerife…»). El
+  tráfico de la DGT usa la provincia que da ella (con los círculos, una de cada once caía en la vecina); el de
+  Cataluña y Euskadi, que no la dan, el círculo. Un aviso oficial que su fuente da isla por isla (el del Gobierno
+  de Canarias: el mismo `group`) llega una vez a cada provincia, con el id menor de los suyos (antes, cuatro iguales
+  en Santa Cruz de Tenerife).
+- **Un aviso no se repite en la misma ronda**: si un chat sigue una estación y la línea de la que habla un aviso de
+  Renfe, le llega en uno de los dos mensajes; igual una incidencia de tráfico (carretera y provincia) y el retraso de
+  un tren que sigue por su número y en un trayecto. Las cancelaciones sí van en cada cosa a la que afectan, con lo
+  suyo (la hora en esa estación), salvo que el texto sea el mismo (dos trayectos desde la misma estación).
 
-Código:
+## Idioma
 
-- dominio: `server/domain/seguidos/` y `server/domain/provincias.js`;
+Cada chat tiene su idioma: español por defecto e inglés si lo elige. Mismo criterio que la web en inglés
+(`public/js/i18n.js`).
+
+- **Cómo se elige**:
+  - `/idioma` (o `/language`) con sus botones «Español» / «English», o con el idioma escrito (`/idioma inglés`,
+    `/language english`, `/english`, `/spanish`, o sin orden: «English», «in English», «English please», «en
+    español»). Al cambiarlo, el bot pone también el menú de órdenes de ese chat en su idioma, y tras `/baja` lo
+    devuelve al de siempre;
+  - una orden escrita con su nombre en inglés (`/follow`, `/help`, `/status`…) de quien no ha elegido idioma pasa el
+    chat al inglés, como `/language english` (también su menú), salvo que su Telegram esté en un idioma de España;
+  - la primera vez que escribe (cualquier cosa), si el Telegram de quien escribe está en otro idioma (su
+    `language_code`, que Telegram manda con cada mensaje) que no es de España (ni `es`, ni `ca`, `eu` o `gl`), se le
+    ofrece el inglés con un botón y en los dos idiomas, una vez y sin imponerlo. Con `/start`, antes de la
+    bienvenida, y su botón trae la bienvenida en inglés;
+  - desde la web en inglés: el botón «Alert me on Telegram» abre `t.me/<bot>?start=en-<clave>` y el bot sigue lo
+    elegido y contesta ya en inglés (y pone su menú en inglés). Ninguna clave ni provincia empieza por un idioma (las claves son `s-`, `l-`,
+    `p-`, `t-` o, las de carretera, `c-`), así que los enlaces de siempre, sin idioma, siguen igual. También el botón
+    de la ficha de una incidencia de tráfico (`start=en-c-A7`). Si con `en-` la clave pasara de los 64
+    caracteres que admite Telegram, la web la manda sin él.
+- **Dónde se guarda**: con lo demás del chat (`lang`, sólo si no es el español). De quien no sigue nada no se guarda
+  nada, así que su idioma sólo queda en memoria hasta que se reinicia el servidor; al seguir algo, pasa a su chat.
+  `/datos` lo enseña.
+- **Cómo se traduce**: las frases en español del código son la clave y `server/domain/seguidos/en.js`, su traducción
+  (inglés británico, con el glosario de la web). Todo lo que escribe el bot pasa por `t('…')` (o `frase('…')` si se
+  traduce más tarde, como las descripciones de las órdenes). `test/domain/bot-idioma.test.js` recorre el código del
+  bot y falla si una frase no está en el diccionario, si sobra una que ya no se dice, si no lleva las mismas
+  `{variables}` o las mismas órdenes (`/seguir` → `/follow`) o si hay **una frase escrita sin pasar por `t()`**: una
+  orden o un aviso nuevo no se puede subir sin traducir. Las órdenes tienen nombre en inglés (`/follow`, `/journey`,
+  `/status`, `/province`, `/road`, `/unfollow`, `/summary`, `/stop`…) y las dos formas valen siempre; las que se citan
+  dentro de un texto salen con el nombre del idioma del chat.
+- **Lo que se escribe en inglés también se entiende**: los días de un trayecto (`Mon-Fri`, `Monday to Friday`,
+  `Mon,Wed,Fri`, `weekdays`, `weekends`, `every day`) y su franja (`from 7 to 9`), los focos de calor de una provincia
+  (`/province Granada fires`, `/province Granada no fires`) y una carretera con su provincia (`/road the A-7 in
+  Málaga`).
+- **Qué se queda tal cual**, como en la web: los nombres (estaciones, líneas, operadores, carreteras, provincias,
+  lugares), lo que publica cada fuente (avisos de Renfe, también los de una estación, de AEMET, de protección civil,
+  las incidencias de tráfico de la DGT, el Servei Català de Trànsit y Tráfico de Euskadi, motivos de las
+  cancelaciones…) y las atribuciones con su fórmula («Origen de los datos: Renfe Operadora», «Fuente: DGT…»,
+  «Fuente: Red Eléctrica», «NASA FIRMS (LANCE, ESDIS)…», «© AEMET», «Powered by MITRAMS»): varias licencias piden no
+  alterarlos.
+- **Lo que escribe nuestro servidor** (títulos de cancelaciones, terremotos, avisos sin título, las alertas de apagón
+  de las islas y la etiqueta de cada incidencia de tráfico de la DGT y del Servei Català de Trànsit, «Accidente» →
+  «Accident») se traduce con las mismas plantillas que la web (`server/domain/en-servidor.js`, que la web carga tal
+  cual); lo de Tráfico de Euskadi va entero tal cual, como en la web. Lo que añade el radar detrás de un texto de una
+  fuente («Carretera cortada.», la gravedad, desde cuándo), traducido. Los nombres de lo que se sigue se guardan en
+  español («Autobús 27 · EMT Málaga», «Carretera A-7 (Málaga)», «… (07:00-09:00, de lunes a viernes)») y se enseñan
+  con nuestras palabras traducidas («Bus 27 · EMT Málaga», «A-7 road (Málaga)», «… (07:00-09:00, Monday to
+  Friday)»).
+- **Fechas y horas**: día/mes y 24 h en hora peninsular («10/11, 15:00»); `/parte` entiende también «7pm» (y la hora
+  sola, «7» o «7h»). La web que
+  citan los mensajes en inglés lleva `?lang=en`.
+- **En las rondas**, los hechos se buscan una vez para todos (en español, que da sus ids) y otra sólo con lo que siguen
+  los chats en inglés, si hay alguno.
+
+## Código
+
+- dominio: `server/domain/seguidos/` (el idioma, en `idioma.js` y `en.js`; lo de las provincias, en `zona.js`; lo de
+  las estaciones, en `estacion.js`; el tráfico, en `trafico.js`; los trayectos, en `trayectos.js` y `estaciones.js`),
+  `server/domain/en-servidor.js`, `server/domain/provincias.js` y `server/domain/avisos-estacion.js`;
 - caso de uso: `server/application/use-cases/follow-bot.js`;
 - adaptadores: `server/adapters/inbound/telegram/` y `server/adapters/outbound/telegram/`, más el almacén y el
   turno en `server/adapters/outbound/persistence/`.
+
+## Estaciones por su nombre
+
+- **Cómo se pide**: `/estacion Sants` (en inglés, `/station Sants`), `/seguir estación de Atocha`, o escrito sin
+  orden («estación Sants», «Sants station»; sin orden, pregunta con un botón aunque sólo haya una).
+- **Las estaciones** salen del catálogo del radar, como las de `/trayecto`: las de Renfe y las de las redes de metro y
+  tranvía que tiene el mapa. Primero las que se llaman tal cual y detrás las que tienen esas palabras en su nombre,
+  su ciudad o su red, en una lista (8 como mucho, primero las que empiezan así y, a igual encaje, las de Renfe), que
+  dice cuántas hay si son más. Sólo la sigue sin preguntar si es la única que se llama así y ninguna más lo tiene
+  dentro: «Passeig de Gràcia» es una del metro y está dentro de «Barcelona-Passeig de Gràcia», de Renfe, y salen las
+  dos; «Hospitales» sólo está dentro de «Estación de tren Hospitales», y pregunta.
+- **Con `/seguir`** (y escrito sin orden): una estación que se llama tal cual («Alcalá de Henares») sale delante de
+  las líneas que van a ella, con las que lo tienen dentro. Con parte de su nombre («Atocha»), si salen líneas, no
+  sigue ninguna sin preguntar y dice cómo buscar la estación (`/estacion Atocha`); si no sale nada más, la lista de
+  estaciones. El nombre de una provincia («Soria») sigue siendo sus líneas o la provincia, como antes, y dice cómo
+  seguir la estación (`/estacion Soria`).
+- **«estación …» que también es el destino de una línea** («/seguir estación de autobuses», «/seguir Estación Sur»):
+  una lista con las dos cosas, sin seguir ninguna sin preguntar.
+- **Con `/estado`**: `/estado estación Atocha` cuenta cómo están las que se llaman así (3 como mucho); si no hay
+  ninguna, lo que circula con ese texto y, si tampoco, las que tienen esas palabras. `/estado Alcalá de Henares`, la
+  estación y las líneas. El nombre de una provincia sigue siendo la provincia.
+- **`/estación`**, con tilde, también vale (Telegram no deja ponerla así en el menú de órdenes).
+- **El nombre** de una estación de metro o tranvía lleva su red («Estación Jaén · Metro de Granada»; la que ya se
+  llama «Estación de autobuses», sin otro «Estación» delante), en `/mis`, en
+  los avisos y en lo que se guarda: hay nombres repetidos (Jaén de Renfe y del Metro de Granada) y una sola con un
+  nombre puede ser de otra ciudad («Gran Vía» es del tranvía de Zaragoza). En inglés, «Jaén station · Metro de
+  Granada»: el nombre y la red, tal cual.
+- **Al seguirla** dice de qué avisa: de lo que pasa por ella y se cancela o se queda sin datos (si su operador lo
+  publica) y, en las de Renfe, de los avisos de la estación.
+- **Código**: `server/domain/seguidos/estaciones.js` (buscar por nombre, qué pide una estación y su nombre) y, en
+  el caso de uso, la orden `/estacion` y lo que añade a `/seguir` y `/estado`.
+
+## Estaciones: avisos de Renfe
+
+Qué aviso es de qué estación lo decide `server/domain/avisos-estacion.js`, el mismo módulo que usa la ficha de la
+estación en la web (el servidor lo sirve tal cual al navegador): los avisos ferroviarios que llegan con las
+coordenadas de la estación, a menos de 300 m, y una vez cada texto. Las estaciones de metro, tranvía y demás redes
+no tienen avisos de Renfe. El texto va **sin alterar**, como pide la licencia de Renfe, con su atribución («Origen
+de los datos: Renfe Operadora…»); los de Rodalies, con la suya. Con sus saltos de línea, como los de una línea y los
+motivos de las cancelaciones: sólo se juntan los espacios de cada línea y las líneas en blanco seguidas.
+
+## Provincias: apagones y focos de calor
+
+**Apagones de las islas, Ceuta y Melilla.** Son las alertas «Posible apagón total en …» y «Demanda eléctrica de …
+por debajo de lo esperado» del motor de alertas (`isolatedGridBlackouts` en `server/domain/alerts/rules.js`), que
+el bot lee de las alertas abiertas y lleva a la provincia de cada isla (`server/domain/seguidos/zona.js`). Llegan a
+quien sigue la provincia sin pedirlo, como los cortes de luz de los avisos oficiales. El texto dice la demanda, la
+hora del dato y que es una estimación de Radar España, y cita «Fuente: Red Eléctrica», como la web. Si un corte
+parcial pasa a total se vuelve a avisar; si un apagón total se queda en parcial al volver la luz, no. De Baleares no
+hay: Red Eléctrica no publica su demanda real en tiempo real.
+
+**Focos de calor (NASA FIRMS), sólo si se piden.** `/provincia Granada incendios` los añade (también a una provincia
+que ya se sigue) y `/provincia Granada sin incendios` los quita (en inglés, `/province Granada fires` y `no fires`). Son opcionales porque un foco no es un incendio
+confirmado: quien sigue su provincia por los avisos oficiales no recibe, sin pedirlo, detecciones que pueden ser
+una quema o una fábrica. Para que un aviso sea casi siempre un fuego de verdad:
+
+- sólo focos de **confianza alta** (VIIRS: píxel saturado, la anomalía de calor más fuerte) y de **10 MW o más**
+  de potencia radiativa: las quemas agrícolas suelen quedarse por debajo;
+- fuera de las fuentes de calor fijas que el satélite ve a diario (refinerías, siderurgias y los volcanes de
+  Canarias; lista `STATIC_HEAT` en `zona.js`, con círculos aproximados);
+- encadenados a menos de 2 km, un grupo es un solo aviso, y sólo si su foco más fuerte llega a **30 MW** o junta
+  **3 focos**: lo que el motor de alertas llama gravedad «alta» en un posible incendio cerca de trenes. El aviso
+  dice cuántos focos hay en la zona (pueden ser de varios grupos a unos kilómetros);
+- sólo los de hoy (hora peninsular), no los de las últimas 12 horas como el motor de alertas: así nunca hay dos
+  avisos de la misma zona el mismo día. El satélite pasa de madrugada y a primera hora de la tarde;
+- **como mucho un aviso por zona** (casillas de unos 25 km) **y día**: aunque el fuego crezca o haya otro grupo en
+  la misma zona, y aunque deje de verse un rato. Al día siguiente, si sigue, otro aviso.
+
+Cada aviso dice siempre que es una detección por satélite y no un incendio confirmado, qué más puede ser (en
+Canarias, también actividad volcánica), la potencia, la hora del último paso del satélite y un enlace al punto en
+OpenStreetMap. Cita la fuente como la web: «NASA FIRMS (LANCE, ESDIS) · Datos de NASA sin restricciones de uso · No
+apto para decisiones tácticas».
+
+`/estado` y el parte cuentan los apagones y, a quien los ha pedido, los focos (`/estado Granada incendios` los
+enseña a cualquiera).
+
+## Tráfico
+
+Las incidencias de carretera que ya enseña el mapa: la DGT, el Servei Català de Trànsit y Tráfico de Euskadi
+(category `carretera`, sin los avisos de los autobuses). Hay más de mil a la vez, casi todas obras, así que el bot
+avisa de pocas:
+
+- **En una carretera seguida**: sus cortes, sus accidentes (todos) y lo que su fuente pone de gravedad alta o muy
+  alta (retenciones graves, desprendimientos, viento…). Las obras, sólo si cortan la carretera.
+- **En una provincia seguida**: sólo los cortes de carretera y los accidentes graves (de gravedad alta o muy alta,
+  o que cortan). Los cortes por obras no: están previstos, y algunos vuelven cada noche con otro número; quien los
+  quiera sigue esa carretera. Con los datos del 10-nov a las 22:00, eran 22 en toda España, y casi todos de hace
+  días (los que ya hay al seguir una provincia no se avisan).
+- **Sin repetir**: cada aviso se reconoce por lo que cuenta (su fuente, su título y su descripción), no por el
+  número de su fuente. La DGT publica a veces la misma incidencia dos veces (una por sentido) o la vuelve a
+  publicar con otro número: se avisa una. Si pasa a cortar la carretera, se avisa otra vez; si deja de cortarla,
+  no (aunque la descripción cambie: «Carretera cortada», que añade el radar, no cuenta).
+- **Lo viejo no es nuevo**: una incidencia sin noticias (ni empieza ni su fuente la revisa) desde hace más de 6
+  horas no se avisa aunque se vea por primera vez. Así, si una fuente cae más de tres horas (lo que se recuerda
+  lo ya avisado) y vuelve, no llegan de golpe todos los cortes de la provincia, algunos de hace meses. En
+  `/estado` y el parte sí sale todo lo que hay ahora.
+- **Textos tal cual**: el título y la descripción de cada incidencia van como los da su fuente, juntados con
+  « · » (las licencias de las tres piden no alterar el contenido; la de Open Data Euskadi, expresamente). Detrás,
+  lo que añade el radar: «Carretera cortada.» si la fuente no lo dice en castellano, la gravedad si es alta o muy
+  alta, desde cuándo y hasta cuándo está prevista. Cada mensaje lleva la atribución de su fuente, la misma que
+  la ficha de la web (`license` de cada adaptador). En inglés (ver [Idioma](#idioma)) se traduce, como en la web,
+  sólo la etiqueta que pone nuestro servidor («Accidente · A-7 km 12.0» → «Accident · A-7 km 12.0») y lo que añade
+  el radar; el lugar y lo que publica cada fuente, tal cual, y lo de Tráfico de Euskadi, entero.
+- **La clave** de una carretera es `c-<código>[-<provincia>]` (`c-A7`, `c-A7-malaga`), aparte de las de los
+  vehículos: ver [vehiculos.md](vehiculos.md#carreteras-el-bot-de-telegram).

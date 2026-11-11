@@ -3,16 +3,32 @@
 // leídos ({ chatId, text } o { chatId, callback }) y devuelve respuestas ({ chatId, text, buttons }); el
 // adaptador de entrada (adapters/inbound/telegram) las trae y las lleva. Vale para cualquier vehículo: lo que se
 // sigue son claves `follow` (domain/seguir.js), sin mirar de qué fuente ni de qué tipo es.
-import { isFollowKey, followKind, stopCode } from '../../domain/seguir.js';
+// Cada chat tiene su idioma (domain/seguidos/idioma.js): español salvo que elija otro con /idioma, con un botón o
+// desde la web en inglés (su enlace lo dice). Se guarda con lo demás del chat; mientras no siga nada, sólo en
+// memoria, como todo lo de quien no sigue nada.
+import { canonicalKey, isFollowKey, isRoadKey, followKind, stopCode, stopKey } from '../../domain/seguir.js';
+import { PROVINCE_TRAFFIC_TEXT, asksForRoad, parseRoadRequest, roadFollowedText, roadName, roadRequestHelp, roadSeen, roadSub, roadTitle } from '../../domain/seguidos/trafico.js';
 import { entryLabel, guessedName, knownNames, searchDirectory, updateDirectory } from '../../domain/seguidos/directorio.js';
 import {
-  DELAY_MIN, SEEN_MAX, collectFacts, factsMessage, fitMessage, fmtWhen, madridDay, madridHourMinute, newFacts, packBlocks, provinceSub,
-  statusOf, trackFacts,
+  DELAY_MIN, SEEN_HARD_MAX, SEEN_MAX, capSeen, collectFacts, factsMessages, fitMessage, gravity, joinCredits, madridDay, madridHourMinute,
+  markSeen, newFactsOf, packBlocks, provinceSub, statusOf, subOfSeen, trackFacts,
 } from '../../domain/seguidos/avisos.js';
-import { dataText, helpText, parseCommand, parseHour, smallTalk, smallTalkText, welcomeText } from '../../domain/seguidos/ordenes.js';
+import {
+  LANG_NAMES, botProfiles, commandsFor, dataText, helpText, langLabel, parseCommand, parseHour, smallTalk, smallTalkText, welcomeText,
+} from '../../domain/seguidos/ordenes.js';
+import {
+  BOT_LANGS, DEFAULT_LANG, ES, frase, isBotLang, offerEnglish, parseLang, parseStartPayload, spainLang, translator,
+} from '../../domain/seguidos/idioma.js';
 import { cutText } from '../../domain/seguidos/texto.js';
 import { countEvent, emptyTotals, parseTotals, usageOf } from '../../domain/seguidos/uso.js';
-import { findProvince, provinceById } from '../../domain/provincias.js';
+import { provinceExtrasText, provinceFacts, provinceOption } from '../../domain/seguidos/zona.js';
+import { withoutRepeats } from '../../domain/seguidos/estacion.js';
+import { stationAsked, stationCandidates, stationFollowName, stationLabel } from '../../domain/seguidos/estaciones.js';
+import { findProvince, plainName, provinceById } from '../../domain/provincias.js';
+import {
+  collectTrayectoFacts, connectedBy, looksLikeTrayecto, parseTrayectoText, passIndex, trayectoErrorText, trayectoHelpText, trayectoName,
+  trayectoOptions, trayectoProblem, trayectoStations, trayectoStatus,
+} from '../../domain/seguidos/trayectos.js';
 
 /** Topes: chats en total, cosas seguidas por chat (provincias incluidas), provincias por chat y menús. */
 export const LIMITS = Object.freeze({
@@ -25,41 +41,99 @@ const SAVE_EVERY_MS = 10 * 60_000;
 // El directorio de lo que se puede seguir se pone al día como mucho cada tanto (son miles de vehículos).
 const DIRECTORY_EVERY_MS = 5 * 60_000;
 const BUTTON_MAX = 60;
+// Estaciones que se llaman tal cual lo buscado que salen, como mucho, en /seguir (delante de las líneas) y en /estado.
+const STATIONS_IN_SEARCH = 3;
+const STATIONS_IN_STATUS = 3;
+// Lo que se avisa de una estación, al empezar a seguirla.
+const STATION_FOLLOW_TEXT = frase('De esta estación te aviso de lo que pasa por ella y se cancela o se queda sin datos (si su operador lo publica) '
+  + 'y, en las de Renfe, de los avisos de la estación (ascensores, accesos…).');
+const EN = translator('en');
+// Cada cuánto, como mucho, se apunta en el registro un mismo problema de la ronda (lo recordado pasa del tope, no se
+// pueden leer las paradas de un viaje).
+const SEEN_WARN_EVERY_MS = 3600_000;
+// Lo que se guarda se copia por partes, cediendo el turno entre una y otra: con el tope de chats, copiarlo y pasarlo a
+// JSON de golpe paraba el servidor (web y bot) de 1,7 a 5,7 s en el VPS. Chats y avisos recordados por parte.
+const SAVE_SLICE = Object.freeze({ chats: 250, seen: 10_000 });
+const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
 
 const num = (x) => (Number.isFinite(x) ? x : 0);
 const clipLabel = (s) => cutText(s, BUTTON_MAX);
 
+/** La web en un idioma: la de siempre o, en otro, con ?lang= (la web en inglés se enlaza así). */
+function webIn(webUrl, lang) {
+  if (lang === DEFAULT_LANG) return webUrl;
+  try {
+    const url = new URL(webUrl);
+    url.searchParams.set('lang', lang);
+    return url.href;
+  } catch {
+    return webUrl;
+  }
+}
+
 /**
  * @typedef {{ chatId: number, text: string, buttons?: Array<Array<{ text: string, data: string }>> }} Reply
- * @typedef {{ chatId: number, text?: string, callback?: string, callbackId?: string }} Incoming
+ * @typedef {{ chatId: number, text?: string, callback?: string, callbackId?: string, clientLang?: string }} Incoming
+ *   clientLang: el idioma del Telegram de quien escribe (language_code), sólo para ofrecerle el inglés.
+ * @typedef {{ replies: Reply[], answer?: string, menu?: { chatId: number, commands: Array<[string, string]>|null } }} Handled
+ *   menu: el menú de órdenes de ese chat cambia (ha elegido otro idioma); sin órdenes (null), vuelve al de siempre (/baja).
  */
 
 /**
- * @param {{ read: { vehicles: () => object[], events: () => object[], station?: (code: string) => object|null },
+ * @param {{ read: { vehicles: () => object[], events: () => object[], station?: (code: string) => object|null, alerts?: () => object[] },
  *           store: import('../ports.js').FollowStorePort, clock: import('../ports.js').ClockPort,
- *           creditOf?: (source: string, operator?: string) => string|null, webUrl: string,
- *           log?: import('../ports.js').LoggerPort, limits?: Partial<typeof LIMITS> }} deps
- *   read: lo que se ve ahora (query-situation: vehículos, incidencias en vigor y la ficha de una estación).
+ *           creditOf?: (source: string, operator?: string) => string|null, webUrl: string, trayectos?: TrayectoReads,
+ *           log?: import('../ports.js').LoggerPort, limits?: Partial<typeof LIMITS>, pause?: () => Promise<void> }} deps
+ *   read: lo que se ve ahora (query-situation: vehículos, incidencias en vigor, la ficha de una estación y las alertas
+ *   abiertas, de las que el bot toma los posibles apagones de las islas).
  *   creditOf: la atribución que pide la licencia de una fuente (por su id y, si agrupa a varios, el operador).
+ *   trayectos: lo que hace falta para «Mi trayecto» (query-situation): las paradas del viaje de un vehículo y el
+ *   catálogo de estaciones. Sin ello, los trayectos no encuentran estaciones ni trenes.
+ *   pause: cómo se cede el turno entre parte y parte al guardar (para los tests).
+ * @typedef {{ stops?: (vehicleId: string) => { stops: object[] }|null, stations?: () => object[] }} TrayectoReads
  */
-export function makeFollowBot({ read, store, clock, creditOf = () => null, webUrl, log, limits: custom = {} }) {
+export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = () => null, webUrl, log, limits: custom = {}, pause = nextTurn }) {
   const limits = { ...LIMITS, ...custom };
   /** @type {Map<number, { id: number, since: number, subs: Map<string, { name: string, since: number, checkedAt: number }>,
-   *   provinces: Map<string, { since: number, checkedAt: number }>, digest: string|null, digestDay: string|null }>} */
+   *   provinces: Map<string, { since: number, checkedAt: number, fires?: boolean }>, digest: string|null, digestDay: string|null, lang: string }>}
+   *   fires: en esa provincia también quiere los focos de calor por satélite (/provincia Granada incendios). */
   let chats = new Map();
   let seen = new Map();
   let offset = 0;
   const directory = new Map();
   const menus = new Map(); // chat → { kind: 'add'|'drop', items, at }: los botones de la última lista
   const rate = new Map(); // chat → { from, count }: sus mensajes del último minuto
+  // El idioma de los chats que no siguen nada (sólo si no es el de siempre): en memoria, nunca en disco, como todo
+  // lo de quien no sigue nada. Al seguir algo pasa a su chat.
+  const spoken = new Map();
+  // A quién se le ha ofrecido ya el inglés (en memoria): se ofrece una vez, no en cada /start.
+  const offered = new Set();
+  // Quién ha elegido idioma a propósito (/idioma, un botón, un enlace de la web en un idioma), en memoria: a ésos no
+  // se les cambia por escribir una orden en inglés.
+  const chosen = new Set();
+  const choose = (chatId) => {
+    if (chosen.size >= limits.chats) chosen.clear();
+    chosen.add(chatId);
+  };
   // Altas, bajas, avisos y mensajes por orden desde que se empezó a contar (domain/seguidos/uso.js): se guardan con
   // lo demás, así que un arranque o un relevo no los pone a cero.
   let totals = emptyTotals(clock.now());
   let dirty = false;
   let savedAt = 0;
+  let saving = null; // el guardado en curso: el siguiente espera a que acabe (si no, uno viejo podría pisar al nuevo)
+  // Mientras se copian los chats por partes (snapshotInParts), los que cambian (o 'all': una ronda o una carga lo
+  // cambian todo), para volver a copiarlos al final; si no, null.
+  let touched = null;
+  const touch = (chatId) => {
+    if (touched && touched !== 'all') touched.add(chatId);
+  };
   let directoryAt = -Infinity;
   let known = null; // operadores y ámbitos del directorio (knownNames), hasta que cambie
   let menuSeq = 0;
+  let seenWarnedAt = -Infinity;
+  const webs = Object.fromEntries(BOT_LANGS.map((l) => [l, webIn(webUrl, l)]));
+  /** La web que se cita a un chat, en su idioma. */
+  const web = (tr) => webs[tr.lang] ?? webUrl;
   /** Pone al día el directorio si hace falta: cada DIRECTORY_EVERY_MS o, con `key`, si aún no la tiene. */
   const refreshDirectory = (c, key = null) => {
     if (c.now - directoryAt < DIRECTORY_EVERY_MS && (!key || directory.has(key))) return;
@@ -73,121 +147,304 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
     dirty = true;
   };
 
+  // Trayectos (domain/seguidos/trayectos.js): las paradas del viaje de cada vehículo, como mucho una vez por minuto
+  // (las piden la ronda, /estado y los partes de ese minuto); por dónde pasan, una vez por consulta (la ronda, con los
+  // partes de todos los chats, es una); el catálogo de estaciones, cada tanto.
+  let tripStops = { at: -Infinity, byId: new Map() };
+  let stopsFailedAt = -Infinity;
+  const stopsOf = (id) => {
+    const now = clock.now();
+    if (now - tripStops.at >= 60_000) tripStops = { at: now, byId: new Map() };
+    if (!tripStops.byId.has(id)) {
+      // Si fallan las paradas de un viaje, ese vehículo no cuenta: la ronda de todos sigue.
+      let stops = null;
+      try {
+        stops = trayectos.stops?.(id)?.stops ?? null;
+      } catch (err) {
+        if (now - stopsFailedAt >= SEEN_WARN_EVERY_MS) {
+          stopsFailedAt = now;
+          log?.warn(`[telegram] no se pudieron leer las paradas de un viaje: ${err.message}`);
+        }
+      }
+      tripStops.byId.set(id, stops);
+    }
+    return tripStops.byId.get(id);
+  };
+  const passing = new WeakMap(); // ctx → passIndex
+  const passingOf = (c) => {
+    let index = passing.get(c);
+    if (!index) passing.set(c, (index = passIndex(c.vehicles, stopsOf)));
+    return index;
+  };
+  /** ¿Une algún tren que se ve ahora dos estaciones? (vehículos con sus paradas y cancelaciones con las suyas) */
+  const connects = (c) => connectedBy({ index: passingOf(c), events: c.events });
+  let catalog = { at: -Infinity, list: [] };
+  const stationList = () => {
+    if (clock.now() - catalog.at >= DIRECTORY_EVERY_MS) catalog = { at: clock.now(), list: trayectos.stations?.() ?? [] };
+    return catalog.list;
+  };
+  /** Los hechos de lo que se sigue: los de avisos.js y los de los trayectos, con sus textos en el idioma de `tr`. */
+  const factsOf = (keys, provinces, c, tr = ES) => {
+    const facts = collectFacts({ keys, provinces, ...c, tr });
+    for (const [key, list] of collectTrayectoFacts({ keys, ...c, stopsOf, tr })) facts.set(key, list);
+    return facts;
+  };
+
+  /** El idioma de un chat: el de su chat guardado, el elegido sin seguir nada o el de siempre. */
+  const langOf = (chatId) => chats.get(chatId)?.lang ?? spoken.get(chatId) ?? DEFAULT_LANG;
+  const trOf = (chatId) => translator(langOf(chatId));
+  /** Recuerda en memoria el idioma de un chat que no sigue nada (el más viejo sale si hay demasiados). */
+  const remember = (chatId, lang) => {
+    spoken.delete(chatId);
+    if (lang === DEFAULT_LANG) return;
+    spoken.set(chatId, lang);
+    if (spoken.size > limits.chats) spoken.delete(spoken.keys().next().value);
+  };
+  function setLang(chatId, lang) {
+    const chat = chats.get(chatId);
+    if (!chat) return remember(chatId, lang);
+    if (chat.lang !== lang) {
+      chat.lang = lang;
+      dirty = true;
+    }
+  }
+
   const stationOf = (code) => (code && read.station ? read.station(code) : null);
-  const ctx = () => ({ vehicles: read.vehicles(), events: read.events(), now: clock.now(), stationOf, creditOf });
+  const ctx = () => ({ vehicles: read.vehicles(), events: read.events(), alerts: read.alerts?.() ?? [], now: clock.now(), stationOf, creditOf });
   const reply = (chatId, text, buttons) => ({ chatId, text: fitMessage(text), ...(buttons?.length ? { buttons } : {}) });
   const count = (chat) => (chat ? chat.subs.size + chat.provinces.size : 0);
-  const provinceTitle = (p) => `Avisos en ${p.name}`;
+  const provinceTitle = (p, tr) => tr.t('Avisos en {province}', { province: p.name });
+  /** Lo que se añade al nombre de una provincia en la que se han pedido los focos de calor. */
+  const firesNote = (s, tr) => (s?.fires ? ` ${tr.t('(con focos de calor)')}` : '');
 
-  /** El nombre de lo que se ve (directorio o catálogo de estaciones); null si ahora no se conoce. */
+  /** El nombre de lo que se ve (directorio o catálogo de estaciones), en español como se guarda; null si ahora no se conoce. */
   function knownName(key) {
+    if (followKind(key) === 'trayecto') return trayectoName(key, stationOf);
     if (followKind(key) === 'parada') {
       const st = stationOf(stopCode(key));
-      return st?.name ? `Estación ${st.name}` : null;
+      return st?.name ? stationFollowName(st) : null;
     }
     return directory.get(key)?.name ?? null;
   }
 
   // Algo que no se ve ahora (un enlace guardado, o de noche tras un reinicio): un nombre sin el texto libre de su
   // clave, que se puede inventar (guessedName); se renueva cuando se vuelve a ver (tick).
-  const nameOf = (key) => knownName(key) ?? guessedName(key, knownOf()) ?? (followKind(key) === 'parada' ? 'esa estación' : 'eso');
+  const nameOf = (key) => knownName(key) ?? guessedName(key, knownOf()) ?? (followKind(key) === 'parada' ? frase('esa estación') : frase('eso'));
 
-  /** Cómo está ahora, en texto: sus líneas y sus fuentes. */
-  function statusText(sub, c = ctx()) {
-    const { lines, credits } = statusOf(sub, c);
-    return [lines.join('\n'), credits.length ? credits.join(' · ') : null].filter(Boolean).join('\n\n');
+  // Cómo está cada cosa, una vez por consulta (`c`) e idioma: en la ronda del parte, miles de chats piden las
+  // mismas provincias y carreteras, y cada una cuesta recorrer todas las incidencias.
+  const statusMemo = new WeakMap(); // ctx → «idioma|focos|sub» → { body, credits }
+  /**
+   * Cómo está ahora: sus líneas (`body`) y sus fuentes (`credits`, juntas). `fires`: en una provincia, también sus focos
+   * de calor (quien los ha pedido).
+   */
+  function statusNow(sub, c, tr, fires = false) {
+    let memo = statusMemo.get(c);
+    if (!memo) statusMemo.set(c, (memo = new Map()));
+    const k = `${tr.lang}|${fires && sub.startsWith('prov:') ? 1 : 0}|${sub}`;
+    let st = memo.get(k);
+    if (!st) {
+      const { lines, credits } = followKind(sub) === 'trayecto'
+        ? trayectoStatus(sub, { ...c, stopsOf, index: passingOf(c), tr })
+        : statusOf(sub, { ...c, fires, tr });
+      st = { body: lines.join('\n'), credits: joinCredits(credits) };
+      memo.set(k, st);
+    }
+    return st;
   }
+  /** Lo de una cosa como bloque de packBlocks: «<head>\n<cómo está>» con sus fuentes (en cada mensaje si se parte). */
+  const statusBlock = (head, sub, c, tr, fires = false) => {
+    const { body, credits } = statusNow(sub, c, tr, fires);
+    return { text: `${head}\n${body}`, credits };
+  };
+  /** Una respuesta de varias partes (con cómo está algo), en uno o varios mensajes si no cabe: sin recortar nada. */
+  const answer = (chatId, tr, blocks) => packed(blocks.filter(Boolean), tr, { footer: null }).map((text) => reply(chatId, text));
 
   /** Lo que ya se ve de algo al empezar a seguirlo no se avisa: se cuenta en la respuesta. */
   function baseline(sub, c) {
-    const facts = sub.startsWith('prov:')
-      ? collectFacts({ keys: [], provinces: [sub.slice(5)], ...c })
-      : collectFacts({ keys: [sub], ...c });
-    seen = trackFacts(seen, facts, c.now);
+    const facts = sub.startsWith('prov:') ? factsOf([], [sub.slice(5)], c) : factsOf([sub], [], c);
+    markSeen(seen, facts, c.now);
   }
 
   function chatFor(chatId, now) {
     let chat = chats.get(chatId);
     if (chat) return chat;
     if (chats.size >= limits.chats) return null;
-    chat = { id: chatId, since: now, subs: new Map(), provinces: new Map(), digest: null, digestDay: null };
+    chat = { id: chatId, since: now, subs: new Map(), provinces: new Map(), digest: null, digestDay: null, lang: langOf(chatId) };
+    spoken.delete(chatId);
     chats.set(chatId, chat);
     note('alta');
     return chat;
   }
 
-  /** Quita un chat que ya no sigue nada: no se guarda nada de quien no sigue nada. */
+  /** Quita un chat que ya no sigue nada: no se guarda nada de quien no sigue nada (su idioma, sólo en memoria). */
   function dropIfEmpty(chat) {
-    if (chat && !count(chat) && chats.delete(chat.id)) note('baja', 'dejar');
+    if (chat && !count(chat) && chats.delete(chat.id)) {
+      remember(chat.id, chat.lang);
+      note('baja', 'dejar');
+    }
   }
 
-  function follow(chatId, key, name = null) {
-    if (!isFollowKey(key)) return [reply(chatId, 'Eso no es algo que se pueda seguir. Búscalo con /seguir o desde la web.')];
+  function follow(chatId, link, name = null) {
+    const tr = trOf(chatId);
+    const { t } = tr;
+    // Cada cosa con una sola clave: un enlace inventado puede escribir la misma de muchas formas («p-_37_30…»).
+    const key = canonicalKey(link);
+    if (!key) return [reply(chatId, t('Eso no es algo que se pueda seguir. Búscalo con /seguir o desde la web.'))];
     const c = ctx();
     const station = followKind(key) === 'parada';
     // Una estación está en el catálogo o no existe: de una que no está nunca llegaría nada.
     if (station && !stationOf(stopCode(key))) {
-      return [reply(chatId, `Esa estación no la encuentro en el catálogo del radar. Búscala en el mapa y pulsa «Avísame por Telegram» en su ficha: ${webUrl}`)];
+      return [reply(chatId, t('Esa estación no la encuentro en el catálogo del radar. Búscala en el mapa y pulsa «Avísame por Telegram» en su ficha: {web}',
+        { web: web(tr) }))];
     }
-    // Un enlace de la web trae sólo la clave: su nombre, de lo que se ve ahora.
-    if (!name && !station) refreshDirectory(c, key);
+    if (followKind(key) === 'trayecto' && !trayectoName(key, stationOf)) {
+      return [reply(chatId, t('Ese trayecto no lo puedo seguir: alguna de sus estaciones no está en el catálogo del radar. Escríbelo con /trayecto.'))];
+    }
+    // Un trayecto por enlace, con lo mismo que comprueba /trayecto: estaciones distintas y de la misma red.
+    const wrong = followKind(key) === 'trayecto' ? trayectoProblem(key, stationOf) : null;
+    if (wrong) return [reply(chatId, trayectoErrorText(wrong, tr))];
+    // Un enlace de la web trae sólo la clave: su nombre, de lo que se ve ahora. Un trayecto o una estación nunca están
+    // en el directorio (se nombran con el catálogo): rehacerlo para buscarlos era recorrer miles de vehículos para nada.
+    if (!name && !station && followKind(key) !== 'trayecto') refreshDirectory(c, key);
     const existing = chats.get(chatId);
-    if (existing?.subs.has(key)) return [reply(chatId, `Ya sigues ${existing.subs.get(key).name}.\n\nAhora:\n${statusText(key, c)}`)];
+    if (existing?.subs.has(key)) {
+      return answer(chatId, tr, [t('Ya sigues {name}.', { name: tr.name(existing.subs.get(key).name) }), statusBlock(t('Ahora:'), key, c, tr)]);
+    }
     if (count(existing) >= limits.subsPerChat) {
-      return [reply(chatId, `Ya sigues ${limits.subsPerChat} cosas, el máximo. Deja alguna con /dejar.`)];
+      return [reply(chatId, t('Ya sigues {n} cosas, el máximo. Deja alguna con /dejar.', { n: limits.subsPerChat }))];
     }
     const chat = chatFor(chatId, c.now);
-    if (!chat) return [reply(chatId, 'Ahora mismo no puedo atender a más gente. Prueba más tarde, por favor.')];
+    if (!chat) return [reply(chatId, t('Ahora mismo no puedo atender a más gente. Prueba más tarde, por favor.'))];
     const label = name ?? knownName(key);
     baseline(key, c);
     chat.subs.set(key, label ? { name: label, since: c.now, checkedAt: c.now } : { name: nameOf(key), since: c.now, checkedAt: c.now, guessed: true });
     dirty = true;
-    return [reply(chatId, `Hecho: te aviso de ${chat.subs.get(key).name}.\n\nAhora:\n${statusText(key, c)}\n\n/mis para ver lo que sigues · /dejar para dejar de seguirlo`)];
+    return answer(chatId, tr, [t('Hecho: te aviso de {name}.', { name: tr.name(chat.subs.get(key).name) }), statusBlock(t('Ahora:'), key, c, tr),
+      unlinked(key, c, tr), station ? t(STATION_FOLLOW_TEXT) : null, t('/mis para ver lo que sigues · /dejar para dejar de seguirlo')]);
   }
 
-  function followProvince(chatId, p) {
+  /** De un trayecto que ningún tren que se ve une: que lo compruebe (se sigue igual: de noche apenas hay trenes). */
+  function unlinked(key, c, tr) {
+    const way = followKind(key) === 'trayecto' ? trayectoStations(key, stationOf) : null;
+    if (!way || connects(c)(way.origin, way.destination)) return null;
+    return tr.t('Ahora no veo ningún tren que vaya de {origin} a {destination}: si no hay trenes directos entre ellas, no te llegará nada; '
+      + 'comprueba las estaciones.', { origin: way.origin.name, destination: way.destination.name });
+  }
+
+  /** Sigue una provincia; con `fires`, también sus focos de calor (y si ya la seguía, se los añade). */
+  function followProvince(chatId, p, { fires = false, island = null } = {}) {
+    const tr = trOf(chatId);
+    const { t } = tr;
+    const whole = island ? t('{island} es de la provincia de {province}: sigues la provincia entera, también sus otras islas.', { island, province: p.name }) : null;
     const sub = provinceSub(p.id);
     const c = ctx();
     const existing = chats.get(chatId);
-    if (existing?.provinces.has(p.id)) return [reply(chatId, `Ya sigues los avisos de ${p.name}.\n\nAhora:\n${statusText(sub, c)}`)];
-    if (count(existing) >= limits.subsPerChat) return [reply(chatId, `Ya sigues ${limits.subsPerChat} cosas, el máximo. Deja alguna con /dejar.`)];
+    const had = existing?.provinces.get(p.id);
+    const province = p.name;
+    if (had && fires && !had.fires) {
+      had.fires = true;
+      dirty = true;
+      return answer(chatId, tr, [t('Hecho: en {province} ahora también te aviso de los focos de calor que detecta el satélite y pueden ser un incendio: '
+        + 'sólo los más claros, y nunca son un incendio confirmado. Para quitarlos: /provincia {province} sin incendios', { province }),
+      statusBlock(t('Ahora:'), sub, c, tr, true)]);
+    }
+    if (had) {
+      const already = had.fires ? t('Ya sigues los avisos de {province} (con focos de calor).', { province }) : t('Ya sigues los avisos de {province}.', { province });
+      return answer(chatId, tr, [whole, already, statusBlock(t('Ahora:'), sub, c, tr, had.fires)]);
+    }
+    if (count(existing) >= limits.subsPerChat) return [reply(chatId, t('Ya sigues {n} cosas, el máximo. Deja alguna con /dejar.', { n: limits.subsPerChat }))];
     if ((existing?.provinces.size ?? 0) >= limits.provincesPerChat) {
-      return [reply(chatId, `Ya sigues ${limits.provincesPerChat} provincias, el máximo. Deja alguna con /dejar.`)];
+      return [reply(chatId, t('Ya sigues {n} provincias, el máximo. Deja alguna con /dejar.', { n: limits.provincesPerChat }))];
     }
     const chat = chatFor(chatId, c.now);
-    if (!chat) return [reply(chatId, 'Ahora mismo no puedo atender a más gente. Prueba más tarde, por favor.')];
+    if (!chat) return [reply(chatId, t('Ahora mismo no puedo atender a más gente. Prueba más tarde, por favor.'))];
     baseline(sub, c);
-    chat.provinces.set(p.id, { since: c.now, checkedAt: c.now });
+    chat.provinces.set(p.id, { since: c.now, checkedAt: c.now, ...(fires ? { fires: true } : {}) });
     dirty = true;
-    return [reply(chatId, `Hecho: te aviso en ${p.name} de los avisos naranja y rojo de AEMET, de los terremotos que puedan `
-      + `sentirse y de los avisos oficiales (planes de emergencia y cortes de luz). La zona de cada provincia es aproximada: `
-      + `cerca de su límite puede llegarte alguno de la vecina.\n\nAhora:\n${statusText(sub, c)}`)];
+    return answer(chatId, tr, [whole, `${t('Hecho: te aviso en {province} de los avisos naranja y rojo de AEMET, de los terremotos que puedan '
+      + 'sentirse y de los avisos oficiales (planes de emergencia y cortes de luz).', { province })} ${t(PROVINCE_TRAFFIC_TEXT)} `
+      + `${t('La zona de cada provincia es aproximada: cerca de su límite puede llegarte alguno de la vecina.')}`,
+    statusBlock(t('Ahora:'), sub, c, tr, fires), provinceExtrasText(p, { fires, tr })]);
   }
 
-  /** Lo que sigue un chat, en orden: lo que se ve en /mis y lo que numeran /dejar y los botones. */
-  function listOf(chat) {
+  /** Deja los focos de calor de una provincia que sigue (el resto de sus avisos, no). */
+  function dropFires(chatId, p) {
+    const { t } = trOf(chatId);
+    const province = p.name;
+    const had = chats.get(chatId)?.provinces.get(p.id);
+    if (!had) return [reply(chatId, t('No sigues {province}. Para seguirla: /provincia {province}', { province }))];
+    if (!had.fires) return [reply(chatId, t('En {province} no te aviso de los focos de calor; del resto de sus avisos, sí.', { province }))];
+    delete had.fires;
+    dirty = true;
+    return [reply(chatId, t('Hecho: en {province} ya no te aviso de los focos de calor; del resto de sus avisos, sí.', { province }))];
+  }
+
+  /** Seguir una carretera (entera o en una provincia): `sub` es de roadSub. Cuenta en el tope de cosas por chat. */
+  function followRoad(chatId, sub) {
+    const tr = trOf(chatId);
+    const { t } = tr;
+    const c = ctx();
+    const existing = chats.get(chatId);
+    if (existing?.subs.has(sub.key)) {
+      return answer(chatId, tr, [t('Ya sigues {name}.', { name: tr.name(existing.subs.get(sub.key).name) }), statusBlock(t('Ahora:'), sub.key, c, tr)]);
+    }
+    if (count(existing) >= limits.subsPerChat) return [reply(chatId, t('Ya sigues {n} cosas, el máximo. Deja alguna con /dejar.', { n: limits.subsPerChat }))];
+    const chat = chatFor(chatId, c.now);
+    if (!chat) return [reply(chatId, t('Ahora mismo no puedo atender a más gente. Prueba más tarde, por favor.'))];
+    const name = roadName(sub.road, c.events);
+    baseline(sub.key, c);
+    // El nombre se guarda en español («Carretera A-7»), como los demás, y se enseña en el idioma del chat.
+    chat.subs.set(sub.key, { name: roadTitle(name, sub.province), since: c.now, checkedAt: c.now });
+    dirty = true;
+    // Sin lista de carreteras, una mal escrita se sigue igual: si ahora no tiene ninguna incidencia, se dice.
+    const unseen = roadSeen(sub.key, c.events) ? null
+      : t('Ahora no veo ninguna incidencia en ella, ni leve: comprueba que el nombre está bien escrito; si lo está, te aviso en cuanto haya algo.');
+    return answer(chatId, tr, [roadFollowedText(sub, name, tr), statusBlock(t('Ahora:'), sub.key, c, tr), unseen,
+      t('/mis para ver lo que sigues · /dejar para dejar de seguirlo')]);
+  }
+
+  function roadCmd(chatId, arg) {
+    const wanted = parseRoadRequest(arg);
+    return wanted.key ? followRoad(chatId, wanted) : [reply(chatId, roadRequestHelp(wanted, arg, trOf(chatId)))];
+  }
+
+  /**
+   * Lo que sigue un chat, en orden: lo que se ve en /mis y lo que numeran /dejar y los botones. `name`, en el idioma
+   * del chat; `saved`, el nombre guardado (en español), para buscarlo también por él.
+   */
+  function listOf(chat, tr) {
     if (!chat) return [];
     return [
-      ...[...chat.subs].map(([key, s]) => ({ sub: key, name: s.name })),
-      ...[...chat.provinces.keys()].map((id) => ({ sub: provinceSub(id), name: provinceTitle(provinceById(id)) })),
+      ...[...chat.subs].map(([key, s]) => ({ sub: key, name: tr.name(s.name), saved: s.name })),
+      ...[...chat.provinces].map(([id, s]) => ({
+        sub: provinceSub(id), name: `${provinceTitle(provinceById(id), tr)}${firesNote(s, tr)}`, saved: provinceById(id).name, fires: !!s.fires,
+      })),
     ];
   }
 
   function unfollow(chatId, sub) {
+    const tr = trOf(chatId);
+    const { t } = tr;
     const chat = chats.get(chatId);
-    if (!chat) return [reply(chatId, 'No sigues nada.')];
-    let name = null;
+    if (!chat) return [reply(chatId, t('No sigues nada.'))];
+    let done = null;
     if (sub.startsWith('prov:')) {
       const id = sub.slice(5);
-      if (chat.provinces.delete(id)) name = provinceTitle(provinceById(id));
+      if (chat.provinces.delete(id)) done = t('Hecho: ya no te mando los avisos de {province}.', { province: provinceById(id).name });
     } else if (chat.subs.has(sub)) {
-      name = chat.subs.get(sub).name;
+      // Una carretera, por su nombre («la M-30», «la A-7 en Málaga»); lo demás, por el suyo en el idioma del chat.
+      const saved = chat.subs.get(sub).name;
+      const road = isRoadKey(sub) ? /^Carretera (.+?)(?: \(([^()]+)\))?$/.exec(saved) : null;
+      done = !road ? t('Hecho: ya no te aviso de {name}.', { name: tr.name(saved) })
+        : road[2] ? t('Hecho: ya no te aviso de la {road} en {province}.', { road: road[1], province: road[2] })
+          : t('Hecho: ya no te aviso de la {road}.', { road: road[1] });
       chat.subs.delete(sub);
     }
-    if (!name) return [reply(chatId, 'Eso ya no lo sigues.')];
+    if (!done) return [reply(chatId, t('Eso ya no lo sigues.'))];
     dirty = true;
     dropIfEmpty(chat);
-    return [reply(chatId, `Hecho: ya no te aviso de ${name}.${chats.has(chatId) ? '' : ' No sigues nada más, así que no guardo nada de este chat.'}`)];
+    return [reply(chatId, chats.has(chatId) ? done : `${done} ${t('No sigues nada más, así que no guardo nada de este chat.')}`)];
   }
 
   /**
@@ -204,155 +461,463 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
 
   /** Busca lo que se quiere seguir. Con `confirm` (texto sin orden), aunque sólo haya uno, se pregunta con un botón. */
   function search(chatId, arg, { confirm = false } = {}) {
+    const tr = trOf(chatId);
+    const { t } = tr;
     const c = ctx();
     if (!arg) {
-      return [reply(chatId, 'Dime qué quieres seguir: un número de tren («08058»), una línea con su ciudad u operador («C4 Madrid», '
-        + '«27 EMT Málaga») o una provincia (/provincia Valencia).')];
+      return [reply(chatId, t('Dime qué quieres seguir: un número de tren («08058»), una línea con su ciudad u operador («C4 Madrid», '
+        + '«27 EMT Málaga»), una estación (/estacion Sants) o una provincia (/provincia Valencia).'))];
     }
     if (isFollowKey(arg)) return follow(chatId, arg);
+    // «/seguir estación Atocha», «station Sants»: una estación. Si algo de lo que circula también lleva ese texto
+    // («estación de autobuses», «Estación Sur»: el destino de algunas líneas), una lista con las dos cosas.
+    const asked = stationAsked(arg);
+    if (asked === '') return stationCmd(chatId, '', { confirm });
     refreshDirectory(c);
-    const all = searchDirectory(directory, arg, { limit: Infinity });
-    const found = all.slice(0, limits.menuItems);
-    if (!found.length) {
-      const p = findProvince(arg);
-      if (p) return followProvince(chatId, p);
-      return [reply(chatId, `No encuentro nada así entre lo que circula ahora o ha circulado hace poco. Prueba con el número `
-        + `(«08058»), la línea y su ciudad u operador («C4 Madrid»), o búscalo en el mapa y pulsa «Avísame por Telegram» en su ficha: ${webUrl}`)];
+    const lines = searchDirectory(directory, arg, { limit: Infinity });
+    // Una línea de muchos recorridos (todos los Avant), nunca sin preguntar: su botón dice que son todos.
+    const lineItems = lines.map((e) => ({ sub: e.key, name: e.name, label: tr.name(entryLabel(e)), ...(e.wide ? { wide: true } : {}) }));
+    if (asked !== null) {
+      if (!lines.length) return stationCmd(chatId, arg, { confirm });
+      // La que se llama como todo lo escrito («Estación del Arte») o como lo que va detrás de «estación».
+      const whole = stationsNamed(arg);
+      const named = whole.exact ? whole : stationsNamed(asked);
+      const stations = named.list.slice(0, STATIONS_IN_SEARCH).map((st) => stationItem(st, tr, { mixed: true }));
+      const hint = named.list.length > stations.length ? t('Si buscas una estación: /estacion {name}', { name: cutText(asked, 60) }) : null;
+      // Las que se llaman así, delante; las que sólo tienen esas palabras, detrás y nunca sin preguntar.
+      const all = named.exact ? [...stations, ...lineItems] : [...lineItems, ...stations];
+      return offer(chatId, all, { confirm: confirm || (stations.length > 0 && !named.exact), hint, tr });
     }
-    if (found.length === 1 && !confirm) return follow(chatId, found[0].key, found[0].name);
-    const buttons = menu(chatId, 'add', found.map((e) => ({ sub: e.key, name: e.name, label: entryLabel(e) })), c.now);
+    // «/seguir Soria»: si todo lo escrito es una provincia, sus líneas o, si no hay, la provincia (como siempre); la
+    // estación que se llama así, con /estacion (y así se dice).
+    const { place, fires } = provinceOption(arg);
+    const p = findProvince(place);
+    // Si alguna estación se llama tal cual («Passeig de Gràcia»), delante de las líneas, con las que tienen ese nombre
+    // dentro: la de metro y la de Renfe («Barcelona-Passeig de Gràcia»). Las que sólo tienen esas palabras («Atocha»),
+    // sólo si no hay nada más.
+    const named = stationsNamed(arg);
+    const stations = p || !named.exact ? [] : named.list.slice(0, STATIONS_IN_SEARCH).map((st) => stationItem(st, tr, { mixed: true }));
+    const hint = named.list.length > stations.length ? t('Si buscas una estación: /estacion {name}', { name: cutText(arg, 60) }) : null;
+    const all = [...stations, ...lineItems];
+    if (!all.length) {
+      // «Granada incendios» o «Granada sin incendios», también sin orden.
+      if (p) {
+        const done = fires === false ? dropFires(chatId, p) : followProvince(chatId, p, { fires: !!fires });
+        return hint ? [...done, reply(chatId, hint)] : done;
+      }
+      if (named.list.length) return stationChoice(chatId, named, { confirm, tr });
+      // Algo que parece una carretera («A-7», «C-31»: con guion): no se sigue sin preguntar (también podría ser una línea
+      // que ahora no circula). «C1 Barcelona» no lo parece.
+      const road = asksForRoad(arg) ?? (/\b[a-z]{1,4}-[0-9ivx]/i.test(arg) ? parseRoadRequest(arg) : {});
+      if (road.key) {
+        return [reply(chatId, t('No encuentro ningún vehículo ni línea así. Si es una carretera, para sus cortes y accidentes: /carretera {road}', { road: arg }))];
+      }
+      return [reply(chatId, t('No encuentro nada así entre lo que circula ahora o ha circulado hace poco. Prueba con el número '
+        + '(«08058»), la línea y su ciudad u operador («C4 Madrid»), o búscalo en el mapa y pulsa «Avísame por Telegram» en su ficha: {web}',
+      { web: web(tr) }))];
+    }
+    // «Atocha» encuentra las líneas que van allí; la estación, con /estacion (y así se dice, sin seguir nada sin preguntar).
+    return offer(chatId, all, { confirm, hint, tr });
+  }
+
+  /**
+   * Lo encontrado al buscar: si es una cosa (y no hay que preguntar ni decir cómo buscar otra), se sigue; si no, una
+   * lista con sus botones. Se sigue con el nombre en español (el que se guarda); el botón, en el idioma del chat.
+   */
+  function offer(chatId, all, { confirm, hint, tr }) {
+    const { t } = tr;
+    const found = all.slice(0, limits.menuItems);
+    if (found.length === 1 && !confirm && !hint && !found[0].wide) return follow(chatId, found[0].sub, found[0].name);
+    const buttons = menu(chatId, 'add', found, clock.now());
     // Si hay más de las que caben en la lista, se dice: quien busca «C1» sabe que tiene que decir la ciudad.
-    const text = found.length === 1 ? '¿Quieres seguir esto?'
-      : all.length > found.length ? `He encontrado ${all.length}; aquí van las ${found.length} primeras. Si no está la que buscas, añade la `
-        + 'ciudad o el operador («C1 Madrid», «27 EMT Málaga»). ¿Cuál quieres seguir?'
-        : 'He encontrado varias cosas. ¿Cuál quieres seguir?';
-    return [reply(chatId, text, buttons)];
+    const text = found.length === 1 ? t('¿Quieres seguir esto?')
+      : all.length > found.length ? t('He encontrado {total}; aquí van las {n} primeras. Si no está la que buscas, añade la '
+        + 'ciudad o el operador («C1 Madrid», «27 EMT Málaga»). ¿Cuál quieres seguir?', { total: all.length, n: found.length })
+        : t('He encontrado varias cosas. ¿Cuál quieres seguir?');
+    return [reply(chatId, hint ? `${text}\n\n${hint}` : text, buttons)];
   }
 
   function status(chatId, arg) {
+    const tr = trOf(chatId);
+    const { t } = tr;
     const c = ctx();
     const chat = chats.get(chatId);
     const blocks = [];
     if (!arg) {
-      if (!chat) return [reply(chatId, 'No sigues nada todavía. Dime qué quieres seguir con /seguir, o mira cómo va algo: /estado 08058.')];
-      for (const it of listOf(chat)) blocks.push(`${it.name}:\n${statusText(it.sub, c)}`);
-    } else if (isFollowKey(arg)) {
-      if (followKind(arg) !== 'parada') refreshDirectory(c, arg);
-      blocks.push(`${nameOf(arg)}:\n${statusText(arg, c)}`);
+      if (!chat) return [reply(chatId, t('No sigues nada todavía. Dime qué quieres seguir con /seguir, o mira cómo va algo: /estado 08058.'))];
+      for (const it of listOf(chat, tr)) blocks.push(statusBlock(`${it.name}:`, it.sub, c, tr, it.fires));
+    } else if (canonicalKey(arg)) {
+      const key = canonicalKey(arg);
+      if (followKind(key) !== 'parada' && followKind(key) !== 'trayecto') refreshDirectory(c, key);
+      blocks.push(statusBlock(`${tr.name(nameOf(key))}:`, key, c, tr));
+    } else if (stationAsked(arg) !== null) {
+      // «/estado estación Atocha»: las estaciones que se llaman así (y las que tienen ese nombre dentro); si no hay
+      // ninguna, lo que circula con ese texto («/estado estación de autobuses») y, si tampoco, las que tienen esas palabras.
+      const name = stationAsked(arg);
+      const named = name ? stationsNamed(name) : { list: [], exact: 0 };
+      const block = (st) => blocks.push(statusBlock(`${tr.name(stationFollowName(st))}:`, stopKey(st.code), c, tr));
+      if (named.exact) named.list.slice(0, STATIONS_IN_STATUS).forEach(block);
+      if (!blocks.length && name) {
+        refreshDirectory(c);
+        for (const e of searchDirectory(directory, arg, { limit: 3 })) blocks.push(statusBlock(`${tr.name(entryLabel(e))}:`, e.key, c, tr));
+      }
+      if (!blocks.length) named.list.slice(0, STATIONS_IN_STATUS).forEach(block);
+      if (!blocks.length) return [reply(chatId, t('No encuentro ninguna estación así en el catálogo del radar.'))];
     } else {
       refreshDirectory(c);
-      const found = searchDirectory(directory, arg, { limit: 3 });
-      const p = !found.length ? findProvince(arg) : null;
-      if (p) blocks.push(`${provinceTitle(p)}:\n${statusText(provinceSub(p.id), c)}`);
-      for (const e of found) blocks.push(`${entryLabel(e)}:\n${statusText(e.key, c)}`);
-      if (!blocks.length) return [reply(chatId, 'No encuentro nada así entre lo que circula ahora o ha circulado hace poco.')];
+      // «/estado A-7»: la carretera, no el autobús 7 (asksForRoad); «/estado C4 Madrid», la línea.
+      const roadFirst = asksForRoad(arg);
+      // «/estado Málaga» (o «Granada incendios»): si todo lo escrito es una provincia, la provincia, no las líneas que
+      // pasan por una estación que se llama así.
+      const option = provinceOption(arg);
+      const p = roadFirst ? null : findProvince(option.place);
+      const found = roadFirst || p ? [] : searchDirectory(directory, arg, { limit: 3 });
+      const fires = option.fires ?? !!chat?.provinces.get(p?.id)?.fires;
+      if (p) blocks.push(statusBlock(`${provinceTitle(p, tr)}:`, provinceSub(p.id), c, tr, fires));
+      // Una estación que se llama tal cual («/estado Passeig de Gràcia»), con las que tienen ese nombre dentro y las líneas.
+      const named = roadFirst || p ? null : stationsNamed(arg);
+      const block = (st) => blocks.push(statusBlock(`${tr.name(stationFollowName(st))}:`, stopKey(st.code), c, tr));
+      if (named?.exact) named.list.slice(0, STATIONS_IN_STATUS).forEach(block);
+      const road = roadFirst ?? (!found.length && !p && !named?.exact ? parseRoadRequest(arg) : null); // cómo está esa carretera
+      if (road?.key) blocks.push(statusBlock(`${tr.name(roadTitle(roadName(road.road, c.events), road.province))}:`, road.key, c, tr));
+      for (const e of found) blocks.push(statusBlock(`${tr.name(entryLabel(e))}:`, e.key, c, tr));
+      // Si no hay nada más, las estaciones que tienen esas palabras («/estado Atocha»).
+      if (!blocks.length && named) named.list.slice(0, STATIONS_IN_STATUS).forEach(block);
+      if (!blocks.length) return [reply(chatId, t('No encuentro nada así entre lo que circula ahora o ha circulado hace poco.'))];
     }
-    return packed(blocks).map((text) => reply(chatId, text));
+    return packed(blocks, tr).map((text) => reply(chatId, text));
   }
 
-  /** Lo de cada cosa seguida, entero, en uno o varios mensajes (packBlocks), con la web al final. */
-  const packed = (blocks) => packBlocks(blocks, {
-    footer: `Más en ${webUrl}`,
-    more: (n) => `…y ${n === 1 ? 'otra cosa que no cabe' : `${n} cosas más que no caben`} aquí: pídela${n === 1 ? '' : 's'} con /estado y su nombre, o mírala${n === 1 ? '' : 's'} en la web.`,
+  /** Lo de cada cosa seguida, entero, en uno o varios mensajes (packBlocks), con la web al final (o `footer`). */
+  const packed = (blocks, tr, { footer = tr.t('Más en {web}', { web: web(tr) }) } = {}) => packBlocks(blocks, {
+    footer,
+    more: (n) => tr.tn('…y otra cosa que no cabe aquí: pídela con /estado y su nombre, o mírala en la web.',
+      '…y {n} cosas más que no caben aquí: pídelas con /estado y su nombre, o míralas en la web.', n),
   });
 
+  /** Las estaciones que tienen clave (todas las del catálogo; por si acaso, una con un código raro no se ofrece). */
+  const keyed = (list) => list.filter((st) => stopKey(st.code));
+
+  /**
+   * Una estación en una lista de botones. Se sigue con su nombre en español (el que se guarda); el botón, en una lista
+   * sólo de estaciones, como en /trayecto («Sants Estació (Barcelona) · Metro de Barcelona (TMB)»), y mezclada con líneas
+   * (`mixed`), con «Estación» delante, en el idioma del chat.
+   */
+  function stationItem(st, tr, { mixed = false } = {}) {
+    const name = stationFollowName(st);
+    return { sub: stopKey(st.code), name, label: mixed ? tr.name(name) : stationLabel(st) };
+  }
+
+  /**
+   * /estacion Sants: una estación del catálogo del radar por su nombre (como las de /trayecto: las de Renfe y las de
+   * las redes de metro y tranvía). Si sólo puede ser una, la sigue; si hay varias, una lista. Con `confirm` (escrito
+   * sin orden), aunque sea una, se pregunta con su botón.
+   */
+  function stationCmd(chatId, arg, { confirm = false } = {}) {
+    const tr = trOf(chatId);
+    const { t } = tr;
+    if (!arg) return [reply(chatId, t('Dime la estación: /estacion Sants, /estacion Alcalá de Henares…'))];
+    let named = stationsNamed(arg);
+    // «/estacion estación de Atocha»: tal cual no hay ninguna que se llame así, y sin «estación de», sí («Estación del
+    // Arte» sí se llama así).
+    const bare = stationAsked(arg);
+    if (!named.exact && bare) {
+      const without = stationsNamed(bare);
+      if (without.exact || !named.list.length) named = without;
+    }
+    if (!named.list.length) {
+      return [reply(chatId, t('No encuentro ninguna estación «{name}» en el catálogo del radar. Escribe su nombre como en el mapa («Sants», '
+        + '«Alcalá de Henares»), o búscala en el mapa y pulsa «Avísame por Telegram» en su ficha: {web}', { name: cutText(arg, 60), web: web(tr) }))];
+    }
+    return stationChoice(chatId, named, { confirm, tr });
+  }
+
+  /**
+   * Las estaciones de un nombre: primero las que se llaman tal cual y después las que lo tienen dentro, porque una de
+   * metro puede llamarse como la de Renfe sin su ciudad («Passeig de Gràcia» y «Barcelona-Passeig de Gràcia»).
+   * exact: cuántas se llaman tal cual; sure: sólo puede ser una (la única que se llama así, y ninguna más lo tiene).
+   */
+  function stationsNamed(text) {
+    const { exact, partial } = stationCandidates(stationList(), text);
+    const named = keyed(exact);
+    const list = [...named, ...keyed(partial)];
+    return { list, exact: named.length, sure: named.length === 1 && list.length === 1 };
+  }
+
+  /**
+   * Seguir una de unas estaciones (stationsNamed): si sólo puede ser una (y no hay que confirmar), directamente; si
+   * no, con una lista (también con una sola que no se llama así: «/estacion Hospitales» es «Estación de tren Hospitales»).
+   */
+  function stationChoice(chatId, { list, sure }, { confirm = false, tr }) {
+    const { t } = tr;
+    const items = list.map((st) => stationItem(st, tr));
+    if (sure && !confirm) return follow(chatId, items[0].sub, items[0].name);
+    const found = items.slice(0, limits.menuItems);
+    const buttons = menu(chatId, 'add', found, clock.now());
+    const text = items.length === 1 ? t('¿Quieres seguir esta estación?')
+      : items.length > found.length ? t('He encontrado {total} estaciones; aquí van las {n} primeras. Si no está la tuya, escribe su nombre '
+        + 'entero o añade su ciudad o su red («Sants metro»). ¿Cuál quieres seguir?', { total: items.length, n: found.length })
+        : t('He encontrado varias estaciones. ¿Cuál quieres seguir?');
+    return [reply(chatId, text, buttons)];
+  }
+
+  /**
+   * /trayecto Alcalá de Henares > Atocha 7:00-9:00 L-V: sus estaciones, del catálogo. Si con esos nombres sólo hay un
+   * trayecto posible, lo sigue; si hay varios (dos «Atocha»), una lista con cada combinación.
+   */
+  function trayectoCmd(chatId, arg) {
+    const tr = trOf(chatId);
+    const { t } = tr;
+    if (!arg) return [reply(chatId, trayectoHelpText({ tr }))];
+    const parsed = parseTrayectoText(arg);
+    if (parsed.error) return [reply(chatId, trayectoErrorText(parsed, tr))];
+    // Primero los que une algún tren que se ve (y fuera los muy lejanos que ninguno une).
+    const found = trayectoOptions(stationList(), parsed, { limit: limits.menuItems, connects: connects(ctx()) });
+    if (found.error) return [reply(chatId, trayectoErrorText(found, tr))];
+    if (found.total === 1) return follow(chatId, found.pairs[0].key, found.pairs[0].name);
+    const buttons = menu(chatId, 'add', found.pairs.map((p) => ({ sub: p.key, name: p.name, label: p.label })), clock.now());
+    const text = found.total > found.pairs.length
+      ? t('Con esos nombres hay {total} trayectos posibles; aquí van los {n} primeros. Si no está el tuyo, escribe el nombre entero de las '
+        + 'estaciones. ¿Cuál es?', { total: found.total, n: found.pairs.length })
+      : t('Hay varias estaciones con esos nombres. ¿Cuál es tu trayecto?');
+    return [reply(chatId, text, buttons)];
+  }
+
   function provinceCmd(chatId, arg) {
-    if (!arg) return [reply(chatId, 'Dime la provincia: /provincia Valencia, /provincia A Coruña, /provincia Bizkaia…')];
-    const p = findProvince(arg);
-    if (!p) return [reply(chatId, `No conozco la provincia «${arg}». Escríbela como en el mapa: /provincia Valencia, /provincia Illes Balears…`)];
-    return followProvince(chatId, p);
+    const { t } = trOf(chatId);
+    if (!arg) return [reply(chatId, t('Dime la provincia: /provincia Valencia, /provincia A Coruña, /provincia Bizkaia…'))];
+    // «/provincia Granada incendios»: también los focos de calor; «/provincia Granada sin incendios»: sin ellos.
+    const { place, fires } = provinceOption(arg);
+    if (!place) return [reply(chatId, t('Dime también la provincia: /provincia Granada incendios (o, para quitarlos, /provincia Granada sin incendios).'))];
+    const p = findProvince(place);
+    if (!p) return [reply(chatId, t('No conozco la provincia «{name}». Escríbela como en el mapa: /provincia Valencia, /provincia Illes Balears…', { name: place }))];
+    // «/provincia La Palma»: se sigue su provincia entera (los avisos son de la provincia), y así se dice.
+    const island = p.circles.length > 1 ? p.circles.find((c) => c.name && plainName(c.name) === plainName(place))?.name ?? null : null;
+    return fires === false ? dropFires(chatId, p) : followProvince(chatId, p, { fires: !!fires, island });
   }
 
   function mine(chatId) {
+    const tr = trOf(chatId);
+    const { t } = tr;
     const chat = chats.get(chatId);
-    const list = listOf(chat);
-    if (!list.length) return [reply(chatId, 'No sigues nada. Dime qué quieres seguir con /seguir.')];
-    return [reply(chatId, ['Sigues:', list.map((it, i) => `${i + 1}. ${it.name}`).join('\n'),
-      chat.digest ? `Parte diario: a las ${chat.digest}.` : null, 'Para dejar algo: /dejar (o /dejar y su número).'].filter(Boolean).join('\n\n'))];
+    const list = listOf(chat, tr);
+    if (!list.length) return [reply(chatId, t('No sigues nada. Dime qué quieres seguir con /seguir.'))];
+    return [reply(chatId, [t('Sigues:'), list.map((it, i) => `${i + 1}. ${it.name}`).join('\n'),
+      chat.digest ? t('Parte diario: a las {hour}.', { hour: chat.digest }) : null, t('Para dejar algo: /dejar (o /dejar y su número).')]
+      .filter(Boolean).join('\n\n'))];
   }
 
   function drop(chatId, arg) {
-    const list = listOf(chats.get(chatId));
-    if (!list.length) return [reply(chatId, 'No sigues nada.')];
+    const tr = trOf(chatId);
+    const { t } = tr;
+    const list = listOf(chats.get(chatId), tr);
+    if (!list.length) return [reply(chatId, t('No sigues nada.'))];
     // Un número es el de /mis: si no está en la lista, se dice, sin buscar esa cifra en los nombres (con «/dejar 4»
     // y tres cosas se dejaba de seguir el «AVE 04375»).
     if (/^[+-]?\d+(?:[.,]\d+)?$/.test(arg)) {
       const n = Number(arg.replace(',', '.'));
       if (Number.isInteger(n) && n >= 1 && n <= list.length) return unfollow(chatId, list[n - 1].sub);
-      const range = list.length === 1 ? 'sólo tiene el 1' : `va del 1 al ${list.length}`;
-      return [reply(chatId, `En tu lista no hay un ${arg}: ${range}. ¿Qué quieres dejar de seguir?`, menu(chatId, 'drop', list, clock.now()))];
+      const text = list.length === 1 ? t('En tu lista no hay un {n}: sólo tiene el 1. ¿Qué quieres dejar de seguir?', { n: arg })
+        : t('En tu lista no hay un {n}: va del 1 al {max}. ¿Qué quieres dejar de seguir?', { n: arg, max: list.length });
+      return [reply(chatId, text, menu(chatId, 'drop', list, clock.now()))];
     }
     if (arg) {
-      const t = arg.toLowerCase();
-      const hits = list.filter((it) => it.name.toLowerCase().includes(t));
+      // Por su nombre en el idioma del chat o por el guardado («Bus 27» o «Autobús 27»).
+      const q = arg.toLowerCase();
+      const hits = list.filter((it) => it.name.toLowerCase().includes(q) || it.saved.toLowerCase().includes(q));
       if (hits.length === 1) return unfollow(chatId, hits[0].sub);
     }
-    return [reply(chatId, '¿Qué quieres dejar de seguir?', menu(chatId, 'drop', list, clock.now()))];
+    return [reply(chatId, t('¿Qué quieres dejar de seguir?'), menu(chatId, 'drop', list, clock.now()))];
   }
 
   function digestCmd(chatId, arg) {
+    const { t } = trOf(chatId);
     const chat = chats.get(chatId);
-    if (!chat) return [reply(chatId, 'Primero sigue algo (/seguir): el parte cuenta cómo va lo que sigues.')];
-    if (/^(?:no|off|nada|ninguno|quitar)$/i.test(arg)) {
+    const off = /^(?:no|off|nada|ninguno|quitar|none|cancel)$/i.test(arg);
+    const hour = off ? null : parseHour(arg);
+    // La hora mal escrita, antes que pedir que siga algo: si no, al seguir algo y volver a escribirla, otra vez mal.
+    if (!off && !hour && (arg || chat)) return [reply(chatId, t('Dime la hora, en hora peninsular: /parte 07:30. Para quitarlo: /parte no.'))];
+    if (!chat) return [reply(chatId, t('Primero sigue algo (/seguir): el parte cuenta cómo va lo que sigues.'))];
+    if (off) {
       chat.digest = null;
       dirty = true;
-      return [reply(chatId, 'Hecho: ya no te mando el parte diario.')];
+      return [reply(chatId, t('Hecho: ya no te mando el parte diario.'))];
     }
-    const hour = parseHour(arg);
-    if (!hour) return [reply(chatId, 'Dime la hora, en hora peninsular: /parte 07:30. Para quitarlo: /parte no.')];
     const now = clock.now();
     chat.digest = hour;
     // Si hoy ya ha pasado esa hora, el primero es mañana.
     chat.digestDay = madridHourMinute(now) >= hour ? madridDay(now) : null;
     dirty = true;
-    return [reply(chatId, `Hecho: cada día a las ${hour} (hora peninsular) te mando cómo va lo que sigues.`)];
+    return [reply(chatId, t('Hecho: cada día a las {hour} (hora peninsular) te mando cómo va lo que sigues.', { hour }))];
   }
 
   function erase(chatId) {
-    const had = chats.delete(chatId);
+    const { t } = trOf(chatId);
+    const chat = chats.get(chatId);
     menus.delete(chatId);
-    if (had) note('baja', 'baja');
-    return [reply(chatId, had ? 'Hecho: he borrado todo lo de este chat. Si vuelves a seguir algo, empezará de cero.'
-      : 'De este chat no tenía nada guardado.')];
+    if (chat) {
+      chats.delete(chatId);
+      // Lo guardado se borra entero; el idioma, mientras dure la conversación, sólo en memoria.
+      remember(chatId, chat.lang);
+      note('baja', 'baja');
+    }
+    return {
+      replies: [reply(chatId, chat ? t('Hecho: he borrado todo lo de este chat. Si vuelves a seguir algo, empezará de cero.')
+        : t('De este chat no tenía nada guardado.'))],
+      // Su menú de órdenes vuelve al de siempre (el del idioma de su Telegram).
+      menu: { chatId, commands: null },
+    };
   }
 
   function data(chatId) {
+    const tr = trOf(chatId);
     const chat = chats.get(chatId);
     const view = chat && {
-      id: chat.id, since: chat.since, digest: chat.digest,
-      subs: [...chat.subs.values()], provinces: [...chat.provinces.keys()].map((id) => ({ name: provinceById(id)?.name ?? id })),
+      id: chat.id, since: chat.since, digest: chat.digest, lang: chat.lang,
+      subs: [...chat.subs.values()].map((s) => ({ name: tr.name(s.name) })),
+      provinces: [...chat.provinces].map(([id, s]) => ({ name: `${provinceById(id)?.name ?? id}${firesNote(s, tr)}` })),
     };
-    return [reply(chatId, dataText(view, { fmtWhen }))];
+    return [reply(chatId, dataText(view, { tr }))];
   }
 
+  /** @returns {Handled} */
   function start(chatId, arg) {
-    if (isFollowKey(arg)) return follow(chatId, arg);
-    const prov = /^prov-([a-z0-9-]{2,40})$/.exec(arg ?? '');
-    if (prov && provinceById(prov[1])) return followProvince(chatId, provinceById(prov[1]));
-    return [reply(chatId, welcomeText({ webUrl, limits }))];
+    // La web en inglés pone el idioma delante de la clave («en-s-renfe-8058», «en-c-A7»): el bot habla ya en ese idioma
+    // y pone el menú de órdenes de ese chat en él.
+    const { lang, rest } = parseStartPayload(arg);
+    const menu = lang && langOf(chatId) !== lang ? { chatId, commands: commandsFor(lang) } : null;
+    if (lang) {
+      setLang(chatId, lang);
+      choose(chatId);
+    }
+    const replies = (() => {
+      if (isFollowKey(rest)) return follow(chatId, rest);
+      // Una carretera, desde la ficha de una incidencia de tráfico en la web («c-A7»); con una provincia que no existe, no.
+      const road = isRoadKey(rest) ? roadSub(rest) : null;
+      if (road) return followRoad(chatId, road);
+      const prov = /^prov-([a-z0-9-]{2,40})$/.exec(rest);
+      if (prov && provinceById(prov[1])) return followProvince(chatId, provinceById(prov[1]));
+      return [welcome(chatId)];
+    })();
+    return menu ? { replies, menu } : { replies };
   }
 
+  const welcome = (chatId) => {
+    const tr = trOf(chatId);
+    return reply(chatId, welcomeText({ webUrl: web(tr), limits, tr }));
+  };
+
+  /**
+   * Los botones para elegir idioma: cada uno, con su nombre en su idioma. Con `welcome` (el que se ofrece con la
+   * bienvenida), al pulsarlo llega también la bienvenida en ese idioma.
+   */
+  const langButtons = (langs = BOT_LANGS, { welcome: withWelcome = false } = {}) => langs.map((l) => [{ text: langLabel(l), data: `l:${l}${withWelcome ? ':w' : ''}` }]);
+
+  /** /idioma: con el idioma, lo cambia; sin él (o si no se entiende), pregunta en todos con un botón por idioma. */
+  function language(chatId, arg) {
+    const lang = parseLang(arg);
+    if (lang) return changeLang(chatId, lang);
+    const ask = BOT_LANGS.map((l) => translator(l).t('¿En qué idioma te escribo?')).join(' · ');
+    return { replies: [reply(chatId, ask, langButtons())] };
+  }
+
+  /** @returns {Handled} */
+  function changeLang(chatId, lang, { withWelcome = false } = {}) {
+    setLang(chatId, lang);
+    choose(chatId);
+    const tr = trOf(chatId);
+    return {
+      replies: [reply(chatId, tr.t('Hecho: a partir de ahora te escribo en {lang}. /ayuda para ver lo que hago; /idioma para cambiarlo.',
+        { lang: tr.t(LANG_NAMES[lang]) })), ...(withWelcome ? [welcome(chatId)] : [])],
+      answer: tr.t('Hecho'),
+      // Su menú de órdenes, en su idioma (sin esto, el que corresponde al idioma de su Telegram).
+      menu: { chatId, commands: commandsFor(lang) },
+    };
+  }
+
+  /** @returns {Handled} */
   function callback(chatId, dataStr) {
+    const { t } = trOf(chatId);
+    // Un botón de idioma vale siempre: no es de una lista.
+    const picked = /^l:([a-z]{2})(:w)?$/.exec(String(dataStr ?? ''));
+    if (picked && isBotLang(picked[1])) return changeLang(chatId, picked[1], { withWelcome: Boolean(picked[2]) });
     const m = /^([ad]):([0-9a-z]{1,8}):(\d{1,2})$/.exec(String(dataStr ?? ''));
     const open = menus.get(chatId);
     // Sólo vale la última lista de cada chat, y un rato: un botón de un mensaje anterior no escoge nada.
     if (!m || !open || open.id !== m[2] || clock.now() - open.at > limits.menuTtlMs || open.kind !== (m[1] === 'a' ? 'add' : 'drop')) {
       return {
-        replies: [reply(chatId, 'Esa lista ya no vale: es de antes (has pedido otra después o ha pasado mucho rato). Vuelve a buscarlo, por favor.')],
-        answer: 'Lista caducada',
+        replies: [reply(chatId, t('Esa lista ya no vale: es de antes (has pedido otra después o ha pasado mucho rato). Vuelve a buscarlo, por favor.'))],
+        answer: t('Lista caducada'),
       };
     }
     const item = open.items[Number(m[3])];
-    if (!item) return { replies: [], answer: 'No está en la lista' };
+    if (!item) return { replies: [], answer: t('No está en la lista') };
     menus.delete(chatId);
-    if (open.kind === 'drop') return { replies: unfollow(chatId, item.sub), answer: 'Hecho' };
-    return { replies: follow(chatId, item.sub, item.name), answer: 'Hecho' };
+    if (open.kind === 'drop') return { replies: unfollow(chatId, item.sub), answer: t('Hecho') };
+    return { replies: follow(chatId, item.sub, item.name), answer: t('Hecho') };
+  }
+
+  /** Lo que se guarda de un chat; apunta en `followed` lo que sigue (de lo avisado sólo se guarda lo de eso). */
+  function chatRecord(c, followed) {
+    for (const k of c.subs.keys()) followed.add(k);
+    for (const id of c.provinces.keys()) followed.add(provinceSub(id));
+    return {
+      id: c.id, since: c.since, digest: c.digest, digestDay: c.digestDay, ...(c.lang !== DEFAULT_LANG ? { lang: c.lang } : {}),
+      subs: [...c.subs].map(([key, s]) => ({ key, name: s.name, since: s.since, checkedAt: s.checkedAt, ...(s.guessed ? { guessed: true } : {}) })),
+      provinces: [...c.provinces].map(([id, s]) => ({ id, since: s.since, checkedAt: s.checkedAt, ...(s.fires ? { fires: true } : {}) })),
+    };
+  }
+  const seenRows = (map, followed) => [...map].filter(([k]) => followed.has(subOfSeen(k))).map(([k, v]) => [k, v.first, v.last]);
+
+  /**
+   * Lo mismo que snapshot(), por partes (SAVE_SLICE), cediendo el turno entre una y otra. Mientras tanto se siguen
+   * atendiendo mensajes: los chats que cambian se vuelven a copiar al final, de golpe (son pocos), y en ese mismo
+   * momento se toman el punto de lectura de Telegram y los totales. Así lo guardado es justo lo de ese punto: un
+   * mensaje leído está en la copia, y uno que no, no. (Con el punto del principio, un «/dejar 1» atendido durante la
+   * copia quedaba en ella sin constar como leído: si el servidor caía antes del siguiente guardado, Telegram lo volvía
+   * a dar y se dejaba otra cosa.)
+   */
+  async function snapshotInParts() {
+    const followed = new Set();
+    const records = new Map(); // por chat: uno que se va y vuelve durante la copia, una vez
+    const list = [];
+    touched = new Set();
+    let readUpTo;
+    let counted;
+    try {
+      let n = 0;
+      for (const c of chats.values()) {
+        if (n > 0 && n % SAVE_SLICE.chats === 0) await pause();
+        n++;
+        records.set(c.id, chatRecord(c, followed));
+      }
+      // Los que han cambiado mientras tanto (y los nuevos) se copian ahora, de golpe; todos en el orden de ahora (uno que
+      // se va y vuelve, al final) y sin los que ya no están.
+      if (touched === 'all') records.clear();
+      else for (const id of touched) records.delete(id);
+      for (const c of chats.values()) list.push(records.get(c.id) ?? chatRecord(c, followed));
+      readUpTo = offset;
+      counted = structuredClone(totals);
+    } finally {
+      touched = null;
+    }
+    // De lo avisado sólo cambian las rondas, que no se cruzan con el guardado (el adaptador hace una y luego el otro);
+    // de lo que se deje de seguir mientras tanto se guarda algo de más, que se olvida en el siguiente.
+    const rows = [];
+    let n = 0;
+    for (const [k, v] of seen) {
+      if (n % SAVE_SLICE.seen === 0) await pause();
+      n++;
+      if (followed.has(subOfSeen(k))) rows.push([k, v.first, v.last]);
+    }
+    return { version: 1, offset: readUpTo, chats: list, seen: rows, totals: counted };
   }
 
   return {
     /** Lo guardado (al arrancar o al pasar a ser el servidor que atiende el bot): lo de memoria se cambia por ello. */
     async load() {
       const saved = await store.load();
+      if (touched) touched = 'all';
       chats = new Map();
       seen = new Map();
       offset = 0;
@@ -363,22 +928,32 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
         if (!Number.isSafeInteger(c?.id)) continue;
         const subs = new Map();
         for (const s of Array.isArray(c.subs) ? c.subs.slice(0, limits.subsPerChat) : []) {
-          if (!isFollowKey(s?.key) || typeof s.name !== 'string') continue;
-          subs.set(s.key, { name: cutText(s.name, 200), since: num(s.since), checkedAt: num(s.checkedAt), ...(s.guessed === true ? { guessed: true } : {}) });
+          // Cada cosa con su clave única (las guardadas antes de que se rehicieran, también): dos formas de la misma, una.
+          const key = roadSub(s?.key) ? s.key : canonicalKey(s?.key);
+          if (!key || typeof s.name !== 'string' || subs.has(key)) continue;
+          subs.set(key, { name: cutText(s.name, 200), since: num(s.since), checkedAt: num(s.checkedAt), ...(s.guessed === true ? { guessed: true } : {}) });
         }
         const provinces = new Map();
         for (const p of Array.isArray(c.provinces) ? c.provinces.slice(0, limits.provincesPerChat) : []) {
-          if (provinceById(p?.id)) provinces.set(p.id, { since: num(p.since), checkedAt: num(p.checkedAt) });
+          if (provinceById(p?.id)) provinces.set(p.id, { since: num(p.since), checkedAt: num(p.checkedAt), ...(p.fires === true ? { fires: true } : {}) });
         }
         if (!subs.size && !provinces.size) continue;
         chats.set(c.id, {
           id: c.id, since: num(c.since), subs, provinces, digest: parseHour(c.digest),
           digestDay: /^\d{4}-\d{2}-\d{2}$/.test(c.digestDay ?? '') ? c.digestDay : null,
+          // Los guardados antes de haber idiomas, y lo que llegue mal, en el de siempre.
+          lang: isBotLang(c.lang) ? c.lang : DEFAULT_LANG,
         });
       }
-      for (const row of Array.isArray(saved.seen) ? saved.seen.slice(0, SEEN_MAX) : []) {
-        if (Array.isArray(row) && typeof row[0] === 'string' && Number.isFinite(row[1]) && Number.isFinite(row[2])) seen.set(row[0], { first: row[1], last: row[2] });
+      let lastRound = -Infinity;
+      for (const row of Array.isArray(saved.seen) ? saved.seen.slice(0, SEEN_HARD_MAX) : []) {
+        if (Array.isArray(row) && typeof row[0] === 'string' && Number.isFinite(row[1]) && Number.isFinite(row[2])) {
+          seen.set(row[0], { first: row[1], last: row[2] });
+          if (row[2] > lastRound) lastRound = row[2];
+        }
       }
+      // Como en cada ronda: lo de la última que se guardó no se olvida por el tope.
+      capSeen(seen, { keepFrom: lastRound });
       dirty = false;
       if (saved.totals === undefined && chats.size) {
         // Un fichero de antes de los totales: quienes ya siguen algo cuentan como altas, desde la primera (las bajas de
@@ -390,31 +965,41 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
       return chats.size;
     },
 
-    /** Lo que hay que guardar para seguir igual tras un reinicio o un relevo. */
+    /**
+     * Lo que hay que guardar para seguir igual tras un reinicio o un relevo. El idioma, sólo si no es el de siempre.
+     * De lo avisado, sólo lo de lo que sigue alguien (tras /baja, nada de lo que seguía, aunque aún no haya pasado la
+     * ronda que lo poda). De golpe; save() lo copia por partes (snapshotInParts).
+     */
     snapshot() {
-      return {
-        version: 1,
-        offset,
-        chats: [...chats.values()].map((c) => ({
-          id: c.id, since: c.since, digest: c.digest, digestDay: c.digestDay,
-          subs: [...c.subs].map(([key, s]) => ({ key, name: s.name, since: s.since, checkedAt: s.checkedAt, ...(s.guessed ? { guessed: true } : {}) })),
-          provinces: [...c.provinces].map(([id, s]) => ({ id, since: s.since, checkedAt: s.checkedAt })),
-        })),
-        seen: [...seen].map(([k, v]) => [k, v.first, v.last]),
-        totals: structuredClone(totals),
-      };
+      const followed = new Set();
+      const list = [];
+      for (const c of chats.values()) list.push(chatRecord(c, followed));
+      return { version: 1, offset, chats: list, seen: seenRows(seen, followed), totals: structuredClone(totals) };
     },
 
     /**
      * Guarda si ha cambiado algo; con `force`, también cada SAVE_EVERY_MS (por la hora de la última ronda); con
-     * `always`, siempre (al apagarse).
+     * `always`, siempre (al apagarse). La copia se hace por partes, cediendo el turno entre una y otra (con miles de
+     * chats, de golpe paraba el servidor), y el almacén la escribe igual. Mientras tanto se siguen atendiendo
+     * mensajes: la copia es la del final de los chats, con lo leído hasta entonces (snapshotInParts). Un guardado
+     * espera a que acabe el anterior: al apagarse, el último que se escribe es el de ese momento. Si el almacén no
+     * puede escribir (da false), se vuelve a intentar en la siguiente ronda.
      */
     async save({ force = false, always = false } = {}) {
+      while (saving) await saving.catch(() => {});
       const now = clock.now();
       if (!always && !dirty && !(force && now - savedAt >= SAVE_EVERY_MS)) return false;
       dirty = false;
       savedAt = now;
-      await store.save(this.snapshot());
+      saving = (async () => store.save(await snapshotInParts()))();
+      try {
+        if ((await saving) === false) dirty = true; // no se ha podido escribir: en la siguiente
+      } catch (err) {
+        dirty = true; // lo de esta copia no se ha guardado: en la siguiente
+        throw err;
+      } finally {
+        saving = null;
+      }
       return true;
     },
 
@@ -429,13 +1014,21 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
     },
 
     /**
-     * Un mensaje de un chat: lo que contesta el bot y, si era un botón, el texto breve que lo confirma.
+     * Lo que Telegram enseña del bot en cada idioma: su menú de órdenes, su descripción y su descripción corta. El
+     * primero, el de siempre (para quien no tiene Telegram en ninguno de los otros).
+     */
+    profiles: () => botProfiles(),
+
+    /**
+     * Un mensaje de un chat: lo que contesta el bot y, si era un botón, el texto breve que lo confirma; si el chat
+     * ha cambiado de idioma, su menú de órdenes nuevo.
      * @param {Incoming} msg
-     * @returns {{ replies: Reply[], answer?: string }}
+     * @returns {Handled}
      */
     handle(msg) {
       const chatId = msg?.chatId;
       if (!Number.isSafeInteger(chatId)) return { replies: [] };
+      touch(chatId);
       const now = clock.now();
       const r = rate.get(chatId);
       if (!r || now - r.from >= 60_000) {
@@ -444,59 +1037,129 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
       } else if (++r.count > limits.messagesPerMinute) {
         // Se avisa una vez; lo demás de ese minuto se ignora.
         note('orden', 'limite');
-        return { replies: r.count === limits.messagesPerMinute + 1 ? [reply(chatId, 'Demasiados mensajes seguidos. Espera un minuto, por favor.')] : [] };
+        return { replies: r.count === limits.messagesPerMinute + 1 ? [reply(chatId, trOf(chatId).t('Demasiados mensajes seguidos. Espera un minuto, por favor.'))] : [] };
       }
       if (msg.callback !== undefined) {
         note('orden', 'boton');
         return callback(chatId, msg.callback);
       }
-      const { command, arg } = parseCommand(msg.text);
+      const { command, arg, english } = parseCommand(msg.text);
+      const payload = command === 'start' ? parseStartPayload(arg) : null;
       // /start con una clave o una provincia: llega desde un enlace de la web («Avísame por Telegram»).
-      note('orden', command === 'start' && (isFollowKey(arg) || /^prov-/.test(arg)) ? 'enlace' : command);
+      const link = Boolean(payload && (isFollowKey(payload.rest) || isRoadKey(payload.rest) || /^prov-/.test(payload.rest)));
+      note('orden', link ? 'enlace' : command);
+      // Una orden escrita en inglés («/follow», «/help») de quien no ha elegido idioma ni tiene Telegram en uno de
+      // España: lee inglés. Como si hubiera escrito /language english (también su menú de órdenes).
+      let switched = null;
+      if (english && langOf(chatId) === DEFAULT_LANG && !chosen.has(chatId) && !spainLang(msg.clientLang)) {
+        setLang(chatId, 'en');
+        switched = { chatId, commands: commandsFor('en') };
+      }
+      // La primera vez (nada de este chat, ni en memoria), si su Telegram está en otro idioma, se le ofrece el inglés,
+      // escriba lo que escriba (con un enlace en inglés o pidiendo un idioma, no hace falta).
+      const offer = !switched && !payload?.lang && command !== 'idioma' && !chats.has(chatId) && !spoken.has(chatId) && !offered.has(chatId)
+        && !chosen.has(chatId) && offerEnglish(msg.clientLang);
+      // Con la bienvenida (/start sin enlace), la oferta va antes, y su botón trae la bienvenida en inglés.
+      const welcoming = command === 'start' && !link && !payload?.lang;
       const run = {
         start: () => start(chatId, arg),
-        seguir: () => search(chatId, arg),
+        // «/seguir Alcalá > Atocha 7-9» es un trayecto.
+        seguir: () => (looksLikeTrayecto(arg) ? trayectoCmd(chatId, arg) : search(chatId, arg)),
+        trayecto: () => trayectoCmd(chatId, arg),
+        estacion: () => stationCmd(chatId, arg),
         // Texto sin orden: una búsqueda, salvo que sea charla («hola», «gracias», «vale»).
         buscar: () => {
+          if (looksLikeTrayecto(arg)) return trayectoCmd(chatId, arg);
+          // «english», «in English», «English please», «en español»: el idioma.
+          const lang = parseLang(arg.replace(/^\//, ''), { codes: false });
+          if (lang) return changeLang(chatId, lang);
           const talk = smallTalk(arg);
           if (!talk) return search(chatId, arg, { confirm: true });
-          return [reply(chatId, talk === 'ayuda' ? helpText({ webUrl, limits }) : smallTalkText(talk))];
+          const tr = trOf(chatId);
+          return [reply(chatId, talk === 'ayuda' ? helpText({ webUrl: web(tr), limits, tr }) : smallTalkText(talk, tr))];
         },
         estado: () => status(chatId, arg),
         provincia: () => provinceCmd(chatId, arg),
+        carretera: () => roadCmd(chatId, arg),
         mis: () => mine(chatId),
         dejar: () => drop(chatId, arg),
         parte: () => digestCmd(chatId, arg),
         datos: () => data(chatId),
         baja: () => erase(chatId),
-        ayuda: () => [reply(chatId, helpText({ webUrl, limits }))],
+        idioma: () => language(chatId, arg),
+        ayuda: () => {
+          const tr = trOf(chatId);
+          return [reply(chatId, helpText({ webUrl: web(tr), limits, tr }))];
+        },
       }[command];
-      return { replies: run ? run() : [reply(chatId, 'No conozco esa orden. Mira /ayuda.')] };
+      const out = run ? run() : [reply(chatId, trOf(chatId).t('No conozco esa orden. Mira /ayuda.'))];
+      const handled = Array.isArray(out) ? { replies: out } : out;
+      if (switched && !handled.menu) handled.menu = switched;
+      if (offer && langOf(chatId) === DEFAULT_LANG) {
+        if (offered.size >= limits.chats) offered.clear();
+        offered.add(chatId);
+        // Corta y en los dos idiomas: quien la recibe aún no ha dicho cuál lee.
+        const ask = frase('¿Prefieres que te escriba en inglés? Pulsa el botón, o escribe /idioma cuando quieras.');
+        const offerReply = reply(chatId, `${EN.t(ask)}\n${ES.t(ask)}`, langButtons(['en'], { welcome: welcoming }));
+        if (welcoming) handled.replies.unshift(offerReply);
+        else handled.replies.push(offerReply);
+      }
+      return handled;
     },
 
     /**
      * Una ronda: pone al día el directorio y avisa a cada chat de lo nuevo de lo que sigue (un mensaje por cosa
-     * seguida) y, si le toca, le manda el parte diario.
+     * seguida, en su idioma) y, si le toca, le manda el parte diario.
      * @returns {Reply[]}
      */
     tick() {
+      if (touched) touched = 'all';
       const c = ctx();
       const { now } = c;
       refreshDirectory(c);
       for (const [id, m] of menus) if (now - m.at > limits.menuTtlMs) menus.delete(id);
-      const keys = new Set();
-      const provinces = new Set();
+      // Lo que sigue cada idioma: los hechos se buscan una vez para todos (en español, que da sus ids) y, para los
+      // demás idiomas, otra vez sólo con lo que siguen sus chats.
+      const keys = new Map(BOT_LANGS.map((l) => [l, new Set()]));
+      const provinces = new Map(BOT_LANGS.map((l) => [l, new Set()]));
       for (const chat of chats.values()) {
-        for (const k of chat.subs.keys()) keys.add(k);
-        for (const p of chat.provinces.keys()) provinces.add(p);
+        for (const k of chat.subs.keys()) keys.get(chat.lang).add(k);
+        for (const p of chat.provinces.keys()) provinces.get(chat.lang).add(p);
       }
-      if (!keys.size && !provinces.size) return [];
-      const facts = collectFacts({ keys, provinces, ...c });
-      seen = trackFacts(seen, facts, now);
+      const allKeys = new Set(BOT_LANGS.flatMap((l) => [...keys.get(l)]));
+      const allProvinces = new Set(BOT_LANGS.flatMap((l) => [...provinces.get(l)]));
+      // Lo recordado de lo que ya no sigue nadie, fuera (también si nadie sigue nada).
+      const followed = new Set([...allKeys, ...[...allProvinces].map(provinceSub)]);
+      if (!allKeys.size && !allProvinces.size) {
+        if (seen.size) {
+          seen = new Map();
+          dirty = true;
+        }
+        return [];
+      }
+      const facts = factsOf(allKeys, allProvinces, c);
+      const firsts = new Map();
+      seen = trackFacts(seen, facts, now, { firsts, subs: followed });
+      // Lo de esta ronda no se olvida por el tope (avisos perdidos o repetidos): si sólo eso ya pasa, se dice.
+      if (seen.size > SEEN_MAX && now - seenWarnedAt >= SEEN_WARN_EVERY_MS) {
+        seenWarnedAt = now;
+        log?.warn(`[telegram] lo avisado que se recuerda pasa del tope (${SEEN_MAX}): ${seen.size} pares, de esta ronda; la válvula, ${SEEN_HARD_MAX}`);
+      }
+      const fresh = newFactsOf(facts, seen, firsts); // lo nuevo de cada suscripción, mirado una vez para todos sus chats
+      const factsIn = new Map([[DEFAULT_LANG, facts]]);
+      /** Los hechos nuevos de una suscripción, con su texto en el idioma del chat (los mismos ids, en el mismo orden). */
+      const sayIn = (lang, sub, list) => {
+        if (lang === DEFAULT_LANG) return list;
+        if (!factsIn.has(lang)) factsIn.set(lang, factsOf(keys.get(lang), provinces.get(lang), c, translator(lang)));
+        const ids = new Set(list.map((f) => f.id));
+        return (factsIn.get(lang).get(sub) ?? []).filter((f) => ids.has(f.id));
+      };
       const out = [];
       const today = madridDay(now);
       const hour = madridHourMinute(now);
       for (const chat of chats.values()) {
+        const tr = translator(chat.lang);
+        const sent = new Set(); // los avisos ya contados a este chat en esta ronda: no se repiten (estación y línea, carretera y provincia)
         for (const [key, s] of chat.subs) {
           // Lo que se siguió sin verse lleva un nombre provisional: el de verdad, en cuanto se vuelve a ver.
           if (s.guessed) {
@@ -507,26 +1170,30 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
               dirty = true;
             }
           }
-          const fresh = newFacts(key, facts.get(key), seen, s.checkedAt);
+          const told = withoutRepeats(fresh(key, s.checkedAt), sent);
           s.checkedAt = now;
-          if (fresh.length) {
-            out.push(reply(chat.id, factsMessage(s.name, fresh, { webUrl })));
+          if (told.length) {
+            for (const text of factsMessages(tr.name(s.name), sayIn(chat.lang, key, told), { webUrl: web(tr), tr })) out.push(reply(chat.id, text));
             note('aviso', 'aviso');
           }
         }
         for (const [id, s] of chat.provinces) {
           const sub = provinceSub(id);
-          const fresh = newFacts(sub, facts.get(sub), seen, s.checkedAt);
+          // Los focos de calor, sólo a quien los ha pedido en esa provincia.
+          // Sin repetir lo que ya ha llegado por una carretera seguida en esta ronda (withoutRepeats).
+          const told = withoutRepeats(provinceFacts(fresh(sub, s.checkedAt), { fires: s.fires }), sent);
           s.checkedAt = now;
-          if (fresh.length) {
-            out.push(reply(chat.id, factsMessage(provinceTitle(provinceById(id)), fresh, { webUrl })));
+          if (told.length) {
+            // Lo más grave primero: si son muchos, lo que queda en «…y N más» es lo menos grave.
+            const list = sayIn(chat.lang, sub, told).sort((a, b) => gravity(b) - gravity(a));
+            for (const text of factsMessages(provinceTitle(provinceById(id), tr), list, { webUrl: web(tr), tr })) out.push(reply(chat.id, text));
             note('aviso', 'aviso');
           }
         }
         if (chat.digest && chat.digestDay !== today && hour >= chat.digest) {
           chat.digestDay = today;
-          const blocks = listOf(chat).map((it) => `${it.name}:\n${statusText(it.sub, c)}`);
-          for (const text of packed([`Parte de las ${chat.digest}:`, ...blocks])) out.push(reply(chat.id, text));
+          const blocks = listOf(chat, tr).map((it) => statusBlock(`${it.name}:`, it.sub, c, tr, it.fires));
+          for (const text of packed([tr.t('Parte de las {hour}:', { hour: chat.digest }), ...blocks], tr)) out.push(reply(chat.id, text));
           note('aviso', 'parte');
         }
       }
@@ -534,9 +1201,13 @@ export function makeFollowBot({ read, store, clock, creditOf = () => null, webUr
       return out;
     },
 
-    /** Telegram dice que ese chat ya no existe o ha bloqueado el bot: se borra todo lo suyo. */
+    /** Telegram dice que ese chat ya no existe o ha bloqueado el bot: se borra todo lo suyo, también de memoria. */
     forget(chatId) {
+      touch(chatId);
       menus.delete(chatId);
+      spoken.delete(chatId);
+      offered.delete(chatId);
+      chosen.delete(chatId);
       if (chats.delete(chatId)) {
         note('baja', 'bloqueo');
         log?.info(`[telegram] un chat ha bloqueado el bot o ya no existe: borrado (quedan ${chats.size})`);

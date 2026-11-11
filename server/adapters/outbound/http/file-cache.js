@@ -8,7 +8,9 @@ import { deserialize, serialize } from 'node:v8';
  * Escribe un fichero de golpe: primero aparte y luego se cambia de nombre. Si el servidor se para a
  * mitad (un despliegue, un reinicio) o dos servidores escriben el mismo a la vez (durante un relevo
  * comparten data/), nunca queda un fichero cortado con fecha de hoy que se siga usando todo el día.
+ * `data` también puede llegar por trozos (un iterable asíncrono, como jsonChunks): se escribe cada uno según sale.
  * @param {URL|string} file
+ * @param {string|Uint8Array|AsyncIterable<string|Uint8Array>} data
  */
 export async function writeFileAtomic(file, data) {
   const tmp = file instanceof URL ? new URL(`${file.href}.${randomUUID()}.tmp`) : `${file}.${randomUUID()}.tmp`;

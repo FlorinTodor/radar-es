@@ -22,7 +22,8 @@ import { createEsiosSource } from './esios.js';
 import { createGdacsSource } from './emergencias-extra.js';
 import {
   createAndaluciaEmergenciasSource, createBalearsPremsaSource, createCanariasAlertasSource, createCantabriaNewsSource, createCatalunaPlansSource,
-  createClmPlansSource, createCyl112Source, createGaliciaNewsSource, createMadridNewsSource, createMurciaNewsSource, createPaisVascoNewsSource, createRiojaSosSource,
+  createAsturiasNewsSource, createClmPlansSource, createCyl112Source, createGaliciaNewsSource, createMadridCityNewsSource, createMadridNewsSource, createMurciaNewsSource,
+  createPaisVascoNewsSource, createRiojaSosSource,
 } from './emergencias-oficiales.js';
 import { createEmtMadridAlertsSource } from './emt-madrid.js';
 import { busGroupSources } from './autobuses-nap.js';
@@ -197,10 +198,14 @@ export function createSources(deps) {
     // nuestro servidor (también la portada y el robots.txt), aunque desde otras redes funciona. No se
     // esquiva: se le pide acceso (docs/solicitudes/8). Cuando responda, basta con quitar `paused`.
     Object.assign(createMadridNewsSource(deps), { paused: 'En pausa mientras su web no responda a nuestro servidor' }),
+    // Mientras, la ciudad de Madrid: notas de prensa del Ayuntamiento (su catálogo de datos abiertos).
+    createMadridCityNewsSource(deps),
     createMurciaNewsSource(deps),
     createCantabriaNewsSource(deps),
     createGaliciaNewsSource(deps),
     createPaisVascoNewsSource(deps),
+    // Sin RSS: la lista de noticias del Gobierno del Principado, en HTML.
+    createAsturiasNewsSource(deps),
     createReeSource(deps),
     createEsiosSource(deps), // con ESIOS_TOKEN: apagón de una isla, de Ceuta o de Melilla
   ];

@@ -88,13 +88,15 @@ export const PROVINCIAS_ES = Object.freeze(REGIONS.flatMap(([region, regionAlias
 const BY_ID = new Map(PROVINCIAS_ES.map((p) => [p.id, p]));
 const BY_NAME = new Map();
 for (const p of PROVINCIAS_ES) for (const n of [p.name, ...p.aliases]) if (!BY_NAME.has(plainName(n))) BY_NAME.set(plainName(n), p);
+// Y por sus islas: quien vive en La Palma o en Menorca escribe su isla («/provincia La Palma»), y sigue su provincia.
+for (const p of PROVINCIAS_ES) for (const c of p.circles) if (c.name && !BY_NAME.has(plainName(c.name))) BY_NAME.set(plainName(c.name), p);
 
 /** Una provincia por su id. */
 export const provinceById = (id) => BY_ID.get(id);
 
 /**
- * La provincia que nombra un texto («valencia», «València», «La Coruña», «provincia de Cádiz»); null si no
- * nombra ninguna o es ambiguo.
+ * La provincia que nombra un texto («valencia», «València», «La Coruña», «provincia de Cádiz») o una de sus islas
+ * («La Palma», «Menorca»); null si no nombra ninguna o es ambiguo.
  */
 export function findProvince(text) {
   const t = plainName(text).replace(/^(?:la )?provincia (?:de )?/, '');

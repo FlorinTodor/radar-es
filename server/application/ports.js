@@ -172,7 +172,8 @@
  * seguir igual tras un reinicio o un relevo. Sólo el número de cada chat, lo que sigue y desde cuándo.
  * @typedef {object} FollowStorePort
  * @property {() => Promise<object|null>} load  Lo último guardado, o null si no hay o no se lee.
- * @property {(snapshot: object) => Promise<void>} save  Nunca rechaza: si no puede escribir, lo registra.
+ * @property {(snapshot: object) => Promise<boolean|void>} save  Nunca rechaza: si no puede escribir, lo registra y da
+ *   false (así el bot lo vuelve a intentar en la siguiente ronda).
  */
 
 /**
@@ -190,7 +191,11 @@
  *   esperando hasta `waitSec` si no hay nada (long polling).
  * @property {(m: { chatId: number, text: string, buttons?: Array<Array<{ text: string, data: string }>> }) => Promise<void>} send
  * @property {(o: { id: string, text?: string }) => Promise<void>} answer  Respuesta breve a un botón pulsado.
- * @property {(commands: Array<[string, string]>) => Promise<void>} setCommands  El menú de órdenes del bot.
+ * @property {(commands: Array<[string, string]>|null, o?: { lang?: string|null, chatId?: number|null }) => Promise<void>} setCommands
+ *   El menú de órdenes del bot: el de siempre, el de un idioma (`lang`) o el de un chat (`chatId`); sin órdenes (null),
+ *   se quita (un chat vuelve a ver el de siempre).
+ * @property {(o: { description: string, shortDescription: string, lang?: string|null }) => Promise<void>} setDescriptions
+ *   Lo que se enseña del bot antes de escribirle y en su perfil, en un idioma (sin `lang`, el de siempre).
  */
 
 /**
@@ -248,7 +253,7 @@ export const PORT_MEMBERS = {
   PunctualityStore: ['load', 'save'],
   FollowStore: ['load', 'save'],
   Lease: ['claim', 'release'],
-  ChatChannel: ['receive', 'send', 'answer', 'setCommands'],
+  ChatChannel: ['receive', 'send', 'answer', 'setCommands', 'setDescriptions'],
   TileProvider: ['layers', 'cacheControl', 'tile', 'burntAreas'],
   Clock: ['now'],
   Logger: ['info', 'warn', 'error'],

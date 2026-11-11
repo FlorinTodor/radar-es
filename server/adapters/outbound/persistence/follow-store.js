@@ -1,8 +1,10 @@
 // Lo que sigue cada chat del bot, en el disco de datos (data/bot), aparte de la caché de descargas: no es
 // algo que se pueda volver a descargar. En JSON, para poder mirarlo (y borrarlo a mano si alguien lo pide), y
-// escrito de golpe (writeFileAtomic): en un relevo hay dos servidores con la misma carpeta.
+// escrito de golpe (writeFileAtomic): en un relevo hay dos servidores con la misma carpeta. El texto se hace y se
+// escribe por trozos (jsonChunks): con miles de chats son decenas de MB, y de golpe paraban el servidor.
 import { mkdir, readFile } from 'node:fs/promises';
 import { writeFileAtomic } from '../http/file-cache.js';
+import { jsonChunks } from './json-chunks.js';
 
 const NAME = 'seguidos.v1.json';
 
@@ -24,9 +26,11 @@ export function createFollowStore({ dir, log, name = NAME }) {
     async save(snapshot) {
       try {
         await mkdir(dir, { recursive: true });
-        await writeFileAtomic(file, JSON.stringify(snapshot));
+        await writeFileAtomic(file, jsonChunks(snapshot));
+        return true;
       } catch (err) {
         log.warn(`[telegram] no se pudo guardar lo que sigue cada chat (${err.message})`);
+        return false;
       }
     },
   };

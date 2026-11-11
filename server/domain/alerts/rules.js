@@ -39,7 +39,8 @@ const mw = (v) => (Number.isFinite(v) ? v.toLocaleString('es-ES', { maximumFract
  */
 export const GRID_METRICS = Object.freeze({ peninsular: 'ree', aislados: 'esios-sistemas-aislados' });
 // Atribución que pide el aviso legal de Red Eléctrica (apartado 5.1): citarla como fuente, con la fecha del dato.
-const REE_CREDIT = 'Fuente: Red Eléctrica';
+/** La atribución que pide el aviso legal de Red Eléctrica; también la de los apagones de las islas en el bot (seguidos/zona.js). */
+export const REE_CREDIT = 'Fuente: Red Eléctrica';
 
 /** Trenes sin moverse fuera de estación. Calcula `ctx.stopped`, que usa la regla de bloqueos. */
 export function stoppedOutsideStation(ctx) {
