@@ -166,7 +166,7 @@ test('rondas: se avisa una vez; lo de antes de seguirla, no; tras una caída de 
   assert.deepEqual(newFacts(key, facts.get(key), seen, checkedAt).map((f) => f.text.split(' · ')[1]), ['A-7 km 1012.0'],
     'el corte viejo va callado: no es nuevo, es que no se veía');
   assert.deepEqual(newFacts(sub, facts.get(sub), seen, checkedAt), [], 'a la provincia, ni el accidente leve ni el corte viejo');
-  assert.equal(facts.get(sub).length, 1, 'pero cuenta como visto');
+  assert.equal(facts.get(sub).filter((f) => !f.twin).length, 1, 'pero cuenta como visto');
   const t2 = t1 + MIN;
   const again = collectFacts({ keys: [key], provinces: ['malaga'], events: [dgt({ id: 'dgt:otro', start: t1 - MIN, updated: t2 }), old], now: t2, creditOf });
   seen = trackFacts(seen, again, t2);
@@ -207,9 +207,35 @@ test('las incidencias de una lista se miran una vez (índice por lista): las ret
     '- Accidente · A-7 km 1012.0 · Marbella, ',
     'Además, 1 incidencia más leve (obras sin',
   ], 'la retirada no sale');
-  assert.equal(trafficFacts({ provinces: ['malaga'], events, now: NOW }).provinces.get('malaga').length, 1);
+  const shown = (list) => trafficFacts({ provinces: ['malaga'], events: list, now: NOW }).provinces.get('malaga').filter((f) => !f.twin).length;
+  assert.equal(shown(events), 1);
   events.push(dgt({ id: 'dgt:8', closed: true, title: 'Accidente · A-7 km 1100.0' }));
-  assert.equal(trafficFacts({ provinces: ['malaga'], events, now: NOW }).provinces.get('malaga').length, 2, 'la lista ha cambiado: se rehace');
+  assert.equal(shown(events), 2, 'la lista ha cambiado: se rehace');
   assert.equal(statusOf(provinceSub('malaga'), { events, now: NOW, creditOf }).lines.filter((l) => l.startsWith('- Accidente')).length, 2,
     'en /estado de la provincia, el tráfico de la misma pasada');
+});
+
+test('se corta y se reabre: el corte se avisa; reabrirla no es nuevo (aunque la DGT quite « · Carretera cortada» de la descripción)', () => {
+  const key = 'c-A4';
+  const accident = (closed) => dgt({ id: 'dgt:r1', road: 'A-4', province: 'Madrid', severity: 'muy alta', closed, title: 'Accidente · A-4 km 49.2',
+    description: `Aranjuez, Madrid${closed ? ' · Carretera cortada' : ''}`, lat: 40.03, lon: -3.6 });
+  const round = (seen, events, t) => {
+    const facts = collectFacts({ keys: [key], provinces: ['madrid'], events, now: t, creditOf });
+    return { facts, seen: trackFacts(seen, facts, t) };
+  };
+  let r = round(new Map(), [], NOW);
+  const t1 = NOW + MIN;
+  r = round(r.seen, [accident(true)], t1);
+  assert.deepEqual(newFacts(key, r.facts.get(key), r.seen, NOW).map((f) => f.text.split('. ')[0]), ['Accidente · A-4 km 49.2 · Aranjuez, Madrid · Carretera cortada']);
+  assert.equal(newFacts(provinceSub('madrid'), r.facts.get(provinceSub('madrid')), r.seen, NOW).length, 1);
+  const t2 = t1 + MIN;
+  r = round(r.seen, [accident(false)], t2);
+  assert.deepEqual(newFacts(key, r.facts.get(key), r.seen, t1), [], 'reabierta: no se avisa (review/s5)');
+  const t3 = t2 + MIN;
+  r = round(r.seen, [accident(true)], t3);
+  assert.equal(newFacts(key, r.facts.get(key), r.seen, t2).length, 0, 'vuelve a cortarse en los minutos siguientes: el mismo corte, ya avisado');
+  // En /estado, el corte una vez (el gemelo abierto no se cuenta).
+  assert.equal(roadStatus(key, { events: [accident(true)], now: t3, creditOf }).lines[0], 'Ahora hay 1 corte, accidente o incidencia grave en la A-4:');
+  assert.equal(statusOf(provinceSub('madrid'), { events: [accident(true)], now: t3, creditOf }).lines.filter((l) => l.startsWith('Carreteras:'))[0],
+    'Carreteras: 1 corte o accidente grave.');
 });

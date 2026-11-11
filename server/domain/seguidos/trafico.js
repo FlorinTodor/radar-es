@@ -222,6 +222,18 @@ const SEVERITY_TEXT = { [SEVERITY_RANK.alta]: frase('Gravedad: alta.'), [SEVERIT
  * añade el radar y las etiquetas de nuestro servidor (tr.server, como la web); lo de la fuente, tal cual.
  */
 export function trafficFact(e, credit, now, tr = ES) {
+  return incidentFacts(e, credit, now, tr)[0];
+}
+
+// Lo que añade el adaptador de la DGT a la descripción mientras la carretera está cortada (dgt.js): no es de la fuente.
+const CUT_SUFFIX = / · Carretera cortada$/;
+
+/**
+ * Los hechos de una incidencia: el de trafficFact y, si corta la carretera, su gemelo abierto, callado (`twin`): el
+ * mismo id que tendrá cuando se reabra (sin la marca de corte ni lo que añade el adaptador a la descripción), para que
+ * reabrirla no sea nuevo. Los gemelos no se cuentan en /estado.
+ */
+function incidentFacts(e, credit, now, tr = ES) {
   const { t } = tr;
   const said = [e.title, e.description].filter(Boolean).join(' · ');
   const shown = tr === ES ? said : [e.title, e.description].filter(Boolean).map((x) => tr.server(x, e.source)).join(' · ');
@@ -232,13 +244,16 @@ export function trafficFact(e, credit, now, tr = ES) {
   if (Number.isFinite(e.end)) parts.push(whenText(e.end, now, frase('Prevista hasta las {time}.'), frase('Prevista hasta el {date}.'), t));
   const news = Math.max(...[e.start, e.updated].filter(Number.isFinite));
   const fresh = news === -Infinity || now - news <= TRAFFIC_FRESH_MS;
-  return {
+  const fact = {
     id: `carretera|${e.source ?? ''}|${said}|${e.closed === true ? 'corte' : ''}`,
     kind: 'carretera',
     text: parts.join(' '),
     credit,
     ...(fresh ? {} : { silent: true }),
   };
+  if (e.closed !== true) return [fact];
+  const open = [e.title, String(e.description ?? '').replace(CUT_SUFFIX, '')].filter(Boolean).join(' · ');
+  return [fact, { ...fact, id: `carretera|${e.source ?? ''}|${open}|`, silent: true, twin: true }];
 }
 
 const push = (map, k, v) => {
@@ -261,17 +276,17 @@ export function trafficFacts({ keys = [], provinces = [], events = [], now, cred
   const wanted = new Set(provinces);
   if (!subs.length && !wanted.size) return out;
   const index = trafficIndex(events);
-  const facts = new Map(); // incidencia → su hecho, una vez aunque vaya a varias cosas seguidas
-  const factOf = (e) => {
-    if (!facts.has(e)) facts.set(e, trafficFact(e, e.credit ?? creditOf(e.source) ?? null, now, tr));
+  const facts = new Map(); // incidencia → sus hechos, una vez aunque vaya a varias cosas seguidas
+  const factsOf = (e) => {
+    if (!facts.has(e)) facts.set(e, incidentFacts(e, e.credit ?? creditOf(e.source) ?? null, now, tr));
     return facts.get(e);
   };
   for (const sub of subs) {
     for (const e of index.byCode.get(sub.road) ?? []) {
-      if (!sub.province || trafficProvinceId(e) === sub.province.id) push(out.roads, sub.key, factOf(e));
+      if (!sub.province || trafficProvinceId(e) === sub.province.id) for (const f of factsOf(e)) push(out.roads, sub.key, f);
     }
   }
-  for (const id of wanted) for (const e of index.byProvince.get(id) ?? []) push(out.provinces, id, factOf(e));
+  for (const id of wanted) for (const e of index.byProvince.get(id) ?? []) for (const f of factsOf(e)) push(out.provinces, id, f);
   return out;
 }
 
@@ -295,7 +310,7 @@ export function roadStatus(key, { events = [], now, creditOf = () => null, tr = 
   if (!sub) return { lines: [t('Esa carretera no la conozco.')], credits: [] };
   // «la A-7» o «la A-7 (Málaga)»: la carretera y la provincia, tal cual.
   const name = `${roadName(sub.road, events)}${sub.province ? ` (${sub.province.name})` : ''}`;
-  const facts = trafficFacts({ keys: [key], events, now, creditOf, tr }).roads.get(key) ?? [];
+  const facts = (trafficFacts({ keys: [key], events, now, creditOf, tr }).roads.get(key) ?? []).filter((f) => !f.twin);
   const lines = [];
   const credits = new Set();
   if (!facts.length) lines.push(t('Ahora no hay cortes, accidentes ni incidencias graves en la {road}.', { road: name }));
@@ -322,8 +337,9 @@ export function provinceTrafficStatus(p, { events = [], now, creditOf = () => nu
 }
 
 /** Las líneas de tráfico de una provincia con sus hechos ya buscados (los de trafficFacts, o los de collectFacts). */
-export function provinceTrafficLines(facts, tr = ES) {
+export function provinceTrafficLines(all, tr = ES) {
   const { t, tn } = tr;
+  const facts = all.filter((f) => !f.twin);
   if (!facts.length) return { lines: [t('Carreteras: ahora no hay cortes ni accidentes graves.')], credits: [] };
   const lines = [tn('Carreteras: 1 corte o accidente grave.', 'Carreteras: {n} cortes o accidentes graves.', facts.length)];
   const credits = new Set();

@@ -328,7 +328,7 @@ avisa de pocas:
 - **Sin repetir**: cada aviso se reconoce por lo que cuenta (su fuente, su título y su descripción), no por el
   número de su fuente. La DGT publica a veces la misma incidencia dos veces (una por sentido) o la vuelve a
   publicar con otro número: se avisa una. Si pasa a cortar la carretera, se avisa otra vez; si deja de cortarla,
-  no.
+  no (aunque la descripción cambie: «Carretera cortada», que añade el radar, no cuenta).
 - **Lo viejo no es nuevo**: una incidencia sin noticias (ni empieza ni su fuente la revisa) desde hace más de 6
   horas no se avisa aunque se vea por primera vez. Así, si una fuente cae más de tres horas (lo que se recuerda
   lo ya avisado) y vuelve, no llegan de golpe todos los cortes de la provincia, algunos de hace meses. En
