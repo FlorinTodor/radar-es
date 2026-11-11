@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { lineKey, numberedServiceKey, scheduledServiceKey, stopKey } from '../../server/domain/seguir.js';
 import { entryLabel, guessedName, knownNames, searchDirectory, updateDirectory } from '../../server/domain/seguidos/directorio.js';
 import {
-  DELAY_MIN, MESSAGE_MAX, collectFacts, factsMessage, fitMessage, madridDay, madridHourMinute, newFacts, newFactsOf, packBlocks, provinceSub, statusOf,
+  DELAY_MIN, MESSAGE_MAX, collectFacts, factsMessages, fitMessage, joinCredits, madridDay, madridHourMinute, newFacts, newFactsOf, packBlocks, provinceSub, statusOf,
   capSeen, stopAt, trackFacts, tripsAt,
 } from '../../server/domain/seguidos/avisos.js';
 import { parseCommand, parseHour, smallTalk } from '../../server/domain/seguidos/ordenes.js';
@@ -136,12 +136,35 @@ test('tope de lo recordado: lo visto en la ronda nunca se olvida por el tope (ni
 });
 
 test('mensaje: título, lo que pasa (como mucho 8 y cuántos más), fuentes sin repetir y la web', () => {
-  const one = factsMessage('Avant 08058', [{ id: 'a', text: 'Va con 22 min de retraso.', credit: 'Renfe' }], { webUrl: 'https://radarespana.es' });
+  const [one, ...none] = factsMessages('Avant 08058', [{ id: 'a', text: 'Va con 22 min de retraso.', credit: 'Renfe' }], { webUrl: 'https://radarespana.es' });
   assert.equal(one, 'Avant 08058:\n\nVa con 22 min de retraso.\n\nRenfe\n\nMás en https://radarespana.es');
-  const many = factsMessage('Tren C4a', Array.from({ length: 10 }, (_, i) => ({ id: String(i), text: `T${i}`, credit: 'Renfe' })), { webUrl: 'https://x.es' });
+  assert.deepEqual(none, []);
+  const [many] = factsMessages('Tren C4a', Array.from({ length: 10 }, (_, i) => ({ id: String(i), text: `T${i}`, credit: 'Renfe' })), { webUrl: 'https://x.es' });
   assert.match(many, /^Tren C4a:\n\n- T0\n- T1\n.*- T7\n…y 2 más\.\n\nRenfe\n\nMás en https:\/\/x\.es$/s);
-  const long = factsMessage('X', [{ id: 'a', text: 'a'.repeat(5000), credit: null }], { webUrl: 'https://x.es' });
-  assert.ok(long.length <= 3800);
+});
+
+test('mensaje largo: en varios, cada uno con las atribuciones de lo que lleva y la web; los textos de las fuentes, enteros', () => {
+  // Seis avisos de Renfe de ~620 caracteres (review/s1): antes, uno de 3.800 cortado, sin la atribución ni la web.
+  const notice = (i) => `${'Por obras de mejora en la infraestructura, los trenes circularán con horarios modificados. '.repeat(7)}[FIN ${i}]`;
+  const facts = Array.from({ length: 6 }, (_, i) => ({ id: String(i), text: notice(i), credit: i === 5 ? '© AEMET' : 'Origen de los datos: Renfe Operadora' }));
+  const out = factsMessages('Cercanías C4', facts, { webUrl: 'https://x.es' });
+  assert.equal(out.length, 2);
+  out.forEach((m, i) => {
+    assert.ok(m.length <= MESSAGE_MAX);
+    assert.ok(m.startsWith(`Cercanías C4 (${i + 1}/2):\n\n`), m.slice(0, 30));
+    assert.match(m, /\n\nMás en https:\/\/x\.es$/);
+  });
+  assert.ok(out[0].includes('Origen de los datos: Renfe Operadora') && !out[0].includes('© AEMET'), 'cada atribución, en el mensaje de lo suyo');
+  assert.ok(out[1].includes('© AEMET'));
+  assert.equal(out[1].includes('Origen de los datos'), /\[FIN [0-4]\]/.test(out[1]), 'la de Renfe, sólo si lleva alguno de Renfe');
+  for (let i = 0; i < 6; i++) assert.ok(out.join('').includes(notice(i)), `aviso ${i} entero`);
+  // Un aviso que solo no cabe: partido por sus líneas en varios mensajes, cada uno con su atribución; nada se pierde.
+  const huge = `${'Línea con texto de la fuente. '.repeat(40)}\n`.repeat(8);
+  const parts = factsMessages('X', [{ id: 'a', text: huge, credit: 'Fuente: Renfe' }], { webUrl: 'https://x.es' });
+  assert.ok(parts.length >= 3 && parts.every((m) => m.length <= MESSAGE_MAX && m.includes('Fuente: Renfe')));
+  const words = (t) => t.split(/\s+/).filter(Boolean);
+  const body = parts.map((m) => m.split('\n\n').slice(1, -2).join('\n\n')).join(' ');
+  assert.deepEqual(words(body), words(huge), 'las mismas palabras, en el mismo orden');
 });
 
 test('estado: un servicio que circula, cancelado o que no se ve; una línea; una provincia', () => {
@@ -272,7 +295,17 @@ test('mensajes en bloques: cada cosa entera, en varios mensajes; lo que no cabe 
   assert.match(capped.at(-1), new RegExp(`…y ${12 - shown} más\\.\\n\\nMás en https://x\\.es$`), 'dice cuántas quedan fuera');
   assert.ok(capped.every((m) => m.length <= MESSAGE_MAX));
   const huge = packBlocks([`Enorme:\n${'x'.repeat(9000)}`, 'Pequeño:\nbien'], { footer: 'web' });
-  assert.ok(huge.every((m) => m.length <= MESSAGE_MAX) && /Pequeño:\nbien\n\nweb$/.test(huge.at(-1)), 'un bloque que no cabe solo se recorta; el resto sigue');
+  assert.ok(huge.every((m) => m.length <= MESSAGE_MAX) && /Pequeño:\nbien\n\nweb$/.test(huge.at(-1)), 'un bloque que no cabe solo se parte; el resto sigue');
+  assert.equal(huge.join('').replace(/[^x]/g, '').length, 9000, 'sin perder nada');
+  // Con sus atribuciones aparte, van en cada trozo de un bloque partido.
+  const lines = Array.from({ length: 120 }, (_, i) => `- Aviso ${i}: ${'texto de la fuente '.repeat(3)}`).join('\n');
+  const split = packBlocks([{ text: `Línea C4:\n${lines}`, credits: 'Origen de los datos: Renfe Operadora' }], { footer: 'web', maxMessages: 10 });
+  assert.ok(split.length > 1);
+  for (const m of split) assert.match(m, /Origen de los datos: Renfe Operadora(\n\nweb)?$/);
+  assert.equal(split.join('\n').match(/- Aviso \d+:/g).length, 120, 'todas las líneas');
+  // Si no caben todos los mensajes, un bloque va entero o se cuenta entre los que faltan, nunca a medias.
+  const capped2 = packBlocks([{ text: `Línea C4:\n${lines}`, credits: 'Renfe' }, 'Pequeño:\nbien'], { footer: 'web', maxMessages: 1, more: (n) => `…y ${n} más.` });
+  assert.deepEqual(capped2, ['Pequeño:\nbien\n\n…y 1 más.\n\nweb'], 'el que no cabe entero, fuera y contado; el siguiente, sí');
   assert.deepEqual(packBlocks([], { footer: 'web' }), ['web']);
 });
 
@@ -326,4 +359,13 @@ test('lo nuevo de muchos chats en una ronda (newFactsOf): lo mismo que newFacts,
     }
   }
   assert.deepEqual(newFactsOf(facts, seen, firsts)(C4A, t0).map((f) => f.id), ['renfe-aviso:2']);
+});
+
+test('atribuciones de un mensaje: cada una una vez, sin las que ya van dentro de otra', () => {
+  const renfe = 'Origen de los datos: Renfe Operadora (CC BY 4.0)';
+  const withTrack = `${renfe} · trazado: Powered by MITRAMS (Punto de Acceso Nacional)`;
+  assert.equal(joinCredits([renfe, withTrack, renfe, null, '© AEMET']), `${withTrack} · © AEMET`);
+  assert.equal(joinCredits([]), '');
+  const [msg] = factsMessages('C4', [{ id: 'a', text: 'A', credit: renfe }, { id: 'b', text: 'B', credit: withTrack }], { webUrl: 'https://x.es' });
+  assert.equal(msg.match(/Origen de los datos/g).length, 1);
 });

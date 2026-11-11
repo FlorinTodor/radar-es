@@ -18,7 +18,10 @@ tranvía y los tipos que se añadan), su línea, una estación, una provincia o 
   sus incidencias de gravedad alta o muy alta. Ver [Tráfico](#tráfico).
 
 Con `/parte 07:30` manda cada día un resumen de lo que sigue. El parte y `/estado` cuentan cada cosa entera: si no
-caben en un mensaje, van en varios (hasta 6) y, si ni así, dicen cuántas cosas quedan fuera. Lo que se puede seguir son las claves de
+caben en un mensaje, van en varios (hasta 6) y, si ni así, dicen cuántas cosas quedan fuera. Los avisos, igual: si los
+de una ronda no caben en un mensaje, van en varios («(1/2)», «(2/2)»), cada uno con las atribuciones de lo que lleva y
+la web. Lo que publica una fuente nunca se recorta (sus licencias): un texto que solo no cabe se parte por sus líneas
+en varios mensajes. Una atribución que ya va dentro de otra del mismo mensaje no se repite. Lo que se puede seguir son las claves de
 [`docs/vehiculos.md`](vehiculos.md): el bot no sabe de qué fuente ni de qué tipo es cada vehículo, así que un
 tipo nuevo funciona sin tocarlo.
 

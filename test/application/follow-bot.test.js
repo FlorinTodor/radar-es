@@ -452,3 +452,19 @@ test('el parte de muchos chats a la vez: cada uno, lo suyo en su idioma y con su
   assert.match(parte(3), /^Daily summary, 06:05:\n\nAlerts in Valencia:\nAviso naranja por lluvias · Litoral sur de Valencia/);
   assert.equal(bot.stats().chats, 3);
 });
+
+test('avisos largos de una línea: en varios mensajes, enteros y cada uno con su atribución y la web (no recortados)', () => {
+  const { say, world, tick } = setup();
+  say(`/start ${C4A}`);
+  tick();
+  const long = (i) => `${'Por obras de mejora entre Parla y Getafe Centro, los trenes circularán con horarios modificados. '.repeat(8)}[FIN ${i}]`;
+  world.events = Array.from({ length: 6 }, (_, i) => ({ id: `renfe-aviso:${i}`, source: 'renfe-avisos', category: 'ferroviario', type: 'aviso',
+    title: `Aviso Renfe · C4a (${i})`, description: long(i), follow: [C4A] }));
+  const out = tick();
+  assert.ok(out.length >= 2);
+  for (const m of out) {
+    assert.ok(m.text.length <= 3800);
+    assert.match(m.text, /\n\nOrigen de los datos: Renfe Operadora\n\nMás en https:\/\/radarespana\.es$/);
+  }
+  for (let i = 0; i < 6; i++) assert.ok(out.some((m) => m.text.includes(long(i))), `aviso ${i} entero`);
+});
