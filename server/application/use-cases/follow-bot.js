@@ -285,8 +285,9 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
     // Un trayecto por enlace, con lo mismo que comprueba /trayecto: estaciones distintas y de la misma red.
     const wrong = followKind(key) === 'trayecto' ? trayectoProblem(key, stationOf) : null;
     if (wrong) return [reply(chatId, trayectoErrorText(wrong, tr))];
-    // Un enlace de la web trae sólo la clave: su nombre, de lo que se ve ahora.
-    if (!name && !station) refreshDirectory(c, key);
+    // Un enlace de la web trae sólo la clave: su nombre, de lo que se ve ahora. Un trayecto o una estación nunca están
+    // en el directorio (se nombran con el catálogo): rehacerlo para buscarlos era recorrer miles de vehículos para nada.
+    if (!name && !station && followKind(key) !== 'trayecto') refreshDirectory(c, key);
     const existing = chats.get(chatId);
     if (existing?.subs.has(key)) {
       return answer(chatId, tr, [t('Ya sigues {name}.', { name: tr.name(existing.subs.get(key).name) }), statusBlock(t('Ahora:'), key, c, tr)]);
@@ -488,7 +489,7 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
       for (const it of listOf(chat, tr)) blocks.push(statusBlock(`${it.name}:`, it.sub, c, tr, it.fires));
     } else if (canonicalKey(arg)) {
       const key = canonicalKey(arg);
-      if (followKind(key) !== 'parada') refreshDirectory(c, key);
+      if (followKind(key) !== 'parada' && followKind(key) !== 'trayecto') refreshDirectory(c, key);
       blocks.push(statusBlock(`${tr.name(nameOf(key))}:`, key, c, tr));
     } else {
       refreshDirectory(c);

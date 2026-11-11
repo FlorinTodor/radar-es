@@ -273,3 +273,18 @@ test('claves de enlace: la misma cosa escrita de otra forma es la misma; un tray
   await b.bot.load();
   assert.deepEqual(b.bot.stats(), { chats: 1, subs: 2 });
 });
+
+test('/start t-… y /estado t-… no rehacen el directorio (un trayecto nunca está en él)', () => {
+  const { say, world } = setup();
+  let reads = 0;
+  // Sólo el directorio mira de dónde viene cada vehículo (para nombrarlo).
+  const counted = { id: 'v', mode: 'bus', operator: 'X', line: '1', follow: ['l-x-1'], delay: 0, get origin() { reads++; return 'A'; } };
+  world.vehicles = [counted];
+  say('/start p-70103'); // la primera vez se rehace (aún no se ha hecho nunca)
+  reads = 0;
+  say(`/start ${KEY}`);
+  say(`/estado ${KEY}`);
+  assert.equal(reads, 0, 'antes se recorrían todos los vehículos cada vez');
+  say('/start s-renfe-99999');
+  assert.ok(reads > 0, 'lo que sí puede estar en él, sí');
+});
