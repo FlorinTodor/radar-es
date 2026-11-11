@@ -45,6 +45,8 @@ export const EN = {
   autobuses: 'buses',
   vehículo: 'vehicle',
   vehículos: 'vehicles',
+  // Una línea de muchos recorridos (directorio.js entryLabel): «Avant · Renfe (todos sus trenes)».
+  'todos sus {vehicles}': 'all its {vehicles}',
 
   // ---------- Órdenes, menú y descripción del bot (ordenes.js) ----------
   'Seguir un tren, autobús, metro o línea: /seguir 08058, /seguir C4 Madrid': 'Follow a train, bus, metro or line: /follow 08058, /follow C4 Madrid',

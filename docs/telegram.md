@@ -189,6 +189,14 @@ destino** y **salen del origen en esa franja**, uno de esos días. No hace falta
 - **Charla**: «hola», «gracias», «vale»… escritos sin orden no se buscan (por el principio de una palabra, «hola»
   encontraba «Naciones-Holanda»). Una búsqueda con más resultados de los que caben en la lista dice cuántos hay
   y pide la ciudad o el operador; a igual encaje, primero trenes, metros y tranvías (orden del registro de tipos).
+- **Líneas de muchos recorridos**: una línea se encuentra también por sus extremos (el directorio guarda seis), pero
+  algunas no son un recorrido: «Avant · Renfe», «Media Distancia · Renfe» o «Alvia · Renfe» son todos los trenes de
+  ese producto en toda España, y «Autobús L4 · ALSA», la L4 de varias ciudades. La que se ve con más de seis orígenes
+  y destinos distintos (`wide`, `server/domain/seguidos/directorio.js`) no se encuentra por un sitio («/seguir
+  Lleida» ofrecía «Avant · Renfe (Sevilla – Málaga)», que son todos los Avant): sólo si se escribe su nombre
+  («/seguir Avant», «/seguir Avant Toledo»). Su botón dice que son todos («Avant · Renfe (todos sus trenes)», en
+  inglés «all its trains») y nunca se sigue sin preguntar, aunque sea lo único que se encuentra. Para los trenes de
+  una ciudad a otra está `/trayecto`. El 11-nov eran 38 de unas 2.000 líneas.
 - **Atiende un solo servidor a la vez.** Durante un relevo hay dos contenedores, y un turno en
   `data/bot/turno.json` decide cuál atiende el bot. El que se apaga lo suelta y el nuevo lo coge.
 - **Lo que guarda**, en `data/bot/seguidos.v1.json`:

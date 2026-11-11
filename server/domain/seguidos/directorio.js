@@ -3,7 +3,7 @@
 // bot encuentra «08058», «C4 Madrid» o «27 EMT Málaga» sin saber de qué fuente ni de qué tipo de vehículo es
 // cada cosa: un barco o un avión con sus claves saldrían igual. Puro: sin red, ni reloj, ni disco.
 import { describeFollow, followKind, networkPart, parseFollowKey } from '../seguir.js';
-import { modeIds, modeInfo } from '../modos.js';
+import { modeIds, modeInfo, modeNoun } from '../modos.js';
 import { plainName } from '../provincias.js';
 
 // Lo que se recuerda de cada clave: si no se ve en día y medio, sale (el tren de mañana a la misma hora sigue).
@@ -24,6 +24,10 @@ const MAX_PLACES = 6;
  * @property {string[]} places    Orígenes y destinos vistos (para buscar y para distinguir dos líneas en una lista).
  *   El núcleo de una línea de Cercanías va en su clave y en su nombre («Cercanías C4a · Renfe (Madrid)»): «C4
  *   Madrid» la encuentra por él.
+ * @property {boolean} [wide]     Una línea vista con más de MAX_PLACES orígenes y destinos distintos: no es un
+ *   recorrido, sino todos los de un producto en toda España («Avant · Renfe», «Media Distancia · Renfe») o la misma
+ *   línea en varias ciudades («Autobús L4 · ALSA»). No se encuentra por un sitio («/seguir Lleida» ofrecía «Avant ·
+ *   Renfe (Sevilla – Málaga)», que son todos los Avant): sólo si se escribe su nombre, y se dice que son todos.
  * @property {number} seen        Última vez que se vio (epoch ms).
  */
 
@@ -109,7 +113,11 @@ export function updateDirectory(dir, { vehicles = [], events = [], now, max = DI
         continue;
       }
       old.seen = now;
-      for (const p of [x.origin, x.destination]) if (p && old.places.length < MAX_PLACES && !old.places.includes(p)) old.places.push(p);
+      for (const p of [x.origin, x.destination]) {
+        if (!p || old.places.includes(p)) continue;
+        if (old.places.length < MAX_PLACES) old.places.push(p);
+        else if (old.kind === 'linea') old.wide = true;
+      }
     }
   };
   for (const v of vehicles) visit(v);
@@ -173,8 +181,13 @@ export function guessedName(key, { operators = new Map(), scopes = new Set() } =
   return `${CODE_RE.test(line ?? '') ? `Línea ${line}` : 'Servicio'} · ${op}${p.departure ? `, el de las ${p.departure}` : ''}`;
 }
 
-/** Cómo se enseña una entrada en una lista: su nombre y, en una línea, dos de sus extremos para distinguirla. */
+/**
+ * Cómo se enseña una entrada en una lista: su nombre y, en una línea, dos de sus extremos para distinguirla; en una
+ * que son muchos recorridos (`wide`), que son todos («Avant · Renfe (todos sus trenes)»). En español: el bot lo
+ * traduce al enseñarlo (idioma.js nameText).
+ */
 export function entryLabel(e) {
+  if (e.kind === 'linea' && e.wide) return `${e.name} (todos sus ${modeNoun(e.mode, true)})`;
   if (e.kind !== 'linea' || !e.places.length) return e.name;
   return `${e.name} (${e.places.slice(0, 2).join(' – ')})`;
 }
@@ -183,12 +196,20 @@ const TIME_RE = /^(\d{1,2})[:.h]?(\d{2})$/;
 
 // El texto en el que se busca cada entrada («␠palabra␠palabra␠»), preparado una vez mientras no cambien su
 // nombre ni sus lugares: buscar es mirar si contiene «␠token» (empieza una palabra) o «␠token␠» (la palabra entera).
+// En una línea de muchos recorridos (`wide`), sus sitios van aparte (`places`): no bastan para encontrarla.
+const placeWord = (places, whole, prefix, t) => places.includes(whole) || (t.length >= 3 && places.includes(prefix));
 const HAYSTACK = new WeakMap();
 function haystackOf(e) {
-  const sig = `${e.name}|${e.places.length}`;
+  const sig = `${e.name}|${e.places.length}|${e.wide ? 1 : 0}`;
   const cached = HAYSTACK.get(e);
   if (cached?.sig === sig) return cached;
-  const prepared = { sig, text: ` ${plainName([e.name, e.operator, ...e.places].join(' '))} `, line: plainName(e.line ?? '') };
+  const places = ` ${plainName(e.places.join(' '))} `;
+  const prepared = {
+    sig,
+    text: e.wide ? ` ${plainName([e.name, e.operator].join(' '))} ` : ` ${plainName([e.name, e.operator, ...e.places].join(' '))} `,
+    places: e.wide ? places : '',
+    line: plainName(e.line ?? ''),
+  };
   HAYSTACK.set(e, prepared);
   return prepared;
 }
@@ -236,12 +257,15 @@ export function searchDirectory(dir, text, { limit = 8 } = {}) {
       } else if (line() && t === line()) score += 50;
       else if (line() && t.length >= 2 && line().startsWith(t) && /\d/.test(t)) score += 20; // «C4» → C4a, C4b
       else if (words().includes(whole) || (t.length >= 3 && words().includes(prefix))) score += 5;
+      else if (e.wide && placeWord((prepared ??= haystackOf(e)).places, whole, prefix, t)) continue; // ni suma ni quita
       else {
         ok = false;
         break;
       }
     }
-    if (ok && identified) scored.push({ e, score });
+    // Una de muchos recorridos, sólo si algo encaja con su nombre, su línea o su operador («Avant», «Avant Toledo»; no
+    // «Toledo» sola).
+    if (ok && identified && !(e.wide && score === 0)) scored.push({ e, score });
   }
   // A igualdad, las líneas antes que los servicios, y por el orden del registro de tipos (trenes, metros y
   // tranvías antes que autobuses): con «C1», las C1 de Cercanías no quedan detrás de veinte autobuses C1.

@@ -269,6 +269,9 @@ test('los nombres de lo que se sigue: nuestras palabras en inglés, los nombres 
       { operator: 'Euskotren', line: 'E4', modeLabel: 'Tren', origin: 'Matiko-Bilbao' }), 'Train E4 · Euskotren, departing 13:10, from Matiko-Bilbao'],
     ['Estación Valladolid-Campo Grande', 'Valladolid-Campo Grande station'],
     ['Estación Sants Estació · Metro de Barcelona (TMB)', 'Sants Estació station · Metro de Barcelona (TMB)'],
+    ['Avant · Renfe (todos sus trenes)', 'Avant · Renfe (all its trains)'],
+    ['Autobús L4 · ALSA (todos sus autobuses)', 'Bus L4 · ALSA (all its buses)'],
+    ['Estación de autobuses · Metro de Granada', 'Estación de autobuses · Metro de Granada'],
     ['Tranvía T1 · Metro Ligero Oeste', 'Tram T1 · Metro Ligero Oeste'],
   ];
   for (const [es, want] of cases) assert.equal(en(es), want, es);
