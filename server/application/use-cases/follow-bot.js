@@ -25,8 +25,8 @@ import { provinceExtrasText, provinceFacts, provinceOption } from '../../domain/
 import { withoutRepeats } from '../../domain/seguidos/estacion.js';
 import { findProvince, provinceById } from '../../domain/provincias.js';
 import {
-  collectTrayectoFacts, looksLikeTrayecto, parseTrayectoText, passIndex, trayectoErrorText, trayectoHelpText, trayectoName, trayectoOptions,
-  trayectoStatus,
+  collectTrayectoFacts, connectedBy, looksLikeTrayecto, parseTrayectoText, passIndex, trayectoErrorText, trayectoHelpText, trayectoName,
+  trayectoOptions, trayectoStations, trayectoStatus,
 } from '../../domain/seguidos/trayectos.js';
 
 /** Topes: chats en total, cosas seguidas por chat (provincias incluidas), provincias por chat y menús. */
@@ -157,6 +157,8 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
     if (!index) passing.set(c, (index = passIndex(c.vehicles, stopsOf)));
     return index;
   };
+  /** ¿Une algún tren que se ve ahora dos estaciones? (vehículos con sus paradas y cancelaciones con las suyas) */
+  const connects = (c) => connectedBy({ index: passingOf(c), events: c.events });
   let catalog = { at: -Infinity, list: [] };
   const stationList = () => {
     if (clock.now() - catalog.at >= DIRECTORY_EVERY_MS) catalog = { at: clock.now(), list: trayectos.stations?.() ?? [] };
@@ -294,7 +296,15 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
     chat.subs.set(key, label ? { name: label, since: c.now, checkedAt: c.now } : { name: nameOf(key), since: c.now, checkedAt: c.now, guessed: true });
     dirty = true;
     return answer(chatId, tr, [t('Hecho: te aviso de {name}.', { name: tr.name(chat.subs.get(key).name) }), statusBlock(t('Ahora:'), key, c, tr),
-      t('/mis para ver lo que sigues · /dejar para dejar de seguirlo')]);
+      unlinked(key, c, tr), t('/mis para ver lo que sigues · /dejar para dejar de seguirlo')]);
+  }
+
+  /** De un trayecto que ningún tren que se ve une: que lo compruebe (se sigue igual: de noche apenas hay trenes). */
+  function unlinked(key, c, tr) {
+    const way = followKind(key) === 'trayecto' ? trayectoStations(key, stationOf) : null;
+    if (!way || connects(c)(way.origin, way.destination)) return null;
+    return tr.t('Ahora no veo ningún tren que vaya de {origin} a {destination}: si no hay trenes directos entre ellas, no te llegará nada; '
+      + 'comprueba las estaciones.', { origin: way.origin.name, destination: way.destination.name });
   }
 
   /** Sigue una provincia; con `fires`, también sus focos de calor (y si ya la seguía, se los añade). */
@@ -504,7 +514,8 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
     if (!arg) return [reply(chatId, trayectoHelpText({ tr }))];
     const parsed = parseTrayectoText(arg);
     if (parsed.error) return [reply(chatId, trayectoErrorText(parsed, tr))];
-    const found = trayectoOptions(stationList(), parsed, { limit: limits.menuItems });
+    // Primero los que une algún tren que se ve (y fuera los muy lejanos que ninguno une).
+    const found = trayectoOptions(stationList(), parsed, { limit: limits.menuItems, connects: connects(ctx()) });
     if (found.error) return [reply(chatId, trayectoErrorText(found, tr))];
     if (found.total === 1) return follow(chatId, found.pairs[0].key, found.pairs[0].name);
     const buttons = menu(chatId, 'add', found.pairs.map((p) => ({ sub: p.key, name: p.name, label: p.label })), clock.now());
@@ -562,14 +573,16 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
   function digestCmd(chatId, arg) {
     const { t } = trOf(chatId);
     const chat = chats.get(chatId);
+    const off = /^(?:no|off|nada|ninguno|quitar|none|cancel)$/i.test(arg);
+    const hour = off ? null : parseHour(arg);
+    // La hora mal escrita, antes que pedir que siga algo: si no, al seguir algo y volver a escribirla, otra vez mal.
+    if (!off && !hour && (arg || chat)) return [reply(chatId, t('Dime la hora, en hora peninsular: /parte 07:30. Para quitarlo: /parte no.'))];
     if (!chat) return [reply(chatId, t('Primero sigue algo (/seguir): el parte cuenta cómo va lo que sigues.'))];
-    if (/^(?:no|off|nada|ninguno|quitar|none|cancel)$/i.test(arg)) {
+    if (off) {
       chat.digest = null;
       dirty = true;
       return [reply(chatId, t('Hecho: ya no te mando el parte diario.'))];
     }
-    const hour = parseHour(arg);
-    if (!hour) return [reply(chatId, t('Dime la hora, en hora peninsular: /parte 07:30. Para quitarlo: /parte no.'))];
     const now = clock.now();
     chat.digest = hour;
     // Si hoy ya ha pasado esa hora, el primero es mañana.

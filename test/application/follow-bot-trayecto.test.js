@@ -223,3 +223,24 @@ test('lo mismo no llega dos veces en la misma ronda: el retraso de un tren segui
   assert.equal(all.match(/Cercanías C2 21516 cancelado/g).length, 1, all);
   assert.match(out[0].text, new RegExp(`^${NAME.replace(/[()]/g, '\\$&')}:`), 'en lo primero que sigue');
 });
+
+test('un trayecto que ningún tren que se ve une: se sigue, pero se dice; con un tren que lo une, no', () => {
+  const { say, world } = setup();
+  const [lonely] = say('/trayecto Guadalajara > Alcalá de Henares 6-9');
+  assert.match(lonely.text, /^Hecho: te aviso de Guadalajara → Alcalá de Henares/);
+  assert.match(lonely.text, /Ahora no veo ningún tren que vaya de Guadalajara a Alcalá de Henares: si no hay trenes directos entre ellas, no te llegará nada; comprueba las estaciones\./);
+  world.vehicles = [md(0)];
+  const [ok] = say('/trayecto Alcalá de Henares > Madrid-Atocha Cercanías 6-9');
+  assert.doesNotMatch(ok.text, /no veo ningún tren/);
+});
+
+test('/parte con la hora sola («7», «7h») y, sin seguir nada, la hora mal escrita se dice antes', () => {
+  const { say } = setup();
+  assert.match(say('/parte 7', 5)[0].text, /^Primero sigue algo/);
+  assert.match(say('/parte 123', 5)[0].text, /^Dime la hora, en hora peninsular/, 'mal escrita: eso primero');
+  assert.match(say('/parte 25:00', 5)[0].text, /^Dime la hora/);
+  say(`/start ${KEY}`);
+  assert.match(say('/parte 7')[0].text, /^Hecho: cada día a las 07:00 \(hora peninsular\)/);
+  assert.match(say('/parte 8h')[0].text, /a las 08:00/);
+  assert.match(say('/summary 7pm')[0].text, /at 19:00/, 'en inglés, también');
+});

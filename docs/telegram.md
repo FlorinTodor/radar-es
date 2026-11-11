@@ -103,13 +103,18 @@ destino** y **salen del origen en esa franja**, uno de esos días. No hace falta
 
 - **Cómo se escribe**: las dos estaciones separadas por `>` (o `→`), la franja (`7:00-9:00`, `7-9`, `de 7 a
   9:30`) y los días (`L-V`, `S-D`, `L,X,V`, `LXV`, `V-L`, `laborables`, `fin de semana`; sin días, todos; en inglés,
-  `Mon-Fri`, `Mon,Wed,Fri`, `weekdays`, `weekends`, `every day`, y la franja `from 7 to 9`). Los
+  `Mon-Fri`, `Mon,Wed,Fri`, `weekdays`, `weekends`, `every day`, y la franja `from 7 to 9`, `7pm-9pm`, `7-9pm`). Los
   días pueden ir antes o después de la franja. La franja va de una hora a otra más tarde del mismo día. Escrito
   sin orden («Alcalá > Atocha 7-9»), también vale.
 - **Las estaciones** salen del catálogo del radar (las de Renfe y las de las redes de metro y tranvía), como en el
   mapa. Si el nombre es el de una estación tal cual, ésa; si no, todas las que tienen esas palabras en su nombre,
-  su ciudad o su red. Si con esos nombres hay más de un trayecto posible (hay dos «Atocha»), el bot pregunta con
-  una lista de combinaciones, sólo de estaciones distintas y de la misma red.
+  su ciudad o su red. Si las que se llaman tal cual no dan ningún trayecto de la misma red («Aeroport» es una de
+  Metrovalencia; con «Sants», se busca en Barcelona), se miran todas las que encajan. Si con esos nombres hay más de
+  un trayecto posible (hay dos «Atocha»), el bot pregunta con una lista de combinaciones, sólo de estaciones
+  distintas y de la misma red: primero las que une algún tren que se ve (vehículos con sus paradas y cancelaciones
+  con las suyas), luego las demás por distancia, y sin las muy lejanas que ningún tren une. Un trayecto que ningún
+  tren que se ve une se sigue igual, pero el bot lo dice («comprueba las estaciones»): de noche apenas hay trenes,
+  y si no hay trenes directos entre las dos, no llegará nada.
 - **Qué avisa**, de los trenes del trayecto:
   - si se cancelan, o si se les suprime la parada del origen o la del destino (las demás paradas suprimidas, no);
   - si van con 15 minutos de retraso o más, y otra vez cada 15 más (como un tren seguido: si mejora, no);
@@ -262,7 +267,8 @@ Cada chat tiene su idioma: español por defecto e inglés si lo elige. Mismo cri
   español («Autobús 27 · EMT Málaga», «Carretera A-7 (Málaga)», «… (07:00-09:00, de lunes a viernes)») y se enseñan
   con nuestras palabras traducidas («Bus 27 · EMT Málaga», «A-7 road (Málaga)», «… (07:00-09:00, Monday to
   Friday)»).
-- **Fechas y horas**: día/mes y 24 h en hora peninsular («10/11, 15:00»); `/parte` entiende también «7pm». La web que
+- **Fechas y horas**: día/mes y 24 h en hora peninsular («10/11, 15:00»); `/parte` entiende también «7pm» (y la hora
+  sola, «7» o «7h»). La web que
   citan los mensajes en inglés lleva `?lang=en`.
 - **En las rondas**, los hechos se buscan una vez para todos (en español, que da sus ids) y otra sólo con lo que siguen
   los chats en inglés, si hay alguno.

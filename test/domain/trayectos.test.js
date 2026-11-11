@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { numberedServiceKey, lineKey, trayectoKey } from '../../server/domain/seguir.js';
 import { sameNetwork, searchStations, stationLabel } from '../../server/domain/seguidos/estaciones.js';
 import {
-  ESTIMATE_KMH, collectTrayectoFacts, legOf, looksLikeTrayecto, parseDays, parseTrayectoText, passIndex, trayectoErrorText, trayectoName,
+  ESTIMATE_KMH, collectTrayectoFacts, connectedBy, legOf, looksLikeTrayecto, parseDays, parseTrayectoText, passIndex, trayectoErrorText, trayectoName,
   trayectoOptions, trayectoStations, trayectoStatus, vehicleDeparture, weekday,
 } from '../../server/domain/seguidos/trayectos.js';
 import { distanceKm } from '../../server/domain/geo.js';
@@ -263,4 +263,50 @@ test('un tren de pasada la medianoche con la fecha de su día de servicio (24:30
   assert.deepEqual(today.get(night)?.map((f) => f.id), ['noche']);
   assert.equal(collectTrayectoFacts({ keys: [night], events: [ev('2026-11-09', ['00:10', '00:30', '01:00'])], now, stationOf, stopsOf: () => null }).get(night),
     undefined, 'el del día anterior (sin pasar la medianoche) ya pasó');
+});
+
+test('estaciones de un trayecto: si las que se llaman tal cual no son de la misma red, todas las que encajan; primero las que une un tren, y fuera las muy lejanas', () => {
+  const metrovalencia = { code: 'fgv:aeroport', name: 'Aeroport', place: 'Manises', lat: 39.49, lon: -0.47, network: 'Metrovalencia', networkId: 'fgv' };
+  const t1 = { code: 'tmb:aero1', name: 'Aeroport T1', place: null, lat: 41.288, lon: 2.073, network: 'Metro de Barcelona (TMB)', networkId: 'tmb' };
+  const t2 = { code: 'tmb:aero2', name: 'Aeroport T2', place: null, lat: 41.303, lon: 2.072, network: 'Metro de Barcelona (TMB)', networkId: 'tmb' };
+  const catalog = [...CATALOG, metrovalencia, t1, t2];
+  const found = trayectoOptions(catalog, parseTrayectoText('Sants > Aeroport 7-9'));
+  assert.deepEqual(found.pairs.map((p) => p.label).sort(), ['Plaça de Sants → Aeroport T1 · Metro de Barcelona (TMB)', 'Plaça de Sants → Aeroport T2 · Metro de Barcelona (TMB)',
+    'Sants Estació → Aeroport T1 · Metro de Barcelona (TMB)', 'Sants Estació → Aeroport T2 · Metro de Barcelona (TMB)'].sort(),
+  'la de Metrovalencia, que se llama tal cual, no gana: pregunta entre las de Barcelona');
+  assert.equal(trayectoOptions(catalog, parseTrayectoText('Alcalá de Henares > Madrid-Atocha Cercanías 6-9')).total, 1, 'tal cual y de la misma red: ésa');
+  // Primero las que une algún tren; lejos y sin tren, fuera.
+  const chivert = { code: '65000', name: 'Alcalà de Xivert', place: 'Alcalà de Xivert', lat: 40.30, lon: 0.23 };
+  const withFar = [...CATALOG, chivert];
+  const cats = (connects) => trayectoOptions(withFar, parseTrayectoText('Alcal > Atocha 7-9'), { connects }).pairs.map((p) => p.label);
+  const viaC2 = (o, d) => o.code === ST.al.code && d.code === ST.at.code;
+  assert.equal(cats(viaC2)[0], 'Alcalá de Henares → Madrid-Atocha Cercanías', 'la que une un tren, primero');
+  assert.ok(!cats(viaC2).some((l) => l.startsWith('Alcalà de Xivert')), 'la muy lejana que ningún tren une, fuera');
+  assert.deepEqual(trayectoOptions([chivert, ST.at], parseTrayectoText('Xivert > Atocha 7-9')).pairs.map((p) => p.label), ['Alcalà de Xivert → Madrid-Atocha Cercanías'],
+    'si no hay otra, se queda');
+});
+
+test('qué trenes unen dos estaciones: los vehículos con sus paradas y las cancelaciones con las suyas, en ese orden', () => {
+  const index = passIndex([md()], () => mdStops());
+  const linked = connectedBy({ index, events: [] });
+  assert.equal(linked(ST.al, ST.at), true);
+  assert.equal(linked(ST.at, ST.al), false, 'al revés, no');
+  assert.equal(linked(ST.al, ST.pa), false);
+  const byCancel = connectedBy({ events: [cancel('c', '21516', ['07:20', '07:37', '08:10'])] });
+  assert.equal(byCancel(ST.gu, ST.at), true);
+});
+
+test('franja con am/pm y horas que no lo son', () => {
+  const at = (text) => {
+    const p = parseTrayectoText(`Alcalá > Atocha ${text}`);
+    return p.error ?? `${p.from}-${p.to}`;
+  };
+  assert.equal(at('7pm-9pm'), `${19 * 60}-${21 * 60}`);
+  assert.equal(at('from 7am to 9am'), `${7 * 60}-${9 * 60}`);
+  assert.equal(at('7-9pm'), `${19 * 60}-${21 * 60}`, 'la primera, de la tarde como la segunda');
+  assert.equal(at('11-1pm'), `${11 * 60}-${13 * 60}`);
+  assert.equal(at('7:30 p.m. - 9 p.m. Mon-Fri'), `${19 * 60 + 30}-${21 * 60}`);
+  assert.equal(at('13pm-14pm'), 'horas');
+  assert.equal(at('99-100'), 'horas', 'antes decía que faltaba la franja');
+  assert.equal(at('de 7 a 9:30'), `${7 * 60}-${9 * 60 + 30}`);
 });

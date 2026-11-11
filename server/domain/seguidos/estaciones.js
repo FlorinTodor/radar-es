@@ -39,24 +39,37 @@ const isRenfe = (st) => !st.networkId;
  * @returns {CatalogStation[]}
  */
 export function searchStations(list, text, { limit = Infinity } = {}) {
+  const { exact, partial } = stationCandidates(list, text, { limit });
+  return exact.length ? exact : partial;
+}
+
+/**
+ * Las estaciones que encajan con un texto, por separado: las que se llaman tal cual y las que tienen sus palabras
+ * (searchStations da las primeras si hay, si no las segundas). Para un trayecto hacen falta las dos: «Aeroport» es
+ * el nombre de una de Metrovalencia, pero con «Sants» se quiere decir una de Barcelona.
+ * @param {CatalogStation[]} list  @param {string} text
+ * @returns {{ exact: CatalogStation[], partial: CatalogStation[] }}  cada una, como mucho `limit`, en el orden de searchStations
+ */
+export function stationCandidates(list, text, { limit = Infinity } = {}) {
   const q = plainName(String(text ?? '').slice(0, 200));
   const tokens = q.split(' ').filter(Boolean).slice(0, TOKENS_MAX);
-  if (!tokens.length || !Array.isArray(list)) return [];
-  const all = prepared(list);
-  const exact = all.filter((p) => p.name === q);
+  if (!tokens.length || !Array.isArray(list)) return { exact: [], partial: [] };
+  const exact = [];
   const scored = [];
-  if (!exact.length) {
-    for (const p of all) {
-      if (!tokens.every((t) => p.words.includes(` ${t}`))) continue;
-      const inName = tokens.every((t) => ` ${p.name}`.includes(` ${t}`));
-      scored.push({ p, score: (inName ? 2 : 0) + (p.name.startsWith(q) ? 1 : 0) });
+  for (const p of prepared(list)) {
+    if (p.name === q) {
+      exact.push({ p, score: 0 });
+      continue;
     }
+    if (!tokens.every((t) => p.words.includes(` ${t}`))) continue;
+    const inName = tokens.every((t) => ` ${p.name}`.includes(` ${t}`));
+    scored.push({ p, score: (inName ? 2 : 0) + (p.name.startsWith(q) ? 1 : 0) });
   }
-  const found = exact.length ? exact.map((p) => ({ p, score: 0 })) : scored;
-  return found
+  const sorted = (found) => found
     .sort((a, b) => b.score - a.score || Number(isRenfe(b.p.st)) - Number(isRenfe(a.p.st)) || a.p.st.name.localeCompare(b.p.st.name, 'es'))
     .slice(0, limit)
     .map(({ p }) => p.st);
+  return { exact: sorted(exact), partial: sorted(scored) };
 }
 
 /**

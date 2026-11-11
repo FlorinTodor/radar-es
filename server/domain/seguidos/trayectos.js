@@ -12,7 +12,7 @@ import { modeInfo } from '../modos.js';
 import { distanceKm } from '../geo.js';
 import { DELAY_MIN, DELAY_STEP, madridDay, madridHourMinute, nearStation, plainStop, tripsAt, vehicleName } from './avisos.js';
 import { cutText, sourceText } from './texto.js';
-import { sameNetwork, searchStations, stationLabel } from './estaciones.js';
+import { sameNetwork, stationCandidates, stationLabel } from './estaciones.js';
 import { ES } from './idioma.js';
 
 /**
@@ -27,6 +27,9 @@ const STATUS_TRAINS = 8;
 const GONE_MIN = 15;
 /** Estaciones que se combinan, como mucho, de cada lado (las demás no caben en una lista). */
 const OPTIONS_SIDE_MAX = 20;
+/** En la lista de trayectos posibles, uno que ningún tren visto une y cuyas estaciones están más lejos que esto, fuera
+ * (si queda alguno más): «Alcalá de Chivert → Madrid-Atocha Cercanías» no es lo que quiere quien escribe «Alcalá». */
+const FAR_KM = 150;
 /** Cómo se escribe un trayecto, en el idioma del chat (con su orden: /trayecto, /journey). */
 const example = ({ t }) => t('/trayecto Alcalá de Henares > Atocha 7:00-9:00 L-V');
 
@@ -79,7 +82,16 @@ export const looksLikeTrayecto = (text) => /[>→⟶]/.test(String(text ?? ''));
 const ARROW = /\s*(?:[-=–—]?>|→|⟶)\s*/;
 // La franja: «7:00-9:00», «7-9», «07.30 a 09.00», «de 7 a 9h», «entre las 7 y las 9»; en inglés, «from 7 to 9»,
 // «between 18 and 20». La última que haya.
-const RANGE = /(?:^|\s)(?:(?:de|entre|from|between)\s+)?(?:las\s+)?(\d{1,2})(?:[:.h](\d{2}))?\s*h?\s*(?:-|–|—|\ba\b|\by\b|\bhasta\b|\bto\b|\band\b)\s*(?:las\s+)?(\d{1,2})(?:[:.h](\d{2}))?\s*h?(?=[\s,.;]|$)/gi;
+// Con «am» o «pm» detrás de cada hora («7pm-9pm», «from 7am to 9am», «7-9pm»).
+const RANGE = /(?:^|\s)(?:(?:de|entre|from|between)\s+)?(?:las\s+)?(\d{1,2})(?:[:.h](\d{2}))?\s*(?:([ap])\.?\s?m\.?)?\s*h?\s*(?:-|–|—|\ba\b|\by\b|\bhasta\b|\bto\b|\band\b)\s*(?:las\s+)?(\d{1,2})(?:[:.h](\d{2}))?\s*(?:([ap])\.?\s?m\.?)?\s*h?(?=[\s,.;]|$)/gi;
+// Algo que parece una franja con horas que no lo son («99-100»): se dice que la hora no vale, no que falta la franja.
+const BAD_RANGE = /(?:^|\s)\d+(?:[:.h]\d+)?\s*(?:[ap]\.?\s?m\.?)?\s*h?\s*(?:-|–|—|\ba\b|\bhasta\b|\bto\b)\s*\d+/i;
+/** Una hora con «am» o «pm» (de 1 a 12) en 24 h; sin, tal cual. NaN si no vale. */
+const hour24 = (h, ap) => {
+  if (!ap) return Number(h);
+  const n = Number(h);
+  return n >= 1 && n <= 12 ? (n % 12) + (ap.toLowerCase() === 'p' ? 12 : 0) : NaN;
+};
 // Los días, en español y en inglés («Mon-Fri», «Saturdays and Sundays»): ningún nombre de uno es el de otro.
 const DAY_NAMES = [
   ['l', 'lu', 'lun', 'lunes', 'mon', 'monday', 'mondays'], ['m', 'ma', 'mar', 'martes', 'tue', 'tues', 'tuesday', 'tuesdays'],
@@ -144,7 +156,7 @@ export function parseTrayectoText(text) {
   const rest = parts[1].trim();
   const ranges = [...rest.matchAll(RANGE)];
   if (!origin) return { error: 'estaciones' };
-  if (!ranges.length) return { error: 'franja' };
+  if (!ranges.length) return { error: BAD_RANGE.test(rest) ? 'horas' : 'franja' };
   const m = ranges.at(-1);
   let destination = rest.slice(0, m.index).trim().replace(/[,;]$/, '').trim();
   let daysPart = rest.slice(m.index + m[0].length).trim().replace(/^[,;]\s*/, '');
@@ -156,11 +168,15 @@ export function parseTrayectoText(text) {
     }
   }
   if (!destination) return { error: 'estaciones' };
-  const [, h1, m1 = '00', h2, m2 = '00'] = m;
-  const from = Number(h1) * 60 + Number(m1);
+  const [, h1raw, m1 = '00', ap1, h2raw, m2 = '00', ap2] = m;
+  const h2 = hour24(h2raw, ap2);
+  // «7-9pm»: la primera, también de la tarde si así va antes que la segunda (19-21); «11-1pm», no (11-13).
+  let h1 = hour24(h1raw, ap1);
+  if (!ap1 && ap2 && Number(h1raw) <= 12 && hour24(h1raw, ap2) * 60 + Number(m1) < h2 * 60 + Number(m2)) h1 = hour24(h1raw, ap2);
+  const from = h1 * 60 + Number(m1);
   // «hasta las 24» es hasta el final del día.
-  const to = Number(h2) === 24 && Number(m2) === 0 ? 24 * 60 - 1 : Number(h2) * 60 + Number(m2);
-  if (Number(h1) > 23 || Number(m1) > 59 || Number(h2) > 24 || Number(m2) > 59 || from >= to || to > 24 * 60 - 1) return { error: 'horas' };
+  const to = h2 === 24 && Number(m2) === 0 ? 24 * 60 - 1 : h2 * 60 + Number(m2);
+  if (!(h1 <= 23) || Number(m1) > 59 || !(h2 <= 24) || Number(m2) > 59 || from >= to || to > 24 * 60 - 1) return { error: 'horas' };
   const days = parseDays(daysPart);
   if (days === null) return { error: 'dias', days: clip(daysPart, 40) };
   return { origin, destination, from, to, days };
@@ -172,35 +188,74 @@ export function parseTrayectoText(text) {
 /**
  * Los trayectos que puede querer decir lo escrito: las estaciones del catálogo que encajan con el origen y con el
  * destino, de dos en dos (distintas y de la misma red: un tren de Renfe no para en una de metro), con su clave y
- * su nombre, en el orden de la búsqueda.
+ * su nombre. Primero con las que se llaman tal cual (si las hay); si así no sale ninguno de la misma red, con todas
+ * las que encajan («Sants > Aeroport»: «Aeroport» se llama una de Metrovalencia, pero hay otras en Barcelona).
+ * Primero los que une algún tren que se ve (`connects`: vehículos con sus paradas y cancelaciones), en el orden de la
+ * búsqueda; luego los demás, por la distancia entre sus estaciones; los muy lejanos que ningún tren une, fuera (si
+ * queda alguno).
  * @param {import('./estaciones.js').CatalogStation[]} stations
  * @param {{ origin: string, destination: string, from: number, to: number, days: number }} parsed  de parseTrayectoText
+ * @param {{ limit?: number, connects?: ((o: object, d: object) => boolean)|null }} [opts]
  * @returns {{ error: 'origen'|'destino'|'misma'|'red', text?: string, origin?: string, destination?: string }
  *   | { pairs: Array<{ key: string, name: string, label: string }>, total: number }}
  *   red: origin y destination, las primeras que encajan (sus nombres en una lista)
  */
-export function trayectoOptions(stations, parsed, { limit = 8 } = {}) {
-  const origins = searchStations(stations, parsed.origin, { limit: OPTIONS_SIDE_MAX });
-  if (!origins.length) return { error: 'origen', text: clip(parsed.origin, 60) };
-  const destinations = searchStations(stations, parsed.destination, { limit: OPTIONS_SIDE_MAX });
-  if (!destinations.length) return { error: 'destino', text: clip(parsed.destination, 60) };
-  const pairs = [];
-  let same = 0;
-  for (const o of origins) {
-    for (const d of destinations) {
-      if (o.code === d.code) {
-        same++;
-        continue;
+export function trayectoOptions(stations, parsed, { limit = 8, connects = null } = {}) {
+  const origins = stationCandidates(stations, parsed.origin, { limit: OPTIONS_SIDE_MAX });
+  if (!origins.exact.length && !origins.partial.length) return { error: 'origen', text: clip(parsed.origin, 60) };
+  const destinations = stationCandidates(stations, parsed.destination, { limit: OPTIONS_SIDE_MAX });
+  if (!destinations.exact.length && !destinations.partial.length) return { error: 'destino', text: clip(parsed.destination, 60) };
+  const preferred = (c) => (c.exact.length ? c.exact : c.partial);
+  const every = (c) => [...c.exact, ...c.partial];
+  const combine = (os, ds) => {
+    const pairs = [];
+    let same = 0;
+    for (const o of os) {
+      for (const d of ds) {
+        if (o.code === d.code) {
+          same++;
+          continue;
+        }
+        if (!sameNetwork(o, d)) continue;
+        const key = trayectoKey({ origin: o.code, destination: d.code, from: parsed.from, to: parsed.to, days: parsed.days });
+        if (key) pairs.push({ key, o, d });
       }
-      if (!sameNetwork(o, d)) continue;
-      const key = trayectoKey({ origin: o.code, destination: d.code, from: parsed.from, to: parsed.to, days: parsed.days });
-      if (!key) continue;
-      const network = o.network ? ` · ${o.network}` : '';
-      pairs.push({ key, name: describeFollow(key, { originName: o.name, destinationName: d.name }), label: `${o.name} → ${d.name}${network}` });
     }
+    return { pairs, same };
+  };
+  let found = combine(preferred(origins), preferred(destinations));
+  if (!found.pairs.length) found = combine(every(origins), every(destinations));
+  if (!found.pairs.length) {
+    return found.same ? { error: 'misma' } : { error: 'red', origin: stationLabel(preferred(origins)[0]), destination: stationLabel(preferred(destinations)[0]) };
   }
-  if (!pairs.length) return same ? { error: 'misma' } : { error: 'red', origin: stationLabel(origins[0]), destination: stationLabel(destinations[0]) };
+  const ranked = found.pairs.map((p, i) => {
+    const km = Number.isFinite(p.o.lat) && Number.isFinite(p.d.lat) ? distanceKm(p.o.lat, p.o.lon, p.d.lat, p.d.lon) : Infinity;
+    return { ...p, i, km, linked: Boolean(connects?.(p.o, p.d)) };
+  });
+  const near = ranked.filter((p) => p.linked || p.km <= FAR_KM);
+  // Los que une un tren, en el orden de la búsqueda (primero los nombres que encajan mejor); los demás, por distancia.
+  const list = (near.length ? near : ranked).sort((a, b) => Number(b.linked) - Number(a.linked) || (a.linked ? 0 : a.km - b.km) || a.i - b.i);
+  const pairs = list.map(({ key, o, d }) => ({
+    key, name: describeFollow(key, { originName: o.name, destinationName: d.name }), label: `${o.name} → ${d.name}${o.network ? ` · ${o.network}` : ''}`,
+  }));
   return { pairs: pairs.slice(0, limit), total: pairs.length };
+}
+
+/**
+ * ¿Une algún tren que se ve ahora estas dos estaciones, en este orden? Los vehículos que dicen sus paradas (`index`,
+ * de passIndex) y las cancelaciones y trenes sin datos con las suyas (`events`).
+ * @param {{ index?: Map<string, Array<{ v: object, stops: object[] }>>, events?: object[] }} seen
+ * @returns {(o: object, d: object) => boolean}
+ */
+export function connectedBy({ index = new Map(), events = [] } = {}) {
+  return (o, d) => {
+    for (const { stops } of index.get(stationName(o)) ?? []) if (legOf(stops, o, d)) return true;
+    for (const { e, here } of tripsAt(events, o)) {
+      const stops = e.trip.stops;
+      if (stopIndexIn(stops, d, stops.indexOf(here) + 1) >= 0) return true;
+    }
+    return false;
+  };
 }
 
 /**

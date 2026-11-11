@@ -110,13 +110,15 @@ export function smallTalkText(kind, { t } = ES) {
 }
 
 /**
- * ¿Es una hora válida? «HH:MM», «7:30», «0730», «7.30» o «7h30»; y, como se escribe en inglés, «7pm» o «7:30 am».
- * La devuelve como «HH:MM» (24 h); si no, null.
+ * ¿Es una hora válida? «HH:MM», «7:30», «0730», «7.30» o «7h30»; la hora sola, «7», «7h» u «08»; y, como se escribe
+ * en inglés, «7pm» o «7:30 am». La devuelve como «HH:MM» (24 h); si no, null. «123» no es una hora (¿01:23? ¿12:03?).
  */
 export function parseHour(text) {
   const t = String(text ?? '').trim();
-  const m = /^(\d{1,2})[:.h]?(\d{2})$/.exec(t);
+  const m = /^(\d{1,2})[:.h](\d{2})$/.exec(t) ?? /^(\d{2})(\d{2})$/.exec(t);
   if (m) return Number(m[1]) > 23 || Number(m[2]) > 59 ? null : `${m[1].padStart(2, '0')}:${m[2]}`;
+  const alone = /^(\d{1,2})\s*h?$/i.exec(t);
+  if (alone) return Number(alone[1]) > 23 ? null : `${alone[1].padStart(2, '0')}:00`;
   const ampm = /^(\d{1,2})(?:[:.](\d{2}))?\s*([ap])\.?\s*m\.?$/i.exec(t);
   if (!ampm || Number(ampm[1]) < 1 || Number(ampm[1]) > 12 || Number(ampm[2] ?? 0) > 59) return null;
   const hour = (Number(ampm[1]) % 12) + (ampm[3].toLowerCase() === 'p' ? 12 : 0);

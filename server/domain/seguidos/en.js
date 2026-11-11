@@ -136,6 +136,8 @@ export const EN = {
   'Con esos nombres hay {total} trayectos posibles; aquí van los {n} primeros. Si no está el tuyo, escribe el nombre entero de las estaciones. ¿Cuál es?':
     "With those names there are {total} possible journeys; here are the first {n}. If yours isn't here, write the full names of the stations. Which one is it?",
   'Hay varias estaciones con esos nombres. ¿Cuál es tu trayecto?': 'There are several stations with those names. Which one is your journey?',
+  'Ahora no veo ningún tren que vaya de {origin} a {destination}: si no hay trenes directos entre ellas, no te llegará nada; comprueba las estaciones.':
+    "Right now I can't see any train going from {origin} to {destination}: if there are no direct trains between them, you won't get anything; check the stations.",
   'No sigues nada.': "You aren't following anything.",
   'Eso ya no lo sigues.': 'You no longer follow that.',
   'Hecho: ya no te aviso de {name}.': "Done: I'll no longer alert you about {name}.",
