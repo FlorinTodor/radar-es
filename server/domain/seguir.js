@@ -196,6 +196,8 @@ export function isFollowKey(key) {
   if (key.startsWith('t-')) return readTrayecto(key) !== null;
   if (!/^[slp]-/.test(key)) return false;
   const parts = key.slice(2).split('-');
+  // Un servicio de un horario acaba en su hora de salida, «HHMM» (pasada la medianoche, 24, 25…): «9999» no lo es.
+  if (key[0] === 's' && parts.length === 4 && !/^\d{2}[0-5]\d$/.test(parts[3])) return false;
   return parts.length >= 1 && parts.length <= 4 && parts.every((p) => PART_RE.test(p));
 }
 

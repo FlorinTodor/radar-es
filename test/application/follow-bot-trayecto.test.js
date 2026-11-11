@@ -288,3 +288,12 @@ test('/start t-… y /estado t-… no rehacen el directorio (un trayecto nunca e
   say('/start s-renfe-99999');
   assert.ok(reads > 0, 'lo que sí puede estar en él, sí');
 });
+
+test('entradas raras: «<b>hola</b>» no es un trayecto; un enlace con una hora que no existe; una franja con horas que no lo son', () => {
+  const { say } = setup();
+  assert.doesNotMatch(say('/seguir <b>hola</b>')[0].text, /estaciones|Separa/, 'se busca como texto, no como trayecto');
+  assert.match(say('/seguir Alcalá de Henares > Madrid-Atocha Cercanías 7-9')[0].text, /^Hecho: te aviso de Alcalá de Henares → Madrid-Atocha Cercanías/);
+  assert.match(say('/start s-renfe-C1-abc-9999', 2)[0].text, /^Hola\. Soy el bot/, 'no es una clave (antes: «el de las 99:99»)');
+  assert.match(say('/start s-renfe-C1-abc1234-2500', 3)[0].text, /^Hecho: te aviso de /, 'pasada la medianoche de su horario (25:00), sí');
+  assert.match(say('/trayecto Alcalá de Henares > Atocha 99-100')[0].text, /^La franja tiene que ir de una hora a otra más tarde/);
+});

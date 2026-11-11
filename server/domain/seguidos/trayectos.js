@@ -76,8 +76,8 @@ function clockOf(now) {
 // ---------------------------------------------------------------------------------------------------------------
 // Lo que se escribe
 
-/** ¿Parece un trayecto? («Alcalá > Atocha 7-9», sin orden: se busca como tal) */
-export const looksLikeTrayecto = (text) => /[>→⟶]/.test(String(text ?? ''));
+/** ¿Parece un trayecto? («Alcalá > Atocha 7-9», sin orden: se busca como tal) Lo que va entre «<» y «>» («<b>hola</b>») no es una flecha. */
+export const looksLikeTrayecto = (text) => /[>→⟶]/.test(String(text ?? '').replace(/<[^<>]*>/g, ' '));
 
 const ARROW = /\s*(?:[-=–—]?>|→|⟶)\s*/;
 // La franja: «7:00-9:00», «7-9», «07.30 a 09.00», «de 7 a 9h», «entre las 7 y las 9»; en inglés, «from 7 to 9»,

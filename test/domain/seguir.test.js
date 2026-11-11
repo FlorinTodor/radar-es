@@ -194,3 +194,10 @@ test('la forma única de una clave: lo que hacen los constructores, tal cual; ot
   assert.equal(canonicalKey(`t-70103-${esc('70103')}-07000900-1f`), null, 'el origen y el destino, la misma estación');
   assert.equal(canonicalKey('no-es-una-clave'), null);
 });
+
+test('un servicio de un horario con una hora de salida que no existe no es una clave («9999»); pasada la medianoche, sí («2500»)', () => {
+  assert.equal(isFollowKey('s-renfe-C1-abc1234-9999'), false);
+  assert.equal(isFollowKey('s-renfe-C1-abc1234-0760'), false);
+  assert.equal(isFollowKey('s-renfe-C1-abc1234-2500'), true);
+  assert.equal(isFollowKey(scheduledServiceKey({ operator: 'Euskotren', line: 'E4', origin: 'x', departure: 25 * 3600 + 59 * 60 })), true);
+});
