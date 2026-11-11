@@ -3,13 +3,21 @@
 // (altas, bajas, avisos y mensajes por orden), que se guardan con lo demás del bot y siguen tras cada arranque o
 // relevo. Es lo que ve la monitorización (deploy/monitor/, panel «Bot de Telegram»): sin el número de ningún chat
 // ni nada que diga quién sigue qué. Puro: sin red, ni reloj, ni disco.
-import { followKind } from '../seguir.js';
+import { followKind, isRoadKey } from '../seguir.js';
 import { provinceById } from '../provincias.js';
 
-/** Tipos de lo que se sigue, en el orden del panel: los de las claves `follow` y las provincias. */
-export const USAGE_KINDS = Object.freeze(['servicio', 'linea', 'parada', 'provincia']);
+/** Tipos de lo que se sigue, en el orden del panel: los de las claves `follow` (con los trayectos), las carreteras y
+ * las provincias. */
+export const USAGE_KINDS = Object.freeze(['servicio', 'linea', 'parada', 'trayecto', 'carretera', 'provincia']);
 /** Lo más seguido que se enseña, como mucho (cada cosa es una serie en Prometheus). */
 export const USAGE_TOP = 100;
+/**
+ * Lo más seguido sólo enseña lo que siguen al menos estos chats, y nunca un trayecto: lo que sigue una sola persona
+ * (su trayecto de cada día, con su franja y sus días) diría de ella más de lo que hace falta, y Prometheus lo guarda
+ * 30 días.
+ */
+export const USAGE_TOP_MIN_CHATS = 3;
+const PERSONAL_KINDS = new Set(['trayecto']);
 /** Por qué deja un chat el bot: deja de seguirlo todo, escribe /baja o lo bloquea (o ya no existe). */
 export const REMOVAL_REASONS = Object.freeze(['dejar', 'baja', 'bloqueo']);
 /** Lo que manda el bot sin que se lo pidan: avisos de lo seguido y partes diarios. */
@@ -70,7 +78,8 @@ export function parseTotals(saved, now) {
  * @returns {{ chats: number, digest: number, follows: Record<string, number>, distinct: Record<string, number>,
  *   top: Array<{ kind: string, key: string, name: string, chats: number }> }}
  *   follows: cosas seguidas por tipo (una cosa que siguen tres chats cuenta tres); distinct: cosas distintas por
- *   tipo; top: las más seguidas, de más a menos chats (a igualdad, por tipo y nombre).
+ *   tipo; top: las más seguidas, de más a menos chats (a igualdad, por tipo y nombre), sólo las que siguen al menos
+ *   USAGE_TOP_MIN_CHATS y sin trayectos.
  */
 export function usageOf(chats, { top = USAGE_TOP } = {}) {
   const follows = Object.fromEntries(USAGE_KINDS.map((k) => [k, 0]));
@@ -95,7 +104,7 @@ export function usageOf(chats, { top = USAGE_TOP } = {}) {
     total++;
     if (chat.digest) digest++;
     for (const [key, s] of chat.subs) {
-      const kind = followKind(key);
+      const kind = followKind(key) ?? (isRoadKey(key) ? 'carretera' : null);
       if (kind) add(kind, key, s.name, s.guessed === true);
     }
     for (const id of chat.provinces.keys()) add('provincia', `prov-${id}`, provinceById(id)?.name ?? id, false);
@@ -107,6 +116,7 @@ export function usageOf(chats, { top = USAGE_TOP } = {}) {
     digest,
     follows,
     distinct,
-    top: [...items.values()].sort(order).slice(0, Math.max(0, top)).map(({ kind, key, name, chats: n }) => ({ kind, key, name, chats: n })),
+    top: [...items.values()].filter((it) => it.chats >= USAGE_TOP_MIN_CHATS && !PERSONAL_KINDS.has(it.kind)).sort(order)
+      .slice(0, Math.max(0, top)).map(({ kind, key, name, chats: n }) => ({ kind, key, name, chats: n })),
   };
 }

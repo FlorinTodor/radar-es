@@ -47,6 +47,9 @@ export function createFirmsSource({ http }) {
             description: `Detectado por satélite (VIIRS, NOAA-20) a las ${hhmm.slice(0, 2)}:${hhmm.slice(2)} UTC, confianza ${c[iConf]}. ` +
               'Puede ser un incendio, una quema agrícola o una fuente de calor industrial.',
             frp,
+            // VIIRS da «low», «nominal» o «high» (o su inicial): «high» es un píxel saturado, la anomalía de calor
+            // más fuerte. El bot sólo avisa de los de confianza alta (domain/seguidos/zona.js).
+            confidence: /^h/i.test(c[iConf]) ? 'alta' : 'nominal',
             lat,
             lon,
             start: Number.isNaN(time) ? null : time,

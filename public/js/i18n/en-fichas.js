@@ -90,10 +90,10 @@ export default {
   'y {n} más': 'and {n} more',
   'Para verlo en el mapa se encenderá la capa «{layer}».': 'To show it on the map, the “{layer}” layer will be turned on.',
   'Datos:': 'Data:',
-  'Con «Avisos en Telegram» te llegan al móvil aunque no tengas la web abierta.': 'With “Telegram alerts” they reach your phone even when the website is closed (the bot writes in Spanish).',
+  'Con «Avisos en Telegram» te llegan al móvil aunque no tengas la web abierta.': 'With “Telegram alerts” they reach your phone even when the website is closed.',
   'Lo que sigues · pulsa uno para verlo en el mapa': 'What you follow · tap one to see it on the map',
 
-  // avisar.js (el bot de Telegram habla en español: el botón lo dice)
+  // avisar.js (con la web en inglés, el enlace abre el bot ya en inglés)
   'toda la red': 'the whole network',
   'toda su línea': 'its whole line',
   'su línea': 'its line',
@@ -104,9 +104,10 @@ export default {
   'o de {what}': 'or about {what}',
   'de las cancelaciones y avisos de {what}': 'about cancellations and notices for {what}',
   'de las cancelaciones que su operador publique en esta estación': 'about cancellations its operator publishes at this station',
-  'Avísame por Telegram': 'Alert me on Telegram (in Spanish)',
-  'Avisos por Telegram de {name}': 'Telegram alerts for {name} (the bot writes in Spanish)',
-  'Avisos por Telegram': 'Telegram alerts (the bot writes in Spanish)',
+  'de los cortes y accidentes de la {road}': 'about closures and accidents on the {road}',
+  'Avísame por Telegram': 'Alert me on Telegram',
+  'Avisos por Telegram de {name}': 'Telegram alerts for {name}',
+  'Avisos por Telegram': 'Telegram alerts',
   'Avisos en Telegram': 'Telegram alerts',
 
   // puntualidad.js

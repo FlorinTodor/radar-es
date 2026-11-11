@@ -872,9 +872,41 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   de tu provincia; y, si se le pide, manda un parte cada día a la hora elegida. Cada ficha lleva arriba
   el botón «Avísame por Telegram», que lo sigue con un toque, y cada cosa de Siguiendo, el suyo. Guarda
   sólo lo necesario para avisar, y con `/baja` se borra todo.
+- El bot avisa además, en una estación, de los avisos de Renfe de la estación (ascensores, accesos), los
+  mismos que su ficha en la web; y en una provincia, de los posibles apagones de las islas, Ceuta y Melilla
+  y, si se piden (`/provincia Granada incendios`), de los focos de calor por satélite más claros, agrupados
+  y como posible incendio, nunca como incendio confirmado.
+- El bot avisa también del tráfico: con `/carretera A-7` (o `/carretera A-7 Málaga`, sólo ese tramo), de
+  los cortes, los accidentes y las incidencias graves de esa carretera, y en las provincias seguidas, de sus
+  cortes y accidentes graves; pocas y sin repetir, con el texto y la atribución de la DGT, el Servei Català
+  de Trànsit y Tráfico de Euskadi. La ficha de cada incidencia de tráfico lleva su «Avísame por Telegram».
+- El bot de Telegram también en inglés, por chat: se elige con `/idioma` (o `/language`), lo ofrece la
+  primera vez a quien tiene Telegram en otro idioma y lo abre ya en inglés el botón de la web en inglés.
+  Traduce todo lo que escribe el bot, también lo de las carreteras, los trayectos, los focos de calor y los
+  apagones, con sus órdenes en inglés (`/journey`, `/road`…) y los días de un trayecto escritos en inglés
+  (`Mon-Fri`, `weekends`), y deja tal cual los nombres, los avisos de cada fuente y las atribuciones, como
+  la web.
 - Todo lo anterior vale para cualquier tipo de vehículo: todos comparten las mismas claves para
   seguirlos y un registro de tipos, así que un tipo nuevo (barcos, aviones) sólo necesita su entrada en
   el registro y el adaptador de su fuente.
+- «Mi trayecto» en el bot: `/trayecto Alcalá de Henares > Atocha 7:00-9:00 L-V` avisa de los trenes que van
+  de una estación a otra y salen en esa franja esos días, sin saber su número: si se cancelan o no paran en
+  alguna de las dos, si van con retraso y si su operador no publica nada de ellos. `/estado` y el parte
+  dicen cómo van los próximos. Las estaciones se eligen del catálogo, con una lista si hay varias con ese
+  nombre.
+- Seguir una estación escribiendo su nombre: `/estacion Sants` (o `/seguir estación de Atocha`, o sin orden),
+  con una lista si hay varias; `/seguir` pone delante la estación que se llama así y `/estado` dice cómo está.
+  Las de metro y tranvía llevan su red en el nombre, porque hay nombres repetidos entre redes.
+- El bot, revisado con datos reales (seis probadores, uno de ellos intentando romperlo, y una revisión del
+  código): la ronda de avisos y el parte siguen siendo rápidos con miles de chats, trayectos y huelgas con
+  decenas de cancelaciones; ningún aviso se pierde ni se repite por muchos que se recuerden; los avisos largos van
+  en varios mensajes, enteros, con sus saltos de línea y su atribución; lo mismo no llega dos veces por dos cosas
+  seguidas; reabrir una carretera no vuelve a avisar; en una provincia, lo más grave primero; quien escribe en
+  inglés lee inglés; los trayectos eligen estaciones de la misma red y avisan si ningún tren las une; y se guarda
+  menos: una sola clave por cosa, nada de lo que ya no sigue nadie y, en lo más seguido, sólo lo que siguen varias
+  personas (nunca un trayecto).
+- Guardar lo que sigue cada chat del bot ya no para el servidor: con miles de chats se hace y se escribe por partes,
+  y la web y el bot siguen atendiendo mientras tanto.
 - Probado a fondo antes de subirlo, haciendo de distintos tipos de usuario (en el móvil, quien sigue de
   todo, quien escribe sobre el día, quien usa el bot, quien intenta romperlo y quien revisa las
   cancelaciones), con los datos reales del entorno de pruebas. De ahí salieron, ya hechos:
@@ -1026,7 +1058,7 @@ Ninguna por ahora.
 
 ## Posibles mejoras
 
-- El aviso legal y el bot de Telegram también en inglés (hoy sólo en español; la web en inglés lo indica).
+- El aviso legal también en inglés (hoy sólo en español; la web en inglés lo indica).
 - Tiempo real de TMB y posiciones de los autobuses de EMT Madrid desde sus API, cuando EMT apruebe nuestra
   aplicación de MobilityLabs (ver
   *Pendiente y conocido*).
@@ -1038,8 +1070,10 @@ Ninguna por ahora.
   aparte, para ver cómo crece a lo largo de meses.
 - Incidencias en días de huelga: un buscador por número de tren o por línea y agrupar por línea o
   núcleo, porque la lista enseña las primeras 250.
-- Bot: «/estado <provincia>» y «/seguir <provincia>» que ofrezcan la provincia, y ciudades e islas como
-  provincia (Bilbao, Mallorca, Gran Canaria); no avisar de la cancelación de un tren que ya ha salido.
+- Bot, «Mi trayecto»: la hora de cada tren de Cercanías en el origen sale de por dónde va (Renfe no la
+  publica en su tiempo real); con la de su horario, el aviso de retraso llegaría antes y sin aproximar.
+- Bot: «/seguir <provincia>» que ofrezca también la provincia, y ciudades como provincia (Bilbao, Gijón);
+  no avisar de la cancelación de un tren que ya ha salido.
 - Si tras un reinicio falla uno de los ficheros de Renfe en la primera lectura, sus cancelaciones salen
   un minuto como retiradas y pierden desde cuándo se ven: recordar qué fichero no se ha leído aún.
 - En el móvil, el cuadro de atribuciones del mapa empieza desplegado y tapa parte del mapa.

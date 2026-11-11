@@ -122,3 +122,25 @@ export const SISTEMAS_AISLADOS = [
   { id: 'ceuta', name: 'Ceuta', lat: 35.889, lon: -5.316, places: ['Ceuta'] },
   { id: 'melilla', name: 'Melilla', lat: 35.292, lon: -2.938, places: ['Melilla'] },
 ];
+
+/**
+ * Fuentes de calor fijas que el satélite ve a menudo y no son incendios (seguidos/zona.js, STATIC_HEAT): refinerías
+ * y siderurgias (antorchas y hornos) y los volcanes de Canarias. Círculos aproximados, con margen; un foco dentro no
+ * cuenta. Gijón, Avilés y Cartagena salen a diario en el directo (noviembre de 2026); las demás, por dónde están.
+ */
+export const CALOR_FIJO = Object.freeze([
+  { name: 'Siderurgia de Gijón (Veriña)', lat: 43.527, lon: -5.732, km: 3 },
+  { name: 'Siderurgia de Avilés', lat: 43.55, lon: -5.86, km: 4 },
+  { name: 'Valle de Escombreras (Cartagena)', lat: 37.57, lon: -0.925, km: 3.5 },
+  { name: 'Refinería de Muskiz', lat: 43.325, lon: -3.115, km: 3 },
+  { name: 'Refinería de A Coruña', lat: 43.345, lon: -8.445, km: 3 },
+  { name: 'Refinería de Tarragona', lat: 41.175, lon: 1.205, km: 3 },
+  { name: 'Polígono petroquímico sur de Tarragona', lat: 41.115, lon: 1.17, km: 3 },
+  { name: 'Complejo industrial de Puertollano', lat: 38.67, lon: -4.045, km: 4 },
+  { name: 'Refinería de La Rábida (Huelva)', lat: 37.2, lon: -6.92, km: 4 },
+  { name: 'Fundición de Atlantic Copper (Huelva)', lat: 37.229, lon: -6.948, km: 2 }, // a 4 km de La Rábida: fuera de su círculo
+  { name: 'Refinería de San Roque', lat: 36.19, lon: -5.385, km: 3.5 },
+  { name: 'Refinería de Castellón', lat: 39.95, lon: 0.01, km: 3.5 },
+  { name: 'Volcán de Tajogaite (La Palma)', lat: 28.615, lon: -17.88, km: 5 },
+  { name: 'Timanfaya (Lanzarote)', lat: 29.0, lon: -13.76, km: 6 },
+]);

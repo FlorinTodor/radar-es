@@ -168,12 +168,19 @@
           Para enseñarte cómo está lo que sigues, tu navegador pide su estado al servidor por su clave, como cualquier otra
           consulta del mapa: sin cookies ni identificador, y el radar no guarda quién pide qué.</li>
         <li data-telegram="si" hidden><strong>Bot de Telegram (opcional).</strong> Si escribes a nuestro bot de Telegram para que te
-          avise de un vehículo, una línea, una estación o una provincia, guardamos sólo el número de ese chat, lo que sigues (con su
-          nombre), desde cuándo y, si lo pides, la hora de tu parte diario. No guardamos tu nombre, tu usuario ni tu teléfono, ni el
-          texto de tus mensajes. Lo usamos únicamente para mandarte los avisos que pides, porque tú lo pides, y se guarda mientras
-          sigas algo: si dejas de seguirlo todo, si escribes /baja o si bloqueas el bot, se borra. Para saber cuánto se usa el bot
+          avise de un vehículo, una línea, una estación, una provincia o una carretera, guardamos sólo el número de ese chat, lo que
+          sigues (con su nombre y, en una provincia, si quieres también los focos de calor), desde cuándo, si lo pides, la hora de
+          tu parte diario y, si eliges que te escriba en inglés, ese idioma; y, para funcionar, de cada cosa cuándo se miró por
+          última vez si había algo nuevo, el último día que se te mandó el parte y qué avisos se han mandado ya de lo que se sigue
+          (esto último, sin el número del chat). En memoria, un rato y sin guardarlo, el bot recuerda también las listas de botones
+          que te manda, cuántos mensajes le has escrito en el último minuto y si ya te ha ofrecido el inglés. No guardamos tu nombre, tu usuario ni tu teléfono, ni
+          el texto de tus mensajes. Para ofrecerte el inglés la primera vez, el bot mira el idioma de tu Telegram, que Telegram
+          manda con cada mensaje, sin guardarlo; y si eliges idioma sin seguir nada, sólo lo recuerda en memoria hasta que se
+          reinicia. Lo usamos únicamente para mandarte los avisos que pides, porque tú lo pides, y se guarda mientras sigas algo:
+          si dejas de seguirlo todo, si escribes /baja o si bloqueas el bot, se borra. Para saber cuánto se usa el bot
           contamos, en conjunto y sin el número de ningún chat, cuántas personas lo usan, cuántas siguen cada cosa y cuántas
-          altas, bajas, avisos y mensajes hay: son cifras totales que no dicen quién sigue qué. Con /datos ves todo lo que
+          altas, bajas, avisos y mensajes hay: son cifras totales que no dicen quién sigue qué. De un trayecto que sigas (de
+          una estación a otra) guardamos sus dos estaciones, la franja horaria y los días que eliges. Con /datos ves todo lo que
           guardamos de tu chat. Los mensajes los transporta Telegram, un tercero con su propia
           <a href="https://telegram.org/privacy" target="_blank" rel="noopener">política de privacidad</a>, que trata tus datos
           como usuario de Telegram.</li>

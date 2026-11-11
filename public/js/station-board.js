@@ -1,7 +1,10 @@
 // Lo que se ve en la ficha de una estación, a partir de lo que ya llega en directo: los trenes
 // parados en ella y los que van hacia ella (con vía, hora y retraso), los avisos de Renfe de la
 // estación, los trenes cancelados (o con paradas suprimidas) que pasaban por ella, sus líneas y las
-// conexiones con metro y tranvía. Funciones puras: no piden nada al servidor.
+// conexiones con metro y tranvía. Funciones puras: no piden nada al servidor. Los avisos de Renfe de
+// la estación salen del dominio, que el servidor sirve tal cual: son los mismos que avisa el bot de
+// Telegram a quien sigue la estación.
+import { noticesAtStation } from '../../server/domain/avisos-estacion.js';
 
 // Los trenes dicen su estación por su nombre: los de Renfe, el de su catálogo; los de metro, tranvía
 // y las demás redes, el del GTFS de su operador (del que sale también la estación). Se comparan sin
@@ -9,7 +12,6 @@
 // del nord» de FGC) y además tienen que estar cerca, por si dos estaciones se llaman igual.
 const STOPPED_KM = 3;
 const ARRIVING_KM = 80;
-const NOTICE_KM = 0.3;  // los avisos de Renfe vienen con las coordenadas de su estación
 const LINE_KM = 0.15;   // una línea de tren pasa por la estación si su trazado está a menos de esto
 const LINK_KM = 0.3;    // metro y tranvía a menos de esto: se puede hacer transbordo a pie
 const MAX_ARRIVING = 10;
@@ -45,7 +47,7 @@ export function stationBoard(station, { vehicles, events, lines }) {
       connections: around.filter((l) => !own(l)),
     };
   }
-  const notices = events.filter((e) => e.category === 'ferroviario' && near(e, NOTICE_KM));
+  const notices = noticesAtStation(station, events);
   return {
     stopped, arriving, notices, cancellations, missing,
     lines: around.filter((l) => !URBAN.has(l.mode) && l.km <= LINE_KM),

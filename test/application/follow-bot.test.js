@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeFollowBot } from '../../server/application/use-cases/follow-bot.js';
 import { lineKey, numberedServiceKey, stopKey } from '../../server/domain/seguir.js';
-import { MAX_MESSAGES } from '../../server/domain/seguidos/avisos.js';
+import { MAX_MESSAGES, SEEN_MAX } from '../../server/domain/seguidos/avisos.js';
 
 const T0 = Date.parse('2026-11-10T05:00:00Z'); // 06:00 en Madrid
 const AVANT = numberedServiceKey({ operator: 'Renfe', number: '08058' });
@@ -14,7 +14,7 @@ const C4B = lineKey({ operator: 'Renfe', scope: 'Madrid', line: 'C4b' });
 const EMT27 = lineKey({ operator: 'EMT Málaga', line: '27' });
 const CHAT = 1001;
 
-function setup({ limits } = {}) {
+function setup({ limits, pause } = {}) {
   let now = T0;
   const world = {
     vehicles: [
@@ -37,6 +37,7 @@ function setup({ limits } = {}) {
     creditOf: (source) => (source.startsWith('renfe') ? 'Origen de los datos: Renfe Operadora' : null),
     webUrl: 'https://radarespana.es',
     limits,
+    ...(pause ? { pause } : {}),
   });
   const say = (text, chatId = CHAT) => bot.handle({ chatId, text }).replies;
   const press = (data, chatId = CHAT) => bot.handle({ chatId, callback: data, callbackId: 'q1' });
@@ -105,7 +106,7 @@ test('/mis, /dejar (con número, por nombre y con botones), /datos y /baja; quie
   assert.match(data, /^Esto es todo lo que guardo de este chat:\n- Número del chat: 1001\n/);
   assert.match(data, /Lo que sigues: Avant 08058/);
   assert.match(data, /Provincias: Valencia/);
-  assert.match(say('/dejar 2')[0].text, /^Hecho: ya no te aviso de Avisos en Valencia\.$/);
+  assert.match(say('/dejar 2')[0].text, /^Hecho: ya no te mando los avisos de Valencia\.$/);
   const [menu] = say('/dejar');
   assert.deepEqual(menu.buttons.map((row) => row[0].text), ['Avant 08058']);
   assert.match(press(menu.buttons[0][0].data).replies[0].text, /^Hecho: ya no te aviso de Avant 08058\. No sigues nada más, así que no guardo nada de este chat\.$/);
@@ -125,9 +126,9 @@ test('uso para las métricas: altas, bajas (dejar, /baja, bloqueo), órdenes, av
   say('/provincia Valencia', 2002);
   say('/parte 06:05', 2002);
   assert.deepEqual(bot.usage(), {
-    chats: 2, digest: 1, follows: { servicio: 1, linea: 0, parada: 0, provincia: 1 },
-    distinct: { servicio: 1, linea: 0, parada: 0, provincia: 1 },
-    top: [{ kind: 'servicio', key: AVANT, name: 'Avant 08058', chats: 1 }, { kind: 'provincia', key: 'prov-valencia', name: 'Valencia', chats: 1 }],
+    chats: 2, digest: 1, follows: { servicio: 1, linea: 0, parada: 0, trayecto: 0, carretera: 0, provincia: 1 },
+    distinct: { servicio: 1, linea: 0, parada: 0, trayecto: 0, carretera: 0, provincia: 1 },
+    top: [], // lo que sigue una sola persona no sale en lo más seguido
     totals: { since: T0, added: 2, removed: { dejar: 0, baja: 0, bloqueo: 0 }, notices: { aviso: 0, parte: 0 }, commands: { enlace: 1, provincia: 1, parte: 1 } },
   });
   say('/start');
@@ -321,7 +322,7 @@ test('/dejar con un número que no está en la lista: lo dice y no busca esa cif
   assert.deepEqual(bot.stats(), { chats: 1, subs: 3 }, 'no ha dejado nada («Avant 08058» tiene un 0, un 5 y un 8)');
   assert.match(say('/dejar 1')[0].text, /^Hecho: ya no te aviso de Avant 08058/);
   const [menu] = say('/dejar 9');
-  assert.match(press(menu.buttons[1][0].data).replies[0].text, /^Hecho: ya no te aviso de Avisos en Valencia/);
+  assert.match(press(menu.buttons[1][0].data).replies[0].text, /^Hecho: ya no te mando los avisos de Valencia/);
   assert.match(say('/dejar 3')[0].text, /^En tu lista no hay un 3: sólo tiene el 1\./);
 });
 
@@ -416,4 +417,168 @@ test('charla y búsquedas ambiguas: «hola» no busca; con más de las que caben
   const [r] = say('/seguir C4a');
   assert.match(r.text, /^He encontrado 11; aquí van las 8 primeras\. Si no está la que buscas, añade la ciudad o el operador/);
   assert.equal(r.buttons[0][0].text.split(' (')[0], 'Cercanías C4a · Renfe', 'a igual encaje, los trenes primero');
+});
+
+test('lo recordado de lo avisado, al cargarlo: lo de la última ronda guardada entero aunque pase del tope; lo de antes, hasta el tope', async () => {
+  const a = setup();
+  const last = T0 - 60_000;
+  const rows = [
+    ...Array.from({ length: 10 }, (_, i) => [`${AVANT}|viejo-${i}`, last - 3600_000, last - 3600_000]),
+    ...Array.from({ length: SEEN_MAX + 5 }, (_, i) => [`${AVANT}|hecho-${i}`, last, last]),
+  ];
+  a.disk.value = { version: 1, offset: 0, chats: [{ id: CHAT, since: T0, subs: [{ key: AVANT, name: 'Avant 08058', since: T0, checkedAt: last }] }], seen: rows };
+  await a.bot.load();
+  const seen = a.bot.snapshot().seen;
+  assert.equal(seen.length, SEEN_MAX + 5, 'antes se recortaba a SEEN_MAX y lo olvidado se volvía a avisar tras un reinicio');
+  assert.ok(!seen.some(([k]) => k.includes('|viejo-')), 'lo más viejo sale primero');
+});
+
+test('el parte de muchos chats a la vez: cada uno, lo suyo en su idioma y con sus focos (lo de cada cosa se calcula una vez por ronda)', () => {
+  const { say, world, tick, bot } = setup();
+  const orange = { id: 'aemet:1', source: 'aemet-avisos', category: 'meteo', type: 'lluvias', level: 'naranja', title: 'Aviso naranja por lluvias · Litoral sur de Valencia',
+    lat: 39.0, lon: -0.2, issued: T0 - 3600_000, start: T0, end: T0 + 6 * 3600_000 };
+  world.events = [orange];
+  for (const chat of [1, 2, 3]) {
+    say('/provincia Valencia', chat);
+    say('/parte 06:05', chat);
+  }
+  say('/language english', 3);
+  say('/provincia Valencia incendios', 2);
+  const out = [];
+  for (let i = 0; i < 6; i++) out.push(...tick());
+  const parte = (chat) => out.filter((m) => m.chatId === chat).map((m) => m.text).join('\n');
+  assert.match(parte(1), /^Parte de las 06:05:\n\nAvisos en Valencia:\nAviso naranja por lluvias · Litoral sur de Valencia/);
+  assert.equal(parte(1).includes('Focos de calor'), false);
+  assert.match(parte(2), /Avisos en Valencia \(con focos de calor\):\n.*\nFocos de calor por satélite: ahora ninguno/);
+  assert.match(parte(3), /^Daily summary, 06:05:\n\nAlerts in Valencia:\nAviso naranja por lluvias · Litoral sur de Valencia/);
+  assert.equal(bot.stats().chats, 3);
+});
+
+test('avisos largos de una línea: en varios mensajes, enteros y cada uno con su atribución y la web (no recortados)', () => {
+  const { say, world, tick } = setup();
+  say(`/start ${C4A}`);
+  tick();
+  const long = (i) => `${'Por obras de mejora entre Parla y Getafe Centro, los trenes circularán con horarios modificados. '.repeat(8)}[FIN ${i}]`;
+  world.events = Array.from({ length: 6 }, (_, i) => ({ id: `renfe-aviso:${i}`, source: 'renfe-avisos', category: 'ferroviario', type: 'aviso',
+    title: `Aviso Renfe · C4a (${i})`, description: long(i), follow: [C4A] }));
+  const out = tick();
+  assert.ok(out.length >= 2);
+  for (const m of out) {
+    assert.ok(m.text.length <= 3800);
+    assert.match(m.text, /\n\nOrigen de los datos: Renfe Operadora\n\nMás en https:\/\/radarespana\.es$/);
+  }
+  for (let i = 0; i < 6; i++) assert.ok(out.some((m) => m.text.includes(long(i))), `aviso ${i} entero`);
+});
+
+test('/estado con una provincia escrita entera: la provincia, no lo que pasa por una estación que se llama así', () => {
+  const { say } = setup();
+  const blocks = say('/estado Valladolid').map((r) => r.text).join('\n');
+  assert.match(blocks, /^Avisos en Valladolid:\n/);
+  assert.doesNotMatch(blocks, /Avant 08058/, 'antes salía el Avant que sale de Valladolid-Campo Grande');
+  assert.match(say('/status Valladolid fires')[0].text, /^Alerts in Valladolid:\n.*\nSatellite hotspots: none/, 'también con «incendios»');
+  assert.match(say('/estado 08058')[0].text, /^Avant 08058:/, 'lo demás, como siempre');
+});
+
+test('/seguir algo que no se encuentra: /carretera sólo si parece una carretera', () => {
+  const { say } = setup();
+  assert.match(say('/seguir C1 Barcelona')[0].text, /^No encuentro nada así entre lo que circula/, 'no lo parece');
+  assert.match(say('/seguir A-7')[0].text, /Si es una carretera, para sus cortes y accidentes: \/carretera A-7$/);
+  assert.match(say('/seguir C-31')[0].text, /\/carretera C-31$/, 'con guion, puede serlo');
+});
+
+test('tras /baja no queda en lo guardado ni rastro de lo que seguía; y si ya nadie sigue nada, la ronda lo olvida todo', async () => {
+  const { say, world, tick, bot, disk } = setup();
+  world.events = [cancellation()];
+  say(`/start ${AVANT}`);
+  say(`/start ${C4A}`, 2);
+  tick();
+  await bot.save({ always: true });
+  assert.ok(disk.value.seen.some(([k]) => k.startsWith(`${AVANT}|`)));
+  say('/baja');
+  await bot.save({ always: true });
+  assert.equal(disk.value.seen.some(([k]) => k.startsWith(`${AVANT}|`)), false, 'antes quedaban las claves de lo que seguía');
+  say('/baja', 2);
+  tick();
+  assert.deepEqual(bot.snapshot().seen, []);
+  await bot.save({ always: true });
+  assert.deepEqual(disk.value.seen, []);
+});
+
+test('/datos nombra todo lo que se guarda (también desde cuándo, la última vez que se miró, el último parte y lo avisado) y lo que vive en memoria', () => {
+  const { say } = setup();
+  say(`/start ${AVANT}`);
+  const data = say('/datos')[0].text;
+  assert.match(data, /- De cada cosa que sigues, desde cuándo y cuándo miré por última vez si había algo nuevo; del parte, el último día que te lo mandé; y, para no repetirte avisos, cuáles se han mandado ya/);
+  assert.match(data, /En memoria, un rato y sin guardarlo: las listas de botones que te mando, cuántos mensajes me has escrito en el último minuto y si ya te he ofrecido el inglés\./);
+  say('/baja');
+  assert.match(say('/datos')[0].text, /^De este chat no guardo nada.*En memoria, un rato y sin guardarlo/);
+});
+
+test('se guarda por partes, cediendo el turno, y lo escrito es lo mismo que snapshot()', async () => {
+  let pauses = 0;
+  const { say, bot, disk, world, tick } = setup({ pause: async () => { pauses++; } });
+  for (let id = 1; id <= 600; id++) say(`/start ${id % 2 ? AVANT : C4A}`, id);
+  world.events = [cancellation()];
+  tick();
+  assert.equal(await bot.save({ always: true }), true);
+  assert.deepEqual(disk.value, bot.snapshot());
+  assert.equal(disk.value.chats.length, 600);
+  assert.ok(pauses >= 3, `600 chats y lo avisado en varias partes (${pauses} pausas)`);
+});
+
+test('mientras se guarda se siguen atendiendo mensajes: una baja no queda guardada, y lo que cambia entra en el siguiente', async () => {
+  let during = null;
+  const { say, bot, disk } = setup({ pause: async () => { const f = during; during = null; f?.(); } });
+  for (let id = 1; id <= 600; id++) say(`/start ${AVANT}`, id);
+  // En la primera pausa (tras los 250 primeros chats): se da de baja uno que aún no se ha copiado, otro que ya, y
+  // sigue algo un chat nuevo.
+  during = () => {
+    say('/baja', 500);
+    say('/baja', 3);
+    say(`/start ${C4A}`, 9999);
+  };
+  await bot.save({ always: true });
+  const ids = new Set(disk.value.chats.map((c) => c.id));
+  assert.equal(ids.has(500), false, 'el de la baja, antes de copiarlo: fuera');
+  assert.equal(ids.has(3), true, 'éste ya estaba copiado: sale en esta copia…');
+  assert.equal(await bot.save(), true, '…y como ha habido cambios, se vuelve a guardar');
+  const now = new Set(disk.value.chats.map((c) => c.id));
+  assert.equal(now.has(3), false, '…sin él');
+  assert.equal(now.has(9999), true, 'y con el chat nuevo');
+  assert.equal(await bot.save(), false, 'ya no hay nada nuevo');
+});
+
+test('un guardado espera a que acabe el que está en marcha: nunca se escriben dos a la vez ni gana uno viejo', async () => {
+  const writes = [];
+  let open = 0;
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const disk = [];
+  // Un almacén lento: el primer guardado tarda hasta que se abre la puerta.
+  const slowBot = makeFollowBot({
+    read: { vehicles: () => [], events: () => [], station: () => null },
+    store: {
+      load: async () => null,
+      save: async (v) => {
+        open++;
+        assert.equal(open, 1, 'sólo uno a la vez');
+        writes.push(v.chats.map((c) => c.id));
+        if (writes.length === 1) await gate;
+        disk.push(v);
+        open--;
+      },
+    },
+    clock: { now: () => T0 },
+    webUrl: 'https://radarespana.es',
+  });
+  slowBot.handle({ chatId: 1, text: `/start ${AVANT}` });
+  const first = slowBot.save();
+  await new Promise((r) => setImmediate(r));
+  slowBot.handle({ chatId: 2, text: `/start ${AVANT}` });
+  const second = slowBot.save();
+  const third = slowBot.save({ always: true }); // al apagarse
+  release();
+  assert.deepEqual(await Promise.all([first, second, third]), [true, true, true]);
+  assert.deepEqual(writes, [[1], [1, 2], [1, 2]]);
+  assert.deepEqual(disk.at(-1).chats.map((c) => c.id), [1, 2], 'lo último escrito es lo último');
 });

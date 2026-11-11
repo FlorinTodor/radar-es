@@ -57,7 +57,8 @@ export function parseDgt(xml, seen) {
       const loc = r.locationReference;
       const road = text(findKey(loc, 'roadName'));
       const km = num(text(findKey(loc?.tpegLinearLocation?.from ?? loc, 'kilometerPoint')));
-      const place = [text(findKey(loc, 'municipality')), text(findKey(loc, 'province'))].filter(Boolean).join(', ');
+      const province = text(findKey(loc, 'province'));
+      const place = [text(findKey(loc, 'municipality')), province].filter(Boolean).join(', ');
       const closed = text(r.roadOrCarriagewayOrLaneManagementType) === 'roadClosed';
       const end = time(findKey(r.validity, 'overallEndTime'));
       events.push({
@@ -67,6 +68,10 @@ export function parseDgt(xml, seen) {
         subtype: detail,
         severity: lookup(SEVERITY, text(r.severity)) ?? 'media',
         closed,
+        // La carretera y la provincia, tal como las da la DGT: el bot de Telegram avisa por ellas (la provincia
+        // de los círculos de domain/provincias.js falla cerca de los límites; la de la DGT, no).
+        road: road || null,
+        province: province || null,
         title: `${lookup(CAUSES, cause) ?? cause ?? 'Incidencia'}${road ? ` · ${road}` : ''}${km !== null ? ` km ${km.toFixed(1)}` : ''}`,
         description: place + (closed ? ' · Carretera cortada' : ''),
         lat: from.lat,

@@ -3,24 +3,28 @@
 // ronda; y lo manda todo por una cola con los límites de Telegram (send-queue.js).
 // Sólo un servidor atiende el bot a la vez (LeasePort): si dos leyeran sus mensajes, Telegram los repartiría y
 // los dos mandarían los mismos avisos. En un relevo, el nuevo espera a que el viejo lo suelte al apagarse.
+// Los textos y el idioma de cada chat son cosa del caso de uso: aquí sólo se llevan y se traen.
 import { createSendQueue } from './send-queue.js';
-import { COMMANDS } from '../../../domain/seguidos/ordenes.js';
+
+/** El idioma del Telegram de quien escribe (language_code, «en», «pt-br»), si tiene esa forma; si no, nada. */
+const clientLang = (from) => (typeof from?.language_code === 'string' && /^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{1,8}){0,3}$/.test(from.language_code)
+  ? { clientLang: from.language_code } : {});
 
 /**
  * Lo que el caso de uso entiende de una actualización de Telegram: el texto de un chat privado o el botón que se
- * ha pulsado. Lo demás (grupos, canales, ediciones…) se ignora: null.
- * @returns {{ chatId: number, text?: string, callback?: string, callbackId?: string }|null}
+ * ha pulsado, con el idioma del Telegram de quien lo manda. Lo demás (grupos, canales, ediciones…) se ignora: null.
+ * @returns {{ chatId: number, text?: string, callback?: string, callbackId?: string, clientLang?: string }|null}
  */
 export function toIncoming(update) {
   const m = update?.message;
   if (m) {
     if (m.chat?.type !== 'private' || !Number.isSafeInteger(m.chat.id)) return null;
-    return { chatId: m.chat.id, text: typeof m.text === 'string' ? m.text : '' };
+    return { chatId: m.chat.id, text: typeof m.text === 'string' ? m.text : '', ...clientLang(m.from) };
   }
   const q = update?.callback_query;
   const chat = q?.message?.chat;
   if (q && chat?.type === 'private' && Number.isSafeInteger(chat.id)) {
-    return { chatId: chat.id, callback: typeof q.data === 'string' ? q.data : '', callbackId: String(q.id ?? '') };
+    return { chatId: chat.id, callback: typeof q.data === 'string' ? q.data : '', callbackId: String(q.id ?? ''), ...clientLang(q.from) };
   }
   return null;
 }
@@ -43,6 +47,19 @@ export function createTelegramBot({ api, bot, lease, log, waitSec = 50, tickMs =
   let pollFailures = 0;
   let conflictWarnedAt = -Infinity;
 
+  /**
+   * El menú de órdenes y las descripciones del bot en cada idioma: el primero, el de siempre (sin language_code);
+   * los demás, para quien tiene Telegram en ese idioma.
+   */
+  async function setProfiles() {
+    for (const [i, p] of bot.profiles().entries()) {
+      const lang = i === 0 ? null : p.lang;
+      await api.setCommands(p.commands, { lang }).catch((err) => log.warn(`[telegram] no se pudo poner el menú de órdenes (${p.lang}): ${err.message}`));
+      await api.setDescriptions({ description: p.description, shortDescription: p.shortDescription, lang })
+        .catch((err) => log.warn(`[telegram] no se pudo poner la descripción del bot (${p.lang}): ${err.message}`));
+    }
+  }
+
   /** Coge o renueva el turno; al cogerlo, carga lo guardado (puede haberlo dejado otro servidor). */
   async function claimOnce() {
     let ok = false;
@@ -57,7 +74,7 @@ export function createTelegramBot({ api, bot, lease, log, waitSec = 50, tickMs =
       log.info(`[telegram] este servidor atiende el bot (${bot.stats().chats} chats)`);
       if (!commandsSet) {
         commandsSet = true;
-        await api.setCommands(COMMANDS).catch((err) => log.warn(`[telegram] no se pudo poner el menú de órdenes: ${err.message}`));
+        await setProfiles();
       }
     } else if (!ok && active) {
       active = false;
@@ -106,6 +123,11 @@ export function createTelegramBot({ api, bot, lease, log, waitSec = 50, tickMs =
       }
       for (const r of res.replies) queue.push(r);
       if (msg.callbackId) await api.answer({ id: msg.callbackId, text: res.answer }).catch(() => {});
+      // Ha cambiado de idioma: su menú de órdenes, en el suyo; tras /baja (sin órdenes), el de siempre.
+      if (res.menu) {
+        await api.setCommands(res.menu.commands, { chatId: res.menu.chatId })
+          .catch((err) => log.warn(`[telegram] no se pudo poner el menú de órdenes de un chat: ${err.message}`));
+      }
     }
     return updates.length;
   }

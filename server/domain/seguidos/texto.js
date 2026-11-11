@@ -17,3 +17,12 @@ export function cutText(text, max, ellipsis = '…') {
   if (end > 0 && isHigh(t.charCodeAt(end - 1)) && isLow(t.charCodeAt(end))) end--;
   return `${t.slice(0, end).trimEnd()}${ellipsis}`;
 }
+
+/**
+ * Un texto de una fuente (un aviso de Renfe, un motivo de cancelación, un aviso oficial) para un mensaje, sin alterar
+ * lo que dice: con sus saltos de línea (los de Windows, normales; Telegram los respeta), los espacios de cada línea
+ * juntados y como mucho una línea en blanco seguida.
+ * @param {string} text
+ */
+export const sourceText = (text) => String(text ?? '').replace(/\r\n?/g, '\n').split('\n')
+  .map((line) => line.replace(/[^\S\n]+/g, ' ').trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim();

@@ -68,6 +68,9 @@
  * @property {number} [frp]          Focos de calor (category 'incendio'): potencia radiativa del fuego, en MW.
  * @property {{ type: 'Polygon'|'MultiPolygon', coordinates: number[][][]|number[][][][] }} [geometry]  Zona afectada (avisos).
  * @property {boolean} [power]   Avisos oficiales (category 'emergencia'): habla de un corte de luz.
+ * @property {boolean} [closed]  Tráfico (category 'carretera'): la incidencia corta la carretera.
+ * @property {string|null} [road]      Tráfico: la carretera, como la escribe su fuente («A-7», «TE-V-1121»).
+ * @property {string|null} [province]  Tráfico de la DGT: la provincia, como la escribe («València/Valencia»).
  * @property {string} [area]     Isla, municipio, provincia o comunidad a la que se refiere.
  * @property {'isla'|'municipio'|'provincia'|'comunidad'} [approx]  Con qué precisión está situado en el mapa
  *   (el centro de la isla, del municipio…): los avisos oficiales no traen coordenadas.
