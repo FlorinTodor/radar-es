@@ -10,8 +10,8 @@ import { isFollowKey, isRoadKey, followKind, stopCode } from '../../domain/segui
 import { PROVINCE_TRAFFIC_TEXT, asksForRoad, parseRoadRequest, roadFollowedText, roadName, roadRequestHelp, roadSeen, roadSub, roadTitle } from '../../domain/seguidos/trafico.js';
 import { entryLabel, guessedName, knownNames, searchDirectory, updateDirectory } from '../../domain/seguidos/directorio.js';
 import {
-  DELAY_MIN, SEEN_HARD_MAX, SEEN_MAX, capSeen, collectFacts, factsMessages, fitMessage, joinCredits, madridDay, madridHourMinute, markSeen,
-  newFactsOf, packBlocks, provinceSub, statusOf, trackFacts,
+  DELAY_MIN, SEEN_HARD_MAX, SEEN_MAX, capSeen, collectFacts, factsMessages, fitMessage, gravity, joinCredits, madridDay, madridHourMinute,
+  markSeen, newFactsOf, packBlocks, provinceSub, statusOf, trackFacts,
 } from '../../domain/seguidos/avisos.js';
 import {
   LANG_NAMES, botProfiles, commandsFor, dataText, helpText, langLabel, parseCommand, parseHour, smallTalk, smallTalkText, welcomeText,
@@ -884,7 +884,9 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
           const told = withoutRepeats(provinceFacts(fresh(sub, s.checkedAt), { fires: s.fires }), sent);
           s.checkedAt = now;
           if (told.length) {
-            for (const text of factsMessages(provinceTitle(provinceById(id), tr), sayIn(chat.lang, sub, told), { webUrl: web(tr), tr })) out.push(reply(chat.id, text));
+            // Lo más grave primero: si son muchos, lo que queda en «…y N más» es lo menos grave.
+            const list = sayIn(chat.lang, sub, told).sort((a, b) => gravity(b) - gravity(a));
+            for (const text of factsMessages(provinceTitle(provinceById(id), tr), list, { webUrl: web(tr), tr })) out.push(reply(chat.id, text));
             note('aviso', 'aviso');
           }
         }

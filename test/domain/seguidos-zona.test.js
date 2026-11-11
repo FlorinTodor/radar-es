@@ -196,3 +196,16 @@ test('la fundición de Atlantic Copper (Huelva), a 4 km de La Rábida, también 
   const { distanceKm } = await import('../../server/domain/geo.js');
   assert.ok(CALOR_FIJO.some((s) => distanceKm(s.lat, s.lon, 37.229, -6.948) <= s.km));
 });
+
+test('/estado de una provincia: lo más grave primero (un apagón total no queda detrás de muchos avisos naranja), con su atribución', () => {
+  const alerts = gridAlerts([['la-palma', 'La Palma', 0, 21]]);
+  const orange = Array.from({ length: 10 }, (_, i) => ({ id: `aemet:${i}`, source: 'aemet-avisos', category: 'meteo', type: 'costeros', level: i === 9 ? 'rojo' : 'naranja',
+    title: `Aviso ${i === 9 ? 'rojo' : 'naranja'} por fenómenos costeros · Zona ${i}`, lat: 28.47, lon: -16.25, issued: NOW - HOUR, start: NOW, end: NOW + 6 * HOUR,
+    credit: '© AEMET' }));
+  const { lines, credits } = statusOf(provinceSub('santa-cruz-de-tenerife'), { events: orange, alerts, now: NOW, creditOf });
+  assert.match(lines[0], /^Posible apagón total en La Palma/, lines[0]);
+  assert.match(lines[1], /^Aviso rojo por fenómenos costeros/);
+  assert.equal(lines.filter((l) => l.startsWith('Aviso naranja')).length, 6, 'hasta ocho en total');
+  assert.match(lines.find((l) => l.startsWith('…y')), /^…y 3 más\.$/);
+  assert.ok(credits.includes('© AEMET') && credits.some((c) => /Red Eléctrica/.test(c)), credits.join(' | '));
+});

@@ -369,3 +369,14 @@ test('atribuciones de un mensaje: cada una una vez, sin las que ya van dentro de
   const [msg] = factsMessages('C4', [{ id: 'a', text: 'A', credit: renfe }, { id: 'b', text: 'B', credit: withTrack }], { webUrl: 'https://x.es' });
   assert.equal(msg.match(/Origen de los datos/g).length, 1);
 });
+
+test('avisos de Renfe de una línea: una vez cada texto (Renfe publica a veces el mismo con otro id); en /estado, hasta 3 y cuántos más', () => {
+  const same = { ...notice, id: 'renfe-aviso:dup', title: 'Aviso Renfe · C4a', description: '  Por huelga de maquinistas   circulan los servicios mínimos. ' };
+  const others = Array.from({ length: 3 }, (_, i) => ({ ...notice, id: `renfe-aviso:o${i}`, description: `Otro aviso ${i}.` }));
+  const events = [notice, same, ...others];
+  assert.deepEqual(collectFacts({ keys: [C4A], events, now: NOW }).get(C4A).map((f) => f.id), ['renfe-aviso:1', 'renfe-aviso:o0', 'renfe-aviso:o1', 'renfe-aviso:o2']);
+  const { lines } = statusOf(C4A, { vehicles, events, now: NOW });
+  assert.equal(lines.filter((l) => l.startsWith('Aviso: ')).length, 3);
+  assert.equal(lines.filter((l) => l.includes('servicios mínimos')).length, 1, 'el repetido, una vez');
+  assert.equal(lines.at(-1), '…y 1 más.', 'antes se cortaba a 2 sin decirlo');
+});

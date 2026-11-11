@@ -9,8 +9,8 @@
 export const NOTICE_KM = 0.3;
 
 const km = (aLat, aLon, bLat, bLon) => Math.hypot((aLat - bLat) * 110.54, (aLon - bLon) * 111.32 * Math.cos((aLat * Math.PI) / 180));
-/** El texto de un aviso para compararlo: sin mayúsculas ni espacios de más. */
-const sameText = (e) => String(e.description ?? e.title ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+/** El texto de un aviso para compararlo: sin mayúsculas ni espacios de más (el bot quita así los repetidos de una línea). */
+export const sameText = (e) => String(e.description ?? e.title ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 /**
  * Los avisos ferroviarios de una estación de Renfe, una vez cada texto (Renfe publica a veces el mismo aviso

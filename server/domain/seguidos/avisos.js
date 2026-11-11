@@ -11,7 +11,7 @@ import { distanceKm } from '../geo.js';
 import { quakeWhen } from '../sismos.js';
 import { modeNoun } from '../modos.js';
 import { cutText } from './texto.js';
-import { noticesAtStation } from '../avisos-estacion.js';
+import { noticesAtStation, sameText } from '../avisos-estacion.js';
 import { noticeText, stationNoticeFact } from './estacion.js';
 import { DAY_FACT_FORGET_MS, fireFacts, fireZones, gridFacts, isDayFact, provinceFacts } from './zona.js';
 import { ES } from './idioma.js';
@@ -31,6 +31,8 @@ export const SEEN_MAX = 100_000;
 export const SEEN_HARD_MAX = 500_000;
 /** Hechos que se cuentan en un mensaje; del resto, cuántos son. */
 const MAX_FACTS_PER_MESSAGE = 8;
+/** Avisos del operador que se cuentan en /estado de una línea; del resto, cuántos son. */
+const LINE_NOTICES = 3;
 /** Telegram admite 4.096 caracteres por mensaje: con margen. */
 export const MESSAGE_MAX = 3800;
 /** Mensajes, como mucho, de un /estado o un parte (cada cosa seguida, entera, en uno de ellos): con 20 cosas y sus
@@ -186,6 +188,19 @@ function delayFacts(v, key, delayMin, creditOf, tr = ES) {
   return [fact, ...Array.from({ length: level }, (_, l) => ({ ...fact, id: `${v.id}|retraso|${l}`, silent: true }))];
 }
 
+/**
+ * Lo grave que es un hecho de una provincia, para enseñar primero lo peor en /estado y el parte: un apagón total, un
+ * aviso rojo de AEMET, los avisos oficiales (planes de emergencia y cortes de luz), los terremotos y los apagones
+ * parciales, los avisos naranja y, al final, los focos de calor.
+ */
+export function gravity(f) {
+  if (f.kind === 'apagon') return f.id.endsWith('|total') ? 6 : 3;
+  if (f.kind === 'meteo') return f.level === 'rojo' ? 5 : 2;
+  if (f.kind === 'emergencia') return 4;
+  if (f.kind === 'sismo') return 3;
+  return f.kind === 'incendio' ? 1 : 0;
+}
+
 // El título de un aviso de AEMET o de un aviso oficial es de su fuente: tal cual (tr.server sólo traduce nuestras
 // plantillas, como la de los terremotos).
 function zoneFact(e, p, creditOf, tr = ES) {
@@ -194,7 +209,7 @@ function zoneFact(e, p, creditOf, tr = ES) {
   const title = tr.server(e.title, e.source);
   if (e.category === 'meteo') {
     const when = [e.start && t('desde {when}', { when: tr.when(e.start) }), e.end && t('hasta {when}', { when: tr.when(e.end) })].filter(Boolean).join(' ');
-    return { id: e.id, kind: 'meteo', text: `${title}${when ? `, ${when}` : ''}. ${t('Emitido el {when}.', { when: tr.when(e.issued) ?? '?' })}`, credit };
+    return { id: e.id, kind: 'meteo', level: e.level, text: `${title}${when ? `, ${when}` : ''}. ${t('Emitido el {when}.', { when: tr.when(e.issued) ?? '?' })}`, credit };
   }
   if (e.category === 'sismo') {
     const when = quakeWhen(e.start, e.lat, e.lon).replace(/ \(hora de Canarias\)$/, () => ` (${t('hora de Canarias')})`);
@@ -242,6 +257,7 @@ export function collectFacts({
     if (!list.some((f) => f.id === fact.id)) list.push(fact);
   };
   const live = liveOf(events);
+  const noticeTexts = new Map(); // clave → los textos de sus avisos ya contados
   if (wanted.size) {
     for (const e of live) {
       const tripKeys = e.trip?.follow;
@@ -254,8 +270,14 @@ export function collectFacts({
         }
       } else if (Array.isArray(e.follow) && e.type === 'aviso') {
         for (const key of e.follow) {
-          // El título por defecto («Aviso Renfe · C4a») es nuestro; el aviso, del operador.
-          if (wanted.has(key)) add(key, { id: e.id, kind: 'aviso', text: `${whole(tr.server(e.title, e.source))}: ${whole(e.description)}`, credit: credited(e, creditOf) });
+          // El título por defecto («Aviso Renfe · C4a») es nuestro; el aviso, del operador. Una vez cada texto: Renfe
+          // publica a veces el mismo aviso dos veces, con otro id (como en una estación, avisos-estacion.js).
+          if (!wanted.has(key)) continue;
+          let texts = noticeTexts.get(key);
+          if (!texts) noticeTexts.set(key, (texts = new Set()));
+          if (texts.has(sameText(e))) continue;
+          texts.add(sameText(e));
+          add(key, { id: e.id, kind: 'aviso', text: `${whole(tr.server(e.title, e.source))}: ${whole(e.description)}`, credit: credited(e, creditOf) });
         }
       }
     }
@@ -549,7 +571,8 @@ export function statusOf(sub, { vehicles = [], events = [], alerts = [], now, st
     if (!p) return { lines: [t('Esa provincia no la conozco.')], credits: [] };
     // Todo de una pasada; el tráfico, aparte y detrás (provinceTrafficLines), también lo que no tiene noticias hace horas.
     const all = collectFacts({ keys: [], provinces: [p.id], events, alerts, now, creditOf, tr }).get(sub) ?? [];
-    const facts = provinceFacts(all, { fires }).filter((f) => f.kind !== 'carretera');
+    // Lo más grave primero (un apagón total no queda detrás de «…y N más» de avisos naranja), y las fuentes, las de lo que se enseña.
+    const facts = provinceFacts(all, { fires }).filter((f) => f.kind !== 'carretera').sort((a, b) => gravity(b) - gravity(a));
     if (!facts.length) lines.push(t('Ahora no hay avisos naranja o rojo de AEMET, terremotos que puedan sentirse ni avisos oficiales en {province}.', { province: p.name }));
     for (const f of facts.slice(0, MAX_FACTS_PER_MESSAGE)) {
       lines.push(f.text);
@@ -600,10 +623,14 @@ export function statusOf(sub, { vehicles = [], events = [], alerts = [], now, st
       }
       if (cancelled.length > 3) lines.push(t('…y {n} más.', { n: cancelled.length - 3 }));
     }
-    for (const e of events.filter((x) => x.type === 'aviso' && answersTo(x.follow, sub)).slice(0, 2)) {
+    // Los avisos del operador sobre la línea, una vez cada texto; si son muchos, cuántos más.
+    const texts = new Set();
+    const notices = liveOf(events).filter((x) => x.type === 'aviso' && answersTo(x.follow, sub) && !texts.has(sameText(x)) && texts.add(sameText(x)));
+    for (const e of notices.slice(0, LINE_NOTICES)) {
       lines.push(t('Aviso: {title}: {notice}', { title: whole(title(e)), notice: whole(e.description) }));
       credit(credited(e, creditOf));
     }
+    if (notices.length > LINE_NOTICES) lines.push(t('…y {n} más.', { n: notices.length - LINE_NOTICES }));
   } else if (kind === 'parada') {
     const station = stationOf(stopCode(sub));
     if (!station) return { lines: [t('Esa estación no la encuentro ahora en el catálogo del radar.')], credits: [] };
