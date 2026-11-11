@@ -152,9 +152,11 @@ destino** y **salen del origen en esa franja**, uno de esos días. No hace falta
   y los días; ver [vehiculos.md](vehiculos.md)) y su nombre, que los dice («Alcalá de Henares → Madrid-Atocha
   Cercanías (07:00-09:00, de lunes a viernes)»). La política de privacidad de `/legal` lo dice.
 - **Cuánto cuesta**: en cada ronda sólo se miran las paradas de los trenes que van con retraso, y las
-  cancelaciones salen del mismo índice de paradas que las estaciones seguidas. Para `/estado` y el parte se miran
-  las de todos los que no van por carretera: como mucho una vez por minuto (y una sola vez para los partes de
-  todos los chats de esa ronda).
+  cancelaciones salen del mismo índice de paradas que las estaciones seguidas. Lo que pasa entre dos estaciones se
+  busca una vez por ronda para todos los trayectos que las tienen (cada uno sólo mira su franja y sus días). Para
+  `/estado` y el parte se miran las de todos los que no van por carretera: como mucho una vez por minuto (y una sola
+  vez para los partes de todos los chats de esa ronda). Si las paradas de un tren no se pueden leer, ese tren no
+  cuenta y la ronda sigue.
 - **Código**: `server/domain/seguidos/trayectos.js` (qué se escribe, qué trenes son, qué se avisa y cómo van) y
   `server/domain/seguidos/estaciones.js` (buscar una estación del catálogo por su nombre); en el caso de uso, la
   orden `/trayecto` y lo que pide a `query-situation` (las paradas de cada viaje y el catálogo de estaciones).
@@ -167,8 +169,11 @@ destino** y **salen del origen en esa franja**, uno de esos días. No hace falta
   total. Si Telegram pide esperar (`retry_after`), espera.
 - **Avisa en rondas de un minuto**: un mensaje por cosa seguida con lo nuevo, nunca lo que ya había al empezar a
   seguirla. Lo que pasa por cada estación seguida sale de un índice de la ronda (nombre de parada → viajes
-  cancelados o sin datos): seguir cientos de estaciones no alarga la ronda. En una estación, las cancelaciones que
-  su operador ya no publica van aparte, como en su ficha de la web.
+  cancelados o sin datos): seguir cientos de estaciones no alarga la ronda. Lo mismo con el tráfico (las incidencias
+  de la ronda, indexadas una vez por carretera y por provincia) y con lo nuevo de cada cosa (se mira una vez para
+  todos los chats que la siguen). En el parte y `/estado`, cómo está cada cosa se calcula una vez por ronda e idioma,
+  aunque la sigan miles de chats. En una estación, las cancelaciones que su operador ya no publica van aparte, como en
+  su ficha de la web.
 - **Los botones de cada lista llevan su id** (`a:<id>:<n>`): un botón de un mensaje anterior no escoge nada de la
   lista nueva, sólo contesta que esa lista ya no vale.
 - **Un enlace se puede inventar** (`t.me/<bot>?start=<clave>`): de lo que no se ve ni está en el directorio no se

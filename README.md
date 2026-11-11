@@ -894,6 +894,14 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   alguna de las dos, si van con retraso y si su operador no publica nada de ellos. `/estado` y el parte
   dicen cómo van los próximos. Las estaciones se eligen del catálogo, con una lista si hay varias con ese
   nombre.
+- El bot, revisado con datos reales (seis probadores, uno de ellos intentando romperlo, y una revisión del
+  código): la ronda de avisos y el parte siguen siendo rápidos con miles de chats, trayectos y huelgas con
+  decenas de cancelaciones; ningún aviso se pierde ni se repite por muchos que se recuerden; los avisos largos van
+  en varios mensajes, enteros, con sus saltos de línea y su atribución; lo mismo no llega dos veces por dos cosas
+  seguidas; reabrir una carretera no vuelve a avisar; en una provincia, lo más grave primero; quien escribe en
+  inglés lee inglés; los trayectos eligen estaciones de la misma red y avisan si ningún tren las une; y se guarda
+  menos: una sola clave por cosa, nada de lo que ya no sigue nadie y, en lo más seguido, sólo lo que siguen varias
+  personas (nunca un trayecto).
 - Probado a fondo antes de subirlo, haciendo de distintos tipos de usuario (en el móvil, quien sigue de
   todo, quien escribe sobre el día, quien usa el bot, quien intenta romperlo y quien revisa las
   cancelaciones), con los datos reales del entorno de pruebas. De ahí salieron, ya hechos:
