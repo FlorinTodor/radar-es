@@ -468,3 +468,19 @@ test('avisos largos de una línea: en varios mensajes, enteros y cada uno con su
   }
   for (let i = 0; i < 6; i++) assert.ok(out.some((m) => m.text.includes(long(i))), `aviso ${i} entero`);
 });
+
+test('/estado con una provincia escrita entera: la provincia, no lo que pasa por una estación que se llama así', () => {
+  const { say } = setup();
+  const blocks = say('/estado Valladolid').map((r) => r.text).join('\n');
+  assert.match(blocks, /^Avisos en Valladolid:\n/);
+  assert.doesNotMatch(blocks, /Avant 08058/, 'antes salía el Avant que sale de Valladolid-Campo Grande');
+  assert.match(say('/status Valladolid fires')[0].text, /^Alerts in Valladolid:\n.*\nSatellite hotspots: none/, 'también con «incendios»');
+  assert.match(say('/estado 08058')[0].text, /^Avant 08058:/, 'lo demás, como siempre');
+});
+
+test('/seguir algo que no se encuentra: /carretera sólo si parece una carretera', () => {
+  const { say } = setup();
+  assert.match(say('/seguir C1 Barcelona')[0].text, /^No encuentro nada así entre lo que circula/, 'no lo parece');
+  assert.match(say('/seguir A-7')[0].text, /Si es una carretera, para sus cortes y accidentes: \/carretera A-7$/);
+  assert.match(say('/seguir C-31')[0].text, /\/carretera C-31$/, 'con guion, puede serlo');
+});

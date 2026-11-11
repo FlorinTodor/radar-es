@@ -447,8 +447,9 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
       const { place, fires } = provinceOption(arg);
       const p = findProvince(place);
       if (p) return fires === false ? dropFires(chatId, p) : followProvince(chatId, p, { fires: !!fires });
-      // Algo que parece una carretera («A-7»): no se sigue sin preguntar (también podría ser una línea que ahora no circula).
-      const road = parseRoadRequest(arg);
+      // Algo que parece una carretera («A-7», «C-31»: con guion): no se sigue sin preguntar (también podría ser una línea
+      // que ahora no circula). «C1 Barcelona» no lo parece.
+      const road = asksForRoad(arg) ?? (/\b[a-z]{1,4}-[0-9ivx]/i.test(arg) ? parseRoadRequest(arg) : {});
       if (road.key) {
         return [reply(chatId, t('No encuentro ningún vehículo ni línea así. Si es una carretera, para sus cortes y accidentes: /carretera {road}', { road: arg }))];
       }
@@ -483,10 +484,11 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
       refreshDirectory(c);
       // «/estado A-7»: la carretera, no el autobús 7 (asksForRoad); «/estado C4 Madrid», la línea.
       const roadFirst = asksForRoad(arg);
-      const found = roadFirst ? [] : searchDirectory(directory, arg, { limit: 3 });
-      // «/estado Granada incendios», con los focos de calor; sólo la provincia, si los sigue.
+      // «/estado Málaga» (o «Granada incendios»): si todo lo escrito es una provincia, la provincia, no las líneas que
+      // pasan por una estación que se llama así.
       const option = provinceOption(arg);
-      const p = !found.length && !roadFirst ? findProvince(option.place) : null;
+      const p = roadFirst ? null : findProvince(option.place);
+      const found = roadFirst || p ? [] : searchDirectory(directory, arg, { limit: 3 });
       const fires = option.fires ?? !!chat?.provinces.get(p?.id)?.fires;
       if (p) blocks.push(statusBlock(`${provinceTitle(p, tr)}:`, provinceSub(p.id), c, tr, fires));
       const road = roadFirst ?? (!found.length && !p ? parseRoadRequest(arg) : null); // cómo está esa carretera
