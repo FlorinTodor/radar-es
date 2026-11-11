@@ -502,3 +502,13 @@ test('tras /baja no queda en lo guardado ni rastro de lo que seguía; y si ya na
   await bot.save({ always: true });
   assert.deepEqual(disk.value.seen, []);
 });
+
+test('/datos nombra todo lo que se guarda (también desde cuándo, la última vez que se miró, el último parte y lo avisado) y lo que vive en memoria', () => {
+  const { say } = setup();
+  say(`/start ${AVANT}`);
+  const data = say('/datos')[0].text;
+  assert.match(data, /- De cada cosa que sigues, desde cuándo y cuándo miré por última vez si había algo nuevo; del parte, el último día que te lo mandé; y, para no repetirte avisos, cuáles se han mandado ya/);
+  assert.match(data, /En memoria, un rato y sin guardarlo: las listas de botones que te mando, cuántos mensajes me has escrito en el último minuto y si ya te he ofrecido el inglés\./);
+  say('/baja');
+  assert.match(say('/datos')[0].text, /^De este chat no guardo nada.*En memoria, un rato y sin guardarlo/);
+});

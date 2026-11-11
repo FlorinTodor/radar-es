@@ -161,12 +161,15 @@ export const langLabel = (lang) => {
  */
 export function dataText(chat, { tr = ES } = {}) {
   const { t } = tr;
+  // Lo que sólo vive en memoria (follow-bot.js), de quien sigue algo y de quien no: también se dice.
+  const memory = t('En memoria, un rato y sin guardarlo: las listas de botones que te mando, cuántos mensajes me has escrito en el último '
+    + 'minuto y si ya te he ofrecido el inglés.');
   if (!chat) {
     const nothing = t('De este chat no guardo nada: no sigues nada. Si sigues algo, guardaré el número de este chat, lo que sigues y desde '
       + 'cuándo; nada más (ni tu nombre ni tu teléfono). Se borra todo con /baja.');
     // El idioma elegido sin seguir nada sólo se recuerda en memoria (follow-bot.js), y así se dice.
-    return tr.lang === ES.lang ? nothing
-      : `${nothing} ${t('El idioma que has elegido sólo lo recuerdo en memoria, sin guardarlo, hasta que se reinicie el bot.')}`;
+    return [nothing, tr.lang === ES.lang ? null : t('El idioma que has elegido sólo lo recuerdo en memoria, sin guardarlo, hasta que se reinicie el bot.'),
+      memory].filter(Boolean).join(' ');
   }
   return [
     t('Esto es todo lo que guardo de este chat:'),
@@ -176,6 +179,9 @@ export function dataText(chat, { tr = ES } = {}) {
     t('- Provincias: {list}', { list: chat.provinces.length ? chat.provinces.map((p) => p.name).join(', ') : t('ninguna') }),
     t('- Parte diario: {hour}', { hour: chat.digest ?? t('no') }),
     t('- Idioma: {lang}', { lang: t(LANG_NAMES[chat.lang] ?? LANG_NAMES.es) }),
+    t('- De cada cosa que sigues, desde cuándo y cuándo miré por última vez si había algo nuevo; del parte, el último día que te lo mandé; y, '
+      + 'para no repetirte avisos, cuáles se han mandado ya de lo que sigues (eso, sin el número del chat).'),
+    memory,
     t('Nada más: ni tu nombre, ni tu usuario, ni tu teléfono. Lo uso sólo para avisarte y se borra con /baja (también si bloqueas el bot). '
       + 'Telegram, que transporta los mensajes, tiene su propia política de privacidad.'),
   ].join('\n');

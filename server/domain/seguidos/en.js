@@ -100,6 +100,10 @@ export const EN = {
   '- Parte diario: {hour}': '- Daily summary: {hour}',
   no: 'off',
   '- Idioma: {lang}': '- Language: {lang}',
+  'En memoria, un rato y sin guardarlo: las listas de botones que te mando, cuántos mensajes me has escrito en el último minuto y si ya te he ofrecido el inglés.':
+    "In memory, for a while and without storing it: the lists of buttons I send you, how many messages you have sent me in the last minute and whether I have already offered you English.",
+  '- De cada cosa que sigues, desde cuándo y cuándo miré por última vez si había algo nuevo; del parte, el último día que te lo mandé; y, para no repetirte avisos, cuáles se han mandado ya de lo que sigues (eso, sin el número del chat).':
+    "- For each thing you follow, since when and when I last checked for anything new; for the summary, the last day I sent it; and, so as not to repeat alerts, which ones have already been sent about what you follow (that, without the chat number).",
   'Nada más: ni tu nombre, ni tu usuario, ni tu teléfono. Lo uso sólo para avisarte y se borra con /baja (también si bloqueas el bot). Telegram, que transporta los mensajes, tiene su propia política de privacidad.':
     'Nothing else: not your name, your username or your phone number. I only use it to alert you, and /stop deletes it (so does blocking the bot). Telegram, which carries the messages, has its own privacy policy.',
 

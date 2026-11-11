@@ -193,7 +193,7 @@ test('todo en inglés: seguir, buscar, /mis, /estado, /dejar, /parte, /datos y /
   assert.match(say('/summary 7pm')[0].text, /^Done: every day at 19:00 \(mainland Spain time\) I'll send you how what you follow is doing\.$/);
   assert.match(say('/summary tomorrow')[0].text, /^Tell me the time, in mainland Spain time: \/summary 07:30\. To turn it off: \/summary off\.$/);
   const data = say('/data')[0].text;
-  assert.match(data, /^This is everything I store about this chat:\n- Chat number: 1001\n- Since: 10\/11, 06:00\n- Following: Cercanías C4b · Renfe \(Madrid\); Valladolid-Campo Grande station\n- Provinces: Valencia\n- Daily summary: 19:00\n- Language: English\nNothing else/);
+  assert.match(data, /^This is everything I store about this chat:\n- Chat number: 1001\n- Since: 10\/11, 06:00\n- Following: Cercanías C4b · Renfe \(Madrid\); Valladolid-Campo Grande station\n- Provinces: Valencia\n- Daily summary: 19:00\n- Language: English\n- For each thing you follow, since when and when I last checked.*\nIn memory, for a while and without storing it: .*\nNothing else/);
   assert.match(say('/foo')[0].text, /^I don't know that command\. See \/help\.$/);
   assert.match(say('hello')[0].text, /^Hello\. Tell me what you want to follow/);
   assert.match(say('thanks')[0].text, /^You're welcome\. To follow something else/);
