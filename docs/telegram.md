@@ -204,8 +204,10 @@ destino** y **salen del origen en esa franja**, uno de esos días. No hace falta
 - **Se guarda sin parar el servidor**, tras cada ronda con cambios (o cada 10 minutos) y al apagarse. La copia se
   hace por partes (250 chats, 10.000 avisos recordados) y el JSON se escribe por trozos
   (`server/adapters/outbound/persistence/json-chunks.js`, el mismo texto que `JSON.stringify`), cediendo el turno
-  entre una y otra: la web y el bot siguen atendiendo. Lo que cambia mientras tanto entra en el siguiente guardado
-  (un chat que se da de baja antes de que llegue su parte ya no sale), y un guardado espera al anterior. Con el tope
+  entre una y otra: la web y el bot siguen atendiendo. Los chats que cambian mientras tanto se vuelven a copiar al
+  final, de golpe, y en ese momento se toman el punto de lectura de Telegram y los totales: lo guardado es justo lo
+  leído hasta entonces, así que si el servidor cae, Telegram vuelve a dar sólo lo que no consta (un «/dejar 1» no se
+  aplica dos veces). Un guardado espera al anterior, y si no se puede escribir se reintenta en la ronda siguiente. Con el tope
   (20.000 chats, 38 MB), en el VPS con 2 CPU, la parada más larga pasó de 1,7-5,7 s a 0,08-0,22 s; lo que queda son
   las pausas del recolector de memoria de Node con tantos chats en memoria (se ven con `--trace-gc`), no el guardado.
   Leerlo al coger el turno (al arrancar o en un relevo) sigue siendo de golpe: 1,7-3,3 s con 20.000 chats.
@@ -308,15 +310,24 @@ Cada chat tiene su idioma: español por defecto e inglés si lo elige. Mismo cri
 - **Cómo se pide**: `/estacion Sants` (en inglés, `/station Sants`), `/seguir estación de Atocha`, o escrito sin
   orden («estación Sants», «Sants station»; sin orden, pregunta con un botón aunque sólo haya una).
 - **Las estaciones** salen del catálogo del radar, como las de `/trayecto`: las de Renfe y las de las redes de metro y
-  tranvía que tiene el mapa. Si el nombre es el de una estación tal cual, ésa (si sólo hay una, la sigue); si no, las
-  que tienen esas palabras en su nombre, su ciudad o su red, en una lista (8 como mucho, primero las que empiezan
-  así y, a igual encaje, las de Renfe), que dice cuántas hay si son más.
-- **Con `/seguir`** (y escrito sin orden): una estación que se llama tal cual («Guadalajara») sale delante de las
-  líneas que van a ella. Con parte de su nombre («Atocha»), si salen líneas, no sigue ninguna sin preguntar y dice
-  cómo buscar la estación (`/estacion Atocha`); si no sale nada más, la lista de estaciones.
-- **Con `/estado`**: `/estado estación Atocha` cuenta cómo están las que se llaman así (3 como mucho); `/estado
-  Alcalá de Henares`, la estación y las líneas. El nombre de una provincia sigue siendo la provincia.
-- **El nombre** de una estación de metro o tranvía lleva su red («Estación Jaén · Metro de Granada»), en `/mis`, en
+  tranvía que tiene el mapa. Primero las que se llaman tal cual y detrás las que tienen esas palabras en su nombre,
+  su ciudad o su red, en una lista (8 como mucho, primero las que empiezan así y, a igual encaje, las de Renfe), que
+  dice cuántas hay si son más. Sólo la sigue sin preguntar si es la única que se llama así y ninguna más lo tiene
+  dentro: «Passeig de Gràcia» es una del metro y está dentro de «Barcelona-Passeig de Gràcia», de Renfe, y salen las
+  dos; «Hospitales» sólo está dentro de «Estación de tren Hospitales», y pregunta.
+- **Con `/seguir`** (y escrito sin orden): una estación que se llama tal cual («Alcalá de Henares») sale delante de
+  las líneas que van a ella, con las que lo tienen dentro. Con parte de su nombre («Atocha»), si salen líneas, no
+  sigue ninguna sin preguntar y dice cómo buscar la estación (`/estacion Atocha`); si no sale nada más, la lista de
+  estaciones. El nombre de una provincia («Soria») sigue siendo sus líneas o la provincia, como antes, y dice cómo
+  seguir la estación (`/estacion Soria`).
+- **«estación …» que también es el destino de una línea** («/seguir estación de autobuses», «/seguir Estación Sur»):
+  una lista con las dos cosas, sin seguir ninguna sin preguntar.
+- **Con `/estado`**: `/estado estación Atocha` cuenta cómo están las que se llaman así (3 como mucho); si no hay
+  ninguna, lo que circula con ese texto y, si tampoco, las que tienen esas palabras. `/estado Alcalá de Henares`, la
+  estación y las líneas. El nombre de una provincia sigue siendo la provincia.
+- **`/estación`**, con tilde, también vale (Telegram no deja ponerla así en el menú de órdenes).
+- **El nombre** de una estación de metro o tranvía lleva su red («Estación Jaén · Metro de Granada»; la que ya se
+  llama «Estación de autobuses», sin otro «Estación» delante), en `/mis`, en
   los avisos y en lo que se guarda: hay nombres repetidos (Jaén de Renfe y del Metro de Granada) y una sola con un
   nombre puede ser de otra ciudad («Gran Vía» es del tranvía de Zaragoza). En inglés, «Jaén station · Metro de
   Granada»: el nombre y la red, tal cual.

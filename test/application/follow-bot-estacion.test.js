@@ -16,6 +16,10 @@ const ST = {
   bs: { code: '71801', name: 'Barcelona-Sants', place: 'Barcelona', lat: 41.3792, lon: 2.1400 },
   ss: { code: 'tmb:1', name: 'Sants Estació', place: 'Barcelona', network: 'Metro de Barcelona (TMB)', networkId: 'tmb', lat: 41.3795, lon: 2.1408 },
   ar: { code: 'mm:2', name: 'Estación del Arte', place: 'Madrid', network: 'Metro de Madrid', networkId: 'metro-madrid', lat: 40.4085, lon: -3.6935 },
+  pg: { code: 'tmb:2', name: 'Passeig de Gràcia', place: 'Barcelona', network: 'Metro de Barcelona (TMB)', networkId: 'tmb', lat: 41.3917, lon: 2.1649 },
+  bp: { code: '71802', name: 'Barcelona-Passeig de Gràcia', place: 'Barcelona', lat: 41.3920, lon: 2.1653 },
+  eb: { code: 'mgr:1', name: 'Estación de autobuses', place: 'Granada', network: 'Metro de Granada', networkId: 'metro-granada', lat: 37.19, lon: -3.62 },
+  bu: { code: 'ml:1', name: 'Bulevar Sur', place: 'Madrid', network: 'Metro Ligero y Tranvía de Madrid', networkId: 'ml', lat: 40.43, lon: -3.80 },
 };
 const CATALOG = Object.values(ST);
 const CREDIT = 'Origen de los datos: Renfe Operadora';
@@ -27,6 +31,10 @@ const vehicles = [
     origin: 'Guadalajara', destination: 'Madrid-Chamartín-Clara Campoamor', follow: [numberedServiceKey({ operator: 'Renfe', number: '22000' }), C2] },
   { id: 'c7', source: 'renfe-cercanias', mode: 'cercanias', operator: 'Renfe', service: 'Cercanías', line: 'C7', label: '27000', delay: 0,
     origin: 'Alcalá de Henares', destination: 'Madrid-Atocha Cercanías', follow: [numberedServiceKey({ operator: 'Renfe', number: '27000' }), C7] },
+  { id: 'b7', source: 'auvasa', mode: 'bus', operator: 'AUVASA', line: '7', label: '7', delay: null,
+    origin: 'Plaza Mayor', destination: 'Estación de Autobuses', follow: [lineKey({ operator: 'AUVASA', scope: 'Valladolid', line: '7' })] },
+  { id: 'b148', source: 'emt-madrid', mode: 'bus', operator: 'EMT Madrid', line: '148', label: '148', delay: null,
+    origin: 'Callao', destination: 'Estación Sur', follow: [lineKey({ operator: 'EMT Madrid', scope: 'Madrid', line: '148' })] },
 ];
 
 function setup() {
@@ -78,9 +86,13 @@ test('«/seguir estación …», «estación de …» sin orden (pregunta aunque
   assert.equal(ask.text, '¿Quieres seguir esta estación?');
   assert.deepEqual(labels(ask), ['Guadalajara']);
   assert.match(press(ask.buttons[0][0].data).replies[0].text, /^Hecho: te aviso de Estación Guadalajara\./);
-  // «Estación del Arte» es el nombre de una (Metro de Madrid): tal cual, y sin «estación», también.
-  assert.match(say('/estacion Estación del Arte')[0].text, /^Hecho: te aviso de Estación Estación del Arte · Metro de Madrid\./);
-  assert.match(say('/seguir estación del Arte')[0].text, /^Ya sigues Estación Estación del Arte · Metro de Madrid\./);
+  // «Estación del Arte» es el nombre de una (Metro de Madrid): tal cual, sin otro «Estación» delante; con
+  // «/seguir estación del Arte», la misma (se llama como todo lo escrito).
+  assert.match(say('/estacion Estación del Arte')[0].text, /^Hecho: te aviso de Estación del Arte · Metro de Madrid\./);
+  assert.match(say('/seguir estación del Arte')[0].text, /^Ya sigues Estación del Arte · Metro de Madrid\./);
+  // Con sólo una parte de su nombre, aunque sea la única, se pregunta.
+  const [arte] = say('/estacion Arte');
+  assert.equal(arte.text, '¿Quieres seguir esta estación?');
   assert.equal(bot.stats().subs, 2);
   assert.match(say('/estacion Villaconejos de Abajo')[0].text,
     /^No encuentro ninguna estación «Villaconejos de Abajo» en el catálogo del radar\. Escribe su nombre como en el mapa/);
@@ -89,12 +101,58 @@ test('«/seguir estación …», «estación de …» sin orden (pregunta aunque
 
 test('/seguir con el nombre exacto de una estación: la estación primero y luego las líneas que van a ella', () => {
   const { say, press, bot } = setup();
-  const [r] = say('/seguir Guadalajara');
+  const [r] = say('/seguir Alcalá de Henares');
   assert.equal(r.text, 'He encontrado varias cosas. ¿Cuál quieres seguir?');
-  assert.equal(labels(r)[0], 'Estación Guadalajara');
-  assert.match(labels(r)[1], /^Cercanías C2/);
-  assert.match(press(r.buttons[0][0].data).replies[0].text, /^Hecho: te aviso de Estación Guadalajara\./);
-  assert.deepEqual(following(bot), [[stopKey('70200'), 'Estación Guadalajara']]);
+  assert.equal(labels(r)[0], 'Estación Alcalá de Henares');
+  assert.match(labels(r)[1], /^Cercanías C7/);
+  assert.match(press(r.buttons[0][0].data).replies[0].text, /^Hecho: te aviso de Estación Alcalá de Henares\./);
+  assert.deepEqual(following(bot), [[stopKey('70103'), 'Estación Alcalá de Henares']]);
+});
+
+test('/seguir <provincia>: sus líneas o la provincia, como siempre, y cómo buscar la estación que se llama así', () => {
+  const { say, bot } = setup();
+  const [r] = say('/seguir Guadalajara');
+  assert.match(labels(r)[0], /^Cercanías C2/);
+  assert.equal(labels(r).length, 1);
+  assert.equal(r.text, '¿Quieres seguir esto?\n\nSi buscas una estación: /estacion Guadalajara');
+  assert.equal(bot.stats().subs, 0);
+  // Sin líneas (de noche), la provincia, y se dice cómo seguir la estación.
+  const night = setup();
+  night.world.vehicles = [];
+  const replies = night.say('/seguir Guadalajara');
+  assert.match(replies[0].text, /Guadalajara/);
+  assert.equal(replies.at(-1).text, 'Si buscas una estación: /estacion Guadalajara');
+  const [chat] = night.bot.snapshot().chats;
+  assert.equal(chat.provinces.length, 1, 'la provincia');
+  assert.equal(chat.subs.length, 0, 'y ninguna estación sin preguntar');
+});
+
+test('una de metro que se llama tal cual no tapa a la de Renfe que lleva ese nombre dentro', () => {
+  const { say, press, bot } = setup();
+  const [r] = say('/estacion Passeig de Gràcia');
+  assert.equal(r.text, 'He encontrado varias estaciones. ¿Cuál quieres seguir?');
+  assert.deepEqual(labels(r), ['Passeig de Gràcia (Barcelona) · Metro de Barcelona (TMB)', 'Barcelona-Passeig de Gràcia']);
+  assert.match(press(r.buttons[1][0].data).replies[0].text, /^Hecho: te aviso de Estación Barcelona-Passeig de Gràcia\./);
+  assert.deepEqual(labels(say('/seguir Passeig de Gràcia')[0]),
+    ['Estación Passeig de Gràcia · Metro de Barcelona (TMB)', 'Estación Barcelona-Passeig de Gràcia']);
+  assert.equal(bot.stats().subs, 1);
+});
+
+test('«estación …» que también es el destino de una línea: una lista con las dos cosas, sin seguir nada sin preguntar', () => {
+  const { say, bot } = setup();
+  // «Estación de autobuses» se llama así una del Metro de Granada, y es el destino del 7 de AUVASA.
+  const [a] = say('/seguir estación de autobuses');
+  assert.equal(a.text, 'He encontrado varias cosas. ¿Cuál quieres seguir?');
+  assert.equal(labels(a)[0], 'Estación de autobuses · Metro de Granada');
+  assert.match(labels(a)[1], /^Autobús 7/);
+  // «Estación Sur» no se llama así ninguna: la línea que va allí primero, y las que tienen «Sur», detrás.
+  const [s] = say('/seguir Estación Sur');
+  assert.match(labels(s)[0], /^Autobús 148/);
+  assert.ok(labels(s).includes('Estación Bulevar Sur · Metro Ligero y Tranvía de Madrid'));
+  assert.equal(bot.stats().subs, 0);
+  assert.match(say('/estado estación Sur')[0].text, /^Autobús 148/, '/estado: lo que circula con ese texto antes que las que tienen «Sur»');
+  // Con tilde también es la orden.
+  assert.equal(say('/estación Passeig de Gràcia')[0].text, 'He encontrado varias estaciones. ¿Cuál quieres seguir?');
 });
 
 test('/seguir con parte del nombre: si sólo salen líneas, no sigue ninguna sin preguntar y dice cómo buscar la estación', () => {

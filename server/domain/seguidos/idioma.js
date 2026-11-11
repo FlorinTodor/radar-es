@@ -95,7 +95,8 @@ export function nameText(name, t) {
   m = /^un servicio de (.+)$/.exec(name);
   if (m) return t('un servicio de {operator}', { operator: m[1] });
   // Una estación (estaciones.js stationFollowName): «Estación Jaén» o, de una red, «Estación Jaén · Metro de Granada».
-  m = /^Estación (.+?)( · .+)?$/.exec(name);
+  // Una que ya se llama «Estación de…» («Estación de autobuses · Metro de Granada») es un nombre: tal cual.
+  m = /^Estación (?!de |del )(.+?)( · .+)?$/.exec(name);
   if (m) return `${t('Estación {name}', { name: m[1] })}${m[2] ?? ''}`;
   return name
     .replace(NAME_KIND, (word) => t(word))

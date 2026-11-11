@@ -104,4 +104,8 @@ export function stationAsked(text) {
  * de una red de metro o tranvía, con su red: hay nombres repetidos («Jaén» de Renfe y del Metro de Granada,
  * «Tarragona» de Renfe y del Metro de Barcelona) y una sola con un nombre («Gran Vía») puede ser de otra ciudad.
  */
-export const stationFollowName = (st) => `${ES.t('Estación {name}', { name: st.name })}${st.network ? ` · ${st.network}` : ''}`;
+export function stationFollowName(st) {
+  // «Estación de autobuses» (una del Metro de Granada) ya lo dice: sin otro «Estación» delante.
+  const name = /^estaci[oó]n /i.test(st.name) ? st.name : ES.t('Estación {name}', { name: st.name });
+  return `${name}${st.network ? ` · ${st.network}` : ''}`;
+}

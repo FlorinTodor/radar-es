@@ -27,8 +27,10 @@ export function createFollowStore({ dir, log, name = NAME }) {
       try {
         await mkdir(dir, { recursive: true });
         await writeFileAtomic(file, jsonChunks(snapshot));
+        return true;
       } catch (err) {
         log.warn(`[telegram] no se pudo guardar lo que sigue cada chat (${err.message})`);
+        return false;
       }
     },
   };

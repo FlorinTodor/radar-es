@@ -68,9 +68,10 @@ export function botProfiles() {
  */
 export function parseCommand(text) {
   const t = cutText(String(text ?? ''), INPUT_MAX, '').trim();
-  const m = /^\/([A-Za-z_]+)(?:@[A-Za-z0-9_]+)?(?:\s+([\s\S]*))?$/.exec(t);
+  // Con tilde también («/estación»): Telegram no deja ponerlas en el menú de órdenes, pero hay quien las escribe.
+  const m = /^\/([\p{L}_]+)(?:@[A-Za-z0-9_]+)?(?:\s+([\s\S]*))?$/u.exec(t);
   if (!m) return { command: t ? 'buscar' : 'ayuda', arg: t };
-  const name = m[1].toLowerCase();
+  const name = m[1].normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
   if (Object.hasOwn(LANG_COMMANDS, name)) return { command: 'idioma', arg: LANG_COMMANDS[name] };
   const command = (Object.hasOwn(ALIASES, name) ? ALIASES[name] : null) ?? (KNOWN.has(name) ? name : 'desconocida');
   return { command, arg: (m[2] ?? '').replace(/\s+/g, ' ').trim(), ...(ENGLISH_NAMES.has(name) ? { english: true } : {}) };
