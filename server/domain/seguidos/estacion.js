@@ -2,17 +2,18 @@
 // publica su fuente, y que un mismo aviso no le llegue dos veces en la misma ronda (si además sigue la línea de la
 // que habla, le llegaría por las dos). Puro: sólo texto.
 import { ES } from './idioma.js';
+import { sourceText } from './texto.js';
 
 /**
- * Un aviso con su título y su texto sin alterar (la licencia de Renfe lo pide): sólo se cambian los saltos de
- * línea de Windows («\r\n») por los normales y se quitan los espacios de los extremos. El título por defecto
+ * Un aviso con su título y su texto sin alterar (la licencia de Renfe lo pide), con sus saltos de línea (sourceText:
+ * los de Windows, normales; los espacios de cada línea, juntados; como mucho una línea en blanco). El título por defecto
  * («Aviso Renfe», cuando el aviso no trae título) es nuestro: en otro idioma, con las plantillas de la web
  * (tr.server, como en los avisos de una línea); el de Renfe y su texto, tal cual.
  * @param {{ title?: string, description?: string, source?: string }} e
  * @param {import('./idioma.js').Translator} [tr]
  */
 export function noticeText(e, tr = ES) {
-  const text = String(e.description ?? '').replace(/\r\n?/g, '\n').trim();
+  const text = sourceText(e.description);
   const title = String(tr.server(String(e.title ?? '').trim(), e.source) ?? '');
   return text ? (title ? `${title}: ${text}` : text) : title;
 }

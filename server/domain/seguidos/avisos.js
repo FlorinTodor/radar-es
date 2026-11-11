@@ -10,7 +10,7 @@ import { provinceTrafficLines, roadStatus, trafficFacts } from './trafico.js';
 import { distanceKm } from '../geo.js';
 import { quakeWhen } from '../sismos.js';
 import { modeNoun } from '../modos.js';
-import { cutText } from './texto.js';
+import { cutText, sourceText } from './texto.js';
 import { noticesAtStation, sameText } from '../avisos-estacion.js';
 import { noticeText, stationNoticeFact } from './estacion.js';
 import { DAY_FACT_FORGET_MS, fireFacts, fireZones, gridFacts, isDayFact, provinceFacts } from './zona.js';
@@ -55,8 +55,8 @@ export const madridHourMinute = (ms) => MADRID_TIME.format(ms);
 export const madridDay = (ms) => MADRID_DAY.format(ms);
 
 const clip = (s, n) => cutText(String(s ?? '').replace(/\s+/g, ' ').trim(), n);
-// Los textos de las fuentes (avisos, motivos) van enteros, como piden sus licencias: sólo se juntan sus saltos de línea.
-const whole = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
+// Los textos de las fuentes (avisos, motivos) van enteros, como piden sus licencias, con sus saltos de línea (sourceText).
+const whole = sourceText;
 
 /**
  * @typedef {object} Fact

@@ -10,7 +10,7 @@ import {
   capSeen, stopAt, trackFacts, tripsAt,
 } from '../../server/domain/seguidos/avisos.js';
 import { parseCommand, parseHour, smallTalk } from '../../server/domain/seguidos/ordenes.js';
-import { cutText } from '../../server/domain/seguidos/texto.js';
+import { cutText, sourceText } from '../../server/domain/seguidos/texto.js';
 
 const NOW = Date.parse('2026-11-10T11:00:00Z'); // 12:00 en Madrid
 const AVANT = numberedServiceKey({ operator: 'Renfe', number: '08058' });
@@ -379,4 +379,13 @@ test('avisos de Renfe de una línea: una vez cada texto (Renfe publica a veces e
   assert.equal(lines.filter((l) => l.startsWith('Aviso: ')).length, 3);
   assert.equal(lines.filter((l) => l.includes('servicios mínimos')).length, 1, 'el repetido, una vez');
   assert.equal(lines.at(-1), '…y 1 más.', 'antes se cortaba a 2 sin decirlo');
+});
+
+test('los avisos de las fuentes conservan sus saltos de línea (los de Windows, normales; sin espacios dobles ni más de una línea en blanco)', () => {
+  const text = 'Renfe   informa:\r\n\r\n\r\n  Con motivo de las obras,\tlos trenes\r\nno paran en Parla.  ';
+  const e = { ...notice, id: 'renfe-aviso:lineas', description: text };
+  const [fact] = collectFacts({ keys: [C4A], events: [e], now: NOW }).get(C4A);
+  assert.equal(fact.text, 'Aviso Renfe · C4a, C4b: Renfe informa:\n\nCon motivo de las obras, los trenes\nno paran en Parla.');
+  assert.match(statusOf(C4A, { events: [e], now: NOW }).lines.join('\n'), /Renfe informa:\n\nCon motivo de las obras, los trenes\nno paran en Parla\./);
+  assert.equal(cutText(sourceText(' a \n\n\n b '), 10), 'a\n\nb');
 });

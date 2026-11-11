@@ -277,7 +277,8 @@ Qué aviso es de qué estación lo decide `server/domain/avisos-estacion.js`, el
 estación en la web (el servidor lo sirve tal cual al navegador): los avisos ferroviarios que llegan con las
 coordenadas de la estación, a menos de 300 m, y una vez cada texto. Las estaciones de metro, tranvía y demás redes
 no tienen avisos de Renfe. El texto va **sin alterar**, como pide la licencia de Renfe, con su atribución («Origen
-de los datos: Renfe Operadora…»); los de Rodalies, con la suya.
+de los datos: Renfe Operadora…»); los de Rodalies, con la suya. Con sus saltos de línea, como los de una línea y los
+motivos de las cancelaciones: sólo se juntan los espacios de cada línea y las líneas en blanco seguidas.
 
 ## Provincias: apagones y focos de calor
 

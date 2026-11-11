@@ -11,7 +11,7 @@ import { ALL_DAYS, describeFollow, followKind, parseFollowKey, trayectoKey } fro
 import { modeInfo } from '../modos.js';
 import { distanceKm } from '../geo.js';
 import { DELAY_MIN, DELAY_STEP, madridDay, madridHourMinute, nearStation, plainStop, tripsAt, vehicleName } from './avisos.js';
-import { cutText } from './texto.js';
+import { cutText, sourceText } from './texto.js';
 import { sameNetwork, searchStations, stationLabel } from './estaciones.js';
 import { ES } from './idioma.js';
 
@@ -31,8 +31,8 @@ const OPTIONS_SIDE_MAX = 20;
 const example = ({ t }) => t('/trayecto Alcalá de Henares > Atocha 7:00-9:00 L-V');
 
 const clip = (s, n) => cutText(String(s ?? '').replace(/\s+/g, ' ').trim(), n);
-// Los textos de las fuentes (avisos, motivos) van enteros, como piden sus licencias: sólo se juntan sus saltos de línea.
-const whole = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
+// Los textos de las fuentes (avisos, motivos) van enteros, como piden sus licencias, con sus saltos de línea (sourceText).
+const whole = sourceText;
 const pad = (n) => String(n).padStart(2, '0');
 /** Minutos del día → «HH:MM». */
 const hhmm = (min) => `${pad(Math.floor(min / 60))}:${pad(min % 60)}`;
