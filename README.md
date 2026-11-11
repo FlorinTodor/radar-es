@@ -895,8 +895,12 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   dicen cómo van los próximos. Las estaciones se eligen del catálogo, con una lista si hay varias con ese
   nombre.
 - Seguir una estación escribiendo su nombre: `/estacion Sants` (o `/seguir estación de Atocha`, o sin orden),
-  con una lista si hay varias; `/seguir` pone delante la estación que se llama así y `/estado` dice cómo está.
-  Las de metro y tranvía llevan su red en el nombre, porque hay nombres repetidos entre redes.
+  con una lista si hay varias (la de metro que se llama así y la de Renfe que lleva ese nombre, las dos);
+  `/seguir` pone delante la estación que se llama así, salvo el nombre de una provincia, que sigue siendo la
+  provincia, y `/estado` dice cómo está. Las de metro y tranvía llevan su red en el nombre, porque hay nombres
+  repetidos entre redes.
+- Un aviso oficial que su administración publica isla por isla llega una vez a quien sigue la provincia (antes,
+  uno por isla).
 - El bot, revisado con datos reales (seis probadores, uno de ellos intentando romperlo, y una revisión del
   código): la ronda de avisos y el parte siguen siendo rápidos con miles de chats, trayectos y huelgas con
   decenas de cancelaciones; ningún aviso se pierde ni se repite por muchos que se recuerden; los avisos largos van
@@ -906,7 +910,7 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   menos: una sola clave por cosa, nada de lo que ya no sigue nadie y, en lo más seguido, sólo lo que siguen varias
   personas (nunca un trayecto).
 - Guardar lo que sigue cada chat del bot ya no para el servidor: con miles de chats se hace y se escribe por partes,
-  y la web y el bot siguen atendiendo mientras tanto.
+  y la web y el bot siguen atendiendo mientras tanto; lo guardado es siempre justo lo leído hasta ese momento.
 - Probado a fondo antes de subirlo, haciendo de distintos tipos de usuario (en el móvil, quien sigue de
   todo, quien escribe sobre el día, quien usa el bot, quien intenta romperlo y quien revisa las
   cancelaciones), con los datos reales del entorno de pruebas. De ahí salieron, ya hechos:
