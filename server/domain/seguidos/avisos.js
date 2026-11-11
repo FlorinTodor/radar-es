@@ -301,7 +301,17 @@ export function collectFacts({
   for (const id of provinceIds) {
     const p = provinceById(id);
     if (!p) continue;
-    for (const e of events) if (eventInProvince(e, p, { now })) add(provinceSub(id), zoneFact(e, p, creditOf, tr));
+    // Un aviso que su fuente da para varias zonas (el del Gobierno de Canarias, uno por isla, con el mismo `group`),
+    // una vez por provincia: el de id menor, siempre el mismo (lo avisado se recuerda por su id). Antes llegaba una
+    // vez por isla: cuatro iguales en Santa Cruz de Tenerife.
+    const once = new Map();
+    for (const e of events) {
+      if (!eventInProvince(e, p, { now })) continue;
+      const g = e.group ? `g:${e.group}` : e;
+      const kept = once.get(g);
+      if (!kept || String(e.id) < String(kept.id)) once.set(g, e);
+    }
+    for (const e of once.values()) add(provinceSub(id), zoneFact(e, p, creditOf, tr));
     for (const f of gridFacts(alerts, id, tr)) add(provinceSub(id), f);
     for (const f of fireFacts(fires ??= fireZones(events, now), id, (e) => credited(e, creditOf), tr)) add(provinceSub(id), f);
   }
