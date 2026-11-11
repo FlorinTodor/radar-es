@@ -397,3 +397,29 @@ test('lo recordado de lo que ya no sigue nadie se olvida en la ronda', () => {
   const next = trackFacts(seen, new Map(), NOW + 60_000, { subs: new Set([C4A, 'prov:valencia']) });
   assert.deepEqual([...next.keys()], [`${C4A}|b`, 'prov:valencia|c']);
 });
+
+test('directorio: una línea de muchos recorridos (todos los Avant) no se encuentra por un sitio, y su nombre dice que son todos', () => {
+  const pairs = [['Sevilla-Santa Justa', 'Málaga María Zambrano'], ['Toledo', 'Madrid-Puerta de Atocha'], ['Barcelona-Sants', 'Lleida Pirineus'],
+    ['Albacete-Los Llanos', 'Madrid-Chamartín'], ['Ourense', 'Santiago de Compostela']];
+  const avants = pairs.map(([origin, destination], i) => ({
+    id: `avant-${i}`, mode: 'av', operator: 'Renfe', service: 'Avant', line: 'Avant', label: `0800${i}`, origin, destination,
+    follow: [numberedServiceKey({ operator: 'Renfe', number: `0800${i}` }), AVANT_LINE],
+  }));
+  const c4 = { id: 'c4', mode: 'cercanias', operator: 'Renfe', service: 'Cercanías', line: 'C4b', label: '27200', origin: 'Colmenar Viejo', destination: 'Parla', follow: [C4B] };
+  const dir = updateDirectory(new Map(), { vehicles: [...avants.slice(0, 3), c4], now: NOW });
+  // Con seis sitios o menos, todavía puede ser un recorrido: se encuentra por ellos, como siempre.
+  assert.equal(dir.get(AVANT_LINE).wide, undefined);
+  assert.deepEqual(searchDirectory(dir, 'Lleida').map((e) => e.key), [AVANT_LINE]);
+  // Con un séptimo sitio distinto, son muchos recorridos.
+  updateDirectory(dir, { vehicles: avants, now: NOW + 60_000 });
+  const avant = dir.get(AVANT_LINE);
+  assert.equal(avant.wide, true);
+  assert.equal(dir.get(C4B).wide, undefined, 'una línea con sus dos extremos, no');
+  assert.deepEqual(searchDirectory(dir, 'Lleida'), [], '«/seguir Lleida» ya no ofrece todos los Avant');
+  assert.deepEqual(searchDirectory(dir, 'Toledo'), []);
+  assert.deepEqual(searchDirectory(dir, 'Avant').map((e) => e.key), [AVANT_LINE], 'por su nombre, sí');
+  assert.deepEqual(searchDirectory(dir, 'Avant Toledo').map((e) => e.key), [AVANT_LINE], 'y un sitio suyo con su nombre no la quita');
+  assert.deepEqual(searchDirectory(dir, 'Avant Benidorm'), [], 'uno que no es suyo, sí');
+  assert.equal(entryLabel(avant), 'Avant · Renfe (todos sus trenes)');
+  assert.equal(entryLabel(dir.get(C4B)), 'Cercanías C4b · Renfe (Madrid) (Colmenar Viejo – Parla)');
+});

@@ -602,3 +602,22 @@ test('un guardado espera a que acabe el que está en marcha: nunca se escriben d
   assert.deepEqual(writes, [[1], [1, 2], [1, 2]]);
   assert.deepEqual(disk.at(-1).chats.map((c) => c.id), [1, 2], 'lo último escrito es lo último');
 });
+
+test('una línea de muchos recorridos (todos los Avant): no sale buscando una ciudad, y por su nombre pregunta y dice que son todos', () => {
+  const { say, press, bot, world } = setup();
+  const routes = [['Sevilla-Santa Justa', 'Málaga María Zambrano'], ['Toledo', 'Madrid-Puerta de Atocha'], ['Barcelona-Sants', 'Lleida Pirineus'],
+    ['Albacete-Los Llanos', 'Madrid-Chamartín']];
+  world.vehicles = [...world.vehicles, ...routes.map(([origin, destination], i) => ({
+    id: `renfe-ld:0810${i}`, source: 'renfe-ld', mode: 'av', operator: 'Renfe', service: 'Avant', line: 'Avant', label: `0810${i}`, delay: 0,
+    origin, destination, follow: [numberedServiceKey({ operator: 'Renfe', number: `0810${i}` }), AVANT_LINE],
+  }))];
+  assert.match(say('/seguir Pirineus', 3003)[0].text, /^No encuentro nada así/, 'un sitio por el que pasa un Avant no es todos los Avant');
+  assert.doesNotMatch(say('/seguir Lleida', 3003).map((x) => x.text).join('\n'), /Avant/, 'Lleida es su provincia, sin Avant');
+  const [r] = say('/seguir Avant');
+  assert.equal(r.text, '¿Quieres seguir esto?', 'aunque sea lo único, pregunta');
+  assert.deepEqual(r.buttons.map((row) => row[0].text), ['Avant · Renfe (todos sus trenes)']);
+  assert.match(press(r.buttons[0][0].data).replies[0].text, /^Hecho: te aviso de Avant · Renfe\./);
+  assert.deepEqual(bot.snapshot().chats.find((c) => c.id === CHAT).subs.map((x) => x.key), [AVANT_LINE]);
+  const [en] = say('/follow Avant', 2002);
+  assert.deepEqual(en.buttons.map((row) => row[0].text), ['Avant · Renfe (all its trains)']);
+});

@@ -475,7 +475,8 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
     if (asked === '') return stationCmd(chatId, '', { confirm });
     refreshDirectory(c);
     const lines = searchDirectory(directory, arg, { limit: Infinity });
-    const lineItems = lines.map((e) => ({ sub: e.key, name: e.name, label: tr.name(entryLabel(e)) }));
+    // Una línea de muchos recorridos (todos los Avant), nunca sin preguntar: su botón dice que son todos.
+    const lineItems = lines.map((e) => ({ sub: e.key, name: e.name, label: tr.name(entryLabel(e)), ...(e.wide ? { wide: true } : {}) }));
     if (asked !== null) {
       if (!lines.length) return stationCmd(chatId, arg, { confirm });
       // La que se llama como todo lo escrito («Estación del Arte») o como lo que va detrás de «estación».
@@ -526,7 +527,7 @@ export function makeFollowBot({ read, trayectos = {}, store, clock, creditOf = (
   function offer(chatId, all, { confirm, hint, tr }) {
     const { t } = tr;
     const found = all.slice(0, limits.menuItems);
-    if (found.length === 1 && !confirm && !hint) return follow(chatId, found[0].sub, found[0].name);
+    if (found.length === 1 && !confirm && !hint && !found[0].wide) return follow(chatId, found[0].sub, found[0].name);
     const buttons = menu(chatId, 'add', found, clock.now());
     // Si hay más de las que caben en la lista, se dice: quien busca «C1» sabe que tiene que decir la ciudad.
     const text = found.length === 1 ? t('¿Quieres seguir esto?')

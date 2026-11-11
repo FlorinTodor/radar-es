@@ -903,6 +903,9 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   repetidos entre redes.
 - Un aviso oficial que su administración publica isla por isla llega una vez a quien sigue la provincia (antes,
   uno por isla).
+- Buscar una ciudad en el bot ya no ofrece «líneas» que son todos los trenes de un producto en toda España (los
+  Avant, los Media Distancia…) o la misma línea de varias ciudades: salen escribiendo su nombre, y su botón dice
+  que son todos («Avant · Renfe (todos sus trenes)»).
 - El bot, revisado con datos reales (seis probadores, uno de ellos intentando romperlo, y una revisión del
   código): la ronda de avisos y el parte siguen siendo rápidos con miles de chats, trayectos y huelgas con
   decenas de cancelaciones; ningún aviso se pierde ni se repite por muchos que se recuerden; los avisos largos van

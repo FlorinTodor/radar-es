@@ -82,6 +82,9 @@ export const NAME_WORDS = Object.freeze(KIND_WORDS);
 export function nameText(name, t) {
   if (typeof name !== 'string') return name;
   if (FIXED_NAMES.has(name)) return t(name);
+  // Una línea de muchos recorridos en una lista (directorio.js entryLabel): «Avant · Renfe (todos sus trenes)».
+  let all = /^(.+) \(todos sus ([^()]+)\)$/.exec(name);
+  if (all) return `${nameText(all[1], t)} (${t('todos sus {vehicles}', { vehicles: t(all[2]) })})`;
   // Un trayecto (describeFollow): «<origen> → <destino> (07:00-09:00, de lunes a viernes)»; sólo cambian los días.
   let m = /^(.+ → .+) \((\d{2}:\d{2}-\d{2}:\d{2}), ([^()]+)\)$/.exec(name);
   if (m && MASK_OF_DAYS.has(m[3])) return `${m[1]} (${m[2]}, ${daysTextEn(MASK_OF_DAYS.get(m[3]), t)})`;
