@@ -172,7 +172,8 @@
  * seguir igual tras un reinicio o un relevo. Sólo el número de cada chat, lo que sigue y desde cuándo.
  * @typedef {object} FollowStorePort
  * @property {() => Promise<object|null>} load  Lo último guardado, o null si no hay o no se lee.
- * @property {(snapshot: object) => Promise<void>} save  Nunca rechaza: si no puede escribir, lo registra.
+ * @property {(snapshot: object) => Promise<boolean|void>} save  Nunca rechaza: si no puede escribir, lo registra y da
+ *   false (así el bot lo vuelve a intentar en la siguiente ronda).
  */
 
 /**

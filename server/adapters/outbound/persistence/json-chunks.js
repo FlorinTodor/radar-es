@@ -16,19 +16,22 @@ const isPlainObject = (v) => {
 };
 /** Lo que JSON.stringify se salta en un objeto (y en una lista escribe null). */
 const skipped = (v) => v === undefined || typeof v === 'function' || typeof v === 'symbol';
+/** Como JSON.stringify: lo que tiene toJSON (una fecha) se cambia por lo que éste da, con su clave. */
+const toJson = (v, key) => (v !== null && (typeof v === 'object' || typeof v === 'bigint') && typeof v.toJSON === 'function' ? v.toJSON(key) : v);
 
 /**
- * Los trozos de texto de `value`: por dentro, la raíz y lo que hay en ella (dos niveles: las listas grandes de lo
- * guardado); lo de más adentro, cada elemento con JSON.stringify.
+ * Los trozos de texto de `value` (ya con su toJSON hecho): por dentro, la raíz y lo que hay en ella (dos niveles: las
+ * listas grandes de lo guardado); lo de más adentro, cada elemento con JSON.stringify. (Si lo que da un toJSON tiene a
+ * su vez toJSON, éste se haría otra vez: lo que guarda el bot no tiene nada así.)
  * @param {unknown} value  @param {number} depth
  * @returns {Generator<string>}
  */
 function* pieces(value, depth = 0) {
-  if (depth < 2 && isArray(value) && typeof value.toJSON !== 'function') {
+  if (depth < 2 && isArray(value)) {
     yield '[';
     for (let i = 0; i < value.length; i++) {
       if (i) yield ',';
-      const x = value[i];
+      const x = toJson(value[i], String(i));
       if (skipped(x)) yield 'null';
       else yield* pieces(x, depth + 1);
     }
@@ -36,7 +39,8 @@ function* pieces(value, depth = 0) {
   } else if (depth < 2 && isPlainObject(value)) {
     yield '{';
     let first = true;
-    for (const [k, v] of Object.entries(value)) {
+    for (const [k, raw] of Object.entries(value)) {
+      const v = toJson(raw, k);
       if (skipped(v)) continue;
       yield `${first ? '' : ','}${JSON.stringify(k)}:`;
       first = false;
@@ -60,7 +64,7 @@ function* pieces(value, depth = 0) {
 export async function* jsonChunks(value, { chunkChars = CHUNK_CHARS } = {}) {
   let parts = [];
   let size = 0;
-  for (const piece of pieces(value)) {
+  for (const piece of pieces(toJson(value, ''))) {
     parts.push(piece);
     size += piece.length;
     if (size >= chunkChars) {

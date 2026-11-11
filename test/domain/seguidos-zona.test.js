@@ -209,3 +209,23 @@ test('/estado de una provincia: lo más grave primero (un apagón total no queda
   assert.match(lines.find((l) => l.startsWith('…y')), /^…y 3 más\.$/);
   assert.ok(credits.includes('© AEMET') && credits.some((c) => /Red Eléctrica/.test(c)), credits.join(' | '));
 });
+
+test('un aviso oficial que su fuente da isla por isla (mismo `group`) llega una vez a la provincia, siempre con el mismo id', () => {
+  const notice = (island) => ({
+    id: `emergencias-canarias:204079:${island}`, group: 'emergencias-canarias:204079', source: 'emergencias-canarias',
+    category: 'emergencia', type: 'plan', power: false, severity: 'media', area: island, approx: 'isla',
+    title: 'El Gobierno de Canarias activa la prealerta por riesgo de desprendimientos en islas occidentales y Gran Canaria',
+    start: NOW - HOUR,
+  });
+  const islands = ['El Hierro', 'La Palma', 'La Gomera', 'Tenerife', 'Gran Canaria'];
+  const facts = (events) => collectFacts({ keys: [], provinces: ['santa-cruz-de-tenerife', 'las-palmas'], events, now: NOW, creditOf })
+    .get(provinceSub('santa-cruz-de-tenerife')) ?? [];
+  const once = facts(islands.map(notice));
+  assert.equal(once.length, 1, 'cuatro islas de la provincia, un aviso');
+  assert.equal(once[0].id, 'emergencias-canarias:204079:El Hierro', 'el de id menor');
+  assert.equal(facts([...islands].reverse().map(notice))[0].id, once[0].id, 'el mismo aunque lleguen en otro orden');
+  const lasPalmas = collectFacts({ keys: [], provinces: ['las-palmas'], events: islands.map(notice), now: NOW, creditOf }).get(provinceSub('las-palmas'));
+  assert.equal(lasPalmas.length, 1, 'y en Las Palmas, el suyo');
+  // Sin `group`, cada uno es el suyo.
+  assert.equal(facts(islands.map((i) => ({ ...notice(i), group: undefined }))).length, 4);
+});

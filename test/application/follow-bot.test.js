@@ -526,26 +526,46 @@ test('se guarda por partes, cediendo el turno, y lo escrito es lo mismo que snap
   assert.ok(pauses >= 3, `600 chats y lo avisado en varias partes (${pauses} pausas)`);
 });
 
-test('mientras se guarda se siguen atendiendo mensajes: una baja no queda guardada, y lo que cambia entra en el siguiente', async () => {
+test('mientras se guarda se siguen atendiendo mensajes: lo guardado es justo lo leído hasta entonces, sin repetir chats', async () => {
   let during = null;
   const { say, bot, disk } = setup({ pause: async () => { const f = during; during = null; f?.(); } });
   for (let id = 1; id <= 600; id++) say(`/start ${AVANT}`, id);
-  // En la primera pausa (tras los 250 primeros chats): se da de baja uno que aún no se ha copiado, otro que ya, y
-  // sigue algo un chat nuevo.
+  say(`/start ${C4A}`, 2);
+  bot.setOffset(100);
+  // En la primera pausa (tras los 250 primeros chats), como llegan de Telegram (su punto de lectura y el mensaje): se
+  // da de baja uno que aún no se ha copiado y otro que ya; uno ya copiado deja lo primero que sigue; otro se va y
+  // vuelve; y sigue algo un chat nuevo.
   during = () => {
-    say('/baja', 500);
-    say('/baja', 3);
-    say(`/start ${C4A}`, 9999);
+    const update = (n, text, chatId) => { bot.setOffset(n); say(text, chatId); };
+    update(101, '/baja', 500);
+    update(102, '/baja', 3);
+    update(103, '/dejar 1', 2);
+    update(104, '/baja', 5);
+    update(105, `/start ${AVANT}`, 5);
+    update(106, `/start ${C4A}`, 9999);
   };
   await bot.save({ always: true });
-  const ids = new Set(disk.value.chats.map((c) => c.id));
-  assert.equal(ids.has(500), false, 'el de la baja, antes de copiarlo: fuera');
-  assert.equal(ids.has(3), true, 'éste ya estaba copiado: sale en esta copia…');
-  assert.equal(await bot.save(), true, '…y como ha habido cambios, se vuelve a guardar');
-  const now = new Set(disk.value.chats.map((c) => c.id));
-  assert.equal(now.has(3), false, '…sin él');
-  assert.equal(now.has(9999), true, 'y con el chat nuevo');
-  assert.equal(await bot.save(), false, 'ya no hay nada nuevo');
+  const saved = disk.value;
+  const ids = saved.chats.map((c) => c.id);
+  assert.equal(saved.offset, 106, 'lo leído hasta el final de la copia de los chats…');
+  assert.equal(ids.includes(500), false, '…y lo que hizo: la baja de uno aún sin copiar');
+  assert.equal(ids.includes(3), false, 'y la de uno ya copiado');
+  assert.deepEqual(saved.chats.find((c) => c.id === 2).subs.map((x) => x.key), [C4A],
+    '«/dejar 1» de uno ya copiado: si el servidor cae ahora, Telegram no lo vuelve a dar (y no se deja otra cosa)');
+  assert.equal(ids.includes(9999), true, 'el chat nuevo');
+  assert.equal(new Set(ids).size, ids.length, 'uno que se va y vuelve durante la copia, una vez');
+  assert.deepEqual(saved, bot.snapshot(), 'lo mismo que una copia de golpe al acabar');
+  assert.equal(await bot.save(), true, 'ha habido cambios mientras tanto: se vuelve a guardar…');
+  assert.equal(await bot.save(), false, '…y ya no hay nada nuevo');
+});
+
+test('una ronda o una carga durante la copia: se vuelven a copiar todos los chats al final', async () => {
+  let during = null;
+  const { say, bot, disk, tick } = setup({ pause: async () => { const f = during; during = null; f?.(); } });
+  for (let id = 1; id <= 600; id++) say(`/start ${AVANT}`, id);
+  during = () => tick();
+  await bot.save({ always: true });
+  assert.deepEqual(disk.value, bot.snapshot());
 });
 
 test('un guardado espera a que acabe el que está en marcha: nunca se escriben dos a la vez ni gana uno viejo', async () => {

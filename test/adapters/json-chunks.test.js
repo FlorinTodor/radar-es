@@ -21,6 +21,11 @@ test('el mismo texto que JSON.stringify, también con lo que éste se salta o ca
     null,
     Object.assign(Object.create(null), { sinPrototipo: true }),
     [, 'hueco'], // eslint-disable-line no-sparse-arrays
+    // toJSON que no da nada (fuera en un objeto, null en una lista) y que usa su clave, como en JSON.stringify.
+    { a: { toJSON: () => undefined }, b: 1, list: [{ toJSON: () => undefined }, 2] },
+    { clave: { toJSON: (k) => `soy ${k}` }, list: [{ toJSON: (k) => `en ${k}` }], hondo: { x: [{ toJSON: (k) => k }] } },
+    { toJSON: () => ({ todo: 'cambiado', list: [1] }) },
+    { lista: Object.assign([1, 2], { toJSON: () => 'lista propia' }) },
   ];
   for (const v of values) assert.equal((await all(jsonChunks(v))).join(''), JSON.stringify(v));
 });
