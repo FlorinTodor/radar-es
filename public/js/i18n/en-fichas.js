@@ -161,4 +161,6 @@ export default {
   'aproximado: no tiene en cuenta el sentido de las calles': 'approximate: it does not take one-way streets into account',
   'Su operador no publica el recorrido entre paradas: va por la carretera más corta entre ellas (CartoCiudad), así que el recorrido es aproximado. ':
     'Its operator does not publish the route between stops: it follows the shortest road between them (CartoCiudad), so the route is approximate. ',
+  'Su operador no publica el recorrido entre paradas: se está calculando por carretera (CartoCiudad) y en uno o dos minutos se dibuja. ':
+    'Its operator does not publish the route between stops: it is being worked out by road (CartoCiudad) and will be drawn in a minute or two. ',
 };

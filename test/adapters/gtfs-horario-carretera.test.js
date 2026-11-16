@@ -90,3 +90,17 @@ test('sin carreteras (ROAD_ROUTES=off), los autobuses sin trazado siguen como si
   const { vehicles: [v] } = await source.fetch();
   assert.deepEqual([v.lon, v.lat], [-6.0, 37.0]);
 });
+
+test('mientras espera su carretera, el autobús lo dice (roadPending), y al abrir su ficha sus tramos pasan delante', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: NOW });
+  const roads = fakeRoads();
+  const hurried = [];
+  roads.hurry = (points) => { hurried.push(points.length); return points.length - 1; };
+  const source = createGtfsScheduleSource({ nap: napOf(gtfs), http: {}, roads }, { id: 'alsa-prueba', name: 'Prueba', operator: 'ALSA', ficheroId: 1, dataset: 1, mode: 'bus' });
+  const { vehicles: [v] } = await source.fetch();
+  assert.equal(v.roadPending, true);
+  assert.ok(Number.isFinite(v.heading), 'en su última parada, la flecha apunta a la próxima');
+  assert.ok(Math.abs(v.heading - 90) < 5, `hacia el este, donde está B (${v.heading})`);
+  source.tripStops(v.id);
+  assert.deepEqual(hurried, [3], 'sus tres paradas');
+});

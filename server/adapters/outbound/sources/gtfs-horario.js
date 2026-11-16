@@ -321,7 +321,8 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
     const vid = `${id}:${feeds.length > 1 ? `${fi}:` : ''}${trip.id}:${day.ymd}${instance}`;
     if (est.path !== undefined) nextPaths.set(vid, est.path);
     // Sus paradas, para su ficha (tripStops): las del viaje, que ya se guardan mientras circula.
-    nextRunning.set(vid, { stops, tt, offset, delaySec });
+    const roadPending = trip.route.mode === 'bus' && !onShape && trip.onShapeRoads !== undefined;
+    nextRunning.set(vid, { stops, tt, offset, delaySec, roadPending });
     const { operator } = feeds[fi];
     const line = options.line ? options.line(trip.route.line) : trip.route.line;
     const label = options.label?.(trip) ?? trip.label ?? null;
@@ -338,8 +339,10 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
       delay: delaySec === null ? null : Math.round(delaySec / 60),
       estimated: true,
       ...(est.ahead ? { ahead: true } : {}),
-      // Su horario no trae el trazado: va por la carretera entre sus paradas (CartoCiudad), aproximada.
+      // Su horario no trae el trazado: va por la carretera entre sus paradas (CartoCiudad), aproximada; o la está
+      // esperando (se piden sus tramos).
       ...(onShape?.byRoad ? { byRoad: true } : {}),
+      ...(roadPending ? { roadPending: true } : {}),
       stops: true, // sus paradas, con su hora: /api/stops
       ...(est.heading !== null ? { heading: est.heading } : {}),
       atLastStop: est.atLastStop,
@@ -488,7 +491,9 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
     tripStops(vehicleId) {
       const r = running.get(vehicleId);
       if (!r) return vehicleId.startsWith(`${id}:`) ? null : undefined;
-      const { stops, tt, offset, delaySec } = r;
+      const { stops, tt, offset, delaySec, roadPending } = r;
+      // Alguien mira este autobús y aún le faltan tramos de carretera: que pasen delante de la cola.
+      if (roadPending) roads?.hurry(stops.map((s) => [s.lon, s.lat]));
       const next = nextStopIndex(stops, tt);
       return tripStopList(stops.map((s, i) => ({ name: s.name, at: [s.lon, s.lat], time: (i === 0 ? s.dep : s.arr) + offset })),
         next, { delaySec, here: tt >= (stops[next]?.arr ?? Infinity) });

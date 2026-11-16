@@ -30,6 +30,10 @@ const MAX_END_OFF_M = 1000;
 const MAX_DETOUR = 4;
 // Se simplifica: en una autovía bastan unos pocos puntos por kilómetro (así toda España ocupa pocos MB).
 const SIMPLIFY_M = 15;
+// Lo que alguien está mirando (la ficha de un autobús) pasa delante y va algo más rápido: como mucho unos 3 por segundo,
+// y sólo los tramos de ese viaje (unas decenas). Así su carretera llega en menos de un minuto, no tras la cola del día.
+const PRIORITY_GAP_DIVISOR = 3;
+const MAX_PRIORITY = 500;
 // Tras un fallo del servicio (no responde, error), se espera antes de volver a pedir, cada vez más (hasta 30 min).
 const BACKOFF_MS = 60_000;
 const MAX_BACKOFF_MS = 30 * 60_000;
@@ -152,6 +156,8 @@ export function routeFromResponse(body, from, to) {
  * @property {(from: number[], to: number[]) => Float32Array|null|undefined} segment  La carretera de una parada a otra
  *   ([lon, lat]): [lon, lat…]; null si no tiene (se sabe); undefined si aún no se sabe (se pide, y llega en unos minutos).
  * @property {() => number} version  Cambia cada vez que llega un tramo nuevo: lo que se calculó sin él se puede rehacer.
+ * @property {(points: number[][]) => number} hurry  Los tramos que faltan entre estas paradas ([lon, lat], en orden) pasan
+ *   delante (alguien está mirando ese autobús); devuelve cuántos faltan.
  * @property {() => Promise<boolean>} pump  Pide el siguiente tramo pendiente, si toca (lo llama el planificador cada segundo).
  * @property {() => Promise<void>} load
  * @property {() => Promise<void>} save  Si ha cambiado algo. Nunca rechaza.
@@ -169,6 +175,7 @@ export function createCartoCiudadRoads({ http, dir, log, now = Date.now, minGapM
   const known = new Map(); // clave → Float32Array
   const failed = new Map(); // clave → cuándo se vio que no tiene ruta
   const pending = new Map(); // clave → [from, to], en el orden en que se piden
+  const urgent = new Map(); // los mismos, de lo que alguien está mirando: van antes
   let version = 0;
   let dirty = false;
   let busy = false;
@@ -188,15 +195,31 @@ export function createCartoCiudadRoads({ http, dir, log, now = Date.now, minGapM
     },
     version: () => version,
 
+    hurry(points) {
+      let missing = 0;
+      for (let i = 0; i + 1 < points.length; i++) {
+        const key = keyOf(points[i], points[i + 1]);
+        if (known.has(key)) continue;
+        const bad = failed.get(key);
+        if (bad !== undefined && now() - bad < RETRY_FAILED_MS) continue;
+        missing++;
+        if (!urgent.has(key) && urgent.size < MAX_PRIORITY) urgent.set(key, [points[i], points[i + 1]]);
+      }
+      return missing;
+    },
+
     async pump() {
-      if (busy || !pending.size || now() < pausedUntil || now() - lastAt < minGapMs) return false;
+      const queue = urgent.size ? urgent : pending;
+      const gap = urgent.size ? minGapMs / PRIORITY_GAP_DIVISOR : minGapMs;
+      if (busy || !queue.size || now() < pausedUntil || now() - lastAt < gap) return false;
       busy = true;
-      const [key, [from, to]] = pending.entries().next().value;
+      const [key, [from, to]] = queue.entries().next().value;
       lastAt = now();
       try {
         const url = `${base}?orig=${from[1]},${from[0]}&dest=${to[1]},${to[0]}&locale=es&vehicle=CAR`;
         const road = routeFromResponse(await http.json(url, { timeout: 20_000, maxBytes: 4 * 1024 * 1024 }), from, to);
         pending.delete(key);
+        urgent.delete(key);
         if (road) {
           known.set(key, road);
           failed.delete(key);
@@ -206,9 +229,9 @@ export function createCartoCiudadRoads({ http, dir, log, now = Date.now, minGapM
         errors = 0;
         return true;
       } catch (err) {
-        // El servicio no responde: el tramo se queda (al final de la cola) y se espera antes del siguiente.
-        pending.delete(key);
-        pending.set(key, [from, to]);
+        // El servicio no responde: el tramo se queda (al final de su cola) y se espera antes del siguiente.
+        queue.delete(key);
+        queue.set(key, [from, to]);
         errors++;
         pausedUntil = now() + Math.min(MAX_BACKOFF_MS, BACKOFF_MS * 2 ** (errors - 1));
         if (errors === 1 || errors % 10 === 0) log.warn(`[carreteras] CartoCiudad no responde (${err.message}): ${pending.size} tramos pendientes`);
@@ -250,6 +273,6 @@ export function createCartoCiudadRoads({ http, dir, log, now = Date.now, minGapM
       }
     },
 
-    stats: () => ({ known: known.size, failed: failed.size, pending: pending.size }),
+    stats: () => ({ known: known.size, failed: failed.size, pending: pending.size, urgent: urgent.size }),
   };
 }

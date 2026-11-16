@@ -51,3 +51,15 @@ test('un vehículo de esa fuente sin trazado de viaje: recorrido tal cual y sin 
   assert.equal(query.track('bus-prueba:2'), null, 'sin recorrido guardado');
   assert.equal(query.ahead('bus-prueba:2'), null);
 });
+
+test('la flecha de un autobús con GPS sale del trazado de su viaje', () => {
+  const situation = {
+    vehicles: () => [{ id: 'bus-prueba:1', mode: 'bus', source: 'bus-prueba', ahead: true, lat: 40.4011, lon: -3.6866 }], events: () => [], metrics: () => ({}),
+    health: () => [], activeAlerts: () => new Map(), resolvedAlerts: () => [], kpis: () => null, kpiHistory: () => [],
+    tracks: () => new Map([['bus-prueba:1', track]]),
+  };
+  const source = { id: 'bus-prueba', tripShape: (id) => (id === 'bus-prueba:1' ? { shape, since: T0 - 5 * MIN, tripId: 'T1' } : undefined) };
+  const query = makeQuerySituation({ situation, stations: {}, network: { lines: () => null }, clock: { now: () => T0 }, sources: [source] });
+  const [bus] = query.liveBuses().vehicles;
+  assert.ok(Math.abs(bus.heading - 90) < 5, `hacia el este por la calle de arriba (${bus.heading})`);
+});

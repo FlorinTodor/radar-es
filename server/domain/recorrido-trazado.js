@@ -4,7 +4,7 @@
 // del trazado del operador, en vez de unir sus posiciones con rectas que cruzan manzanas. Puro: sin red, ni reloj, ni
 // disco; los trazados son los de schedule.js (buildShape: coords y distancias en Float32Array).
 import { pointAlong } from './schedule.js';
-import { M_PER_DEG_LAT, mPerDegLon, round5 } from './geo.js';
+import { bearingDeg, M_PER_DEG_LAT, mPerDegLon, round5 } from './geo.js';
 
 /**
  * Más lejos que esto del trazado no está sobre él (un desvío, un GPS que salta o un viaje que aún no ha empezado): no
@@ -53,6 +53,18 @@ export function progressOnShape(shape, lon, lat, prev = null) {
   }
   const any = nearestAlong(shape, lon, lat);
   return any && any.off <= MAX_OFF_SHAPE_M ? { ...any, restart: Number.isFinite(prev) } : null;
+}
+
+/**
+ * Hacia dónde va por el trazado en `along` (grados desde el norte, como headingOf): hacia el punto que está `ahead`
+ * metros más allá. null al final del viaje (ya no va a ningún sitio).
+ */
+export function headingOnShape(shape, along, ahead = 60) {
+  const end = shape.dist[shape.dist.length - 1];
+  if (!(end - along > 10)) return null;
+  const a = pointAlong(shape, along);
+  const b = pointAlong(shape, Math.min(along + ahead, end));
+  return bearingDeg(a.lat, a.lon, b.lat, b.lon);
 }
 
 /** El tramo del trazado entre dos distancias, como [lon, lat] (redondeados a 5 decimales, ~1 m); null si no hay tramo. */

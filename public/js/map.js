@@ -1467,7 +1467,9 @@ function vehicleDetail(v, onRoute = false, stops = null) {
       : t('<strong>Posición estimada</strong> a partir del horario publicado: no es GPS y no refleja retrasos. '))
       + (v.byRoad
         ? t('Su operador no publica el recorrido entre paradas: va por la carretera más corta entre ellas (CartoCiudad), así que el recorrido es aproximado. ')
-        : '')
+        : v.roadPending
+          ? t('Su operador no publica el recorrido entre paradas: se está calculando por carretera (CartoCiudad) y en uno o dos minutos se dibuja. ')
+          : '')
       + (v.atLastStop
         ? t('El operador no publica el recorrido entre paradas, así que se muestra en la última parada por la que ha pasado.')
         : t('Se mueve a saltos, en cada actualización. Si su ruta tiene trazado publicado, la <strong>línea azul discontinua</strong> es el tramo que habría recorrido en los últimos 45 min según el horario.'))

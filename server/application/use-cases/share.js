@@ -10,6 +10,10 @@ import {
 } from '../../domain/compartir.js';
 
 const KEEP_MS = 3 * 24 * 3600_000; // lo que dura el enlace de una incidencia que ya no sale en el directo
+// Salvo los vehículos detenidos de la DGT (sobre todo balizas V16: se encienden y se apagan en minutos, unos 800 por
+// hora): con 3 días llenarían el tope en medio día y echarían a los accidentes y cortes antes de tiempo.
+const KEEP_STOPPED_MS = 6 * 3600_000;
+const keepOf = (e) => (e?.type === 'vehicleObstruction' ? KEEP_STOPPED_MS : KEEP_MS);
 const MAX_ENDED = 10_000;
 const INDEX_TTL_MS = 5_000; // incidencias y vehículos por id: se rehacen como mucho cada tanto, no en cada petición
 const CARDS_MAX = 200;
@@ -25,7 +29,7 @@ export class ShareBusy extends Error {}
  *           clock: import('../ports.js').ClockPort, log: import('../ports.js').LoggerPort, keepMs?: number, maxEnded?: number }} deps
  *   query: el caso de uso de consulta (query-situation).
  */
-export function makeShare({ query, store, renderer, clock, log, keepMs = KEEP_MS, maxEnded = MAX_ENDED }) {
+export function makeShare({ query, store, renderer, clock, log, keepMs = keepOf, maxEnded = MAX_ENDED }) {
   let ended = new Map(); // id → { event, endedAt }
   let before = []; // las incidencias de la última vuelta
   let dirty = false;

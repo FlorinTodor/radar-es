@@ -12,7 +12,7 @@ import { DEFAULT_THRESHOLDS } from '../../domain/alerts/thresholds.js';
 import { isFollowKey, stopKey } from '../../domain/seguir.js';
 import { followStatus, indexByFollow } from '../../domain/siguiendo.js';
 import { MODES } from '../../domain/modos.js';
-import { shapeStretch, trackOnShape } from '../../domain/recorrido-trazado.js';
+import { headingOnShape, shapeStretch, trackOnShape } from '../../domain/recorrido-trazado.js';
 
 // Cálculos por tren que se guardan (recorrido por la vía, ~30 KB cada uno; lo que le queda): el mapa
 // pide los del tren seleccionado cada 15 s, /api/live la flecha de cada Cercanías, y sólo cambian
@@ -208,6 +208,12 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
       // Por su vía hacia su próxima parada: mejor que el rastro (Renfe va a veces adelante y atrás).
       const along = withStops.has(v.source) ? stopsHeading(v) : null;
       if (along !== null) return { ...v, heading: along };
+      // Un autobús con GPS que hace un viaje con trazado: hacia donde sigue su trazado, aunque esté parado o se le
+      // acabe de empezar a ver (con sus posiciones haría falta que se moviera).
+      const trip = v.ahead ? tripShapeOf(v.id) : null;
+      const on = trip ? onTrip(v.id, trip) : null;
+      const byShape = on ? headingOnShape(trip.shape, on.to) : null;
+      if (byShape !== null) return { ...v, heading: byShape };
       const heading = headingOf(tracks.get(v.id));
       return heading === null ? v : { ...v, heading };
     });

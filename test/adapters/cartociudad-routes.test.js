@@ -52,7 +52,7 @@ test('pide un tramo cada vez, con su separación mínima, y lo guarda; uno sin r
   assert.equal(roads.segment(A, B), undefined, 'aún no se sabe: se pide');
   assert.equal(roads.segment(B, A), undefined);
   assert.equal(roads.segment(A, B), undefined, 'pedirlo otra vez no lo duplica');
-  assert.deepEqual(roads.stats(), { known: 0, failed: 0, pending: 2 });
+  assert.deepEqual(roads.stats(), { known: 0, failed: 0, pending: 2, urgent: 0 });
   assert.equal(await roads.pump(), true);
   assert.equal(await roads.pump(), false, 'antes de un segundo no pide el siguiente');
   clock += 1000;
@@ -107,4 +107,22 @@ test('guardar sin cambios no escribe, y un fallo al escribir no lanza', async (t
   await roads.pump();
   await roads.save();
   assert.equal(warned.length, 1);
+});
+
+test('lo que alguien mira pasa delante de la cola y va algo más rápido; lo que ya se sabe no se vuelve a pedir', async () => {
+  let clock = 0;
+  const asked = [];
+  const http = { json: async (url) => { asked.push(url); return { found: 'true', geom: geomAB }; } };
+  const roads = createCartoCiudadRoads({ http, dir: pathToFileURL('/nonexistent/'), log, now: () => clock, minGapMs: 900 });
+  const C = [-0.6800, 38.2750];
+  roads.segment(B, C); // ya en la cola de siempre
+  assert.equal(roads.hurry([A, B]), 1);
+  assert.equal(await roads.pump(), true);
+  assert.match(asked[0], /dest=38\.27,-0\.69/, 'primero el tramo de lo que se mira');
+  clock += 300; // la cola prioritaria ya está vacía: el siguiente, con la separación normal
+  assert.equal(await roads.pump(), false);
+  clock += 600;
+  assert.equal(await roads.pump(), true);
+  assert.equal(roads.hurry([A, B]), 0, 'ya se sabe');
+  assert.equal(roads.stats().urgent, 0);
 });

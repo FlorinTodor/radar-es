@@ -143,10 +143,12 @@ export function endedSnapshot(e) {
  * quedan `keepMs` y, como mucho, `max` (las más viejas salen antes).
  * @param {Map<string, { event: object, endedAt: number }>} ended  se modifica
  * @param {Iterable<import('./model.js').IncidentEvent>} before  @param {Iterable<import('./model.js').IncidentEvent>} now_
- * @param {{ now: number, keepMs: number, max: number }} o
+ * @param {{ now: number, keepMs: number|((e: object) => number), max: number }} o  keepMs: lo que se guarda cada una (puede
+ *   depender de la incidencia: un vehículo detenido, unas horas; lo demás, días)
  * @returns {number} cuántas se han apuntado
  */
 export function noteEnded(ended, before, current, { now, keepMs, max }) {
+  const keepOf = typeof keepMs === 'function' ? keepMs : () => keepMs;
   const live = new Set();
   for (const e of current) {
     live.add(e.id);
@@ -158,7 +160,7 @@ export function noteEnded(ended, before, current, { now, keepMs, max }) {
     ended.set(e.id, { event: endedSnapshot(e), endedAt: now });
     added++;
   }
-  for (const [id, x] of ended) if (!(now - x.endedAt < keepMs)) ended.delete(id);
+  for (const [id, x] of ended) if (!(now - x.endedAt < keepOf(x.event))) ended.delete(id);
   // En orden de cuándo terminaron (se apuntan así): las primeras son las más viejas.
   while (ended.size > max) ended.delete(ended.keys().next().value);
   return added;
@@ -169,11 +171,12 @@ export function noteEnded(ended, before, current, { now, keepMs, max }) {
  * @returns {Map<string, { event: object, endedAt: number }>}
  */
 export function restoreEnded(raw, { now, keepMs, max }) {
+  const keepOf = typeof keepMs === 'function' ? keepMs : () => keepMs;
   const out = new Map();
   const list = Array.isArray(raw?.ended) ? raw.ended : [];
   for (const x of list.sort((a, b) => (a?.endedAt ?? 0) - (b?.endedAt ?? 0))) {
     const id = x?.event?.id;
-    if (!isShareId(id) || !Number.isFinite(x.endedAt) || !(now - x.endedAt < keepMs) || x.endedAt > now + 60_000) continue;
+    if (!isShareId(id) || !Number.isFinite(x.endedAt) || !(now - x.endedAt < keepOf(x.event)) || x.endedAt > now + 60_000) continue;
     if (typeof x.event.title !== 'string' || !CATEGORY_LABEL[x.event.category]) continue;
     out.set(id, { event: endedSnapshot(x.event), endedAt: x.endedAt });
   }

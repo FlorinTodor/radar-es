@@ -184,3 +184,13 @@ test('totales de uso: lo guardado vuelve; lo que no es un entero positivo, a 0; 
   assert.deepEqual(restoreShareTotals(null, NOW), emptyShareTotals(NOW));
   assert.equal(restoreShareTotals({ since: NOW + 1 }, NOW).since, NOW); // del futuro no
 });
+
+test('terminadas: lo que se guarda cada una puede depender de ella (un vehículo detenido, menos)', () => {
+  const ended = new Map();
+  const keepMs = (e) => (e.type === 'vehicleObstruction' ? 3600_000 : 86_400_000);
+  noteEnded(ended, [accident, { ...accident, id: 'dgt:v16', type: 'vehicleObstruction' }], [], { now: NOW, keepMs, max: 10 });
+  noteEnded(ended, [], [], { now: NOW + 2 * 3600_000, keepMs, max: 10 });
+  assert.deepEqual([...ended.keys()], ['dgt:23477355']);
+  const back = restoreEnded(endedRecord(new Map([...ended, ['dgt:v16', { event: { ...accident, id: 'dgt:v16', type: 'vehicleObstruction' }, endedAt: NOW }]])), { now: NOW + 2 * 3600_000, keepMs, max: 10 });
+  assert.deepEqual([...back.keys()], ['dgt:23477355']);
+});

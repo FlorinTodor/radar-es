@@ -43,3 +43,10 @@ test('shapeStretch: el tramo entre dos distancias, con sus puntos, y nada si no 
   assert.equal(shapeStretch(shape, 900, 100), null);
   assert.ok(shapeStretch(shape, 1900, 99999).length >= 2, 'hasta el final, aunque se pida más');
 });
+
+test('headingOnShape: hacia dónde sigue el trazado; al final, ninguno', async () => {
+  const { headingOnShape } = await import('../../server/domain/recorrido-trazado.js');
+  assert.ok(Math.abs(headingOnShape(shape, 200) - 90) < 3, 'en la ida, hacia el este');
+  assert.ok(Math.abs(headingOnShape(shape, 1300) - 270) < 3, 'en la vuelta, hacia el oeste');
+  assert.equal(headingOnShape(shape, shape.dist.at(-1)), null);
+});
