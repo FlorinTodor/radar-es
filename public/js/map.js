@@ -38,6 +38,10 @@ const ICON_SIZE = ['interpolate', ['linear'], ['zoom'],
   15, 1];
 // Anillos (alerta, selección) un poco más grandes que la placa.
 const RING_RADIUS = ['interpolate', ['linear'], ['zoom'], 5, 10, 8, 14, 12, 18, 15, 21];
+// Lo elegido (el anillo de los vehículos y las estaciones, el de las incidencias y su zona): el azul de la web.
+const SELECTED = '#6ea8fe';
+// Algo más grande que el de los vehículos: rodea el icono de la incidencia (y el de un terremoto grande).
+const EVENT_RING_RADIUS = ['interpolate', ['linear'], ['zoom'], 5, 14, 8, 17, 12, 21, 15, 24];
 const UNKNOWN_DELAY_RING = '#c3c2b7';
 // Al encuadrar el viaje del vehículo seleccionado, margen de más para que quepan los nombres de las
 // paradas de los extremos: van centrados debajo de su punto (a los lados, la mitad de un nombre largo).
@@ -158,6 +162,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
   // cada selección (en el mapa, en la lista o desde una alerta), no en las recargas de cada 15 s.
   let stopsFramedFor = null;
   let selectedStation = null; // código de la estación cuya ficha está abierta
+  let selectedEvent = null; // la incidencia cuya ficha está abierta: se marca en el mapa (setEventSel)
   let clicks = 0;         // contador de clics en el mapa, para descartar respuestas tardías de EFFIS
   let trackFetchedAt = 0;
   let lastRoute = null; // lo que le queda, si se dibuja aquí (drawRoute)
@@ -201,6 +206,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
   /** Ficha de un suceso; si es una cancelación o un tren sin datos, con las paradas de su viaje en el mapa (las
    * suprimidas, o las que ya debería haber pasado, en gris). */
   function showEventCard(e) {
+    setEventSel(e);
     const stops = e.category === 'cancelacion' || e.category === 'sin-datos' ? e.trip?.stops : null;
     setTripStops(stops?.length > 1 ? { stops: stops.map((s) => ({ ...s, lon: s.lon ?? null, lat: s.lat ?? null, eta: null })), cancelled: e.type === 'cancelado' } : null);
     card.show(eventDetail(e, samePlace(e)));
@@ -268,7 +274,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
       },
     }, firstSymbol);
 
-    for (const id of ['lines', 'areas', 'stations', 'events', 'trails', 'route', 'track', 'stops', 'vehicles']) map.addSource(id, { type: 'geojson', data: EMPTY });
+    for (const id of ['lines', 'areas', 'stations', 'events', 'event-sel', 'trails', 'route', 'track', 'stops', 'vehicles']) map.addSource(id, { type: 'geojson', data: EMPTY });
 
     // Avisos meteorológicos debajo de todo lo demás, para no tapar trenes ni incidencias.
     map.addLayer({ id: 'meteo-fill', type: 'fill', source: 'areas', paint: { 'fill-color': LEVEL_COLOR, 'fill-opacity': 0.13 } }, firstSymbol);
@@ -383,6 +389,26 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
       'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.7, 7, 0.75, 10, 1],
       'icon-allow-overlap': true, 'icon-ignore-placement': true,
     };
+    // La incidencia elegida (su ficha abierta, también la de un enlace compartido), debajo de los iconos: su zona si
+    // la trae (los avisos de AEMET), un anillo en su sitio o, si el sitio es aproximado (el centro de la isla, de la
+    // provincia…), un anillo discontinuo; y un punto gris si ya no está en el directo (no tiene icono en el mapa).
+    const POLY = ['match', ['geometry-type'], ['Polygon', 'MultiPolygon'], true, false];
+    const POINT = ['==', ['geometry-type'], 'Point'];
+    map.addImage('ring-approx', dashedRing(SELECTED), { pixelRatio: 2 });
+    map.addLayer({ id: 'evsel-fill', type: 'fill', source: 'event-sel', filter: POLY, paint: { 'fill-color': SELECTED, 'fill-opacity': 0.12 } });
+    map.addLayer({ id: 'evsel-line', type: 'line', source: 'event-sel', filter: POLY, paint: { 'line-color': SELECTED, 'line-width': 3 } });
+    map.addLayer({
+      id: 'evsel-ring', type: 'circle', source: 'event-sel', filter: ['all', POINT, ['!', ['get', 'approx']]],
+      paint: { 'circle-radius': EVENT_RING_RADIUS, 'circle-color': SELECTED, 'circle-opacity': 0.16, 'circle-stroke-color': SELECTED, 'circle-stroke-width': 3 },
+    });
+    map.addLayer({
+      id: 'evsel-approx', type: 'symbol', source: 'event-sel', filter: ['all', POINT, ['get', 'approx']],
+      layout: { 'icon-image': 'ring-approx', 'icon-allow-overlap': true, 'icon-ignore-placement': true },
+    });
+    map.addLayer({
+      id: 'evsel-gone', type: 'circle', source: 'event-sel', filter: ['all', POINT, ['get', 'gone']],
+      paint: { 'circle-radius': 6, 'circle-color': '#898781', 'circle-stroke-color': '#f0efec', 'circle-stroke-width': 2 },
+    });
     map.addLayer({ id: 'ev-road', type: 'symbol', source: 'events', minzoom: 6.5, layout: roadLayout });
     map.addLayer({ id: 'ev-road-major', type: 'symbol', source: 'events', layout: roadLayout });
     // Obras: capa propia (cuadrado), independiente de la de tráfico y, si se activa, a cualquier zoom.
@@ -585,6 +611,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
 
     loaded = true;
     applyFilters();
+    setEventSel(selectedEvent); // la de un enlace compartido puede abrirse antes de que cargue el mapa
     kick();
   });
 
@@ -645,7 +672,10 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
       stopsFramedFor = null;
     }
     selectedId = id;
-    if (id) setStation(null);
+    if (id) {
+      setStation(null);
+      setEventSel(null);
+    }
     if (loaded) map.setFilter('veh-selected', ['==', ['get', 'id'], id ?? '']);
     if (!id) {
       map.getSource('track')?.setData(EMPTY);
@@ -672,18 +702,35 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
       const hit = areas.find((a) => containsPoint(a.geometry, [at.lng, at.lat])) ?? areas[0];
       if (!hit) return;
       map.getSource('burnt-sel').setData(hit);
+      setEventSel(null);
       card.show(burntAreaDetail(hit.properties));
     } catch { /* EFFIS no responde: no se muestra nada */ }
   }
 
   function setStation(code) {
     selectedStation = code;
+    if (code) setEventSel(null);
     if (loaded) map.setFilter('stations-sel', ['==', ['get', 'code'], code ?? '']);
+  }
+
+  /**
+   * Marca en el mapa la incidencia de la ficha abierta (null: ninguna). Las cancelaciones y los trenes sin datos no:
+   * ya enseñan las paradas de su viaje.
+   */
+  function setEventSel(e) {
+    selectedEvent = e ?? null;
+    if (!loaded) return;
+    const trip = e && (e.category === 'cancelacion' || e.category === 'sin-datos');
+    const geometry = !e || trip ? null
+      : e.geometry ?? (Number.isFinite(e.lon) && Number.isFinite(e.lat) ? { type: 'Point', coordinates: [e.lon, e.lat] } : null);
+    map.getSource('event-sel').setData(geometry
+      ? { type: 'Feature', geometry, properties: { approx: Boolean(e.approx), gone: Number.isFinite(e.endedAt) } } : EMPTY);
   }
 
   function clearSelection() {
     setSelected(null);
     setStation(null);
+    setEventSel(null);
     setTripStops(null); // las de una cancelación (las de un vehículo ya las quita setSelected)
     card.hide();
   }
@@ -829,6 +876,11 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     setEvents(list) {
       eventList = list;
       if (!loaded) return;
+      // La elegida, con sus datos nuevos (puede haber cambiado de sitio o de zona); si ya no está, se queda donde estaba.
+      if (selectedEvent && !Number.isFinite(selectedEvent.endedAt)) {
+        const fresh = list.find((e) => e.id === selectedEvent.id);
+        if (fresh) setEventSel(fresh);
+      }
       const areas = list.filter((e) => e.geometry);
       map.getSource('areas').setData({
         type: 'FeatureCollection',
@@ -953,6 +1005,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     showMessage(title, text) {
       setSelected(null);
       setStation(null);
+      setEventSel(null);
       setTripStops(null);
       card.show(`<div class="pop"><h3>${esc(title)}</h3><p>${esc(text)}</p></div>`);
     },
@@ -993,6 +1046,26 @@ export function trackParts(track) {
 }
 
 /** Icono rasterizado para MapLibre (rombo, cuadrado o triángulo de 14 px a doble resolución). */
+/** Anillo discontinuo (un sitio aproximado), a doble resolución: 31 px de radio en pantalla. */
+export function dashedRing(color) {
+  const size = 72 * 2;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const g = canvas.getContext('2d');
+  g.strokeStyle = color;
+  g.lineWidth = 6;
+  g.setLineDash([14, 10]);
+  g.beginPath();
+  g.arc(size / 2, size / 2, size / 2 - 10, 0, Math.PI * 2);
+  g.stroke();
+  g.fillStyle = color;
+  g.globalAlpha = 0.12;
+  g.beginPath();
+  g.arc(size / 2, size / 2, size / 2 - 13, 0, Math.PI * 2);
+  g.fill();
+  return { width: size, height: size, data: g.getImageData(0, 0, size, size).data };
+}
+
 export function icon(shape, fill, stroke) {
   const size = 28;
   const canvas = document.createElement('canvas');
