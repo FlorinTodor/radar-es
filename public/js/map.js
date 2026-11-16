@@ -972,11 +972,14 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     /** Actualiza la ficha y, cada 15 s, el recorrido del tren seleccionado cuando llegan datos. */
     refreshVehicle(v) {
       if (selectedId !== v.id) return;
+      const was = selectedVehicle;
       selectedVehicle = v;
       const route = drawRoute(v);
       lastRoute = route;
       if (card.open) card.show(vehicleDetail(v, !!route, tripStops));
-      if (Date.now() - trackFetchedAt > 15_000) loadTrack(v);
+      // Un autobús que esperaba su carretera y ya la tiene: su recorrido y lo que le queda, ya (no a los 15 s).
+      const gotRoad = was?.id === v.id && was.roadPending && !v.roadPending;
+      if (gotRoad || Date.now() - trackFetchedAt > 15_000) loadTrack(v);
     },
 
     selectedVehicleId: () => selectedId,
@@ -1468,7 +1471,7 @@ function vehicleDetail(v, onRoute = false, stops = null) {
       + (v.byRoad
         ? t('Su operador no publica el recorrido entre paradas: va por la carretera más corta entre ellas (CartoCiudad), así que el recorrido es aproximado. ')
         : v.roadPending
-          ? t('Su operador no publica el recorrido entre paradas: se está calculando por carretera (CartoCiudad) y en uno o dos minutos se dibuja. ')
+          ? t('Su operador no publica el recorrido entre paradas: se está calculando por carretera (CartoCiudad) y en unos segundos se dibuja. ')
           : '')
       + (v.atLastStop
         ? t('El operador no publica el recorrido entre paradas, así que se muestra en la última parada por la que ha pasado.')

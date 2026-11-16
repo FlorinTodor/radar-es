@@ -19,7 +19,7 @@ const isUpdating = (status) => (status >= 502 && status <= 504) || (status >= 52
  * @param {{ status: (s: 'live'|'connecting'|'updating'|'error'|'stale', ageMs?: number) => void, live: Function, events: Function,
  *           buses: Function, health: Function }} handlers
  * @param {{ buses?: boolean }} [options]  buses: pedir también los autobuses (sólo si su capa está activa).
- * @returns {{ setBuses: (on: boolean) => void }}
+ * @returns {{ setBuses: (on: boolean) => void, soon: (name: string, ms: number) => void }}
  */
 export function connect(handlers, { buses = false } = {}) {
   const feeds = {
@@ -41,6 +41,8 @@ export function connect(handlers, { buses = false } = {}) {
     }
     const gen = (feed.gen = (feed.gen ?? 0) + 1);
     let wait = EVERY[name] * (0.9 + Math.random() * 0.2); // algo de azar para no llegar todos a la vez
+    feed.soon = undefined;
+    feed.inFlight = true;
     try {
       const res = await fetch(feed.url, { cache: 'no-cache' }); // el navegador revalida con ETag (304)
       if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
@@ -65,7 +67,17 @@ export function connect(handlers, { buses = false } = {}) {
       }
       console.warn(`[directo] ${feed.url}: ${err.message}`);
     }
-    if (feed.on) feed.timer = setTimeout(() => poll(name), wait);
+    feed.inFlight = false;
+    // Lo que se ha pedido antes (soon) durante esta consulta, salvo si ha fallado: entonces manda su espera.
+    if (feed.soon !== undefined && !feed.failures) wait = Math.min(wait, feed.soon);
+    if (feed.on) schedule(name, wait);
+  }
+
+  function schedule(name, wait) {
+    const feed = feeds[name];
+    clearTimeout(feed.timer);
+    feed.nextAt = Date.now() + wait;
+    feed.timer = setTimeout(() => poll(name), wait);
   }
 
   document.addEventListener('visibilitychange', () => {
@@ -88,6 +100,13 @@ export function connect(handlers, { buses = false } = {}) {
       clearTimeout(feeds.buses.timer);
       if (on) poll('buses');
       else handlers.buses(null); // fuera los autobuses
+    },
+    /** Que la próxima consulta de `name` sea, como mucho, dentro de `ms` (no la retrasa nunca). */
+    soon(name, ms) {
+      const feed = feeds[name];
+      if (!feed?.on || document.hidden) return;
+      if (feed.inFlight) feed.soon = Math.min(feed.soon ?? Infinity, ms); // se aplica al programar la siguiente
+      else if (!feed.failures && feed.timer && feed.nextAt - Date.now() > ms) schedule(name, ms);
     },
   };
 }

@@ -250,6 +250,7 @@ const replaceVehicles = (isBus, fresh) => {
   for (const [key, list] of fresh) state.vehicles.set(key, list);
 };
 
+const ROAD_PENDING_POLL_MS = 5000;
 const stream = connect({
   status(s, ageMs) {
     const el = document.getElementById('live');
@@ -286,6 +287,10 @@ const stream = connect({
     render('vehicles');
     tryPendingFollow();
     openShared('vehicles');
+    // La ficha abierta es la de un autobús que espera su carretera: se vuelve a mirar en 5 s, no en 20 (el servidor la
+    // pide en cuanto se abre y la tiene en unos segundos).
+    const open = map.selectedVehicleId() && findVehicle(map.selectedVehicleId());
+    if (open?.roadPending) stream.soon('buses', ROAD_PENDING_POLL_MS);
   },
   health(h) {
     state.health = h;
