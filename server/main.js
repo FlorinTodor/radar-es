@@ -13,6 +13,7 @@ import { makeKeepTracks } from './application/use-cases/keep-tracks.js';
 import { makeRecordPunctuality } from './application/use-cases/record-punctuality.js';
 import { makeDayInFigures } from './application/use-cases/day-in-figures.js';
 import { makeFollowBot } from './application/use-cases/follow-bot.js';
+import { makeShare } from './application/use-cases/share.js';
 import { createHttpClient } from './adapters/outbound/http/http-client.js';
 import { createFileCache } from './adapters/outbound/http/file-cache.js';
 import { createConsoleLogger } from './adapters/outbound/logging/console-logger.js';
@@ -31,6 +32,8 @@ import { createPunctualityStore } from './adapters/outbound/persistence/punctual
 import { createDayStore } from './adapters/outbound/persistence/day-store.js';
 import { createFollowStore } from './adapters/outbound/persistence/follow-store.js';
 import { createFileLease } from './adapters/outbound/persistence/file-lease.js';
+import { createEndedStore } from './adapters/outbound/persistence/ended-store.js';
+import { createCardRenderer } from './adapters/outbound/cards/card-renderer.js';
 import { createTelegramApi } from './adapters/outbound/telegram/telegram-api.js';
 import { createTelegramBot } from './adapters/inbound/telegram/telegram-bot.js';
 import { createSources } from './adapters/outbound/sources/index.js';
@@ -76,6 +79,10 @@ const punctualityStore = assertPort('PunctualityStore', createPunctualityStore({
 // El mismo histórico se lee para el día en cifras (KPI y alertas de días pasados); su registro de cada día, aparte.
 const historyReader = assertPort('HistoryReader', history, PORT_MEMBERS.HistoryReader);
 const dayStore = assertPort('DayStore', createDayStore({ dir: new URL('dias/', config.dataDir), log }), PORT_MEMBERS.DayStore);
+// Las incidencias que ya no salen en el directo (sus enlaces compartidos) y las tarjetas de compartir, que se dibujan en
+// el hilo pequeño de la DGT: con las 2 CPU del contenedor, ni compiten con el principal ni cargan otro hilo en memoria.
+const endedStore = assertPort('EndedStore', createEndedStore({ dir: new URL('compartir/', config.dataDir), log }), PORT_MEMBERS.EndedStore);
+const cardRenderer = assertPort('CardRenderer', createCardRenderer({ pool: xmlPool, log }), PORT_MEMBERS.CardRenderer);
 const tiles = assertPort('TileProvider', createWmsTiles({ http, dir: fileURLToPath(new URL('tiles/', config.dataDir)), log }), PORT_MEMBERS.TileProvider);
 
 // Sitúa los municipios que citan los avisos del 112 (no traen coordenadas). No es un puerto de la
@@ -104,6 +111,7 @@ const serveTiles = makeServeTiles({ tiles });
 const refreshCatalogs = makeRefreshCatalogs({ stations, networkStations, network, railNetwork, railGeometry, log });
 const keepTracks = makeKeepTracks({ situation, store: trackStore, clock, log });
 const dayInFigures = makeDayInFigures({ situation, history: historyReader, store: dayStore, clock, log });
+const share = makeShare({ query, store: endedStore, renderer: cardRenderer, clock, log });
 
 // --- Adaptadores de entrada ------------------------------------------------
 await refreshCatalogs(); // espera a las estaciones; los trazados y la red ferroviaria siguen cargándose detrás
@@ -113,6 +121,8 @@ await keepTracks.restore().catch((err) => log.warn(`[estelas] no se pudo recuper
 await recordPunctuality.restore().catch((err) => log.warn(`[puntualidad] no se pudo recuperar: ${err.message}`));
 // El registro de hoy del día en cifras: un reinicio no empieza el día de cero.
 await dayInFigures.restore().catch((err) => log.warn(`[día en cifras] no se pudo recuperar el día: ${err.message}`));
+// Las incidencias que ya no salían en el directo: sus enlaces compartidos siguen diciendo qué eran.
+await share.restore().catch((err) => log.warn(`[compartir] no se pudieron recuperar las terminadas: ${err.message}`));
 
 const feeds = enabledSources.map(({ id, interval }) => ({ id, interval }));
 // Trabajos periódicos: la puntualidad (sus lecturas cada minuto y una copia cada cuarto de hora, y al apagar:
@@ -122,6 +132,9 @@ const tasks = [
   { name: 'puntualidad', every: 60_000, run: recordPunctuality.tick },
   { name: 'puntualidad', every: 15 * 60_000, run: recordPunctuality.save },
   { name: 'día en cifras', every: 60_000, run: dayInFigures.tick },
+  // Compartir: cada minuto, las incidencias que han dejado de salir en el directo; cada 5, la copia (si ha cambiado).
+  { name: 'compartir', every: 60_000, run: share.remember },
+  { name: 'compartir', every: 5 * 60_000, run: share.save },
 ];
 const scheduler = startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, saveTracks: keepTracks.save, tasks, log });
 
@@ -165,6 +178,8 @@ const server = createHttpServer({
   about: config.about,
   serveTiles,
   days: dayInFigures,
+  // El enlace propio de cada incidencia, estación y vehículo, con su tarjeta para WhatsApp, Telegram y X.
+  share,
   // Servidor MCP en POST /mcp: los asistentes de IA consultan el directo con herramientas.
   mcp: createMcpHandler({ query, about: config.about, version: pkg.version, now: clock.now }),
   metrics,
@@ -196,9 +211,9 @@ function shutdown() {
   metrics.close();
   pool.close();
   if (xmlPool !== pool) xmlPool.close();
-  // Lo último que se guarda: el historial de posiciones, la puntualidad y el día en cifras, para que el
-  // siguiente arranque los siga; y el bot suelta su turno.
-  Promise.allSettled([keepTracks.save(), recordPunctuality.save(), dayInFigures.save(), botStopped])
+  // Lo último que se guarda: el historial de posiciones, la puntualidad, el día en cifras y las incidencias terminadas
+  // (los enlaces compartidos), para que el siguiente arranque los siga; y el bot suelta su turno.
+  Promise.allSettled([keepTracks.save(), recordPunctuality.save(), dayInFigures.save(), share.save(), botStopped])
     .then((results) => results.filter((r) => r.status === 'rejected').forEach((r) => log.warn(`[al cerrar] ${r.reason?.message ?? r.reason}`)))
     .finally(() => server.close(() => process.exit(0)));
   setTimeout(() => process.exit(0), 3000).unref();

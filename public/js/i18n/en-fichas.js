@@ -142,4 +142,17 @@ export default {
   'Su línea.': 'Its line.',
   Puntualidad: 'Punctuality',
   'Su operador no publica el retraso: el radar no puede saber su puntualidad.': 'Its operator does not publish delays: the radar cannot know its punctuality.',
+
+  // Compartir (compartir.js, las fichas del mapa y abrir un enlace compartido, app.js).
+  Compartir: 'Share',
+  'Enlace copiado': 'Link copied',
+  'Copia el enlace:': 'Copy the link:',
+  'Ya no está en el directo del radar desde el {when}: esto es lo último que publicó su fuente.':
+    'No longer in the radar\'s live data since {when}: this is the last thing its source published.',
+  'Esta incidencia ya no está en el directo': 'This incident is no longer in the live data',
+  'Este vehículo ya no está en el directo': 'This vehicle is no longer in the live data',
+  'No encontramos esta estación': 'We could not find this station',
+  'Puede que el enlace esté mal copiado.': 'The link may have been copied incorrectly.',
+  'Puede que haya terminado o que su fuente no publique datos ahora. El mapa enseña lo que pasa ahora.':
+    'It may have ended, or its source may not be publishing data right now. The map shows what is happening now.',
 };

@@ -451,6 +451,9 @@ Lo que no se puede dibujar por falta de datos públicos:
 | `GET /api/puntualidad/:clave` | puntualidad de los últimos días de un servicio o de una línea |
 | `GET /api/dia`, `/api/dia/AAAA-MM-DD` | «El día en cifras» de hoy o de un día pasado |
 | `GET /api/lines/sources` | de dónde sale el trazado de cada red: atribución y fecha de actualización |
+| `GET /incidencia/:id`, `/estacion/:código`, `/vehiculo/:id` | el enlace para compartir algo: el mapa, que lo abre al cargar, con su título, su descripción y su tarjeta en la cabecera (fuera de los buscadores); `?lang=en`, en inglés |
+| `GET /api/tarjeta/:tipo/:id.png?v=…` | la tarjeta de ese enlace (PNG de 1200×630) que enseñan WhatsApp, Telegram o X: qué pasa, dónde, las horas de su fuente y su atribución |
+| `GET /api/compartido/:tipo/:id` | si lo de un enlace sigue en el directo y, si no, lo último que se supo de esa incidencia (se guarda tres días) |
 | `POST /mcp` | servidor MCP para asistentes de IA (ver [Servidor MCP](#servidor-mcp)) |
 
 Las alertas y los KPIs por minuto se guardan en `data/history/*.jsonl` para analizarlos

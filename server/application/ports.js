@@ -168,6 +168,23 @@
  */
 
 /**
+ * Las incidencias que ya no salen en el directo, con lo que enseñaba su tarjeta y desde cuándo (caso de uso share), para
+ * que su enlace compartido siga diciendo qué eran tras un reinicio o un despliegue. Como TrackStore: se escribe de golpe,
+ * y en un relevo el servidor que arranca lee la última copia que dejó el otro.
+ * @typedef {object} EndedStorePort
+ * @property {() => Promise<object|null>} load  La última copia guardada, o null si no hay o no se lee.
+ * @property {(record: object) => Promise<void>} save  Nunca rechaza: si no puede escribir, lo registra.
+ */
+
+/**
+ * Dibuja la tarjeta de compartir de algo (domain/compartir.js, ShareCard) como PNG de 1200×630, fuera del hilo
+ * principal. Sin la letra que necesita, `available()` es false y no dibuja nada (las páginas enseñan la imagen general).
+ * @typedef {object} CardRendererPort
+ * @property {() => boolean} available
+ * @property {(card: import('../domain/compartir.js').ShareCard) => Promise<Uint8Array>} render  Rechaza si no se puede.
+ */
+
+/**
  * Lo que sigue cada chat del bot «Sigue tu tren» (caso de uso follow-bot) y lo que ya se le ha avisado, para
  * seguir igual tras un reinicio o un relevo. Sólo el número de cada chat, lo que sigue y desde cuándo.
  * @typedef {object} FollowStorePort
@@ -251,6 +268,8 @@ export const PORT_MEMBERS = {
   DayStore: ['load', 'save', 'days'],
   TrackStore: ['load', 'save'],
   PunctualityStore: ['load', 'save'],
+  EndedStore: ['load', 'save'],
+  CardRenderer: ['available', 'render'],
   FollowStore: ['load', 'save'],
   Lease: ['claim', 'release'],
   ChatChannel: ['receive', 'send', 'answer', 'setCommands', 'setDescriptions'],

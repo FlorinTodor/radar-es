@@ -6,6 +6,7 @@ import { stationBoard } from './station-board.js';
 import * as S from './siguiendo.js';
 import { loadTelegram, telegramLink } from './avisar.js';
 import { mountLangSwitch, t, tn } from './i18n.js';
+import { listenShareButtons, parseSharePath } from './compartir.js';
 
 // ---------- Estado ----------
 const state = {
@@ -84,6 +85,7 @@ map.ready.then(async () => {
     const select = document.getElementById('station-network');
     select.insertAdjacentHTML('beforeend', P.stationNetworks(stations).map(([id, name]) => `<option value="${esc(id)}">${esc(name)}</option>`).join(''));
   } catch { /* sin estaciones no pasa nada */ }
+  openShared('stations');
   loadLines();
 });
 
@@ -266,6 +268,7 @@ const stream = connect({
     if (state.selected.size) applyFocus(); // quita lo marcado que ya no existe
     render('vehicles', 'alerts', 'kpis');
     tryPendingFollow();
+    openShared('vehicles');
   },
   events(d) {
     state.events.clear();
@@ -275,12 +278,14 @@ const stream = connect({
     }
     if (state.selected.size) applyFocus();
     render('events');
+    openShared('events');
   },
   buses(d) {
     replaceVehicles(true, d ? bySource(d.vehicles, 'bus:') : new Map());
     if (state.selected.size) applyFocus();
     render('vehicles');
     tryPendingFollow();
+    openShared('vehicles');
   },
   health(h) {
     state.health = h;
@@ -842,6 +847,67 @@ function openFollowed(key) {
   }
   const events = (status?.events?.list ?? []).filter((e) => !e.withdrawn && findEvent(e.id));
   if (events.length) focusOn(events.map((e) => ({ kind: 'event', id: e.id })));
+}
+
+// ---------- Enlaces compartidos (compartir.js) ----------
+// Quien abre el enlace de una incidencia, un vehículo o una estación (/incidencia/<id>, /vehiculo/<id>,
+// /estacion/<código>) ve el mapa con eso abierto y encuadrado en cuanto llegan sus datos, como si lo hubiera pulsado
+// en una lista. Si ya no está en el directo: lo último que se supo de ella (una incidencia) o un aviso.
+listenShareButtons();
+let shared = parseSharePath(location.pathname);
+const sharedUntil = Date.now() + 90_000; // lo que se espera a que lleguen sus datos (un autobús, con su capa)
+let sharedAsked = false;
+
+function sharedGone() {
+  const title = { incidencia: t('Esta incidencia ya no está en el directo'), vehiculo: t('Este vehículo ya no está en el directo'),
+    estacion: t('No encontramos esta estación') }[shared.kind];
+  map.showMessage(title, shared.kind === 'estacion' ? t('Puede que el enlace esté mal copiado.')
+    : t('Puede que haya terminado o que su fuente no publique datos ahora. El mapa enseña lo que pasa ahora.'));
+  shared = null;
+}
+
+/** Pregunta al servidor por lo que no ha llegado con el directo: si ya no está, lo último que se supo. Una vez. */
+async function askShared() {
+  if (sharedAsked) return;
+  sharedAsked = true;
+  let body = null;
+  try {
+    const res = await fetch(`/api/compartido${location.pathname}`);
+    body = res.ok ? await res.json() : null;
+  } catch { /* sin respuesta: como si ya no estuviera */ }
+  if (!shared) return;
+  if (!body) return sharedGone();
+  if (body.status === 'terminada' && body.event) {
+    // Sin su viaje (sólo se guardan las posiciones de las paradas): la ficha general, con lo que publicó su fuente.
+    const e = { ...body.event, trip: undefined, endedAt: body.endedAt };
+    shared = null;
+    map.showEvent(e);
+    if (Number.isFinite(e.lon) && Number.isFinite(e.lat)) map.flyTo(e.lon, e.lat, 9);
+    return;
+  }
+  // Sigue en el directo y llegará con la próxima consulta; un autobús, sólo con su capa encendida.
+  if (body.mode && !P.modeOn(prefs, body.mode)) turnOnLayer(body.mode);
+}
+
+/** Abre lo del enlace cuando llega lo que hace falta: las estaciones, las incidencias o los vehículos. */
+function openShared(arrived) {
+  if (!shared) return;
+  if (Date.now() > sharedUntil) return sharedGone();
+  const { kind, id } = shared;
+  if (kind === 'estacion' && arrived === 'stations') {
+    if (!state.stations.has(id)) return sharedGone();
+    shared = null;
+    openStation(id, true);
+  } else if (kind === 'incidencia' && arrived === 'events') {
+    if (!findEvent(id)) return void askShared();
+    shared = null;
+    focusOn([{ kind: 'event', id }]);
+  } else if (kind === 'vehiculo' && arrived === 'vehicles') {
+    if (!findVehicle(id)) return void askShared();
+    shared = null;
+    focusOn([{ kind: 'vehicle', id }]);
+  } else return;
+  if (mobile.matches) setSheet('peek');
 }
 
 // ---------- Idioma (ES/EN, ver i18n.js) ----------

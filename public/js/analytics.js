@@ -6,6 +6,9 @@ const INTEGRITY = 'sha384-atnOLvQb9t+jTSipvd75X2yginT4PjVbqDdlJAmxMm+wYElFmeR6Em
 
 fetch('/api/about').then((r) => r.json()).then(({ goatcounter }) => {
   if (!goatcounter || document.querySelector('script[data-goatcounter]')) return;
+  // Los enlaces compartidos cuentan como su tipo (/incidencia, /vehiculo, /estacion), no uno por uno: así el contador
+  // no apunta qué incidencia ha abierto cada visita, y las páginas se pueden comparar.
+  window.goatcounter = { ...(window.goatcounter ?? {}), path: (p) => p.replace(/^\/(incidencia|estacion|vehiculo)\/[^?#]*/, '/$1') };
   const script = document.createElement('script');
   script.async = true;
   script.crossOrigin = 'anonymous';

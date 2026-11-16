@@ -7,6 +7,7 @@ import { followControls } from './siguiendo.js';
 import { modeNoun } from '../../server/domain/modos.js';
 import { punctualitySlot } from './puntualidad.js';
 import { telegramFollow, telegramRoad } from './avisar.js';
+import { shareButton } from './compartir.js';
 import { locale, t, tn, tx } from './i18n.js';
 
 const STYLE = 'https://tiles.openfreemap.org/styles/dark';
@@ -948,6 +949,14 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
 
     selectedStationCode: () => selectedStation,
 
+    /** Un aviso corto en el sitio de la ficha (un enlace compartido de algo que ya no está en el directo). */
+    showMessage(title, text) {
+      setSelected(null);
+      setStation(null);
+      setTripStops(null);
+      card.show(`<div class="pop"><h3>${esc(title)}</h3><p>${esc(text)}</p></div>`);
+    },
+
     /** Estado de las fuentes (/api/health): de ahí salen la atribución y la fecha de cada ficha. */
     setSources(health) {
       sourcesById = new Map(health.map((s) => [s.id, s]));
@@ -1171,7 +1180,7 @@ function stationDetail(st, { stopped, arriving, notices, lines, connections = []
     ? (c.first ? t('salía a las {time} según su horario', { time: c.time }) : t('pasaba a las {time} según su horario', { time: c.time }))
     : c.first ? t('sale a las {time} según su horario', { time: c.time })
       : c.last ? t('llega a las {time} según su horario', { time: c.time }) : t('pasa a las {time} según su horario', { time: c.time }));
-  return `<div class="pop">${photo}<h3>${esc(st.name)}</h3>${followControls(st)}${telegramFollow(st.follow)}${meta.length ? `<p class="st-meta">${esc(meta.join(' · '))}</p>` : ''}
+  return `<div class="pop">${photo}<h3>${esc(st.name)}</h3>${shareButton('estacion', st.code, st.name)}${followControls(st)}${telegramFollow(st.follow)}${meta.length ? `<p class="st-meta">${esc(meta.join(' · '))}</p>` : ''}
     ${lines.length ? chips(lines) : ''}
     <h4>${t('En la estación ahora')}</h4>${list(stopped.map((v) => train(v)), t('Ningún tren parado ahora mismo.'))}
     <h4>${t('Próximos trenes')}</h4>${list(arriving.map((v) => train(v, when(v))), t('Ningún tren en camino con datos en directo.'))}
@@ -1276,7 +1285,7 @@ export function cancellationDetail(e, now = Date.now()) {
     ...eventSourceRows(e),
   ].filter((r) => r && r[1]);
   const list = trip.stops?.length > 1 ? cancelledStopsHtml(trip.stops, e.type === 'cancelado') : '';
-  return `<div class="pop"><h3>${esc(tx(e.title, e.source))}</h3>${followControls(trip)}${telegramFollow(trip.follow, trip.mode, { line: trip.line, service: trip.service, operator: trip.operator })}${e.description ? `<p>${esc(tx(e.description, e.source))}</p>` : ''}
+  return `<div class="pop"><h3>${esc(tx(e.title, e.source))}</h3>${shareButton('incidencia', e.id, tx(e.title, e.source))}${followControls(trip)}${telegramFollow(trip.follow, trip.mode, { line: trip.line, service: trip.service, operator: trip.operator })}${e.description ? `<p>${esc(tx(e.description, e.source))}</p>` : ''}
     <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
     ${punctualitySlot(trip.follow)}${list}
     <div class="note">${t('Las horas son las del horario del operador. Si el operador deja de publicarlo, sigue aquí hasta medianoche como «ya no lo publica»; si su fuente deja de responder, se muestra como mucho una hora más.')}</div></div>`;
@@ -1309,7 +1318,7 @@ export function missingTrainDetail(e, now = Date.now()) {
     ...eventSourceRows(e),
   ].filter((r) => r && r[1]);
   const list = trip.stops?.length > 1 ? missingStopsHtml(trip.stops) : '';
-  return `<div class="pop"><h3>${esc(tx(e.title, e.source))}</h3>${followControls(trip)}${telegramFollow(trip.follow, trip.mode, { line: trip.line, service: trip.service, operator: trip.operator })}${e.description ? `<p>${esc(tx(e.description, e.source))}</p>` : ''}
+  return `<div class="pop"><h3>${esc(tx(e.title, e.source))}</h3>${shareButton('incidencia', e.id, tx(e.title, e.source))}${followControls(trip)}${telegramFollow(trip.follow, trip.mode, { line: trip.line, service: trip.service, operator: trip.operator })}${e.description ? `<p>${esc(tx(e.description, e.source))}</p>` : ''}
     <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
     ${punctualitySlot(trip.follow)}${list}
     <div class="note">${t('Sale si, según el horario publicado, debería llevar más de 10 minutos circulando y le quedan más de 5 para llegar, y su operador no publica ni su posición ni su retraso ni su cancelación. Puede circular sin que se publique, o no circular sin que se haya publicado su cancelación.')}</div></div>`;
@@ -1389,7 +1398,7 @@ function vehicleDetail(v, onRoute = false, stops = null) {
   const list = stops ? stopsListHtml(stops, { open }) : '';
   const stopsNote = list ? ` ${t('Los <strong>puntos</strong> son sus paradas: blancos los que le quedan y grises por los que ya ha pasado.')}`
     + (v.estimated ? ` ${t('Sus horas son las del horario.')}` : '') : '';
-  return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}${followControls(v)}${telegramFollow(v.follow, v.mode, { line: v.line, service: v.service, operator: v.operator })}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
+  return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}${shareButton('vehiculo', v.id, vehicleTitle(v))}${followControls(v)}${telegramFollow(v.follow, v.mode, { line: v.line, service: v.service, operator: v.operator })}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
     ${punctualitySlot(v.follow, { delayKnown: Number.isFinite(v.delay) || typeof v.late === 'boolean' })}
     ${list}<div class="note">${note}${stopsNote}</div></div>`;
 }
@@ -1480,7 +1489,10 @@ function eventDetail(e, others = []) {
     .map((o) => `<li><button type="button" class="link" data-event="${esc(o.id)}">${o.power ? `${t('Corte de luz:')} ` : ''}${esc(tx(o.title, o.source))}</button></li>`).join('')}</ul>` : '';
   // Una incidencia de tráfico: el bot de Telegram puede avisar de lo que pase en su carretera.
   const road = e.category === 'carretera' && e.type !== 'aviso' ? telegramRoad(e.road) : '';
+  // Lo que enseña un enlace compartido de una incidencia que ya no está en el directo: lo último que se supo de ella.
+  const gone = Number.isFinite(e.endedAt)
+    ? `<p class="share-gone" role="status">${esc(t('Ya no está en el directo del radar desde el {when}: esto es lo último que publicó su fuente.', { when: fmtDateTime(e.endedAt) }))}</p>` : '';
   // El título y la descripción: los de la fuente tal cual; los que escribe el radar, traducidos (tx).
-  return `<div class="pop"><h3>${esc(tx(e.title, e.source))}</h3>${road}${e.description ? `<p>${esc(tx(e.description, e.source))}</p>` : ''}
+  return `<div class="pop"><h3>${esc(tx(e.title, e.source))}</h3>${gone}${shareButton('incidencia', e.id, tx(e.title, e.source))}${gone ? '' : road}${e.description ? `<p>${esc(tx(e.description, e.source))}</p>` : ''}
     <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>${link}${more}</div>`;
 }

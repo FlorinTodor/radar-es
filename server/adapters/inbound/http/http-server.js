@@ -13,6 +13,8 @@ import { isStationCode } from '../../../domain/model.js';
 import { followKind, isFollowKey } from '../../../domain/seguir.js';
 import { isDay } from '../../../domain/dia.js';
 import { McpBusy, PROTOCOL_VERSIONS, RPC, idOf, isModernVersion, versionOf } from '../mcp/mcp.js';
+import { parseSharePath, sharePath } from '../../../domain/compartir.js';
+import { ShareBusy } from '../../../application/use-cases/share.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -37,8 +39,11 @@ const MIME = {
  *   mcp: quien atiende los mensajes del servidor MCP en POST /mcp; sin él, /mcp no existe.
  *   metrics: cuenta cada petición (por ruta, sin parámetros) y cada mensaje MCP, para la monitorización.
  *   days: el día en cifras (caso de uso day-in-figures), en /api/dia y /api/dia/AAAA-MM-DD; sin él, no existen.
+ *   share: compartir (caso de uso share): la página de cada enlace (/incidencia/<id>, /estacion/<código>,
+ *   /vehiculo/<id>), su tarjeta (/api/tarjeta/…) y lo que necesita el navegador para abrirlo (/api/compartido/…);
+ *   sin él, esas direcciones no existen.
  */
-export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs, sharedFiles = {}, about = {}, now = Date.now, mcp, metrics = NO_METRICS, days }) {
+export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs, sharedFiles = {}, about = {}, now = Date.now, mcp, metrics = NO_METRICS, days, share }) {
   // Todas las respuestas JSON se calculan, comprimen y firman (ETag) como mucho una vez cada `ttl`,
   // así que pedirlas mil veces cuesta lo mismo que pedirlas una. Sin esto, /api/lines (1 MB)
   // saturaba un núcleo con unas 20 peticiones por segundo. `key` separa las variantes por parámetros.
@@ -219,6 +224,8 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
         if (id === null || id.length > MAX_VEHICLE_ID) return send(res, 400, { error: 'Ruta inválida' });
         return sendTrain(req, res, `track:${id}`, () => query.track(id) ?? null, 'Vehículo sin historial');
       }
+      if (share && url.pathname.startsWith('/api/tarjeta/')) return await sendCard(req, res, url);
+      if (share && url.pathname.startsWith('/api/compartido/')) return sendShared(req, res, url);
       if (url.pathname.startsWith('/api/')) return send(res, 404, { error: 'Ruta no encontrada' });
 
       // Módulos del dominio que el navegador usa tal cual (sólo los de la lista), con la caché de lo nuestro.
@@ -229,6 +236,9 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
       for (const [prefix, dir] of Object.entries(vendorDirs)) {
         if (url.pathname.startsWith(prefix)) return await serveFile(req, res, dir, url.pathname.slice(prefix.length), VENDOR_CACHE);
       }
+      // El enlace de algo que se comparte: el mapa, con el título, la descripción y la tarjeta de eso en la cabecera.
+      const shared = share ? parseSharePath(url.pathname) : null;
+      if (shared) return await sendSharePage(req, res, shared, url);
       // Páginas con URL limpia y una sola dirección por página: /legal sirve legal.html, y /legal.html,
       // /legal/ e /index.html redirigen a /legal y a /.
       const clean = cleanPagePath(url.pathname);
@@ -433,6 +443,80 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     res.end(tile.png);
   }
 
+  // ---------- Compartir ----------
+  // La dirección de la web en las cabeceras de cada enlace: la canónica (PUBLIC_URL) o, sin ella (en local), la que
+  // se ha pedido, si tiene forma de dirección.
+  const originOf = (req) => canonical?.origin ?? `http://${/^[a-z0-9.-]+(:\d{1,5})?$/i.test(req.headers.host ?? '') ? req.headers.host : 'localhost'}`;
+  let indexPage = null; // { mtimeMs, html }: la página del mapa, leída una vez por versión del fichero
+  const readIndex = async () => {
+    const file = join(publicDir, 'index.html');
+    const info = await stat(file);
+    if (indexPage?.mtimeMs !== info.mtimeMs) indexPage = { mtimeMs: info.mtimeMs, html: await readFile(file, 'utf8') };
+    return indexPage.html;
+  };
+  // Cada tarjeta nueva es un dibujo en un hilo de cálculo: como mucho unas pocas por segundo entre todos y menos por
+  // cliente (las que ya están dibujadas no gastan nada, y Cloudflare guarda cada una).
+  const cardBudget = createBudget({ perSecond: CARD_BUDGET.perSecond, burst: CARD_BUDGET.burst, now });
+
+  /** /incidencia/<id>, /estacion/<código> y /vehiculo/<id>: el mapa, que abre la ficha de eso al cargar. */
+  async function sendSharePage(req, res, { kind, id }, url) {
+    const lang = langOf(url);
+    const found = share.lookup(kind, id, lang);
+    const page = Buffer.from(sharedHead(await readIndex(), { origin: originOf(req), kind, id, lang, card: found?.card ?? null, cards: share.cardsAvailable() }));
+    // Sin ETag: lo que dice cambia con lo que pasa (y se comprueba cada minuto).
+    res.writeHead(found ? 200 : 404, { 'Content-Type': MIME['.html'], 'Cache-Control': OWN_CACHE, 'Content-Length': page.length });
+    res.end(req.method === 'HEAD' ? undefined : page);
+  }
+
+  /** /api/tarjeta/<tipo>/<id>.png: la tarjeta tal como está ahora. Con su versión (?v=), se guarda mucho; sin ella, poco. */
+  async function sendCard(req, res, url) {
+    const m = CARD_RE.exec(url.pathname);
+    const id = m ? decodeOrNull(m[2]) : null;
+    if (!m || id === null) return send(res, 404, { error: 'Tarjeta no encontrada' });
+    const lang = langOf(url);
+    let result;
+    try {
+      const mine = routeClientBudget('/api/tarjeta', CARD_CLIENT_BUDGET, clientAddress(req));
+      result = await share.card(m[1], id, lang, { allow: () => bothBudgets(mine, cardBudget).take() });
+    } catch (err) {
+      if (!(err instanceof ShareBusy)) throw err;
+      res.setHeader('Retry-After', '3');
+      res.setHeader('Cache-Control', 'no-store');
+      return send(res, 503, { error: 'Demasiadas tarjetas a la vez; prueba dentro de un momento' });
+    }
+    if (!result) {
+      res.setHeader('Cache-Control', 'public, max-age=60');
+      return send(res, 404, { error: 'Tarjeta no encontrada' });
+    }
+    const etag = `"${result.version}-${lang}"`;
+    const headers = { 'Content-Type': 'image/png', ETag: etag, 'Cache-Control': url.searchParams.get('v') === result.version ? CARD_CACHE : CARD_CACHE_CHANGED };
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, headers);
+      return res.end();
+    }
+    res.writeHead(200, { ...headers, 'Content-Length': result.png.byteLength });
+    res.end(req.method === 'HEAD' ? undefined : Buffer.from(result.png.buffer, result.png.byteOffset, result.png.byteLength));
+  }
+
+  /**
+   * /api/compartido/<tipo>/<id>: lo que necesita el navegador para abrir un enlace: si sigue en el directo y, si no,
+   * lo que se sabe de ella (una incidencia) o de qué tipo es (un vehículo: un autobús sólo llega con su capa encendida).
+   */
+  function sendShared(req, res, url) {
+    const shared = parseSharePath(url.pathname.slice('/api/compartido'.length));
+    const found = shared ? share.lookup(shared.kind, shared.id) : null;
+    if (!found) {
+      res.setHeader('Cache-Control', 'public, max-age=15, s-maxage=30');
+      return send(res, 404, { error: 'No está en el directo' });
+    }
+    const body = {
+      kind: shared.kind, id: shared.id, status: found.status,
+      ...(found.ended && { endedAt: found.ended.endedAt, event: found.ended.event }),
+      ...(found.vehicle && { mode: found.vehicle.mode }),
+    };
+    return sendJson(req, res, 200, body, 'public, max-age=15, s-maxage=30');
+  }
+
   // Cada caja de áreas quemadas que no está en la caché de Cloudflare es una consulta a EFFIS: como
   // mucho unas pocas por segundo, para no cargarles y que una ráfaga no deje esperando a las demás.
   const burntBudget = createBudget({ perSecond: 2, burst: 10, now });
@@ -524,16 +608,59 @@ const idParam = (p, name) => {
 
 const NO_METRICS = { request() {}, mcp() {} };
 
+// Compartir: tarjetas nuevas por segundo entre todos y por cliente; lo que guardan el navegador, Cloudflare y las redes.
+const CARD_BUDGET = { perSecond: 2, burst: 10 };
+const CARD_CLIENT_BUDGET = { perSecond: 0.5, burst: 6 };
+// La de una versión no cambia nunca (otra versión es otra dirección); la pedida sin versión o con una vieja, poco.
+const CARD_CACHE = 'public, max-age=86400, s-maxage=604800, immutable';
+const CARD_CACHE_CHANGED = 'public, max-age=60, s-maxage=60';
+const CARD_RE = /^\/api\/tarjeta\/(incidencia|estacion|vehiculo)\/([^/]+)\.png$/;
+const langOf = (url) => (url.searchParams.get('lang') === 'en' ? 'en' : 'es');
+
+/**
+ * La cabecera de la página del mapa para el enlace de algo: su título, su descripción, su tarjeta y la dirección del
+ * enlace, para que WhatsApp, Telegram o X enseñen eso al pegarlo; y fuera de los buscadores (son miles y duran poco).
+ * Sin `card` (no se conoce), dice que ya no está en el directo, con la imagen general.
+ * @param {string} html  la página del mapa (index.html)
+ * @param {{ origin: string, kind: string, id: string, lang: 'es'|'en', card: import('../../../domain/compartir.js').ShareCard|null, cards: boolean }} o
+ *   cards: hay tarjetas propias (si no, la imagen general).
+ */
+export function sharedHead(html, { origin, kind, id, lang, card, cards }) {
+  const en = lang === 'en';
+  const path = card?.path ?? sharePath(kind, id) ?? '/';
+  const pageUrl = `${origin}${path}${en ? '?lang=en' : ''}`;
+  const title = card ? `${card.title} · Radar España` : en ? 'No longer in the live data · Radar España' : 'Ya no está en el directo · Radar España';
+  const description = card ? card.summary : en
+    ? 'What this link showed is no longer in the live data of Radar España. Open the map to see what is happening now.'
+    : 'Lo que enseñaba este enlace ya no está en el directo de Radar España. Abre el mapa para ver lo que pasa ahora.';
+  const image = card && cards ? `${origin}/api/tarjeta/${path.slice(1)}.png?v=${card.version}${en ? '&lang=en' : ''}` : `${origin}/og.png`;
+  const alt = card && cards ? card.alt : en ? 'Map of Radar España with live trains' : 'Mapa de Radar España con los trenes de España en tiempo real';
+  const attr = escapeHtml;
+  const swaps = [
+    [/<title>[^<]*<\/title>/, `<title>${attr(title)}</title>`],
+    [/<meta name="description" content="[^"]*">/, `<meta name="description" content="${attr(description)}">\n  <meta name="robots" content="noindex">`],
+    [/<link rel="canonical" href="[^"]*">/, `<link rel="canonical" href="${attr(pageUrl)}">`],
+    [/<meta property="og:locale" content="[^"]*">/, `<meta property="og:locale" content="${en ? 'en_GB' : 'es_ES'}">`],
+    [/<meta property="og:title" content="[^"]*">/, `<meta property="og:title" content="${attr(card?.title ?? title)}">`],
+    [/<meta property="og:description" content="[^"]*">/, `<meta property="og:description" content="${attr(description)}">`],
+    [/<meta property="og:url" content="[^"]*">/, `<meta property="og:url" content="${attr(pageUrl)}">`],
+    [/<meta property="og:image" content="[^"]*">/, `<meta property="og:image" content="${attr(image)}">`],
+    [/<meta property="og:image:alt" content="[^"]*">/, `<meta property="og:image:alt" content="${attr(alt)}">`],
+  ];
+  // Una función como sustituto: así un «$&» o un «$1» del título no se interpreta.
+  return swaps.reduce((out, [re, value]) => out.replace(re, () => value), html);
+}
+
 /**
  * Módulos puros del dominio que también usa el navegador, tal cual: las claves de lo que se puede seguir
  * (seguir.js), el registro de tipos de vehículo (modos.js), el estado de lo que se sigue (siguiendo.js), los avisos
- * de Renfe de cada estación (avisos-estacion.js) y los textos del servidor en inglés (en-servidor.js, que comparten
- * la web en inglés y el bot de Telegram).
+ * de Renfe de cada estación (avisos-estacion.js), los textos del servidor en inglés (en-servidor.js, que comparten
+ * la web en inglés y el bot de Telegram) y los enlaces para compartir (compartir.js).
  * Se sirven en /server/domain/<fichero>, la misma ruta relativa que tienen desde public/js en el repositorio,
  * así que el cliente los importa igual en el navegador y en los tests de Node. Sólo pueden importarse entre
  * ellos (test/adapters/http-siguiendo.test.js lo comprueba).
  */
-export const SHARED_DOMAIN_MODULES = Object.freeze(['seguir.js', 'modos.js', 'siguiendo.js', 'avisos-estacion.js', 'en-servidor.js']);
+export const SHARED_DOMAIN_MODULES = Object.freeze(['seguir.js', 'modos.js', 'siguiendo.js', 'avisos-estacion.js', 'en-servidor.js', 'compartir.js']);
 /** @param {string} domainDir  carpeta server/domain @returns {Record<string, string>} ruta pública → fichero */
 export const sharedDomainFiles = (domainDir) => Object.fromEntries(SHARED_DOMAIN_MODULES.map((f) => [`/server/domain/${f}`, join(domainDir, f)]));
 
@@ -554,7 +681,11 @@ export function routeLabel(rawUrl, { routes, vendorPrefixes = [], www = false })
     return 'otra';
   }
   if (path === '/mcp' || Object.hasOwn(routes, path) || path === '/api/burnt-areas') return path;
+  const shared = parseSharePath(path);
+  if (shared) return `/${shared.kind}/:id`;
   if (path.startsWith('/api/')) {
+    if (path.startsWith('/api/tarjeta/')) return '/api/tarjeta/:id';
+    if (path.startsWith('/api/compartido/')) return '/api/compartido/:id';
     if (path.startsWith('/api/stations/')) return '/api/stations/:code';
     if (path.startsWith('/api/puntualidad/')) return '/api/puntualidad/:clave';
     if (path === '/api/dia') return path;
