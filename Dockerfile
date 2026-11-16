@@ -6,6 +6,9 @@ ENV NODE_ENV=production
 # que se sigue verificando hasta una raíz del sistema.
 ENV NODE_EXTRA_CA_CERTS=/app/server/certs/intermedios.pem
 
+# La letra de las tarjetas de compartir (server/adapters/outbound/cards/png-card.js): DejaVu Sans, unos pocos MB.
+RUN apk add --no-cache font-dejavu
+
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 

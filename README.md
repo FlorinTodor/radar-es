@@ -400,6 +400,9 @@ completas: depende de lo que publica cada operador, y donde no hay datos públic
 | Metro Bilbao | sus posiciones tal y como llegan: Open Data Euskadi pide no alterar el contenido | por el trazado de su viaje |
 | Euskotren, metros y tranvías con posición estimada | la posición estimada, por su trazado (por la vía donde el del operador va en recta) | por su trazado, según su horario |
 | Ouigo | la posición estimada, por la vía entre sus estaciones (red del IGN) | por la vía hasta su destino, según su horario |
+| Autobuses con GPS de AUVASA, EMT Málaga y EMT Fuenlabrada | sus posiciones, por el trazado del viaje que dice su tiempo real (el de su horario) | por el trazado de su viaje |
+| Autobuses de Euskadi (Bizkaibus, Dbus, Tuvisa, Alavabus…) | sus posiciones tal y como llegan: Open Data Euskadi pide no alterar el contenido | por el trazado de su viaje, el que publica su operador |
+| Autobuses con posición estimada | la posición estimada, por el trazado de su horario o, si no lo trae (ALSA y otros), por carretera entre parada y parada (CartoCiudad, aproximada) | igual, hasta su última parada |
 
 Hay operadores que publican el trazado de sus líneas casi solo con las estaciones (Metrovalencia,
 Metro de Sevilla, TRAM d'Alacant, partes de FGC, Euskotren y Cercanías) y otros que no lo publican
@@ -422,6 +425,9 @@ Lo que no se puede dibujar por falta de datos públicos:
   Reus, Bilbao la Concordia–Karrantza): el trazado que publica Renfe no pasa por el tren o por sus
   paradas, y el dibujo se corta donde se aparta en vez de ir por donde no pasa el tren.
 - **Metro Bilbao** no publica la línea de cada tren, solo «MB».
+- **Autobuses por carretera** (los que su horario no trae trazado): el cálculo de rutas de CartoCiudad no tiene
+  en cuenta el sentido de las calles, así que en una ciudad puede ir por una de sentido contrario. Mientras no
+  se sepan todos los tramos de su viaje, el autobús se queda en la última parada por la que ha pasado.
 - **Trenes sin moverse**: si el tren está parado o el operador repite la misma posición, no hay
   recorrido reciente que dibujar. Renfe repite a veces la misma posición durante mucho rato: la
   mañana del 2-nov, 85 de 421 viajes de Cercanías pasaron más de 30 minutos con la misma.
@@ -451,6 +457,9 @@ Lo que no se puede dibujar por falta de datos públicos:
 | `GET /api/puntualidad/:clave` | puntualidad de los últimos días de un servicio o de una línea |
 | `GET /api/dia`, `/api/dia/AAAA-MM-DD` | «El día en cifras» de hoy o de un día pasado |
 | `GET /api/lines/sources` | de dónde sale el trazado de cada red: atribución y fecha de actualización |
+| `GET /incidencia/:id`, `/estacion/:código`, `/vehiculo/:id` | el enlace para compartir algo: el mapa, que lo abre al cargar, con su título, su descripción y su tarjeta en la cabecera (fuera de los buscadores); `?lang=en`, en inglés |
+| `GET /api/tarjeta/:tipo/:id.png?v=…` | la tarjeta de ese enlace (PNG de 1200×630) que enseñan WhatsApp, Telegram o X: qué pasa, dónde, las horas de su fuente y su atribución |
+| `GET /api/compartido/:tipo/:id` | si lo de un enlace sigue en el directo y, si no, lo último que se supo de esa incidencia (se guarda tres días) |
 | `POST /mcp` | servidor MCP para asistentes de IA (ver [Servidor MCP](#servidor-mcp)) |
 
 Las alertas y los KPIs por minuto se guardan en `data/history/*.jsonl` para analizarlos
@@ -657,6 +666,16 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Posiciones estimadas a partir del horario donde no hay GPS (Ouigo, ALSA y una docena de redes de
   metro y tranvía), con el retraso real cuando el operador lo publica. Se dibujan con la placa hueca.
 - Autobuses de varias ciudades y operadores.
+- Autobuses por su calle y su carretera:
+  - los que van con GPS y dicen qué viaje hacen (AUVASA, EMT Málaga, EMT Fuenlabrada y los de Euskadi):
+    su recorrido y lo que les queda, por el trazado de ese viaje en su horario (en Euskadi, el recorrido
+    tal cual llega, como pide su licencia);
+  - los que van por horario sin trazado publicado (ALSA, AISA Ciudad Real y otros): por la carretera entre
+    parada y parada, con el cálculo de rutas de CartoCiudad (IGN). Así su posición estimada avanza por la
+    carretera en vez de quedarse en la última parada, y se dibujan su recorrido y lo que les queda. Es
+    aproximado, y la ficha lo dice;
+  - con flecha de hacia dónde van aunque estén parados: por su trazado o, en su última parada, hacia la
+    próxima.
 - Avisos de servicio de Renfe y Rodalies.
 - Trenes y autobuses cancelados o con paradas suprimidas: los de Renfe (Cercanías, Rodalies, Alta
   Velocidad, Larga y Media Distancia), Euskotren y AMB, y las paradas que suprimen los desvíos de
@@ -850,6 +869,20 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   - la demanda de las islas no toma un dato vacío por 0 MW.
 
 **Interfaz**
+- Compartir: cada incidencia, tren, autobús y estación tiene su enlace (radarespana.es/incidencia/…,
+  /vehiculo/…, /estacion/…), y al pegarlo en WhatsApp, Telegram o X sale su tarjeta: qué pasa, dónde, las
+  horas que da su fuente, si sigue en el directo y su atribución, con España y el sitio marcado. Quien abre
+  el enlace ve el mapa con eso abierto y encuadrado. Cada ficha lleva el botón «Compartir» (en el móvil, el
+  menú de compartir del sistema; en el ordenador, copia el enlace). Si la incidencia ya no está en el
+  directo, su enlace dice lo último que se supo de ella durante tres días (seis horas los vehículos detenidos
+  de la DGT); nunca que «ha terminado». Si su fuente la vuelve a publicar con otro identificador (la DGT lo
+  hace a veces al actualizar una), el enlace enseña la nueva: misma fuente, tipo y título, en el mismo sitio y
+  sin otra igual con la que confundirla.
+- La incidencia elegida se marca en el mapa: su zona resaltada si la trae (los avisos de AEMET), un anillo
+  alrededor de su icono o, si su sitio es aproximado (el centro de una isla o de una provincia), un anillo
+  discontinuo.
+- En Incidencias, «Todas · Ninguna» encima de los filtros por tipo, para ver uno solo sin quitar los demás uno
+  a uno.
 - Vista para el móvil, con el mapa a pantalla completa y un panel que sube desde abajo.
 - Panel de capas pensado para el móvil: pastillas fáciles de pulsar, agrupadas por temas, con
   «Todas · Ninguna», la leyenda plegada y las preferencias guardadas en el navegador.
@@ -1082,12 +1115,23 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Los avisos de EMT Madrid usan la aplicación registrada de Radar España en MobilityLabs en cuanto
   EMT la activa; mientras tanto, se leen como hasta ahora.
 - El servidor no guarda registro de las visitas, como dice la página de privacidad.
+- Las tarjetas para compartir citan la fuente de cada incidencia con su atribución, y el aviso legal, la librería
+  que las dibuja (resvg, MPL-2.0), su letra (DejaVu) y los contornos de España (Natural Earth, dominio público).
+- Lo que va por carretera cita CartoCiudad («Obra derivada de CartoCiudad 2026 CC-BY 4.0 scne.es») en la ficha
+  del autobús y en el aviso legal; los autobuses que van por el trazado de su horario lo dicen en su atribución
+  (dato explotado).
+- El contador de visitas cuenta los enlaces compartidos por tipo (incidencia, vehículo, estación), nunca cuál.
 
 ### Preparadas, pendientes de subir
 
 Ninguna por ahora.
 
 ## Posibles mejoras
+
+- El enlace de cada aviso en los mensajes del bot de Telegram: al reenviarlo por WhatsApp saldría con su tarjeta.
+- Paradas de los autobuses con GPS (hoy sólo su recorrido y lo que les queda): de su horario, como las de los
+  que van por horario.
+- Los trazados muy toscos de EMT Fuenlabrada (unos 27 puntos para 13 km), por carretera entre punto y punto.
 
 - El aviso legal también en inglés (hoy sólo en español; la web en inglés lo indica).
 - Tiempo real de TMB y posiciones de los autobuses de EMT Madrid desde sus API, cuando EMT apruebe nuestra

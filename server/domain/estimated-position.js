@@ -60,6 +60,9 @@ export function estimatePosition({ stops, mode, shape = null, along = null, t })
   else if (path?.shape && path.end - path.to > 20) {
     const q = pointAlong(path.shape, Math.min(path.to + 100, path.end));
     heading = bearingDeg(lat, lon, q.lat, q.lon);
+  } else if (atLastStop && pos.next) {
+    // Un autobús sin trazado, en la última parada por la que ha pasado: va hacia la próxima.
+    heading = bearingDeg(lat, lon, pos.next.lat, pos.next.lon);
   }
   return {
     lat,

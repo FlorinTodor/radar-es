@@ -41,6 +41,12 @@
  *   Sólo fuentes con onRailNetwork: ancho de vía por el que va el tren (null: cualquiera) y paradas que
  *   le quedan ([lon, lat], en orden, desde la próxima; null si no se saben), para dibujar por la vía su
  *   recorrido y lo que le queda hasta su destino. null = viaje desconocido; undefined = tren de otra fuente.
+ * @property {(vehicleId: string) => { shape: { coords: Float32Array, dist: Float32Array }, since: number, tripId: string }|null|undefined} [tripShape]
+ *   Sólo fuentes con GPS cuyo tiempo real dice qué viaje hace cada vehículo: el trazado de ese viaje (de su horario) y desde
+ *   cuándo lo hace (epoch ms; lo de antes es de otro viaje). Su recorrido y lo que le queda van por él. null = no se sabe;
+ *   undefined = vehículo de otra fuente. Sus vehículos llevan `ahead`.
+ * @property {boolean} [rawTrack]  Con tripShape: su licencia pide no alterar el contenido, así que su recorrido son sus
+ *   posiciones tal cual (lo que le queda sí va por el trazado de su viaje, que publica el propio operador).
  * @property {(vehicleId: string) => import('../domain/trip-stops.js').TripStops|null|undefined} [tripStops]  Paradas del
  *   viaje del vehículo, del origen al destino, con su hora si se sabe y las que ya ha pasado (los vehículos llevan
  *   `stops`). null = no se saben; undefined = vehículo de otra fuente.
@@ -168,6 +174,23 @@
  */
 
 /**
+ * Las incidencias que ya no salen en el directo, con lo que enseñaba su tarjeta y desde cuándo (caso de uso share), para
+ * que su enlace compartido siga diciendo qué eran tras un reinicio o un despliegue. Como TrackStore: se escribe de golpe,
+ * y en un relevo el servidor que arranca lee la última copia que dejó el otro.
+ * @typedef {object} EndedStorePort
+ * @property {() => Promise<object|null>} load  La última copia guardada, o null si no hay o no se lee.
+ * @property {(record: object) => Promise<void>} save  Nunca rechaza: si no puede escribir, lo registra.
+ */
+
+/**
+ * Dibuja la tarjeta de compartir de algo (domain/compartir.js, ShareCard) como PNG de 1200×630, fuera del hilo
+ * principal. Sin la letra que necesita, `available()` es false y no dibuja nada (las páginas enseñan la imagen general).
+ * @typedef {object} CardRendererPort
+ * @property {() => boolean} available
+ * @property {(card: import('../domain/compartir.js').ShareCard) => Promise<Uint8Array>} render  Rechaza si no se puede.
+ */
+
+/**
  * Lo que sigue cada chat del bot «Sigue tu tren» (caso de uso follow-bot) y lo que ya se le ha avisado, para
  * seguir igual tras un reinicio o un relevo. Sólo el número de cada chat, lo que sigue y desde cuándo.
  * @typedef {object} FollowStorePort
@@ -251,6 +274,8 @@ export const PORT_MEMBERS = {
   DayStore: ['load', 'save', 'days'],
   TrackStore: ['load', 'save'],
   PunctualityStore: ['load', 'save'],
+  EndedStore: ['load', 'save'],
+  CardRenderer: ['available', 'render'],
   FollowStore: ['load', 'save'],
   Lease: ['claim', 'release'],
   ChatChannel: ['receive', 'send', 'answer', 'setCommands', 'setDescriptions'],

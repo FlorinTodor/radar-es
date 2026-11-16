@@ -88,7 +88,10 @@ export const EVENT_CATEGORIES = [
 ];
 
 export function renderEventFilters(el, prefs) {
-  el.innerHTML = EVENT_CATEGORIES.map(([id, label]) =>
+  // «Todas · Ninguna», como en Capas: para ver un solo tipo no hay que quitar los demás uno a uno.
+  el.innerHTML = `<div class="chips-bulk">${t('Tipos')} · <button type="button" class="link" data-cats="all" aria-label="${esc(t('Todas: ver todos los tipos de incidencias'))}">${t('Todas')}</button> · `
+    + `<button type="button" class="link" data-cats="none" aria-label="${esc(t('Ninguna: quitar todos los filtros de incidencias, también las obras'))}">${t('Ninguna')}</button></div>`
+    + EVENT_CATEGORIES.map(([id, label]) =>
     `<button class="chip" data-cat="${id}" aria-pressed="${prefs.eventCats.includes(id)}">${label}</button>`).join('') +
     `<button class="chip" data-cat="obras" aria-pressed="${prefs.obras}">${t('Incluir obras')}</button>`;
 }
@@ -101,9 +104,9 @@ export function filterEvents(events, prefs) {
       || (b.start ?? b.issued ?? 0) - (a.start ?? a.issued ?? 0));
 }
 
-export function renderEvents(el, events, sel = NO_SELECTION) {
+export function renderEvents(el, events, sel = NO_SELECTION, { noCategory = false } = {}) {
   if (!events.length) {
-    el.innerHTML = `<div class="empty">${t('No hay incidencias con estos filtros.')}</div>`;
+    el.innerHTML = `<div class="empty">${noCategory ? t('No has elegido ningún tipo de incidencia: pulsa los de arriba, o «Todas».') : t('No hay incidencias con estos filtros.')}</div>`;
     return;
   }
   const rows = events.slice(0, MAX_ROWS).map((e) => {

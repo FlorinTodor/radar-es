@@ -7,6 +7,7 @@ import { followControls } from './siguiendo.js';
 import { modeNoun } from '../../server/domain/modos.js';
 import { punctualitySlot } from './puntualidad.js';
 import { telegramFollow, telegramRoad } from './avisar.js';
+import { shareButton } from './compartir.js';
 import { locale, t, tn, tx } from './i18n.js';
 
 const STYLE = 'https://tiles.openfreemap.org/styles/dark';
@@ -37,6 +38,10 @@ const ICON_SIZE = ['interpolate', ['linear'], ['zoom'],
   15, 1];
 // Anillos (alerta, selección) un poco más grandes que la placa.
 const RING_RADIUS = ['interpolate', ['linear'], ['zoom'], 5, 10, 8, 14, 12, 18, 15, 21];
+// Lo elegido (el anillo de los vehículos y las estaciones, el de las incidencias y su zona): el azul de la web.
+const SELECTED = '#6ea8fe';
+// Algo más grande que el de los vehículos: rodea el icono de la incidencia (y el de un terremoto grande).
+const EVENT_RING_RADIUS = ['interpolate', ['linear'], ['zoom'], 5, 14, 8, 17, 12, 21, 15, 24];
 const UNKNOWN_DELAY_RING = '#c3c2b7';
 // Al encuadrar el viaje del vehículo seleccionado, margen de más para que quepan los nombres de las
 // paradas de los extremos: van centrados debajo de su punto (a los lados, la mitad de un nombre largo).
@@ -157,6 +162,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
   // cada selección (en el mapa, en la lista o desde una alerta), no en las recargas de cada 15 s.
   let stopsFramedFor = null;
   let selectedStation = null; // código de la estación cuya ficha está abierta
+  let selectedEvent = null; // la incidencia cuya ficha está abierta: se marca en el mapa (setEventSel)
   let clicks = 0;         // contador de clics en el mapa, para descartar respuestas tardías de EFFIS
   let trackFetchedAt = 0;
   let lastRoute = null; // lo que le queda, si se dibuja aquí (drawRoute)
@@ -200,6 +206,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
   /** Ficha de un suceso; si es una cancelación o un tren sin datos, con las paradas de su viaje en el mapa (las
    * suprimidas, o las que ya debería haber pasado, en gris). */
   function showEventCard(e) {
+    setEventSel(e);
     const stops = e.category === 'cancelacion' || e.category === 'sin-datos' ? e.trip?.stops : null;
     setTripStops(stops?.length > 1 ? { stops: stops.map((s) => ({ ...s, lon: s.lon ?? null, lat: s.lat ?? null, eta: null })), cancelled: e.type === 'cancelado' } : null);
     card.show(eventDetail(e, samePlace(e)));
@@ -267,7 +274,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
       },
     }, firstSymbol);
 
-    for (const id of ['lines', 'areas', 'stations', 'events', 'trails', 'route', 'track', 'stops', 'vehicles']) map.addSource(id, { type: 'geojson', data: EMPTY });
+    for (const id of ['lines', 'areas', 'stations', 'events', 'event-sel', 'trails', 'route', 'track', 'stops', 'vehicles']) map.addSource(id, { type: 'geojson', data: EMPTY });
 
     // Avisos meteorológicos debajo de todo lo demás, para no tapar trenes ni incidencias.
     map.addLayer({ id: 'meteo-fill', type: 'fill', source: 'areas', paint: { 'fill-color': LEVEL_COLOR, 'fill-opacity': 0.13 } }, firstSymbol);
@@ -382,6 +389,26 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
       'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.7, 7, 0.75, 10, 1],
       'icon-allow-overlap': true, 'icon-ignore-placement': true,
     };
+    // La incidencia elegida (su ficha abierta, también la de un enlace compartido), debajo de los iconos: su zona si
+    // la trae (los avisos de AEMET), un anillo en su sitio o, si el sitio es aproximado (el centro de la isla, de la
+    // provincia…), un anillo discontinuo; y un punto gris si ya no está en el directo (no tiene icono en el mapa).
+    const POLY = ['match', ['geometry-type'], ['Polygon', 'MultiPolygon'], true, false];
+    const POINT = ['==', ['geometry-type'], 'Point'];
+    map.addImage('ring-approx', dashedRing(SELECTED), { pixelRatio: 2 });
+    map.addLayer({ id: 'evsel-fill', type: 'fill', source: 'event-sel', filter: POLY, paint: { 'fill-color': SELECTED, 'fill-opacity': 0.12 } });
+    map.addLayer({ id: 'evsel-line', type: 'line', source: 'event-sel', filter: POLY, paint: { 'line-color': SELECTED, 'line-width': 3 } });
+    map.addLayer({
+      id: 'evsel-ring', type: 'circle', source: 'event-sel', filter: ['all', POINT, ['!', ['get', 'approx']]],
+      paint: { 'circle-radius': EVENT_RING_RADIUS, 'circle-color': SELECTED, 'circle-opacity': 0.16, 'circle-stroke-color': SELECTED, 'circle-stroke-width': 3 },
+    });
+    map.addLayer({
+      id: 'evsel-approx', type: 'symbol', source: 'event-sel', filter: ['all', POINT, ['get', 'approx']],
+      layout: { 'icon-image': 'ring-approx', 'icon-allow-overlap': true, 'icon-ignore-placement': true },
+    });
+    map.addLayer({
+      id: 'evsel-gone', type: 'circle', source: 'event-sel', filter: ['all', POINT, ['get', 'gone']],
+      paint: { 'circle-radius': 6, 'circle-color': '#898781', 'circle-stroke-color': '#f0efec', 'circle-stroke-width': 2 },
+    });
     map.addLayer({ id: 'ev-road', type: 'symbol', source: 'events', minzoom: 6.5, layout: roadLayout });
     map.addLayer({ id: 'ev-road-major', type: 'symbol', source: 'events', layout: roadLayout });
     // Obras: capa propia (cuadrado), independiente de la de tráfico y, si se activa, a cualquier zoom.
@@ -584,6 +611,7 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
 
     loaded = true;
     applyFilters();
+    setEventSel(selectedEvent); // la de un enlace compartido puede abrirse antes de que cargue el mapa
     kick();
   });
 
@@ -644,7 +672,10 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
       stopsFramedFor = null;
     }
     selectedId = id;
-    if (id) setStation(null);
+    if (id) {
+      setStation(null);
+      setEventSel(null);
+    }
     if (loaded) map.setFilter('veh-selected', ['==', ['get', 'id'], id ?? '']);
     if (!id) {
       map.getSource('track')?.setData(EMPTY);
@@ -671,18 +702,35 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
       const hit = areas.find((a) => containsPoint(a.geometry, [at.lng, at.lat])) ?? areas[0];
       if (!hit) return;
       map.getSource('burnt-sel').setData(hit);
+      setEventSel(null);
       card.show(burntAreaDetail(hit.properties));
     } catch { /* EFFIS no responde: no se muestra nada */ }
   }
 
   function setStation(code) {
     selectedStation = code;
+    if (code) setEventSel(null);
     if (loaded) map.setFilter('stations-sel', ['==', ['get', 'code'], code ?? '']);
+  }
+
+  /**
+   * Marca en el mapa la incidencia de la ficha abierta (null: ninguna). Las cancelaciones y los trenes sin datos no:
+   * ya enseñan las paradas de su viaje.
+   */
+  function setEventSel(e) {
+    selectedEvent = e ?? null;
+    if (!loaded) return;
+    const trip = e && (e.category === 'cancelacion' || e.category === 'sin-datos');
+    const geometry = !e || trip ? null
+      : e.geometry ?? (Number.isFinite(e.lon) && Number.isFinite(e.lat) ? { type: 'Point', coordinates: [e.lon, e.lat] } : null);
+    map.getSource('event-sel').setData(geometry
+      ? { type: 'Feature', geometry, properties: { approx: Boolean(e.approx), gone: Number.isFinite(e.endedAt) } } : EMPTY);
   }
 
   function clearSelection() {
     setSelected(null);
     setStation(null);
+    setEventSel(null);
     setTripStops(null); // las de una cancelación (las de un vehículo ya las quita setSelected)
     card.hide();
   }
@@ -828,6 +876,11 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
     setEvents(list) {
       eventList = list;
       if (!loaded) return;
+      // La elegida, con sus datos nuevos (puede haber cambiado de sitio o de zona); si ya no está, se queda donde estaba.
+      if (selectedEvent && !Number.isFinite(selectedEvent.endedAt)) {
+        const fresh = list.find((e) => e.id === selectedEvent.id);
+        if (fresh) setEventSel(fresh);
+      }
       const areas = list.filter((e) => e.geometry);
       map.getSource('areas').setData({
         type: 'FeatureCollection',
@@ -948,6 +1001,15 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
 
     selectedStationCode: () => selectedStation,
 
+    /** Un aviso corto en el sitio de la ficha (un enlace compartido de algo que ya no está en el directo). */
+    showMessage(title, text) {
+      setSelected(null);
+      setStation(null);
+      setEventSel(null);
+      setTripStops(null);
+      card.show(`<div class="pop"><h3>${esc(title)}</h3><p>${esc(text)}</p></div>`);
+    },
+
     /** Estado de las fuentes (/api/health): de ahí salen la atribución y la fecha de cada ficha. */
     setSources(health) {
       sourcesById = new Map(health.map((s) => [s.id, s]));
@@ -984,6 +1046,26 @@ export function trackParts(track) {
 }
 
 /** Icono rasterizado para MapLibre (rombo, cuadrado o triángulo de 14 px a doble resolución). */
+/** Anillo discontinuo (un sitio aproximado), a doble resolución: 31 px de radio en pantalla. */
+export function dashedRing(color) {
+  const size = 72 * 2;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const g = canvas.getContext('2d');
+  g.strokeStyle = color;
+  g.lineWidth = 6;
+  g.setLineDash([14, 10]);
+  g.beginPath();
+  g.arc(size / 2, size / 2, size / 2 - 10, 0, Math.PI * 2);
+  g.stroke();
+  g.fillStyle = color;
+  g.globalAlpha = 0.12;
+  g.beginPath();
+  g.arc(size / 2, size / 2, size / 2 - 13, 0, Math.PI * 2);
+  g.fill();
+  return { width: size, height: size, data: g.getImageData(0, 0, size, size).data };
+}
+
 export function icon(shape, fill, stroke) {
   const size = 28;
   const canvas = document.createElement('canvas');
@@ -1171,7 +1253,7 @@ function stationDetail(st, { stopped, arriving, notices, lines, connections = []
     ? (c.first ? t('salía a las {time} según su horario', { time: c.time }) : t('pasaba a las {time} según su horario', { time: c.time }))
     : c.first ? t('sale a las {time} según su horario', { time: c.time })
       : c.last ? t('llega a las {time} según su horario', { time: c.time }) : t('pasa a las {time} según su horario', { time: c.time }));
-  return `<div class="pop">${photo}<h3>${esc(st.name)}</h3>${followControls(st)}${telegramFollow(st.follow)}${meta.length ? `<p class="st-meta">${esc(meta.join(' · '))}</p>` : ''}
+  return `<div class="pop">${photo}<h3>${esc(st.name)}</h3>${shareButton('estacion', st.code, st.name)}${followControls(st)}${telegramFollow(st.follow)}${meta.length ? `<p class="st-meta">${esc(meta.join(' · '))}</p>` : ''}
     ${lines.length ? chips(lines) : ''}
     <h4>${t('En la estación ahora')}</h4>${list(stopped.map((v) => train(v)), t('Ningún tren parado ahora mismo.'))}
     <h4>${t('Próximos trenes')}</h4>${list(arriving.map((v) => train(v, when(v))), t('Ningún tren en camino con datos en directo.'))}
@@ -1276,7 +1358,7 @@ export function cancellationDetail(e, now = Date.now()) {
     ...eventSourceRows(e),
   ].filter((r) => r && r[1]);
   const list = trip.stops?.length > 1 ? cancelledStopsHtml(trip.stops, e.type === 'cancelado') : '';
-  return `<div class="pop"><h3>${esc(tx(e.title, e.source))}</h3>${followControls(trip)}${telegramFollow(trip.follow, trip.mode, { line: trip.line, service: trip.service, operator: trip.operator })}${e.description ? `<p>${esc(tx(e.description, e.source))}</p>` : ''}
+  return `<div class="pop"><h3>${esc(tx(e.title, e.source))}</h3>${shareButton('incidencia', e.id, tx(e.title, e.source))}${followControls(trip)}${telegramFollow(trip.follow, trip.mode, { line: trip.line, service: trip.service, operator: trip.operator })}${e.description ? `<p>${esc(tx(e.description, e.source))}</p>` : ''}
     <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
     ${punctualitySlot(trip.follow)}${list}
     <div class="note">${t('Las horas son las del horario del operador. Si el operador deja de publicarlo, sigue aquí hasta medianoche como «ya no lo publica»; si su fuente deja de responder, se muestra como mucho una hora más.')}</div></div>`;
@@ -1309,7 +1391,7 @@ export function missingTrainDetail(e, now = Date.now()) {
     ...eventSourceRows(e),
   ].filter((r) => r && r[1]);
   const list = trip.stops?.length > 1 ? missingStopsHtml(trip.stops) : '';
-  return `<div class="pop"><h3>${esc(tx(e.title, e.source))}</h3>${followControls(trip)}${telegramFollow(trip.follow, trip.mode, { line: trip.line, service: trip.service, operator: trip.operator })}${e.description ? `<p>${esc(tx(e.description, e.source))}</p>` : ''}
+  return `<div class="pop"><h3>${esc(tx(e.title, e.source))}</h3>${shareButton('incidencia', e.id, tx(e.title, e.source))}${followControls(trip)}${telegramFollow(trip.follow, trip.mode, { line: trip.line, service: trip.service, operator: trip.operator })}${e.description ? `<p>${esc(tx(e.description, e.source))}</p>` : ''}
     <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
     ${punctualitySlot(trip.follow)}${list}
     <div class="note">${t('Sale si, según el horario publicado, debería llevar más de 10 minutos circulando y le quedan más de 5 para llegar, y su operador no publica ni su posición ni su retraso ni su cancelación. Puede circular sin que se publique, o no circular sin que se haya publicado su cancelación.')}</div></div>`;
@@ -1368,6 +1450,9 @@ function vehicleDetail(v, onRoute = false, stops = null) {
     v.rollingStock && [t('Material'), v.rollingStock],
     v.fixTime && ['GPS', timeAgo(v.fixTime)],
     ...sourceRows(v.source, v.operator),
+    // Su horario no trae el trazado: su recorrido va por la carretera entre sus paradas, de CartoCiudad (su atribución,
+    // tal cual en los dos idiomas).
+    v.byRoad && [t('Por carretera'), { html: `${creditHtml('Obra derivada de CartoCiudad 2026 CC-BY 4.0 scne.es')} · ${esc(t('aproximado: no tiene en cuenta el sentido de las calles'))}` }],
   ].filter(Boolean);
   const aheadText = (how) => t('La <strong>línea azul clara continua</strong> (con borde oscuro) es lo que le queda hasta {destination}{how}. ', {
     destination: esc(v.destination ?? t('su destino')), how,
@@ -1380,6 +1465,11 @@ function vehicleDetail(v, onRoute = false, stops = null) {
     : (v.delay !== null && v.delay !== undefined
       ? t('<strong>Posición estimada</strong> a partir del horario y del retraso real que publica el operador: no es GPS. ')
       : t('<strong>Posición estimada</strong> a partir del horario publicado: no es GPS y no refleja retrasos. '))
+      + (v.byRoad
+        ? t('Su operador no publica el recorrido entre paradas: va por la carretera más corta entre ellas (CartoCiudad), así que el recorrido es aproximado. ')
+        : v.roadPending
+          ? t('Su operador no publica el recorrido entre paradas: se está calculando por carretera (CartoCiudad) y en uno o dos minutos se dibuja. ')
+          : '')
       + (v.atLastStop
         ? t('El operador no publica el recorrido entre paradas, así que se muestra en la última parada por la que ha pasado.')
         : t('Se mueve a saltos, en cada actualización. Si su ruta tiene trazado publicado, la <strong>línea azul discontinua</strong> es el tramo que habría recorrido en los últimos 45 min según el horario.'))
@@ -1389,7 +1479,7 @@ function vehicleDetail(v, onRoute = false, stops = null) {
   const list = stops ? stopsListHtml(stops, { open }) : '';
   const stopsNote = list ? ` ${t('Los <strong>puntos</strong> son sus paradas: blancos los que le quedan y grises por los que ya ha pasado.')}`
     + (v.estimated ? ` ${t('Sus horas son las del horario.')}` : '') : '';
-  return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}${followControls(v)}${telegramFollow(v.follow, v.mode, { line: v.line, service: v.service, operator: v.operator })}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
+  return `<div class="pop"><h3>${esc(vehicleTitle(v))}</h3>${badge}${shareButton('vehiculo', v.id, vehicleTitle(v))}${followControls(v)}${telegramFollow(v.follow, v.mode, { line: v.line, service: v.service, operator: v.operator })}<dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>
     ${punctualitySlot(v.follow, { delayKnown: Number.isFinite(v.delay) || typeof v.late === 'boolean' })}
     ${list}<div class="note">${note}${stopsNote}</div></div>`;
 }
@@ -1480,7 +1570,10 @@ function eventDetail(e, others = []) {
     .map((o) => `<li><button type="button" class="link" data-event="${esc(o.id)}">${o.power ? `${t('Corte de luz:')} ` : ''}${esc(tx(o.title, o.source))}</button></li>`).join('')}</ul>` : '';
   // Una incidencia de tráfico: el bot de Telegram puede avisar de lo que pase en su carretera.
   const road = e.category === 'carretera' && e.type !== 'aviso' ? telegramRoad(e.road) : '';
+  // Lo que enseña un enlace compartido de una incidencia que ya no está en el directo: lo último que se supo de ella.
+  const gone = Number.isFinite(e.endedAt)
+    ? `<p class="share-gone" role="status">${esc(t('Ya no está en el directo del radar desde el {when}. Esto es lo último que se supo.', { when: fmtDateTime(e.endedAt) }))}</p>` : '';
   // El título y la descripción: los de la fuente tal cual; los que escribe el radar, traducidos (tx).
-  return `<div class="pop"><h3>${esc(tx(e.title, e.source))}</h3>${road}${e.description ? `<p>${esc(tx(e.description, e.source))}</p>` : ''}
+  return `<div class="pop"><h3>${esc(tx(e.title, e.source))}</h3>${gone}${shareButton('incidencia', e.id, tx(e.title, e.source))}${gone ? '' : road}${e.description ? `<p>${esc(tx(e.description, e.source))}</p>` : ''}
     <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>${link}${more}</div>`;
 }
