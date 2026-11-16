@@ -92,7 +92,11 @@ function decodeEntityByEntity(bytes) {
  *           now?: number, onVehicle?: (v: object, entity: object) => void }} options
  */
 export function vehiclesFromFeed(feed, { id, mode, operator, line, describe, gtfs, now = Date.now(), onVehicle }) {
-  const vehicles = [];
+  // Un mismo vehículo puede venir dos veces en el feed (lo ha hecho el de Bizkaibus): dos marcadores con el mismo id en el
+  // mapa, y su ficha y su recorrido de uno u otro. Se queda su posición más reciente.
+  const latest = new Map(); // id del vehículo → { e, fixTime }
+  // Una hora sin dar o en el futuro (un reloj mal puesto) no gana a una de verdad.
+  const rank = (t) => (t === null || t > now + 5 * 60_000 ? -Infinity : t);
   for (const e of feed.entity ?? []) {
     const vp = e.vehicle;
     const pos = vp?.position;
@@ -100,6 +104,13 @@ export function vehiclesFromFeed(feed, { id, mode, operator, line, describe, gtf
     const fixTime = vp.timestamp ? vp.timestamp * 1000 : null;
     if (fixTime && now - fixTime > STALE_MS) continue;
     const vehicleId = vp.vehicle?.id || vp.vehicle?.label || e.id;
+    const seen = latest.get(vehicleId);
+    if (!seen || rank(fixTime) > rank(seen.fixTime)) latest.set(vehicleId, { e, fixTime });
+  }
+  const vehicles = [];
+  for (const [vehicleId, { e, fixTime }] of latest) {
+    const vp = e.vehicle;
+    const pos = vp.position;
     const v = {
       id: `${id}:${vehicleId}`,
       mode,

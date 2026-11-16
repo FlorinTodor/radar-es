@@ -781,12 +781,15 @@ export function createMap(container, { onVehicleClick, onEventClick, onStationCl
         })
         .catch(() => {});
     } else setTripStops(null);
+    // Dónde se pinta ahora el vehículo: su recorrido acaba y lo que le queda empieza ahí, aunque el servidor ya tenga una
+    // lectura más nueva (si no, cada minuto, la línea podía empezar a 1 km del autobús).
+    const en = `en=${v.lon.toFixed(5)},${v.lat.toFixed(5)}`;
     if (v.ahead) {
-      fetchTrain(`/api/ahead/${encodeURIComponent(v.id)}`, v.id)
+      fetchTrain(`/api/ahead/${encodeURIComponent(v.id)}?${en}`, v.id)
         .then((ahead) => { if (selectedId === v.id) setRoute(ahead); })
         .catch(() => {});
     }
-    fetchTrain(`/api/tracks/${encodeURIComponent(v.id)}`, v.id)
+    fetchTrain(`/api/tracks/${encodeURIComponent(v.id)}?${en}`, v.id)
       .then((track) => {
         if (selectedId !== v.id) return;
         track ??= [];

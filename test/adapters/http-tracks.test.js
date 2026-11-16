@@ -9,7 +9,7 @@ const errors = [];
 before(async () => {
   const query = {
     track: (id) => (id === 'Renfe 7/123' ? [{ lat: 40, lon: -3.7 }] : null),
-    ahead: (id) => (id === 'euskotren:TG2:1' ? [[-2.67, 42.85], [-2.66, 42.85]] : null),
+    ahead: (id, at) => (id === 'euskotren:TG2:1' ? [at ?? [-2.67, 42.85], [-2.66, 42.85]] : null),
     stops: (id) => (id === 'renfe-ld:18000' ? { partial: false, stops: [{ name: 'A', passed: true }, { name: 'B', passed: false }] } : null),
   };
   server = createHttpServer({
@@ -53,4 +53,15 @@ test('/api/stops/<id>: las paradas del viaje; si no se saben, 404; un id mal cod
   assert.equal(missing.status, 404);
   assert.deepEqual(await missing.json(), { error: 'Paradas desconocidas' });
   assert.equal((await fetch(`${base}/api/stops/%E0%A4%A`)).status, 400);
+});
+
+test('?en=lon,lat: lo que le queda desde donde la web pinta el vehículo, redondeado a 5 decimales; uno que no vale, sin él', async () => {
+  const id = encodeURIComponent('euskotren:TG2:1');
+  assert.deepEqual((await (await fetch(`${base}/api/ahead/${id}?en=-2.6712345678,42.8512345678`)).json())[0], [-2.67123, 42.85123]);
+  assert.deepEqual((await (await fetch(`${base}/api/ahead/${id}?en=-2.668,42.85`)).json())[0], [-2.668, 42.85], 'otra posición, otro cálculo');
+  for (const bad of ['x', '1,2,3', '-2.67;42.85', '999,42', '-2.67,91', '']) {
+    const res = await fetch(`${base}/api/ahead/${id}?en=${encodeURIComponent(bad)}`);
+    assert.equal(res.status, 200, bad);
+    assert.deepEqual((await res.json())[0], [-2.67, 42.85], `«${bad}»: como sin él`);
+  }
 });

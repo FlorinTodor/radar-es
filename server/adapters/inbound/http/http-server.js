@@ -205,7 +205,8 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
       if (url.pathname.startsWith('/api/ahead/')) {
         const id = decodeOrNull(url.pathname.slice('/api/ahead/'.length));
         if (id === null || id.length > MAX_VEHICLE_ID) return send(res, 400, { error: 'Ruta inválida' });
-        return sendTrain(req, res, `ahead:${id}`, () => query.ahead(id) ?? null, 'Sin recorrido previsto');
+        const at = shownAt(url.searchParams);
+        return sendTrain(req, res, `ahead:${id}${at ? `@${at}` : ''}`, () => query.ahead(id, at) ?? null, 'Sin recorrido previsto');
       }
       // Paradas del viaje de un vehículo (de dónde viene, por dónde pasa y adónde va).
       if (url.pathname.startsWith('/api/stops/')) {
@@ -222,7 +223,8 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
       if (url.pathname.startsWith('/api/tracks/')) {
         const id = decodeOrNull(url.pathname.slice('/api/tracks/'.length));
         if (id === null || id.length > MAX_VEHICLE_ID) return send(res, 400, { error: 'Ruta inválida' });
-        return sendTrain(req, res, `track:${id}`, () => query.track(id) ?? null, 'Vehículo sin historial');
+        const at = shownAt(url.searchParams);
+        return sendTrain(req, res, `track:${id}${at ? `@${at}` : ''}`, () => query.track(id, at) ?? null, 'Vehículo sin historial');
       }
       if (share && url.pathname.startsWith('/api/tarjeta/')) return await sendCard(req, res, url);
       if (share && url.pathname.startsWith('/api/compartido/')) return sendShared(req, res, url);
@@ -602,6 +604,20 @@ export const vehicleFilter = (p) => ({
   minDelay: p.has('minDelay') && Number.isFinite(Number(p.get('minDelay')))
     ? Math.max(-1, Math.min(Math.round(Number(p.get('minDelay'))), 1440)) : undefined,
 });
+/**
+ * Dónde pinta la web el vehículo (`en=lon,lat`, la posición de la lista que tiene), para que su recorrido acabe y lo que
+ * le queda empiece ahí aunque el servidor ya tenga una lectura más nueva (ver query.ahead). Redondeada a 5 decimales (un
+ * metro): todos los que miran el mismo vehículo piden lo mismo. null si no viene o no es una posición.
+ * @returns {[number, number] | null}
+ */
+const shownAt = (p) => {
+  const m = /^(-?\d{1,3}(?:\.\d{1,10})?),(-?\d{1,2}(?:\.\d{1,10})?)$/.exec(p.get('en') ?? '');
+  if (!m) return null;
+  const lon = Number(m[1]);
+  const lat = Number(m[2]);
+  return Math.abs(lon) <= 180 && Math.abs(lat) <= 90 ? [Math.round(lon * 1e5) / 1e5, Math.round(lat * 1e5) / 1e5] : null;
+};
+
 const idParam = (p, name) => {
   const value = p.get(name);
   if (value === null || value === '') return undefined;

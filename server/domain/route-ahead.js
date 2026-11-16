@@ -176,3 +176,35 @@ function slice(coords, cum, from, to) {
   const path = [coordAt(coords, cum, lo), ...inner, coordAt(coords, cum, hi)];
   return from <= to ? path : path.reverse();
 }
+
+// Una parada se da por dejada atrás si el tren está a más de esto de ella y se ha alejado al menos esto otro en sus
+// últimas posiciones (ver stopsLeftBehind).
+const LEFT_BEHIND_M = 2000;
+const MOVING_AWAY_M = 1000;
+const LEFT_BEHIND_WINDOW_MS = 5 * 60_000;
+
+/**
+ * Cuántas de las primeras paradas que le quedan a un tren (según su horario y su retraso) ya ha dejado atrás según su
+ * GPS: está a más de 2 km de ella y en sus últimas posiciones (5 min) se ha alejado de ella al menos 1 km. Renfe a veces
+ * da por próxima una parada que el tren ya ha pasado (el Intercity 00606, a 36 km pasado Tudela, la seguía teniendo de
+ * próxima), y lo que le queda volvía hacia atrás hasta ella. Si se acerca (un tren que cambia de sentido en una estación
+ * llega por la misma vía por la que sale), no se quita nada. Nunca la última: su destino.
+ * @param {{ t: number, lat: number, lon: number }[]} track  sus posiciones, en orden
+ * @param {number[][]} stops  [lon, lat] de las paradas que le quedan, en orden
+ * @returns {number}
+ */
+export function stopsLeftBehind(track, stops) {
+  const last = track?.at(-1);
+  if (!last || !stops?.length) return 0;
+  let first = track.length - 1;
+  while (first > 0 && last.t - track[first - 1].t <= LEFT_BEHIND_WINDOW_MS) first--;
+  const from = track[first];
+  const meters = (p, [lon, lat]) => Math.hypot((p.lon - lon) * mPerDegLon(lat), (p.lat - lat) * M_PER_DEG_LAT);
+  let n = 0;
+  while (n < stops.length - 1) {
+    const now = meters(last, stops[n]);
+    if (now <= LEFT_BEHIND_M || now - meters(from, stops[n]) < MOVING_AWAY_M) break;
+    n++;
+  }
+  return n;
+}
