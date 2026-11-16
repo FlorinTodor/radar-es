@@ -12,6 +12,7 @@ import { DEFAULT_THRESHOLDS } from '../../domain/alerts/thresholds.js';
 import { isFollowKey, stopKey } from '../../domain/seguir.js';
 import { followStatus, indexByFollow } from '../../domain/siguiendo.js';
 import { MODES } from '../../domain/modos.js';
+import { shapeStretch, trackOnShape } from '../../domain/recorrido-trazado.js';
 
 // Cálculos por tren que se guardan (recorrido por la vía, ~30 KB cada uno; lo que le queda): el mapa
 // pide los del tren seleccionado cada 15 s, /api/live la flecha de cada Cercanías, y sólo cambian
@@ -122,6 +123,26 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
     return undefined;
   };
   const trackMemo = makeTrainMemo(() => situation.tracks());
+
+  // Vehículos con GPS cuyo tiempo real dice qué viaje hacen, y ese viaje trae trazado (autobuses de AUVASA, EMT Málaga,
+  // EMT Fuenlabrada y de Euskadi): su recorrido y lo que les queda, por él.
+  const withTripShapes = sources.filter((s) => typeof s.tripShape === 'function');
+  /** El viaje que hace ahora un vehículo ({ shape, since, tripId, raw }); null si ninguna fuente lo sabe. */
+  const tripShapeOf = (id) => {
+    for (const s of withTripShapes) {
+      const trip = s.tripShape(id);
+      if (trip !== undefined) return trip ? { ...trip, raw: s.rawTrack === true } : null;
+    }
+    return null;
+  };
+  const tripMemo = makeTrainMemo(() => situation.tracks());
+  /** De dónde a dónde ha ido por el trazado de su viaje desde que lo hace ({ from, to }, en metros); null si no está en él. */
+  const onTrip = (id, trip) => {
+    const track = (situation.tracks().get(id) ?? []).filter((p) => p.t >= trip.since);
+    if (!track.length) return null;
+    const key = `${trip.tripId}|${track.length}:${track[0].t}:${track.at(-1).t}`;
+    return tripMemo(id, 'trazados', key, () => trackOnShape(trip.shape, track));
+  };
   const aheadMemo = makeTrainMemo(() => situation.tracks());
   const fillMemo = makeTrainMemo(() => situation.tracks());
 
@@ -246,6 +267,13 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
         if (path !== undefined) return path ? path.map(([lon, lat]) => ({ lon, lat })) : [];
       }
       const track = situation.tracks().get(id) ?? null;
+      // Por el trazado de su viaje, salvo si su licencia pide no alterar el contenido (entonces, sus posiciones tal cual).
+      const trip = track ? tripShapeOf(id) : null;
+      if (trip && !trip.raw) {
+        const on = onTrip(id, trip);
+        const path = on && shapeStretch(trip.shape, on.from, on.to);
+        if (path) return path.map(([lon, lat]) => ({ lon, lat }));
+      }
       return (track && onRails(id) && railTrack(id, track)) || track;
     },
     /**
@@ -258,6 +286,13 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
       for (const s of withPaths) {
         const path = s.ahead?.(id);
         if (path !== undefined) return path && path.length > 1 ? path : null;
+      }
+      // Un vehículo con GPS que hace un viaje con trazado: desde donde va por él hasta el final del viaje.
+      const onShape = tripShapeOf(id);
+      if (onShape) {
+        const on = onTrip(id, onShape);
+        const path = on && shapeStretch(onShape.shape, on.to, onShape.shape.dist[onShape.shape.dist.length - 1]);
+        return path && path.length > 1 ? path : null;
       }
       const trip = railTripOf(id);
       if (trip !== undefined) return railAhead(id, trip);

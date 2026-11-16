@@ -141,8 +141,10 @@ export function createSources(deps) {
     // AUVASA lo publica en su web con CC BY 3.0 ES ("Fuente: AUVASA"); sólo por http y en una IP.
     createGtfsRtVehicleSource(deps, {
       id: 'auvasa', name: 'AUVASA: autobús urbano de Valladolid (GTFS-RT)', mode: 'bus', operator: 'AUVASA', interval: 60_000,
-      license: 'Fuente: AUVASA (CC BY 3.0 ES)',
+      license: 'Fuente: AUVASA (CC BY 3.0 ES) · Recorrido y lo que le queda, por el trazado de su viaje en su horario (datos modificados)',
       url: 'http://212.170.201.204:50080/GTFSRTapi/api/vehicleposition',
+      // Su tiempo real dice qué viaje hace cada autobús, y su horario trae el trazado de cada viaje.
+      shapesZip: () => deps.cache.bytes('http://212.170.201.204:50080/GTFSRTapi/api/GTFSFile', 'auvasa-gtfs.zip', 24 * 3600_000),
       line: (e) => e.vehicle?.trip?.tripId?.split('_')[0] ?? e.vehicle?.trip?.routeId ?? null, // "LB5_LB5A1_7" → "LB5"
     }),
     // Sus avisos de servicio (desvíos y paradas suprimidas), en la misma página de datos abiertos y con la
@@ -157,8 +159,10 @@ export function createSources(deps) {
     createGtfsRtVehicleSource(deps, {
       id: 'emt-malaga', name: 'EMT Málaga (GTFS-RT)', mode: 'bus', operator: 'EMT Málaga', interval: 60_000,
       // El portal de datos abiertos de Málaga declara para estos datos CC BY-SA 4.0: se cumple la más estricta.
-      license: 'Powered by MITRAMS (Punto de Acceso Nacional) · EMT Málaga, Ayuntamiento de Málaga · Datos en bruto, CC BY-SA 4.0',
+      license: 'Powered by MITRAMS (Punto de Acceso Nacional) · EMT Málaga, Ayuntamiento de Málaga · Posiciones en bruto; recorrido y '
+        + 'lo que le queda, por el trazado de su viaje en su horario (dato explotado) · CC BY-SA 4.0',
       url: 'https://gtfs.emtmalaga.es/GTFSRTapi/api/vehicleposition',
+      shapesZip: () => deps.nap.gtfs(1494, 24 * 3600_000), // su horario, el mismo de las paradas de sus avisos
     }),
     // Sus avisos de servicio, del mismo conjunto del NAP (1293); las paradas, de su horario (fichero 1494).
     createGtfsRtAlertsSource(deps, {
@@ -169,8 +173,10 @@ export function createSources(deps) {
     }),
     createGtfsRtVehicleSource(deps, {
       id: 'emt-fuenlabrada', name: 'EMT Fuenlabrada (GTFS-RT)', mode: 'bus', operator: 'EMT Fuenlabrada', interval: 60_000,
-      license: 'Powered by MITRAMS (Punto de Acceso Nacional) · EMT Fuenlabrada · Datos en bruto',
+      license: 'Powered by MITRAMS (Punto de Acceso Nacional) · EMT Fuenlabrada · Posiciones en bruto; recorrido y lo que le queda, '
+        + 'por el trazado de su viaje en su horario (dato explotado)',
       url: 'https://api.control.optibus.co/opendata/v1/gtfs-rt/vehicle-positions?uid=c-5cfcd2d1',
+      shapesZip: () => deps.nap.gtfs(2152, 24 * 3600_000), // su horario en el NAP (conjunto 1628)
     }),
     // Carreteras
     createDgtSource({ ...deps, pool: deps.xmlPool ?? deps.pool }),
