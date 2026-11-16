@@ -873,7 +873,10 @@ let shared = parseSharePath(location.pathname);
 const sharedFrom = Date.now();
 const sharedUntil = sharedFrom + 90_000; // lo que se espera a que lleguen sus datos (un autobús, con su capa)
 let sharedAsked = false;
-const arrived = new Set(); // lo que ya ha llegado: 'stations', 'events', 'vehicles', 'health'
+const arrived = new Set(); // lo que ya ha llegado: 'map', 'stations', 'events', 'vehicles', 'health'
+// El mapa, con sus capas: si la ficha se abre antes, lo que dibuja (el recorrido de un vehículo, lo que le queda, el
+// anillo de una incidencia) se pierde, porque sus capas aún no existen.
+map.ready.then(() => openShared('map'));
 
 function sharedGone() {
   const title = { incidencia: t('Esta incidencia ya no está en el directo'), vehiculo: t('Este vehículo ya no está en el directo'),
@@ -907,14 +910,15 @@ async function askShared() {
 }
 
 /**
- * Abre lo del enlace cuando ha llegado lo que hace falta: las estaciones, las incidencias o los vehículos y, para que
- * su ficha salga ya con la atribución de su fuente, el estado de las fuentes (como mucho se le esperan 10 s).
+ * Abre lo del enlace cuando ha llegado lo que hace falta: el mapa con sus capas, las estaciones, las incidencias o los
+ * vehículos y, para que su ficha salga ya con la atribución de su fuente, el estado de las fuentes (como mucho se le
+ * esperan 10 s).
  */
 function openShared(what) {
   arrived.add(what);
   if (!shared) return;
   if (Date.now() > sharedUntil) return sharedGone();
-  if (!arrived.has('health') && Date.now() - sharedFrom < 10_000) return;
+  if (!arrived.has('map') || (!arrived.has('health') && Date.now() - sharedFrom < 10_000)) return;
   const { kind, id } = shared;
   if (kind === 'estacion' && arrived.has('stations')) {
     if (!state.stations.has(id)) return sharedGone();
