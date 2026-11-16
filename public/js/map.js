@@ -1450,6 +1450,9 @@ function vehicleDetail(v, onRoute = false, stops = null) {
     v.rollingStock && [t('Material'), v.rollingStock],
     v.fixTime && ['GPS', timeAgo(v.fixTime)],
     ...sourceRows(v.source, v.operator),
+    // Su horario no trae el trazado: su recorrido va por la carretera entre sus paradas, de CartoCiudad (su atribución,
+    // tal cual en los dos idiomas).
+    v.byRoad && [t('Por carretera'), { html: `${creditHtml('Obra derivada de CartoCiudad 2026 CC-BY 4.0 scne.es')} · ${esc(t('aproximado: no tiene en cuenta el sentido de las calles'))}` }],
   ].filter(Boolean);
   const aheadText = (how) => t('La <strong>línea azul clara continua</strong> (con borde oscuro) es lo que le queda hasta {destination}{how}. ', {
     destination: esc(v.destination ?? t('su destino')), how,
@@ -1462,6 +1465,9 @@ function vehicleDetail(v, onRoute = false, stops = null) {
     : (v.delay !== null && v.delay !== undefined
       ? t('<strong>Posición estimada</strong> a partir del horario y del retraso real que publica el operador: no es GPS. ')
       : t('<strong>Posición estimada</strong> a partir del horario publicado: no es GPS y no refleja retrasos. '))
+      + (v.byRoad
+        ? t('Su operador no publica el recorrido entre paradas: va por la carretera más corta entre ellas (CartoCiudad), así que el recorrido es aproximado. ')
+        : '')
       + (v.atLastStop
         ? t('El operador no publica el recorrido entre paradas, así que se muestra en la última parada por la que ha pasado.')
         : t('Se mueve a saltos, en cada actualización. Si su ruta tiene trazado publicado, la <strong>línea azul discontinua</strong> es el tramo que habría recorrido en los últimos 45 min según el horario.'))

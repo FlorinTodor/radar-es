@@ -44,6 +44,7 @@ import { createMcpHandler } from './adapters/inbound/mcp/mcp.js';
 import pkg from '../package.json' with { type: 'json' };
 import { createWmsTiles } from './adapters/outbound/tiles/wms-tiles.js';
 import { createCartoCiudadGeocoder, GEOCODER_MEMBERS } from './adapters/outbound/geo/cartociudad-geocoder.js';
+import { createCartoCiudadRoads } from './adapters/outbound/geo/cartociudad-routes.js';
 import { createCpuPool, parseThreads } from './adapters/outbound/workers/cpu-pool.js';
 
 const config = loadConfig();
@@ -89,7 +90,13 @@ const tiles = assertPort('TileProvider', createWmsTiles({ http, dir: fileURLToPa
 // aplicación (ningún caso de uso lo usa): sólo se lo pasan las fuentes de avisos oficiales.
 const geocoder = assertPort('Geocoder', createCartoCiudadGeocoder({ http, log }), GEOCODER_MEMBERS);
 
-const sources = createSources({ http, cache, stations, nap, log, env: config.env, pool, xmlPool, geocoder, railGeometry })
+// La carretera entre paradas de los autobuses cuyo horario no trae el trazado (CartoCiudad): como el geocodificador, no es
+// un puerto de la aplicación; sólo se lo pasan las fuentes de horarios. ROAD_ROUTES=off en .env lo apaga (se quedan en
+// la última parada por la que han pasado, como antes).
+const roads = config.env.ROAD_ROUTES === 'off' ? null : createCartoCiudadRoads({ http, dir: cacheDir, log });
+await roads?.load();
+
+const sources = createSources({ http, cache, stations, nap, log, env: config.env, pool, xmlPool, geocoder, railGeometry, roads })
   .map((s) => assertPort(`DataSource(${s.id})`, s, PORT_MEMBERS.DataSource));
 
 const enabledSources = [];
@@ -135,6 +142,8 @@ const tasks = [
   // Compartir: cada minuto, las incidencias que han dejado de salir en el directo; cada 5, la copia (si ha cambiado).
   { name: 'compartir', every: 60_000, run: share.remember },
   { name: 'compartir', every: 5 * 60_000, run: share.save },
+  // Carreteras de CartoCiudad: un tramo pendiente cada vez (como mucho uno por segundo) y la copia cada 5 minutos.
+  ...(roads ? [{ name: 'carreteras', every: 1000, run: roads.pump }, { name: 'carreteras', every: 5 * 60_000, run: roads.save }] : []),
 ];
 const scheduler = startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, saveTracks: keepTracks.save, tasks, log });
 
@@ -213,7 +222,7 @@ function shutdown() {
   if (xmlPool !== pool) xmlPool.close();
   // Lo último que se guarda: el historial de posiciones, la puntualidad, el día en cifras y las incidencias terminadas
   // (los enlaces compartidos), para que el siguiente arranque los siga; y el bot suelta su turno.
-  Promise.allSettled([keepTracks.save(), recordPunctuality.save(), dayInFigures.save(), share.save(), botStopped])
+  Promise.allSettled([keepTracks.save(), recordPunctuality.save(), dayInFigures.save(), share.save(), roads?.save(), botStopped])
     .then((results) => results.filter((r) => r.status === 'rejected').forEach((r) => log.warn(`[al cerrar] ${r.reason?.message ?? r.reason}`)))
     .finally(() => server.close(() => process.exit(0)));
   setTimeout(() => process.exit(0), 3000).unref();

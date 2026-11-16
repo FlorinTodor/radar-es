@@ -20,7 +20,8 @@ const fold = (s) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 const legal = fold(readFileSync(new URL('../../public/legal.html', import.meta.url), 'utf8').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '));
 
 // Lo que no es el nombre de quien da los datos, dentro de una atribución.
-const NOT_A_NAME = /posicion estimada|^tipo de vehiculo|datos en bruto|formato adaptado|uso informativo|^cc by|creative commons|llicencia|no apto|filtrado|sin alterar|^trazado|datos de nasa|dato explotado|horario gtfs|^\d|https?:/;
+// También lo que cuenta cómo se dibuja su recorrido («recorrido y lo que le queda, por el trazado de su viaje…»).
+const NOT_A_NAME = /posicion estimada|^tipo de vehiculo|datos en bruto|formato adaptado|uso informativo|^cc by|creative commons|llicencia|no apto|filtrado|sin alterar|^trazado|datos de nasa|dato explotado|horario gtfs|^\d|https?:|^recorrido|^posiciones en bruto|^por el trazado|lo que le queda/;
 const PREFIX = /^(powered by|fuente:|origen de los datos:|font de les dades:|informacion obtenida del|obra derivada de|©)\s*/;
 
 /** Titulares de los datos que nombra una atribución: «Powered by MITRAMS (…) · Metro de Sevilla · …» → [MITRAMS, Metro de Sevilla]. */
