@@ -50,6 +50,8 @@
  * @property {(vehicleId: string) => import('../domain/trip-stops.js').TripStops|null|undefined} [tripStops]  Paradas del
  *   viaje del vehículo, del origen al destino, con su hora si se sabe y las que ya ha pasado (los vehículos llevan
  *   `stops`). null = no se saben; undefined = vehículo de otra fuente.
+ * @property {() => boolean} [readSoon]  true si conviene leerla ya, sin esperar a su intervalo: un autobús que alguien
+ *   está mirando esperaba su carretera y ya han llegado todos sus tramos (el planificador lo pregunta cada poco).
  */
 
 /**

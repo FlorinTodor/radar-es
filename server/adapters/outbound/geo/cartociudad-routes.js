@@ -34,6 +34,14 @@ const SIMPLIFY_M = 15;
 // y sólo los tramos de ese viaje (unas decenas). Así su carretera llega en menos de un minuto, no tras la cola del día.
 const PRIORITY_GAP_DIVISOR = 3;
 const MAX_PRIORITY = 500;
+/**
+ * Cada cuánto hay que llamar a pump (el planificador): lo justo para que la cola prioritaria vaya de verdad a 3 por
+ * segundo. Llamándolo cada segundo, iba a 1 por segundo como la normal (sus tramos tardaban un minuto, no veinte segundos).
+ */
+export const PUMP_EVERY_MS = Math.ceil(1000 / PRIORITY_GAP_DIVISOR);
+// Los temporizadores no son exactos: una vuelta que llega unos milisegundos antes de la separación mínima también vale
+// (si no, la prioritaria saltaba una de cada dos y la normal esperaba una vuelta de más).
+const TICK_SLACK_MS = 50;
 // Tras un fallo del servicio (no responde, error), se espera antes de volver a pedir, cada vez más (hasta 30 min).
 const BACKOFF_MS = 60_000;
 const MAX_BACKOFF_MS = 30 * 60_000;
@@ -158,7 +166,8 @@ export function routeFromResponse(body, from, to) {
  * @property {() => number} version  Cambia cada vez que llega un tramo nuevo: lo que se calculó sin él se puede rehacer.
  * @property {(points: number[][]) => number} hurry  Los tramos que faltan entre estas paradas ([lon, lat], en orden) pasan
  *   delante (alguien está mirando ese autobús); devuelve cuántos faltan.
- * @property {() => Promise<boolean>} pump  Pide el siguiente tramo pendiente, si toca (lo llama el planificador cada segundo).
+ * @property {(points: number[][]) => number} missing  Cuántos faltan, sin pedir nada.
+ * @property {() => Promise<boolean>} pump  Pide el siguiente tramo pendiente, si toca (lo llama el planificador cada PUMP_EVERY_MS).
  * @property {() => Promise<void>} load
  * @property {() => Promise<void>} save  Si ha cambiado algo. Nunca rechaza.
  * @property {() => { known: number, failed: number, pending: number }} stats
@@ -182,6 +191,12 @@ export function createCartoCiudadRoads({ http, dir, log, now = Date.now, minGapM
   let lastAt = -Infinity;
   let pausedUntil = -Infinity;
   let errors = 0;
+  /** Ni se sabe su carretera ni se sabe (hace menos de una semana) que no la tiene. */
+  const unknown = (key) => {
+    if (known.has(key)) return false;
+    const bad = failed.get(key);
+    return bad === undefined || now() - bad >= RETRY_FAILED_MS;
+  };
 
   return {
     segment(from, to) {
@@ -199,19 +214,23 @@ export function createCartoCiudadRoads({ http, dir, log, now = Date.now, minGapM
       let missing = 0;
       for (let i = 0; i + 1 < points.length; i++) {
         const key = keyOf(points[i], points[i + 1]);
-        if (known.has(key)) continue;
-        const bad = failed.get(key);
-        if (bad !== undefined && now() - bad < RETRY_FAILED_MS) continue;
+        if (!unknown(key)) continue;
         missing++;
         if (!urgent.has(key) && urgent.size < MAX_PRIORITY) urgent.set(key, [points[i], points[i + 1]]);
       }
       return missing;
     },
 
+    missing(points) {
+      let missing = 0;
+      for (let i = 0; i + 1 < points.length; i++) if (unknown(keyOf(points[i], points[i + 1]))) missing++;
+      return missing;
+    },
+
     async pump() {
       const queue = urgent.size ? urgent : pending;
       const gap = urgent.size ? minGapMs / PRIORITY_GAP_DIVISOR : minGapMs;
-      if (busy || !queue.size || now() < pausedUntil || now() - lastAt < gap) return false;
+      if (busy || !queue.size || now() < pausedUntil || now() - lastAt < gap - TICK_SLACK_MS) return false;
       busy = true;
       const [key, [from, to]] = queue.entries().next().value;
       lastAt = now();

@@ -44,7 +44,7 @@ import { createMcpHandler } from './adapters/inbound/mcp/mcp.js';
 import pkg from '../package.json' with { type: 'json' };
 import { createWmsTiles } from './adapters/outbound/tiles/wms-tiles.js';
 import { createCartoCiudadGeocoder, GEOCODER_MEMBERS } from './adapters/outbound/geo/cartociudad-geocoder.js';
-import { createCartoCiudadRoads } from './adapters/outbound/geo/cartociudad-routes.js';
+import { PUMP_EVERY_MS, createCartoCiudadRoads } from './adapters/outbound/geo/cartociudad-routes.js';
 import { createCpuPool, parseThreads } from './adapters/outbound/workers/cpu-pool.js';
 
 const config = loadConfig();
@@ -142,10 +142,14 @@ const tasks = [
   // Compartir: cada minuto, las incidencias que han dejado de salir en el directo; cada 5, la copia (si ha cambiado).
   { name: 'compartir', every: 60_000, run: share.remember },
   { name: 'compartir', every: 5 * 60_000, run: share.save },
-  // Carreteras de CartoCiudad: un tramo pendiente cada vez (como mucho uno por segundo) y la copia cada 5 minutos.
-  ...(roads ? [{ name: 'carreteras', every: 1000, run: roads.pump }, { name: 'carreteras', every: 5 * 60_000, run: roads.save }] : []),
+  // Carreteras de CartoCiudad: un tramo pendiente cada vez (uno por segundo; tres los de un autobús que alguien mira) y la
+  // copia cada 5 minutos.
+  ...(roads ? [{ name: 'carreteras', every: PUMP_EVERY_MS, run: roads.pump }, { name: 'carreteras', every: 5 * 60_000, run: roads.save }] : []),
 ];
-const scheduler = startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, saveTracks: keepTracks.save, tasks, log });
+// Una fuente con horario se lee en cuanto llega la carretera de un autobús que alguien mira (readSoon), sin esperar al minuto.
+const readSoonOf = new Map(enabledSources.filter((s) => typeof s.readSoon === 'function').map((s) => [s.id, s.readSoon]));
+const readSoon = readSoonOf.size ? (id) => readSoonOf.get(id)?.() === true : undefined;
+const scheduler = startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, saveTracks: keepTracks.save, tasks, readSoon, log });
 
 // Bot de Telegram «Sigue tu tren» (docs/telegram.md): sin TELEGRAM_BOT_TOKEN en .env, desactivado.
 let telegramBot = null;

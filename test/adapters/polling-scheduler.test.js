@@ -191,3 +191,44 @@ test('el día en cifras, como trabajo periódico: suma un minuto cada minuto, si
   await flush();
   assert.equal(runs, 2);
 });
+
+test('una fuente que pide leerse ya (readSoon) se adelanta, pero no encima de otra lectura suya ni más de una vez cada 15 s', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: 0 });
+  const read = [];
+  let wants = false;
+  let finish = null;
+  const scheduler = startPolling({
+    feeds: [{ id: 'alsa', interval: 60_000 }],
+    ingestSource: (id) => { read.push(Date.now()); return new Promise((resolve) => { finish = () => resolve(true); }); },
+    detectAlerts() {},
+    readSoon: (id) => id === 'alsa' && wants,
+    log: quietLog,
+  });
+  try {
+    t.mock.timers.tick(0);
+    assert.equal(read.length, 1, 'primera lectura');
+    wants = true;
+    t.mock.timers.tick(20_000);
+    assert.equal(read.length, 1, 'mientras lee, no se empieza otra');
+    finish();
+    await flush();
+    t.mock.timers.tick(2_000);
+    assert.deepEqual(read, [0, 22_000], 'en cuanto acaba y han pasado 15 s desde la anterior');
+    finish();
+    await flush();
+    t.mock.timers.tick(10_000);
+    assert.equal(read.length, 2, 'la siguiente, no antes de 15 s');
+    t.mock.timers.tick(6_000);
+    assert.equal(read.length, 3);
+    wants = false;
+    finish();
+    await flush();
+    t.mock.timers.tick(59_000);
+    assert.equal(read.length, 3, 'sin pedirlo, a su intervalo');
+    t.mock.timers.tick(1_000);
+    assert.equal(read.length, 4);
+  } finally {
+    finish?.();
+    scheduler.stop();
+  }
+});

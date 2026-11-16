@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { createCartoCiudadRoads, decodePolyline, encodePolyline, routeFromResponse, simplify } from '../../server/adapters/outbound/geo/cartociudad-routes.js';
+import { PUMP_EVERY_MS, createCartoCiudadRoads, decodePolyline, encodePolyline, routeFromResponse, simplify } from '../../server/adapters/outbound/geo/cartociudad-routes.js';
 
 const log = { info() {}, warn() {}, error() {} };
 const A = [-0.6984, 38.2669];
@@ -125,4 +125,26 @@ test('lo que alguien mira pasa delante de la cola y va algo más rápido; lo que
   assert.equal(await roads.pump(), true);
   assert.equal(roads.hurry([A, B]), 0, 'ya se sabe');
   assert.equal(roads.stats().urgent, 0);
+});
+
+test('llamado cada PUMP_EVERY_MS (y los temporizadores se adelantan unos ms), lo que se mira va a 3 por segundo y lo demás a 1', async () => {
+  let clock = 0;
+  const asked = [];
+  const http = { json: async (url) => { asked.push(url); return { found: 'false' }; } };
+  const roads = createCartoCiudadRoads({ http, dir: pathToFileURL('/nonexistent/'), log, now: () => clock });
+  const line = (n, lat) => Array.from({ length: n + 1 }, (_, i) => [-0.7 + i * 0.001, lat]);
+  const normal = line(6, 38.3);
+  for (let i = 0; i < 6; i++) roads.segment(normal[i], normal[i + 1]); // seis en la cola normal
+  assert.equal(roads.missing(line(6, 38.4)), 6, 'missing cuenta sin pedir nada');
+  assert.equal(roads.stats().urgent, 0);
+  roads.hurry(line(6, 38.4)); // seis que alguien mira
+  const tick = async () => { await roads.pump(); clock += PUMP_EVERY_MS - 3; };
+  for (let i = 0; i < 3; i++) await tick(); // casi un segundo
+  assert.equal(asked.length, 3, 'tres de lo que se mira en el primer segundo');
+  for (let i = 0; i < 3; i++) await tick();
+  assert.equal(roads.stats().urgent, 0, 'los seis, en dos segundos');
+  asked.length = 0;
+  for (let i = 0; i < 9; i++) await tick(); // tres segundos, ya sólo la cola normal
+  assert.equal(asked.length, 3, 'uno por segundo');
+  assert.equal(roads.missing(line(6, 38.4)), 0, 'los que no tienen ruta ya no faltan');
 });
