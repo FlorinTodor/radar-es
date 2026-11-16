@@ -673,9 +673,18 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   - los que van por horario sin trazado publicado (ALSA, AISA Ciudad Real y otros): por la carretera entre
     parada y parada, con el cálculo de rutas de CartoCiudad (IGN). Así su posición estimada avanza por la
     carretera en vez de quedarse en la última parada, y se dibujan su recorrido y lo que les queda. Es
-    aproximado, y la ficha lo dice;
-  - con flecha de hacia dónde van aunque estén parados: por su trazado o, en su última parada, hacia la
-    próxima.
+    aproximado, y la ficha lo dice. Al abrir la ficha de uno cuya carretera aún no se sabe, sus tramos pasan
+    delante y su línea sale en unos segundos. Cada parada queda en su sitio aunque la ruta vuelva por la
+    misma calle, y un tramo corto sin ruta va en recta sin dejar sin carretera al resto del viaje;
+  - con flecha de hacia dónde van aunque estén parados: por su trazado o, en su última parada o esperando
+    en una, hacia la próxima.
+- Lo que le queda a cada vehículo empieza justo donde se ve en el mapa, también en el momento en que se
+  recalcula su horario.
+- Trenes de Renfe de la red general: si Renfe aún da por próxima una estación que el tren ya ha pasado, lo
+  que le queda sale desde el tren y no vuelve hacia atrás; uno que acaba de aparecer lleva su flecha hacia su
+  próxima parada.
+- La hora de llegada a la próxima parada de un viaje que sale un día y llega al siguiente lleva la fecha
+  buena, y un vehículo que su operador publica dos veces sale una sola.
 - Avisos de servicio de Renfe y Rodalies.
 - Trenes y autobuses cancelados o con paradas suprimidas: los de Renfe (Cercanías, Rodalies, Alta
   Velocidad, Larga y Media Distancia), Euskotren y AMB, y las paradas que suprimen los desvíos de
