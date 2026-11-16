@@ -175,6 +175,10 @@ html.i18n-wait body { visibility: hidden; animation: i18n-show 0s 2.5s forwards;
 }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; }
+/* «Tipos · Todas · Ninguna» de los filtros de Incidencias, en su propia línea, como en Capas. */
+.chips .chips-bulk { flex-basis: 100%; font-size: 11px; color: var(--muted); }
+.chips .chips-bulk .link { color: var(--muted); }
+.chips .chips-bulk .link:hover, .chips .chips-bulk .link:focus-visible { color: var(--ink); }
 .chip {
   padding: 5px 10px; border-radius: 14px; border: 1px solid var(--border);
   background: var(--surface-2); color: var(--ink-2); cursor: pointer; font-size: 12px;

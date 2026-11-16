@@ -178,7 +178,7 @@ function flush() {
     const badge = document.getElementById('b-events');
     badge.textContent = shownEvents.length - gone;
     badge.title = gone ? tn('Y {n} que su fuente ya no publica (se ve desvaída hasta medianoche)', 'Y {n} que su fuente ya no publica (se ven desvaídas hasta medianoche)', gone) : '';
-    if (state.tab === 'events') P.renderEvents(document.getElementById('events-list'), P.filterEvents(events, prefs), selection('event'));
+    if (state.tab === 'events') P.renderEvents(document.getElementById('events-list'), P.filterEvents(events, prefs), selection('event'), { noCategory: !prefs.eventCats.length });
   }
   if (parts.has('alerts')) {
     document.getElementById('b-alerts').textContent = state.alerts.length;
@@ -608,6 +608,20 @@ document.getElementById('vehicle-search').addEventListener('input', (ev) => {
 const filtersEl = document.getElementById('event-filters');
 P.renderEventFilters(filtersEl, prefs);
 filtersEl.addEventListener('click', (ev) => {
+  // «Todas»: todos los tipos (las obras, como estaban: son más de mil); «Ninguna»: nada, tampoco las obras.
+  const bulk = ev.target.closest('[data-cats]');
+  if (bulk) {
+    const all = bulk.dataset.cats === 'all';
+    prefs.eventCats = all ? [...EVENT_CATS] : [];
+    if (!all && prefs.obras) {
+      prefs.obras = false;
+      state.forced.delete('group:obras');
+      applyLayerPrefs();
+    }
+    savePrefs();
+    P.renderEventFilters(filtersEl, prefs);
+    return render('events');
+  }
   const chip = ev.target.closest('[data-cat]');
   if (!chip) return;
   const cat = chip.dataset.cat;
