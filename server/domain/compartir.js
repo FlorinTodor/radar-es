@@ -170,8 +170,9 @@ export function noteEnded(ended, before, current, { now, keepMs, max }) {
  * La misma incidencia, publicada de nuevo por su fuente con otro identificador: la DGT a veces cambia el de una al
  * actualizarla (16 de 676 que dejaron de salir en 46 minutos de una prueba, el 16-11-2026, entre ellas un accidente de
  * la M-40), y su enlace diría que ya no está en el directo aunque siga. Sólo si no hay duda: la misma fuente, categoría,
- * tipo y título, a menos de `maxMeters`, que la vieja dejara de salir hace poco y que no haya dos así (dos obras iguales
- * en el mismo kilómetro no se sabe cuál es). null si no hay ninguna (o hay varias).
+ * tipo y título, a menos de `maxMeters` y que la vieja dejara de salir hace poco. Si hay varias, sólo si están en el mismo
+ * punto (la DGT publicó así el de la M-40 dos veces, seguramente una por sentido): cualquiera dice lo mismo, y se toma la
+ * más reciente; en puntos distintos (dos obras en kilómetros cercanos) no se sabe cuál es, y ninguna.
  * @param {object} old  lo guardado de la que dejó de salir  @param {number} endedAt  cuándo lo vio el radar
  * @param {Iterable<object>} events  las del directo
  */
@@ -185,8 +186,9 @@ export function successorOf(old, endedAt, events, { now, maxAgeMs = 6 * 3600_000
   for (const e of events) {
     if (e.id === old.id || e.source !== old.source || e.category !== old.category || e.type !== old.type || e.title !== old.title) continue;
     if (!Number.isFinite(e.lat) || !Number.isFinite(e.lon) || metersBetween(e.lat, e.lon, old.lat, old.lon) > maxMeters) continue;
-    if (found) return null; // dos que podrían ser ella: ninguna
-    found = e;
+    if (!found) found = e;
+    else if (found.lat !== e.lat || found.lon !== e.lon) return null; // en dos sitios: no se sabe cuál es
+    else if ((e.start ?? 0) > (found.start ?? 0)) found = e; // en el mismo punto: la más reciente
   }
   return found;
 }

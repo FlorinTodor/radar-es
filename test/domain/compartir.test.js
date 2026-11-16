@@ -204,6 +204,8 @@ test('la misma incidencia publicada de nuevo con otro identificador: sólo si no
   assert.equal(successorOf(accident, NOW, [{ ...renamed, lat: accident.lat + 0.01 }], o), null, 'a más de 300 m');
   assert.equal(successorOf(accident, NOW, [{ ...renamed, title: 'Accidente · A-7 km 215.0' }], o), null, 'otro título');
   assert.equal(successorOf(accident, NOW, [{ ...renamed, source: 'sct' }], o), null, 'otra fuente');
-  assert.equal(successorOf(accident, NOW, [renamed, { ...renamed, id: 'dgt:100' }], o), null, 'dos candidatas: ninguna');
+  assert.equal(successorOf(accident, NOW, [renamed, { ...renamed, id: 'dgt:100', lat: renamed.lat + 0.0005 }], o), null, 'dos candidatas en sitios distintos: ninguna');
+  const later = { ...renamed, id: 'dgt:101', start: accident.start + MIN };
+  assert.equal(successorOf(accident, NOW, [renamed, later], o)?.id, 'dgt:101', 'dos en el mismo punto (una por sentido): la más reciente');
   assert.equal(successorOf(accident, NOW, [accident], o), null, 'ella misma no cuenta');
 });
