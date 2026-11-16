@@ -54,3 +54,9 @@ test('con trazado: sobre él, con el tramo recorrido y hasta dónde llega', () =
   assert.ok(est.path.to > 0 && est.path.to < est.path.end);
   assert.equal(est.ahead, true);
 });
+
+test('autobús sin trazado esperando en una parada (sale después de llegar): flecha hacia la próxima', () => {
+  const est = estimatePosition({ stops: STOPS, mode: 'bus', t: H8 + 615 });
+  assert.deepEqual([est.lon, est.current, est.next], [-3.68, 'Beta', 'Gamma']);
+  assert.equal(Math.round(est.heading), 90, 'hacia Gamma, al este');
+});

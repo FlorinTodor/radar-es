@@ -142,4 +142,25 @@ export default {
   'Su línea.': 'Its line.',
   Puntualidad: 'Punctuality',
   'Su operador no publica el retraso: el radar no puede saber su puntualidad.': 'Its operator does not publish delays: the radar cannot know its punctuality.',
+
+  // Compartir (compartir.js, las fichas del mapa y abrir un enlace compartido, app.js).
+  Compartir: 'Share',
+  'Enlace copiado': 'Link copied',
+  'Copia el enlace:': 'Copy the link:',
+  'Ya no está en el directo del radar desde el {when}. Esto es lo último que se supo.':
+    'No longer in the radar\'s live data since {when}. This is the last that was known.',
+  'Esta incidencia ya no está en el directo': 'This incident is no longer in the live data',
+  'Este vehículo ya no está en el directo': 'This vehicle is no longer in the live data',
+  'No encontramos esta estación': 'We could not find this station',
+  'Puede que el enlace esté mal copiado.': 'The link may have been copied incorrectly.',
+  'Puede que haya terminado o que su fuente no publique datos ahora. El mapa enseña lo que pasa ahora.':
+    'It may have ended, or its source may not be publishing data right now. The map shows what is happening now.',
+
+  // Autobuses por carretera entre paradas (CartoCiudad), map.js.
+  'Por carretera': 'By road',
+  'aproximado: no tiene en cuenta el sentido de las calles': 'approximate: it does not take one-way streets into account',
+  'Su operador no publica el recorrido entre paradas: va por la carretera más corta entre ellas (CartoCiudad), así que el recorrido es aproximado. ':
+    'Its operator does not publish the route between stops: it follows the shortest road between them (CartoCiudad), so the route is approximate. ',
+  'Su operador no publica el recorrido entre paradas: se está calculando por carretera (CartoCiudad) y en unos segundos se dibuja. ':
+    'Its operator does not publish the route between stops: it is being worked out by road (CartoCiudad) and will be drawn in a few seconds. ',
 };

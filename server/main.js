@@ -13,6 +13,7 @@ import { makeKeepTracks } from './application/use-cases/keep-tracks.js';
 import { makeRecordPunctuality } from './application/use-cases/record-punctuality.js';
 import { makeDayInFigures } from './application/use-cases/day-in-figures.js';
 import { makeFollowBot } from './application/use-cases/follow-bot.js';
+import { makeShare } from './application/use-cases/share.js';
 import { createHttpClient } from './adapters/outbound/http/http-client.js';
 import { createFileCache } from './adapters/outbound/http/file-cache.js';
 import { createConsoleLogger } from './adapters/outbound/logging/console-logger.js';
@@ -31,6 +32,8 @@ import { createPunctualityStore } from './adapters/outbound/persistence/punctual
 import { createDayStore } from './adapters/outbound/persistence/day-store.js';
 import { createFollowStore } from './adapters/outbound/persistence/follow-store.js';
 import { createFileLease } from './adapters/outbound/persistence/file-lease.js';
+import { createEndedStore } from './adapters/outbound/persistence/ended-store.js';
+import { createCardRenderer } from './adapters/outbound/cards/card-renderer.js';
 import { createTelegramApi } from './adapters/outbound/telegram/telegram-api.js';
 import { createTelegramBot } from './adapters/inbound/telegram/telegram-bot.js';
 import { createSources } from './adapters/outbound/sources/index.js';
@@ -41,6 +44,7 @@ import { createMcpHandler } from './adapters/inbound/mcp/mcp.js';
 import pkg from '../package.json' with { type: 'json' };
 import { createWmsTiles } from './adapters/outbound/tiles/wms-tiles.js';
 import { createCartoCiudadGeocoder, GEOCODER_MEMBERS } from './adapters/outbound/geo/cartociudad-geocoder.js';
+import { PUMP_EVERY_MS, createCartoCiudadRoads } from './adapters/outbound/geo/cartociudad-routes.js';
 import { createCpuPool, parseThreads } from './adapters/outbound/workers/cpu-pool.js';
 
 const config = loadConfig();
@@ -76,13 +80,23 @@ const punctualityStore = assertPort('PunctualityStore', createPunctualityStore({
 // El mismo histórico se lee para el día en cifras (KPI y alertas de días pasados); su registro de cada día, aparte.
 const historyReader = assertPort('HistoryReader', history, PORT_MEMBERS.HistoryReader);
 const dayStore = assertPort('DayStore', createDayStore({ dir: new URL('dias/', config.dataDir), log }), PORT_MEMBERS.DayStore);
+// Las incidencias que ya no salen en el directo (sus enlaces compartidos) y las tarjetas de compartir, que se dibujan en
+// el hilo pequeño de la DGT: con las 2 CPU del contenedor, ni compiten con el principal ni cargan otro hilo en memoria.
+const endedStore = assertPort('EndedStore', createEndedStore({ dir: new URL('compartir/', config.dataDir), log }), PORT_MEMBERS.EndedStore);
+const cardRenderer = assertPort('CardRenderer', createCardRenderer({ pool: xmlPool, log }), PORT_MEMBERS.CardRenderer);
 const tiles = assertPort('TileProvider', createWmsTiles({ http, dir: fileURLToPath(new URL('tiles/', config.dataDir)), log }), PORT_MEMBERS.TileProvider);
 
 // Sitúa los municipios que citan los avisos del 112 (no traen coordenadas). No es un puerto de la
 // aplicación (ningún caso de uso lo usa): sólo se lo pasan las fuentes de avisos oficiales.
 const geocoder = assertPort('Geocoder', createCartoCiudadGeocoder({ http, log }), GEOCODER_MEMBERS);
 
-const sources = createSources({ http, cache, stations, nap, log, env: config.env, pool, xmlPool, geocoder, railGeometry })
+// La carretera entre paradas de los autobuses cuyo horario no trae el trazado (CartoCiudad): como el geocodificador, no es
+// un puerto de la aplicación; sólo se lo pasan las fuentes de horarios. ROAD_ROUTES=off en .env lo apaga (se quedan en
+// la última parada por la que han pasado, como antes).
+const roads = config.env.ROAD_ROUTES === 'off' ? null : createCartoCiudadRoads({ http, dir: cacheDir, log });
+await roads?.load();
+
+const sources = createSources({ http, cache, stations, nap, log, env: config.env, pool, xmlPool, geocoder, railGeometry, roads })
   .map((s) => assertPort(`DataSource(${s.id})`, s, PORT_MEMBERS.DataSource));
 
 const enabledSources = [];
@@ -104,6 +118,7 @@ const serveTiles = makeServeTiles({ tiles });
 const refreshCatalogs = makeRefreshCatalogs({ stations, networkStations, network, railNetwork, railGeometry, log });
 const keepTracks = makeKeepTracks({ situation, store: trackStore, clock, log });
 const dayInFigures = makeDayInFigures({ situation, history: historyReader, store: dayStore, clock, log });
+const share = makeShare({ query, store: endedStore, renderer: cardRenderer, clock, log });
 
 // --- Adaptadores de entrada ------------------------------------------------
 await refreshCatalogs(); // espera a las estaciones; los trazados y la red ferroviaria siguen cargándose detrás
@@ -113,6 +128,8 @@ await keepTracks.restore().catch((err) => log.warn(`[estelas] no se pudo recuper
 await recordPunctuality.restore().catch((err) => log.warn(`[puntualidad] no se pudo recuperar: ${err.message}`));
 // El registro de hoy del día en cifras: un reinicio no empieza el día de cero.
 await dayInFigures.restore().catch((err) => log.warn(`[día en cifras] no se pudo recuperar el día: ${err.message}`));
+// Las incidencias que ya no salían en el directo: sus enlaces compartidos siguen diciendo qué eran.
+await share.restore().catch((err) => log.warn(`[compartir] no se pudieron recuperar las terminadas: ${err.message}`));
 
 const feeds = enabledSources.map(({ id, interval }) => ({ id, interval }));
 // Trabajos periódicos: la puntualidad (sus lecturas cada minuto y una copia cada cuarto de hora, y al apagar:
@@ -122,8 +139,17 @@ const tasks = [
   { name: 'puntualidad', every: 60_000, run: recordPunctuality.tick },
   { name: 'puntualidad', every: 15 * 60_000, run: recordPunctuality.save },
   { name: 'día en cifras', every: 60_000, run: dayInFigures.tick },
+  // Compartir: cada minuto, las incidencias que han dejado de salir en el directo; cada 5, la copia (si ha cambiado).
+  { name: 'compartir', every: 60_000, run: share.remember },
+  { name: 'compartir', every: 5 * 60_000, run: share.save },
+  // Carreteras de CartoCiudad: un tramo pendiente cada vez (uno por segundo; tres los de un autobús que alguien mira) y la
+  // copia cada 5 minutos.
+  ...(roads ? [{ name: 'carreteras', every: PUMP_EVERY_MS, run: roads.pump }, { name: 'carreteras', every: 5 * 60_000, run: roads.save }] : []),
 ];
-const scheduler = startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, saveTracks: keepTracks.save, tasks, log });
+// Una fuente con horario se lee en cuanto llega la carretera de un autobús que alguien mira (readSoon), sin esperar al minuto.
+const readSoonOf = new Map(enabledSources.filter((s) => typeof s.readSoon === 'function').map((s) => [s.id, s.readSoon]));
+const readSoon = readSoonOf.size ? (id) => readSoonOf.get(id)?.() === true : undefined;
+const scheduler = startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, saveTracks: keepTracks.save, tasks, readSoon, log });
 
 // Bot de Telegram «Sigue tu tren» (docs/telegram.md): sin TELEGRAM_BOT_TOKEN en .env, desactivado.
 let telegramBot = null;
@@ -165,6 +191,8 @@ const server = createHttpServer({
   about: config.about,
   serveTiles,
   days: dayInFigures,
+  // El enlace propio de cada incidencia, estación y vehículo, con su tarjeta para WhatsApp, Telegram y X.
+  share,
   // Servidor MCP en POST /mcp: los asistentes de IA consultan el directo con herramientas.
   mcp: createMcpHandler({ query, about: config.about, version: pkg.version, now: clock.now }),
   metrics,
@@ -181,7 +209,7 @@ server.listen(config.port, config.host, () => {
 
 // Métricas en un puerto aparte, que no pasa por nginx ni por el túnel (sólo si METRICS_PORT lo dice).
 const metricsServer = config.metricsPort
-  ? createMetricsServer({ render: () => metrics.render({ sources: query.health(), bot: botUsage(), now: clock.now() }), log })
+  ? createMetricsServer({ render: () => metrics.render({ sources: query.health(), bot: botUsage(), share: share.usage(), now: clock.now() }), log })
   : null;
 metricsServer?.listen(config.metricsPort, config.metricsHost, () => {
   log.info(`Métricas en http://${config.metricsHost}:${config.metricsPort}/metrics`);
@@ -196,9 +224,9 @@ function shutdown() {
   metrics.close();
   pool.close();
   if (xmlPool !== pool) xmlPool.close();
-  // Lo último que se guarda: el historial de posiciones, la puntualidad y el día en cifras, para que el
-  // siguiente arranque los siga; y el bot suelta su turno.
-  Promise.allSettled([keepTracks.save(), recordPunctuality.save(), dayInFigures.save(), botStopped])
+  // Lo último que se guarda: el historial de posiciones, la puntualidad, el día en cifras y las incidencias terminadas
+  // (los enlaces compartidos), para que el siguiente arranque los siga; y el bot suelta su turno.
+  Promise.allSettled([keepTracks.save(), recordPunctuality.save(), dayInFigures.save(), share.save(), roads?.save(), botStopped])
     .then((results) => results.filter((r) => r.status === 'rejected').forEach((r) => log.warn(`[al cerrar] ${r.reason?.message ?? r.reason}`)))
     .finally(() => server.close(() => process.exit(0)));
   setTimeout(() => process.exit(0), 3000).unref();

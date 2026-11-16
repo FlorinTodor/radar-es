@@ -1,9 +1,9 @@
 // Casos de uso de consulta: lo que los adaptadores de entrada (la API HTTP) pueden preguntar.
 import { sortAlerts } from '../../domain/alerts/lifecycle.js';
 import { headingOf } from '../../domain/tracking.js';
-import { headingOfPath, pathThroughStops } from '../../domain/route-ahead.js';
+import { headingOfPath, pathThroughStops, stopsLeftBehind } from '../../domain/route-ahead.js';
 import { gaugeFactors, matchToRail, routeAhead } from '../../domain/rail-match.js';
-import { distanceKm, round5 } from '../../domain/geo.js';
+import { bearingDeg, distanceKm, round5 } from '../../domain/geo.js';
 import { inForce } from '../../domain/model.js';
 import { withCurrentCuts } from '../../domain/emergencias.js';
 import { withoutRepeatedQuakes } from '../../domain/sismos.js';
@@ -12,6 +12,12 @@ import { DEFAULT_THRESHOLDS } from '../../domain/alerts/thresholds.js';
 import { isFollowKey, stopKey } from '../../domain/seguir.js';
 import { followStatus, indexByFollow } from '../../domain/siguiendo.js';
 import { MODES } from '../../domain/modos.js';
+import { MAX_OFF_SHAPE_M, headingOnShape, nearestAlong, shapeStretch, trackOnShape } from '../../domain/recorrido-trazado.js';
+
+// La posición que pinta la web de un vehículo con GPS es de su última lectura o de la anterior: hasta aquí atrás (o
+// adelante, por el GPS) de donde va ahora se acepta como suya.
+const SHOWN_BACK_M = 3000;
+const SHOWN_AHEAD_M = 300;
 
 // Cálculos por tren que se guardan (recorrido por la vía, ~30 KB cada uno; lo que le queda): el mapa
 // pide los del tren seleccionado cada 15 s, /api/live la flecha de cada Cercanías, y sólo cambian
@@ -122,6 +128,36 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
     return undefined;
   };
   const trackMemo = makeTrainMemo(() => situation.tracks());
+
+  // Vehículos con GPS cuyo tiempo real dice qué viaje hacen, y ese viaje trae trazado (autobuses de AUVASA, EMT Málaga,
+  // EMT Fuenlabrada y de Euskadi): su recorrido y lo que les queda, por él.
+  const withTripShapes = sources.filter((s) => typeof s.tripShape === 'function');
+  /** El viaje que hace ahora un vehículo ({ shape, since, tripId, raw }); null si ninguna fuente lo sabe. */
+  const tripShapeOf = (id) => {
+    for (const s of withTripShapes) {
+      const trip = s.tripShape(id);
+      if (trip !== undefined) return trip ? { ...trip, raw: s.rawTrack === true } : null;
+    }
+    return null;
+  };
+  const tripMemo = makeTrainMemo(() => situation.tracks());
+  /** De dónde a dónde ha ido por el trazado de su viaje desde que lo hace ({ from, to }, en metros); null si no está en él. */
+  const onTrip = (id, trip) => {
+    const track = (situation.tracks().get(id) ?? []).filter((p) => p.t >= trip.since);
+    if (!track.length) return null;
+    const key = `${trip.tripId}|${track.length}:${track[0].t}:${track.at(-1).t}`;
+    return tripMemo(id, 'trazados', key, () => trackOnShape(trip.shape, track));
+  };
+  /**
+   * Dónde pinta la web un vehículo con GPS sobre el trazado de su viaje (`at`, la posición de la lista que tiene): cerca
+   * de donde va ahora (una lectura antes, como mucho unos km atrás) y sobre el trazado. Si no, donde va ahora (`on.to`).
+   * Así su recorrido acaba y lo que le queda empieza en el autobús que se ve, aunque haya llegado otra posición.
+   */
+  const shownOnTrip = (trip, on, at) => {
+    if (!at) return on.to;
+    const near = nearestAlong(trip.shape, at[0], at[1], Math.max(on.from, on.to - SHOWN_BACK_M), on.to + SHOWN_AHEAD_M);
+    return near && near.off <= MAX_OFF_SHAPE_M ? near.along : on.to;
+  };
   const aheadMemo = makeTrainMemo(() => situation.tracks());
   const fillMemo = makeTrainMemo(() => situation.tracks());
 
@@ -163,8 +199,10 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
    */
   const railAhead = (id, trip) => {
     const net = railNetwork?.network();
-    const at = situation.tracks().get(id)?.at(-1);
-    const stops = trip?.stops;
+    const track = situation.tracks().get(id);
+    const at = track?.at(-1);
+    // Las que su GPS dice que ya ha dejado atrás (aunque Renfe aún las dé por próximas), fuera: si no, volvía a ellas.
+    const stops = trip?.stops?.slice(stopsLeftBehind(track, trip.stops));
     if (!net || !at || !stops?.length) return null;
     const key = `${at.lon},${at.lat}|${stops.length}|${stops[0]}`;
     const factors = gaugeFactors(trip.gauge);
@@ -187,10 +225,22 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
       // Por su vía hacia su próxima parada: mejor que el rastro (Renfe va a veces adelante y atrás).
       const along = withStops.has(v.source) ? stopsHeading(v) : null;
       if (along !== null) return { ...v, heading: along };
+      // Un autobús con GPS que hace un viaje con trazado: hacia donde sigue su trazado, aunque esté parado o se le
+      // acabe de empezar a ver (con sus posiciones haría falta que se moviera).
+      const trip = v.ahead ? tripShapeOf(v.id) : null;
+      const on = trip ? onTrip(v.id, trip) : null;
+      const byShape = on ? headingOnShape(trip.shape, on.to) : null;
+      if (byShape !== null) return { ...v, heading: byShape };
       const heading = headingOf(tracks.get(v.id));
-      return heading === null ? v : { ...v, heading };
+      if (heading !== null) return { ...v, heading };
+      // Su rastro no dice hacia dónde va (acaba de aparecer, o no se ha movido): hacia su próxima parada, en recta (la
+      // primera a más de 200 m: parado en su estación de origen, el GPS lo pone a unos metros de ella).
+      const next = stopsAheadOf(v)?.find(([lon, lat]) => distanceKm(v.lat, v.lon, lat, lon) > 0.2);
+      return next ? { ...v, heading: bearingDeg(v.lat, v.lon, next[1], next[0]) } : v;
     });
   };
+  /** Las paradas que le quedan a un vehículo ([lon, lat]) si su fuente las sabe (Cercanías, la red general); si no, null. */
+  const stopsAheadOf = (v) => withStops.get(v.source)?.stopsAhead(v.id) ?? railTripOf(v.id)?.stops ?? null;
 
   let followIndex = null;
   let followIndexAt = -Infinity;
@@ -240,12 +290,19 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
      * trenes de la red ferroviaria general (AVE, Larga y Media Distancia), por la vía entre posición y
      * posición; el resto, sus posiciones tal cual.
      */
-    track(id) {
+    track(id, at = null) {
       for (const s of withPaths) {
-        const path = s.path(id);
+        const path = s.path(id, at);
         if (path !== undefined) return path ? path.map(([lon, lat]) => ({ lon, lat })) : [];
       }
       const track = situation.tracks().get(id) ?? null;
+      // Por el trazado de su viaje, salvo si su licencia pide no alterar el contenido (entonces, sus posiciones tal cual).
+      const trip = track ? tripShapeOf(id) : null;
+      if (trip && !trip.raw) {
+        const on = onTrip(id, trip);
+        const path = on && shapeStretch(trip.shape, on.from, Math.max(on.from, shownOnTrip(trip, on, at)));
+        if (path) return path.map(([lon, lat]) => ({ lon, lat }));
+      }
       return (track && onRails(id) && railTrack(id, track)) || track;
     },
     /**
@@ -254,10 +311,17 @@ export function makeQuerySituation({ situation, stations, networkStations, netwo
      * su destino; los de Cercanías, por el trazado de su viaje pasando por sus paradas (y, si no llega a su
      * destino, por la vía). null si no se sabe.
      */
-    ahead(id) {
+    ahead(id, at = null) {
       for (const s of withPaths) {
-        const path = s.ahead?.(id);
+        const path = s.ahead?.(id, at);
         if (path !== undefined) return path && path.length > 1 ? path : null;
+      }
+      // Un vehículo con GPS que hace un viaje con trazado: desde donde va por él hasta el final del viaje.
+      const onShape = tripShapeOf(id);
+      if (onShape) {
+        const on = onTrip(id, onShape);
+        const path = on && shapeStretch(onShape.shape, shownOnTrip(onShape, on, at), onShape.shape.dist[onShape.shape.dist.length - 1]);
+        return path && path.length > 1 ? path : null;
       }
       const trip = railTripOf(id);
       if (trip !== undefined) return railAhead(id, trip);

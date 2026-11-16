@@ -5,6 +5,13 @@
 import { packSchedule, parseSchedule, unpackSchedule } from '../gtfs/gtfs-schedule.js';
 import { buildNetwork } from '../network/gtfs-network-catalog.js';
 import { parseDgt } from '../sources/dgt.js';
+import { renderCardPng } from '../cards/png-card.js';
+
+// El PNG ya es una copia fuera de la memoria de WebAssembly: se transfiere sin volver a copiarlo.
+const transferPng = (png) => {
+  const own = png.byteOffset === 0 && png.byteLength === png.buffer.byteLength ? png : png.slice();
+  return { value: own, transfer: [own.buffer] };
+};
 
 /** @type {Record<string, { run: (...args: any[]) => any, pack?: (result: any) => { value: any, transfer: ArrayBuffer[] }, unpack?: (value: any) => any }>} */
 export const TASKS = {
@@ -14,4 +21,6 @@ export const TASKS = {
   network: { run: buildNetwork },
   /** (XML DATEX II, hora de la lectura) → incidencias de la DGT. */
   dgt: { run: parseDgt },
+  /** (SVG de una tarjeta de compartir, ficheros de la letra) → PNG (resvg en WebAssembly, que sólo se carga al usarla). */
+  card: { run: renderCardPng, pack: transferPng },
 };

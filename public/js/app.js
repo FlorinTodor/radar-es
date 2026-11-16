@@ -6,6 +6,7 @@ import { stationBoard } from './station-board.js';
 import * as S from './siguiendo.js';
 import { loadTelegram, telegramLink } from './avisar.js';
 import { mountLangSwitch, t, tn } from './i18n.js';
+import { listenShareButtons, parseSharePath, sharePath } from './compartir.js';
 
 // ---------- Estado ----------
 const state = {
@@ -84,6 +85,7 @@ map.ready.then(async () => {
     const select = document.getElementById('station-network');
     select.insertAdjacentHTML('beforeend', P.stationNetworks(stations).map(([id, name]) => `<option value="${esc(id)}">${esc(name)}</option>`).join(''));
   } catch { /* sin estaciones no pasa nada */ }
+  openShared('stations');
   loadLines();
 });
 
@@ -176,7 +178,7 @@ function flush() {
     const badge = document.getElementById('b-events');
     badge.textContent = shownEvents.length - gone;
     badge.title = gone ? tn('Y {n} que su fuente ya no publica (se ve desvaída hasta medianoche)', 'Y {n} que su fuente ya no publica (se ven desvaídas hasta medianoche)', gone) : '';
-    if (state.tab === 'events') P.renderEvents(document.getElementById('events-list'), P.filterEvents(events, prefs), selection('event'));
+    if (state.tab === 'events') P.renderEvents(document.getElementById('events-list'), P.filterEvents(events, prefs), selection('event'), { noCategory: !prefs.eventCats.length });
   }
   if (parts.has('alerts')) {
     document.getElementById('b-alerts').textContent = state.alerts.length;
@@ -248,6 +250,7 @@ const replaceVehicles = (isBus, fresh) => {
   for (const [key, list] of fresh) state.vehicles.set(key, list);
 };
 
+const ROAD_PENDING_POLL_MS = 5000;
 const stream = connect({
   status(s, ageMs) {
     const el = document.getElementById('live');
@@ -266,6 +269,7 @@ const stream = connect({
     if (state.selected.size) applyFocus(); // quita lo marcado que ya no existe
     render('vehicles', 'alerts', 'kpis');
     tryPendingFollow();
+    openShared('vehicles');
   },
   events(d) {
     state.events.clear();
@@ -275,17 +279,24 @@ const stream = connect({
     }
     if (state.selected.size) applyFocus();
     render('events');
+    openShared('events');
   },
   buses(d) {
     replaceVehicles(true, d ? bySource(d.vehicles, 'bus:') : new Map());
     if (state.selected.size) applyFocus();
     render('vehicles');
     tryPendingFollow();
+    openShared('vehicles');
+    // La ficha abierta es la de un autobús que espera su carretera: se vuelve a mirar en 5 s, no en 20 (el servidor la
+    // pide en cuanto se abre y la tiene en unos segundos).
+    const open = map.selectedVehicleId() && findVehicle(map.selectedVehicleId());
+    if (open?.roadPending) stream.soon('buses', ROAD_PENDING_POLL_MS);
   },
   health(h) {
     state.health = h;
     map.setSources(h);
     render('health');
+    openShared('health');
   },
 }, { buses: P.modeOn(prefs, 'bus') });
 
@@ -602,6 +613,20 @@ document.getElementById('vehicle-search').addEventListener('input', (ev) => {
 const filtersEl = document.getElementById('event-filters');
 P.renderEventFilters(filtersEl, prefs);
 filtersEl.addEventListener('click', (ev) => {
+  // «Todas»: todos los tipos (las obras, como estaban: son más de mil); «Ninguna»: nada, tampoco las obras.
+  const bulk = ev.target.closest('[data-cats]');
+  if (bulk) {
+    const all = bulk.dataset.cats === 'all';
+    prefs.eventCats = all ? [...EVENT_CATS] : [];
+    if (!all && prefs.obras) {
+      prefs.obras = false;
+      state.forced.delete('group:obras');
+      applyLayerPrefs();
+    }
+    savePrefs();
+    P.renderEventFilters(filtersEl, prefs);
+    return render('events');
+  }
   const chip = ev.target.closest('[data-cat]');
   if (!chip) return;
   const cat = chip.dataset.cat;
@@ -842,6 +867,86 @@ function openFollowed(key) {
   }
   const events = (status?.events?.list ?? []).filter((e) => !e.withdrawn && findEvent(e.id));
   if (events.length) focusOn(events.map((e) => ({ kind: 'event', id: e.id })));
+}
+
+// ---------- Enlaces compartidos (compartir.js) ----------
+// Quien abre el enlace de una incidencia, un vehículo o una estación (/incidencia/<id>, /vehiculo/<id>,
+// /estacion/<código>) ve el mapa con eso abierto y encuadrado en cuanto llegan sus datos, como si lo hubiera pulsado
+// en una lista. Si ya no está en el directo: lo último que se supo de ella (una incidencia) o un aviso.
+listenShareButtons();
+let shared = parseSharePath(location.pathname);
+const sharedFrom = Date.now();
+const sharedUntil = sharedFrom + 90_000; // lo que se espera a que lleguen sus datos (un autobús, con su capa)
+let sharedAsked = false;
+const arrived = new Set(); // lo que ya ha llegado: 'map', 'stations', 'events', 'vehicles', 'health'
+// El mapa, con sus capas: si la ficha se abre antes, lo que dibuja (el recorrido de un vehículo, lo que le queda, el
+// anillo de una incidencia) se pierde, porque sus capas aún no existen.
+map.ready.then(() => openShared('map'));
+
+function sharedGone() {
+  const title = { incidencia: t('Esta incidencia ya no está en el directo'), vehiculo: t('Este vehículo ya no está en el directo'),
+    estacion: t('No encontramos esta estación') }[shared.kind];
+  map.showMessage(title, shared.kind === 'estacion' ? t('Puede que el enlace esté mal copiado.')
+    : t('Puede que haya terminado o que su fuente no publique datos ahora. El mapa enseña lo que pasa ahora.'));
+  shared = null;
+}
+
+/** Pregunta al servidor por lo que no ha llegado con el directo: si ya no está, lo último que se supo. Una vez. */
+async function askShared() {
+  if (sharedAsked) return;
+  sharedAsked = true;
+  let body = null;
+  try {
+    const res = await fetch(`/api/compartido${location.pathname}`);
+    body = res.ok ? await res.json() : null;
+  } catch { /* sin respuesta: como si ya no estuviera */ }
+  if (!shared) return;
+  if (!body) return sharedGone();
+  // Su fuente la ha vuelto a publicar con otro identificador: se abre esa, y la dirección pasa a ser la suya (así, quien
+  // la comparta otra vez comparte la que sigue). Se busca en las incidencias de la próxima consulta si aún no ha llegado.
+  if (body.current && body.current !== shared.id) {
+    shared = { kind: shared.kind, id: body.current };
+    const path = sharePath(shared.kind, shared.id);
+    if (path) history.replaceState(null, '', `${path}${location.search}`);
+    return openShared('events');
+  }
+  if (body.status === 'terminada' && body.event) {
+    // Sin su viaje (sólo se guardan las posiciones de las paradas): la ficha general, con lo que publicó su fuente.
+    const e = { ...body.event, trip: undefined, endedAt: body.endedAt };
+    shared = null;
+    map.showEvent(e);
+    if (Number.isFinite(e.lon) && Number.isFinite(e.lat)) map.flyTo(e.lon, e.lat, 9);
+    return;
+  }
+  // Sigue en el directo y llegará con la próxima consulta; un autobús, sólo con su capa encendida.
+  if (body.mode && !P.modeOn(prefs, body.mode)) turnOnLayer(body.mode);
+}
+
+/**
+ * Abre lo del enlace cuando ha llegado lo que hace falta: el mapa con sus capas, las estaciones, las incidencias o los
+ * vehículos y, para que su ficha salga ya con la atribución de su fuente, el estado de las fuentes (como mucho se le
+ * esperan 10 s).
+ */
+function openShared(what) {
+  arrived.add(what);
+  if (!shared) return;
+  if (Date.now() > sharedUntil) return sharedGone();
+  if (!arrived.has('map') || (!arrived.has('health') && Date.now() - sharedFrom < 10_000)) return;
+  const { kind, id } = shared;
+  if (kind === 'estacion' && arrived.has('stations')) {
+    if (!state.stations.has(id)) return sharedGone();
+    shared = null;
+    openStation(id, true);
+  } else if (kind === 'incidencia' && arrived.has('events')) {
+    if (!findEvent(id)) return void askShared();
+    shared = null;
+    focusOn([{ kind: 'event', id }]);
+  } else if (kind === 'vehiculo' && arrived.has('vehicles')) {
+    if (!findVehicle(id)) return void askShared();
+    shared = null;
+    focusOn([{ kind: 'vehicle', id }]);
+  } else return;
+  if (mobile.matches) setSheet('peek');
 }
 
 // ---------- Idioma (ES/EN, ver i18n.js) ----------

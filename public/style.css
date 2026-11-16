@@ -175,6 +175,10 @@ html.i18n-wait body { visibility: hidden; animation: i18n-show 0s 2.5s forwards;
 }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; }
+/* «Tipos · Todas · Ninguna» de los filtros de Incidencias, en su propia línea, como en Capas. */
+.chips .chips-bulk { flex-basis: 100%; font-size: 11px; color: var(--muted); }
+.chips .chips-bulk .link { color: var(--muted); }
+.chips .chips-bulk .link:hover, .chips .chips-bulk .link:focus-visible { color: var(--ink); }
 .chip {
   padding: 5px 10px; border-radius: 14px; border: 1px solid var(--border);
   background: var(--surface-2); color: var(--ink-2); cursor: pointer; font-size: 12px;
@@ -585,6 +589,20 @@ body.doc { overflow: auto; display: block; }
 .trip-stops li.skipped { color: var(--muted); }
 .trip-stops li.skipped .ts-name { text-decoration: line-through; }
 .trip-stops li.skipped::before { background: transparent; box-shadow: 0 0 0 2px #d03b3b; }
+
+/* ---------- Compartir: el botón de las fichas (compartir.js) ---------- */
+.share { margin: 0 0 10px; }
+.share-btn {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 12px 4px 10px;
+  border: 1px solid rgba(110, 168, 254, 0.45); border-radius: 999px; background: rgba(110, 168, 254, 0.12);
+  color: var(--ink); font-size: 13px; font-weight: 600; line-height: 1.3; cursor: pointer;
+}
+.share-btn:hover, .share-btn:focus-visible { border-color: var(--accent); background: rgba(110, 168, 254, 0.22); }
+.share-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.share-btn.done { border-color: var(--st-good); background: rgba(12, 163, 12, 0.15); }
+.share-icon { width: 16px; height: 16px; color: var(--accent); flex: none; }
+.share-btn.done .share-icon { color: var(--st-good); }
+.share-gone { margin: 0 0 10px; padding: 8px 10px; border-left: 3px solid var(--st-none); background: var(--surface-2); color: var(--ink-2); }
 
 /* ---------- Siguiendo: la estrella de las fichas y la lista ---------- */
 .follow { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }

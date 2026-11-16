@@ -14,6 +14,10 @@ const CATALOG_REFRESH_MS = 3600_000;
 // La copia del historial de posiciones: lo que se pierde en un despliegue es, como mucho, esto.
 const TRACKS_SAVE_MS = 60_000;
 // El día en cifras suma lo que se ve una vez por minuto.
+// Una fuente puede pedir leerse antes de su intervalo (readSoon: llegó la carretera de un autobús que alguien mira). Se
+// pregunta cada poco, y se adelanta como mucho una vez cada tanto (una lectura de horario cuesta algo de CPU).
+const READ_SOON_CHECK_MS = 2000;
+const READ_SOON_MIN_GAP_MS = 15_000;
 
 /**
  * Espera hasta la siguiente lectura. Si la fuente ha fallado, se reintenta pronto (30 s, 1, 2,
@@ -36,9 +40,12 @@ export function nextDelay(interval, failures) {
  *   tasks: otros trabajos periódicos, cada uno con su nombre (para el registro), cada cuánto (ms) y qué hace
  *   (la puntualidad: sus lecturas cada minuto y su copia cada cuarto de hora). Si uno tarda más que su
  *   intervalo, no se empieza otro encima; si falla, se apunta y sigue.
+ *   readSoon: si una fuente pide leerse ya (por su id); entonces su lectura se adelanta, nunca encima de otra suya y
+ *   como mucho una vez cada READ_SOON_MIN_GAP_MS.
  */
-export function startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, saveTracks, tasks = [], log }) {
+export function startPolling({ feeds, ingestSource, detectAlerts, refreshCatalogs, saveTracks, tasks = [], readSoon, log }) {
   const timers = new Map();
+  const state = new Map(feeds.map((f) => [f.id, { reading: false, startedAt: -Infinity, failures: 0 }]));
   let pending = null;
   let stopped = false;
 
@@ -54,8 +61,11 @@ export function startPolling({ feeds, ingestSource, detectAlerts, refreshCatalog
     }, DETECT_DEBOUNCE_MS);
   };
 
-  const loop = async (feed, failures = 0) => {
+  const loop = async (feed) => {
     if (stopped) return;
+    const st = state.get(feed.id);
+    st.reading = true;
+    st.startedAt = Date.now();
     // Pase lo que pase en la lectura, se programa la siguiente: si un fallo inesperado (al avisar de
     // otro fallo, por ejemplo) escapara de aquí, la fuente dejaría de leerse hasta reiniciar.
     let ok = false;
@@ -64,13 +74,30 @@ export function startPolling({ feeds, ingestSource, detectAlerts, refreshCatalog
     } catch (err) {
       log.error(`[${feed.id}] ${err?.stack ?? err}`);
     }
+    st.reading = false;
     scheduleDetect();
-    const nextFailures = ok ? 0 : failures + 1;
-    if (!stopped) timers.set(feed.id, setTimeout(() => loop(feed, nextFailures), nextDelay(feed.interval, nextFailures)));
+    st.failures = ok ? 0 : st.failures + 1;
+    if (!stopped) timers.set(feed.id, setTimeout(() => loop(feed), nextDelay(feed.interval, st.failures)));
   };
 
   // Arranque escalonado para no lanzar todas las peticiones a la vez.
   feeds.forEach((f, i) => timers.set(f.id, setTimeout(() => loop(f), i * 250)));
+  // Las que piden leerse ya: se adelanta su próxima lectura (no si está leyendo, ni si falla: entonces manda su espera).
+  const soonTimer = readSoon && setInterval(() => {
+    for (const feed of feeds) {
+      const st = state.get(feed.id);
+      if (st.reading || st.failures || Date.now() - st.startedAt < READ_SOON_MIN_GAP_MS) continue;
+      let wants = false;
+      try {
+        wants = readSoon(feed.id) === true;
+      } catch (err) {
+        log.warn(`[${feed.id}] ${err?.message ?? err}`);
+      }
+      if (!wants) continue;
+      clearTimeout(timers.get(feed.id));
+      loop(feed);
+    }
+  }, READ_SOON_CHECK_MS);
   const heartbeat = setInterval(scheduleDetect, DETECT_HEARTBEAT_MS);
   // La primera carga de los catálogos la hace el arranque; aquí, las siguientes.
   const catalogs = refreshCatalogs && setInterval(() => {
@@ -99,6 +126,7 @@ export function startPolling({ feeds, ingestSource, detectAlerts, refreshCatalog
       clearInterval(heartbeat);
       clearInterval(catalogs);
       clearInterval(tracksTimer);
+      clearInterval(soonTimer);
       clearTimeout(pending);
       for (const t of timers.values()) clearTimeout(t);
     },

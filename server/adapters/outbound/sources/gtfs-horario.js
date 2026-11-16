@@ -11,13 +11,15 @@ import {
   SCHEDULE_ENDING_DAYS, buildShape, daysLeft, isoDay, pointAlong, serviceRuns, stopsAlongShape, tripFrequencyOffsets,
 } from '../../../domain/schedule.js';
 import { refineToRail } from '../../../domain/rail-match.js';
+import { shapeFromLegs } from '../../../domain/trazado-por-tramos.js';
+import { nearestAlong } from '../../../domain/recorrido-trazado.js';
 import { estimatePosition } from '../../../domain/estimated-position.js';
 import { nextStopIndex, tripStopList } from '../../../domain/trip-stops.js';
 import { cancellationEvent, tripChanges } from '../../../domain/cancelaciones.js';
 import { followOf, lineKey, numberedServiceKey, scheduledServiceKey } from '../../../domain/seguir.js';
 import { createSeenStore } from '../persistence/seen-store.js';
-import { round5 } from '../../../domain/geo.js';
-import { madridClock, madridLocalToMs, madridServiceDay } from './parse.js';
+import { M_PER_DEG_LAT, mPerDegLon, round5 } from '../../../domain/geo.js';
+import { madridClock, madridDateTime, madridLocalToMs, madridServiceDay } from './parse.js';
 import { napDatasetPage } from '../nap/nap-client.js';
 import { createCpuPool } from '../workers/cpu-pool.js';
 import { packSchedule, unpackSchedule } from '../gtfs/gtfs-schedule.js';
@@ -53,6 +55,13 @@ function tripStops(trip, { times, stopList }, keep = false) {
 // que circula un viaje que los usa, y no más de REFINE_PER_READ en cada lectura (al llegar la red de
 // vías, cientos de viajes a la vez pararían la web; los demás esperan a la lectura siguiente).
 const REFINE_PER_READ = 40;
+// Un tramo entre dos paradas sin ruta por carretera (CartoCiudad no la encuentra, o da un rodeo imposible: 81 km para
+// 1,7 km en una urbanización) va en recta si es así de corto; el resto del viaje sigue por su carretera. Si es más
+// largo, en recta cruzaría el campo: el viaje entero se queda sin carretera (en la última parada, como antes).
+const ROAD_STRAIGHT_MAX_M = 5000;
+// Autobuses mirados a la vez cuya carretera se espera (para leer la fuente en cuanto llegue): cada ficha abierta es uno.
+const MAX_WATCHED = 200;
+const straightMeters = ([lon1, lat1], [lon2, lat2]) => Math.hypot((lon2 - lon1) * mPerDegLon((lat1 + lat2) / 2), (lat2 - lat1) * M_PER_DEG_LAT);
 
 /** Puntos [lon, lat] de un trazado preparado (buildShape). */
 function shapePoints(shape) {
@@ -82,7 +91,6 @@ function tripFollow(trip, stops, { operator, line, label, numbered, realtime, of
   return follow;
 }
 
-const hhmmss = (secs) => [Math.floor(secs / 3600) % 24, Math.floor(secs / 60) % 60, Math.floor(secs % 60)].map((n) => String(n).padStart(2, '0')).join(':');
 
 /** Retraso (s) de cada viaje en curso según los trip updates: hora prevista menos hora programada. */
 function delaysFromTripUpdates(feed, schedule) {
@@ -113,6 +121,18 @@ function delaysFromTripUpdates(feed, schedule) {
 }
 
 /** Trozo de un trazado entre dos distancias (m), como [lon, lat] redondeados. */
+// Dónde pinta la web el vehículo (`at`, [lon, lat], la posición de la lista que tiene): sobre su trazado y cerca de
+// donde está ahora (una lectura antes o después, como mucho unos km), su recorrido acaba ahí y lo que le queda empieza
+// ahí. Cada minuto, durante unos segundos, la lista y lo que le queda salían de lecturas distintas y la línea empezaba a
+// más de 1 km del autobús. Si no está sobre el trazado (no es de esta lectura ni de la anterior), donde está ahora.
+const SHOWN_WINDOW_M = 5000;
+const SHOWN_MAX_OFF_M = 30;
+function shownAlong(p, at) {
+  if (!at) return p.to;
+  const near = nearestAlong(p.shape, at[0], at[1], Math.max(0, p.to - SHOWN_WINDOW_M), Math.min(p.end, p.to + SHOWN_WINDOW_M));
+  return near && near.off <= SHOWN_MAX_OFF_M ? near.along : p.to;
+}
+
 function stretch(shape, from, to) {
   const { coords, dist } = shape;
   const at = (d) => { const q = pointAlong(shape, d); return [round5(q.lon), round5(q.lat)]; };
@@ -145,7 +165,7 @@ function stretch(shape, from, to) {
  * @typedef {{ ficheroId: number, dataset: number, operator: string, credit?: string, excludeAgency?: RegExp, excludeRoute?: RegExp }} Feed
  * @returns {import('../../../application/ports.js').DataSourcePort}
  */
-export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlinePool, railGeometry = null, now: clock = () => Date.now() }, options) {
+export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlinePool, railGeometry = null, roads = null, now: clock = () => Date.now() }, options) {
   const { id, name, mode, tripUpdatesUrl, interval = 30_000 } = options;
   // Cancelaciones de su tiempo real: desde cuándo las ve el radar (el feed no dice cuándo se publicaron).
   const seenStore = tripUpdatesUrl ? createSeenStore({ cache, name: `${id}-cancelaciones-vistas.v1` }) : null;
@@ -162,6 +182,9 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
   // Paradas del viaje de cada vehículo de la última lectura y su hora en el horario entonces: id →
   // { stops, tt, offset, delaySec }. Las paradas son las que el viaje ya guarda mientras circula.
   let running = new Map();
+  // Autobuses que alguien está mirando (su ficha pide sus paradas) y esperan su carretera: id → sus paradas ([lon, lat]).
+  // En cuanto llegan todos sus tramos, la fuente pide leerse ya (readSoon) en vez de esperar a su intervalo.
+  const watched = new Map();
   // Los que no son autobuses pueden ir por las vías del IGN (ver tripShape): su licencia pide citarlas.
   const viaCredit = mode !== 'bus' && railGeometry?.credit ? ` · trazado por la vía: ${railGeometry.credit}` : '';
   const estimatedLicense = (credit) => `Powered by MITRAMS (Punto de Acceso Nacional) · ${credit} · `
@@ -199,11 +222,16 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
    * llegan a circular); null si no tiene o sus paradas no encajan en él. Con la red de vías, los tramos que
    * se salen de la vía se rehacen por ella, y un viaje de metro, tranvía o tren sin trazado (o con uno que
    * no pasa por sus paradas: en el TRAM d'Alacant hay viajes con el de otra línea) lo toma de la vía entre
-   * sus paradas. Los autobuses no: no van por vías.
+   * sus paradas. Los autobuses no van por vías: uno sin trazado (o con uno que no pasa por sus paradas) va por la
+   * carretera entre ellas (`roads`, CartoCiudad), cuando ya se saben todos sus tramos; mientras falte alguno (se piden
+   * en segundo plano), se queda en la última parada por la que ha pasado, como antes.
    */
   function tripShape(schedule, trip, stops) {
-    const net = trip.route.mode === 'bus' ? null : railGeometry?.network() ?? null;
-    if (trip.onShape !== undefined && trip.onShapeNet === net) return trip.onShape;
+    const bus = trip.route.mode === 'bus';
+    const net = bus ? null : railGeometry?.network() ?? null;
+    // Uno que esperaba tramos de carretera se vuelve a mirar en cuanto llega alguno nuevo.
+    const waiting = trip.onShapeRoads !== undefined && trip.onShapeRoads !== roads?.version();
+    if (trip.onShape !== undefined && trip.onShapeNet === net && !waiting) return trip.onShape;
     if (net && schedule.onRail?.net !== net) schedule.onRail = { net, shapes: new Map(), byStops: new Map() };
     let complete = true; // false: algún trazado se queda para la próxima lectura (sin turno en esta)
     /** El trazado por la vía de estos puntos, guardado por clave; undefined si en esta lectura ya no hay turno. */
@@ -241,10 +269,56 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
         along = fit;
       }
     }
+    let byRoad = false;
+    trip.onShapeRoads = undefined;
+    if (!along && bus && roads) {
+      const road = roadShape(schedule, stops);
+      if (road === undefined) trip.onShapeRoads = roads.version(); // faltan tramos: se mira otra vez cuando lleguen
+      else if (road) {
+        // Hecho de tramos de parada a parada: cada parada está donde empieza el suyo (no hace falta encajarlas).
+        ({ shape, along } = road);
+        byRoad = true;
+      }
+    }
     if (!complete && trip.onShape !== undefined) return trip.onShape; // el de antes, hasta la próxima lectura
-    trip.onShape = along ? { shape, along } : null;
+    trip.onShape = along ? { shape, along, ...(byRoad && { byRoad: true }) } : null;
     trip.onShapeNet = complete ? net : null;
     return trip.onShape;
+  }
+
+  /**
+   * La carretera de un viaje de autobús, de parada en parada, con la distancia de cada parada sobre ella ({ shape,
+   * along }), guardada por sus paradas (los viajes con las mismas la comparten); undefined mientras falte algún tramo.
+   * Un tramo sin ruta (una parada mal situada, en un puerto o en una urbanización) va en recta si es corto; si no, el
+   * viaje se queda sin carretera (null) y su autobús, en la última parada.
+   */
+  function roadShape(schedule, stops) {
+    const memo = (schedule.byRoad ??= new Map());
+    const key = stops.map((st) => `${st.lon},${st.lat}`).join(';');
+    const hit = memo.get(key);
+    if (hit !== undefined && (hit.road !== undefined || hit.version === roads.version())) return hit.road;
+    const legs = [];
+    let missing = false;
+    for (let i = 0; i + 1 < stops.length; i++) {
+      const from = [stops[i].lon, stops[i].lat];
+      const to = [stops[i + 1].lon, stops[i + 1].lat];
+      const road = roads.segment(from, to);
+      if (road === undefined) missing = true;
+      else if (missing) continue; // ya se sabe que falta alguno: sólo se piden los demás
+      else if (road) legs.push(road);
+      else if (straightMeters(from, to) <= ROAD_STRAIGHT_MAX_M) legs.push([...from, ...to]);
+      else {
+        memo.set(key, { road: null });
+        return null;
+      }
+    }
+    if (missing) {
+      memo.set(key, { road: undefined, version: roads.version() });
+      return undefined;
+    }
+    const road = shapeFromLegs(legs);
+    memo.set(key, { road });
+    return road;
   }
 
   function vehicle(fi, schedule, trip, day, t, delaySec, offset = 0, nextPaths = paths, nextRunning = running) {
@@ -265,7 +339,8 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
     const vid = `${id}:${feeds.length > 1 ? `${fi}:` : ''}${trip.id}:${day.ymd}${instance}`;
     if (est.path !== undefined) nextPaths.set(vid, est.path);
     // Sus paradas, para su ficha (tripStops): las del viaje, que ya se guardan mientras circula.
-    nextRunning.set(vid, { stops, tt, offset, delaySec });
+    const roadPending = trip.route.mode === 'bus' && !onShape && trip.onShapeRoads !== undefined;
+    nextRunning.set(vid, { stops, tt, offset, delaySec, roadPending });
     const { operator } = feeds[fi];
     const line = options.line ? options.line(trip.route.line) : trip.route.line;
     const label = options.label?.(trip) ?? trip.label ?? null;
@@ -282,6 +357,10 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
       delay: delaySec === null ? null : Math.round(delaySec / 60),
       estimated: true,
       ...(est.ahead ? { ahead: true } : {}),
+      // Su horario no trae el trazado: va por la carretera entre sus paradas (CartoCiudad), aproximada; o la está
+      // esperando (se piden sus tramos).
+      ...(onShape?.byRoad ? { byRoad: true } : {}),
+      ...(roadPending ? { roadPending: true } : {}),
       stops: true, // sus paradas, con su hora: /api/stops
       ...(est.heading !== null ? { heading: est.heading } : {}),
       atLastStop: est.atLastStop,
@@ -289,7 +368,9 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
       destination: stops.at(-1).name,
       current: est.current,
       next: est.next,
-      nextEta: est.nextArr !== null ? `${day.iso}T${hhmmss(est.nextArr + offset + (delaySec ?? 0))}` : null,
+      // Desde la medianoche de su día de servicio: un viaje que salió ayer y llega hoy (horas de más de 24 h en su
+      // GTFS, como el Algeciras 23:00 → Barcelona 17:55 de ALSA) lleva la fecha de hoy, no la de ayer.
+      nextEta: est.nextArr !== null ? madridDateTime(day.midnight + (est.nextArr + offset + (delaySec ?? 0)) * 1000) : null,
     };
   }
 
@@ -410,17 +491,17 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
      * y no uniendo con rectas las posiciones de cada lectura. null: autobús sin trazado (se queda en la
      * última parada); undefined: no es un vehículo de esta fuente o su ruta no tiene trazado.
      */
-    path(vehicleId) {
+    path(vehicleId, at = null) {
       const p = paths.get(vehicleId);
       if (p?.stops) return undefined; // sin trazado: sus posiciones ya van en línea recta entre paradas
-      return p ? stretch(p.shape, p.from, p.to) : p;
+      return p ? stretch(p.shape, p.from, Math.max(p.from, shownAlong(p, at))) : p;
     },
     /** Lo que le queda hasta la última parada de su viaje, por su trazado o, si no tiene, uniendo sus
      * paradas (null o undefined como en path). */
-    ahead(vehicleId) {
+    ahead(vehicleId, at = null) {
       const p = paths.get(vehicleId);
       if (p?.stops) return [p.at, ...p.stops].map(([lon, lat]) => [round5(lon), round5(lat)]);
-      return p ? stretch(p.shape, p.to, p.end) : p;
+      return p ? stretch(p.shape, shownAlong(p, at), p.end) : p;
     },
     /**
      * Paradas de su viaje según el horario, con su hora (la de salida en la primera) y, con el retraso
@@ -430,13 +511,27 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
     tripStops(vehicleId) {
       const r = running.get(vehicleId);
       if (!r) return vehicleId.startsWith(`${id}:`) ? null : undefined;
-      const { stops, tt, offset, delaySec } = r;
+      const { stops, tt, offset, delaySec, roadPending } = r;
+      // Alguien mira este autobús y aún le faltan tramos de carretera: que pasen delante de la cola, y en cuanto estén
+      // todos, que la fuente se lea otra vez (readSoon).
+      if (roadPending && roads) {
+        const points = stops.map((s) => [s.lon, s.lat]);
+        roads.hurry(points);
+        if (watched.has(vehicleId) || watched.size < MAX_WATCHED) watched.set(vehicleId, points);
+      }
       const next = nextStopIndex(stops, tt);
       return tripStopList(stops.map((s, i) => ({ name: s.name, at: [s.lon, s.lat], time: (i === 0 ? s.dep : s.arr) + offset })),
         next, { delaySec, here: tt >= (stops[next]?.arr ?? Infinity) });
     },
+    readSoon() {
+      if (!roads) return false;
+      for (const points of watched.values()) if (roads.missing(points) === 0) return true;
+      return false;
+    },
     async fetch() {
       refineBudget = REFINE_PER_READ;
+      // Esta lectura rehace lo que esperaban: si alguno sigue esperando, su ficha lo volverá a pedir.
+      watched.clear();
       // Se recarga cada día (sólo se guardan los viajes de hoy y los de ayer que pasan de medianoche).
       const today = madridServiceDay(Date.now(), 0).ymd;
       if (!loaded.size || today !== loadedDay || Date.now() - loadedAt > RELOAD_MS) await load(today);

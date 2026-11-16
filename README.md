@@ -400,6 +400,9 @@ completas: depende de lo que publica cada operador, y donde no hay datos públic
 | Metro Bilbao | sus posiciones tal y como llegan: Open Data Euskadi pide no alterar el contenido | por el trazado de su viaje |
 | Euskotren, metros y tranvías con posición estimada | la posición estimada, por su trazado (por la vía donde el del operador va en recta) | por su trazado, según su horario |
 | Ouigo | la posición estimada, por la vía entre sus estaciones (red del IGN) | por la vía hasta su destino, según su horario |
+| Autobuses con GPS de AUVASA, EMT Málaga y EMT Fuenlabrada | sus posiciones, por el trazado del viaje que dice su tiempo real (el de su horario) | por el trazado de su viaje |
+| Autobuses de Euskadi (Bizkaibus, Dbus, Tuvisa, Alavabus…) | sus posiciones tal y como llegan: Open Data Euskadi pide no alterar el contenido | por el trazado de su viaje, el que publica su operador |
+| Autobuses con posición estimada | la posición estimada, por el trazado de su horario o, si no lo trae (ALSA y otros), por carretera entre parada y parada (CartoCiudad, aproximada) | igual, hasta su última parada |
 
 Hay operadores que publican el trazado de sus líneas casi solo con las estaciones (Metrovalencia,
 Metro de Sevilla, TRAM d'Alacant, partes de FGC, Euskotren y Cercanías) y otros que no lo publican
@@ -422,6 +425,9 @@ Lo que no se puede dibujar por falta de datos públicos:
   Reus, Bilbao la Concordia–Karrantza): el trazado que publica Renfe no pasa por el tren o por sus
   paradas, y el dibujo se corta donde se aparta en vez de ir por donde no pasa el tren.
 - **Metro Bilbao** no publica la línea de cada tren, solo «MB».
+- **Autobuses por carretera** (los que su horario no trae trazado): el cálculo de rutas de CartoCiudad no tiene
+  en cuenta el sentido de las calles, así que en una ciudad puede ir por una de sentido contrario. Mientras no
+  se sepan todos los tramos de su viaje, el autobús se queda en la última parada por la que ha pasado.
 - **Trenes sin moverse**: si el tren está parado o el operador repite la misma posición, no hay
   recorrido reciente que dibujar. Renfe repite a veces la misma posición durante mucho rato: la
   mañana del 2-nov, 85 de 421 viajes de Cercanías pasaron más de 30 minutos con la misma.
@@ -451,6 +457,9 @@ Lo que no se puede dibujar por falta de datos públicos:
 | `GET /api/puntualidad/:clave` | puntualidad de los últimos días de un servicio o de una línea |
 | `GET /api/dia`, `/api/dia/AAAA-MM-DD` | «El día en cifras» de hoy o de un día pasado |
 | `GET /api/lines/sources` | de dónde sale el trazado de cada red: atribución y fecha de actualización |
+| `GET /incidencia/:id`, `/estacion/:código`, `/vehiculo/:id` | el enlace para compartir algo: el mapa, que lo abre al cargar, con su título, su descripción y su tarjeta en la cabecera (fuera de los buscadores); `?lang=en`, en inglés |
+| `GET /api/tarjeta/:tipo/:id.png?v=…` | la tarjeta de ese enlace (PNG de 1200×630) que enseñan WhatsApp, Telegram o X: qué pasa, dónde, las horas de su fuente y su atribución |
+| `GET /api/compartido/:tipo/:id` | si lo de un enlace sigue en el directo y, si no, lo último que se supo de esa incidencia (se guarda tres días) |
 | `POST /mcp` | servidor MCP para asistentes de IA (ver [Servidor MCP](#servidor-mcp)) |
 
 Las alertas y los KPIs por minuto se guardan en `data/history/*.jsonl` para analizarlos
@@ -627,6 +636,23 @@ atribución. Con ellas, las 550 pruebas del proyecto pasaron tres veces en local
 - **Metro de Madrid**: solo publica tiempos de llegada, y su horario del NAP caducó en mayo de 2026;
   sin un horario vigente no se pueden estimar sus posiciones. Metro Ligero, Metrovalencia, Granada
   y Zaragoza ya salen con posición estimada.
+- **Otros horarios caducados en el NAP** (revisado el 11-11-2026): TUS Santander, los urbanos de Burgos,
+  Badajoz (Tubasa) y Terrassa, Samar, los autobuses de la Junta de Extremadura y Metrotenerife. No se
+  pueden usar hasta que publiquen otro. Los de Metro de Málaga y del interurbano de la Comunitat
+  Valenciana vencen el 19 y el 25 de noviembre: si no llega uno nuevo, sus vehículos dejarán de salir.
+- **FGC, AMB y EMSC (robots.txt)**: sus robots.txt, pensados para los buscadores que rastrean la web,
+  excluyen las rutas donde publican sus datos abiertos: la API de posiciones de FGC y sus GTFS-RT, la
+  carpeta de tiempo real de AMB y las consultas del servicio de terremotos del EMSC. Radar España no
+  rastrea: lee unas pocas direcciones fijas, documentadas para que las usen programas, con su licencia.
+  Aun así, se les avisa por correo; si no lo aceptan, se retiran.
+- **Tiempo real que la normativa europea ya exige**: el Reglamento Delegado (UE) 2024/490 (art. 5.3)
+  obliga a publicar en el Punto de Acceso Nacional los desvíos, retrasos, cancelaciones y horas
+  estimadas, y el estado de andenes y ascensores. Plazos:
+  - servicios de la red transeuropea global (RTE-T): desde el 1-12-2025;
+  - resto de la red: antes del 1-12-2028.
+
+  ALSA, Iryo, Ouigo, Adif y el Consorcio de Transportes de Madrid no publican nada de eso en abierto;
+  ALSA, solo su horario. Hay que pedirlo al Ministerio y a cada uno.
 - El catálogo de fuentes de Cowork está en `Radar ES · Catálogo de fuentes públicas — Resumen.md`.
 - SEO (páginas, sitemap, datos estructurados y lo que hay que hacer en Search Console): [`docs/seo.md`](docs/seo.md).
 
@@ -640,6 +666,25 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Posiciones estimadas a partir del horario donde no hay GPS (Ouigo, ALSA y una docena de redes de
   metro y tranvía), con el retraso real cuando el operador lo publica. Se dibujan con la placa hueca.
 - Autobuses de varias ciudades y operadores.
+- Autobuses por su calle y su carretera:
+  - los que van con GPS y dicen qué viaje hacen (AUVASA, EMT Málaga, EMT Fuenlabrada y los de Euskadi):
+    su recorrido y lo que les queda, por el trazado de ese viaje en su horario (en Euskadi, el recorrido
+    tal cual llega, como pide su licencia);
+  - los que van por horario sin trazado publicado (ALSA, AISA Ciudad Real y otros): por la carretera entre
+    parada y parada, con el cálculo de rutas de CartoCiudad (IGN). Así su posición estimada avanza por la
+    carretera en vez de quedarse en la última parada, y se dibujan su recorrido y lo que les queda. Es
+    aproximado, y la ficha lo dice. Al abrir la ficha de uno cuya carretera aún no se sabe, sus tramos pasan
+    delante y su línea sale en unos segundos. Cada parada queda en su sitio aunque la ruta vuelva por la
+    misma calle, y un tramo corto sin ruta va en recta sin dejar sin carretera al resto del viaje;
+  - con flecha de hacia dónde van aunque estén parados: por su trazado o, en su última parada o esperando
+    en una, hacia la próxima.
+- Lo que le queda a cada vehículo empieza justo donde se ve en el mapa, también en el momento en que se
+  recalcula su horario.
+- Trenes de Renfe de la red general: si Renfe aún da por próxima una estación que el tren ya ha pasado, lo
+  que le queda sale desde el tren y no vuelve hacia atrás; uno que acaba de aparecer lleva su flecha hacia su
+  próxima parada.
+- La hora de llegada a la próxima parada de un viaje que sale un día y llega al siguiente lleva la fecha
+  buena, y un vehículo que su operador publica dos veces sale una sola.
 - Avisos de servicio de Renfe y Rodalies.
 - Trenes y autobuses cancelados o con paradas suprimidas: los de Renfe (Cercanías, Rodalies, Alta
   Velocidad, Larga y Media Distancia), Euskotren y AMB, y las paradas que suprimen los desvíos de
@@ -833,6 +878,20 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   - la demanda de las islas no toma un dato vacío por 0 MW.
 
 **Interfaz**
+- Compartir: cada incidencia, tren, autobús y estación tiene su enlace (radarespana.es/incidencia/…,
+  /vehiculo/…, /estacion/…), y al pegarlo en WhatsApp, Telegram o X sale su tarjeta: qué pasa, dónde, las
+  horas que da su fuente, si sigue en el directo y su atribución, con España y el sitio marcado. Quien abre
+  el enlace ve el mapa con eso abierto y encuadrado. Cada ficha lleva el botón «Compartir» (en el móvil, el
+  menú de compartir del sistema; en el ordenador, copia el enlace). Si la incidencia ya no está en el
+  directo, su enlace dice lo último que se supo de ella durante tres días (seis horas los vehículos detenidos
+  de la DGT); nunca que «ha terminado». Si su fuente la vuelve a publicar con otro identificador (la DGT lo
+  hace a veces al actualizar una), el enlace enseña la nueva: misma fuente, tipo y título, en el mismo sitio y
+  sin otra igual con la que confundirla.
+- La incidencia elegida se marca en el mapa: su zona resaltada si la trae (los avisos de AEMET), un anillo
+  alrededor de su icono o, si su sitio es aproximado (el centro de una isla o de una provincia), un anillo
+  discontinuo.
+- En Incidencias, «Todas · Ninguna» encima de los filtros por tipo, para ver uno solo sin quitar los demás uno
+  a uno.
 - Vista para el móvil, con el mapa a pantalla completa y un panel que sube desde abajo.
 - Panel de capas pensado para el móvil: pastillas fáciles de pulsar, agrupadas por temas, con
   «Todas · Ninguna», la leyenda plegada y las preferencias guardadas en el navegador.
@@ -1065,12 +1124,23 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
 - Los avisos de EMT Madrid usan la aplicación registrada de Radar España en MobilityLabs en cuanto
   EMT la activa; mientras tanto, se leen como hasta ahora.
 - El servidor no guarda registro de las visitas, como dice la página de privacidad.
+- Las tarjetas para compartir citan la fuente de cada incidencia con su atribución, y el aviso legal, la librería
+  que las dibuja (resvg, MPL-2.0), su letra (DejaVu) y los contornos de España (Natural Earth, dominio público).
+- Lo que va por carretera cita CartoCiudad («Obra derivada de CartoCiudad 2026 CC-BY 4.0 scne.es») en la ficha
+  del autobús y en el aviso legal; los autobuses que van por el trazado de su horario lo dicen en su atribución
+  (dato explotado).
+- El contador de visitas cuenta los enlaces compartidos por tipo (incidencia, vehículo, estación), nunca cuál.
 
 ### Preparadas, pendientes de subir
 
 Ninguna por ahora.
 
 ## Posibles mejoras
+
+- El enlace de cada aviso en los mensajes del bot de Telegram: al reenviarlo por WhatsApp saldría con su tarjeta.
+- Paradas de los autobuses con GPS (hoy sólo su recorrido y lo que les queda): de su horario, como las de los
+  que van por horario.
+- Los trazados muy toscos de EMT Fuenlabrada (unos 27 puntos para 13 km), por carretera entre punto y punto.
 
 - El aviso legal también en inglés (hoy sólo en español; la web en inglés lo indica).
 - Tiempo real de TMB y posiciones de los autobuses de EMT Madrid desde sus API, cuando EMT apruebe nuestra
@@ -1106,10 +1176,42 @@ Ninguna por ahora.
   - incidencias de Adif por tramo, si llegan a publicarse con licencia de reutilización (hoy su web
     responde 403; ver *Pendiente y conocido*);
   - posiciones reales de Iryo, si las publica (hoy no publica nada).
-- Cancelaciones de Metro Bilbao y de los autobuses de Euskadi cuando las publiquen: ya publican el
-  tiempo real de sus viajes, pero hasta ahora sin ninguna cancelación. Las paradas suprimidas de EMT
-  Fuenlabrada, cuando su dato sea fiable (marca como suprimidas paradas por las que el autobús ya ha
-  pasado).
+- Más información de autobuses y trenes (revisión del NAP y de las webs de operadores y
+  ayuntamientos, 11-11-2026):
+  - Avisos, retrasos y cancelaciones que ya se publican y el radar aún no lee:
+    - **Autobuses de Euskadi** (unos 25 operadores, Open Data Euskadi, CC BY 4.0): hoy solo se leen sus
+      posiciones, pero publican también avisos de servicio y, muchos, retrasos y cancelaciones. El
+      11-11, Bizkaibus tenía 181 avisos y TUVISA avisaba de una huelga y tenía 3 viajes cancelados.
+    - **FGC**: avisos de servicio (59 el 11-11) y retrasos y cancelaciones en GTFS-RT. Su fichero de
+      retrasos llega con texto de error del servidor delante de los datos y da horas, no retrasos:
+      hay que compararlas con su horario.
+    - **EMT Fuenlabrada**: avisos (líneas modificadas por obras, con las paradas anuladas) y retrasos.
+      Sus paradas suprimidas, solo cuando el dato sea fiable: marca como suprimidas paradas por las
+      que el autobús ya ha pasado.
+    - **EMT Málaga**: retrasos de cada viaje (sus avisos y posiciones ya se leen).
+    - **AMB**: avisos de servicio, junto a los retrasos y cancelaciones que ya se leen.
+    - **Metro Bilbao, Euskotren y Autobuses La Unión**: avisos de servicio.
+    - **Vigo**: los avisos de transporte del Ayuntamiento (desvíos, cortes y huelgas, con las líneas y
+      paradas afectadas; JSON, CC BY 4.0).
+    - **AUCORSA (Córdoba)**: avisos, retrasos y posiciones en GTFS-RT. Antes hay que pedirle la
+      licencia por escrito: su aviso legal es no comercial y se contradice.
+  - Más redes con posición estimada, que tienen horario vigente en el NAP:
+    - los interurbanos de Madrid (Consorcio de Transportes, 354 líneas, muchas de ALSA);
+    - Cataluña (Generalitat, con Alsina Graells, de ALSA);
+    - los consorcios de Andalucía (492 líneas);
+    - la Xunta de Galicia (7.675 líneas);
+    - Ibiza, Sagalés en Mallorca y tres líneas de Aragón.
+
+    Antes, medir la memoria en el VPS. EMT Madrid se queda fuera, porque su horario va por
+    frecuencias.
+  - Contexto para avisar de posibles desvíos: las incidencias en la vía pública de Madrid (Ayuntamiento,
+    CC BY 4.0, cada 5 minutos) y los tiempos de paso por poste de Zaragoza.
+  - Renfe no publica en abierto la composición, la ocupación ni la serie del tren que hace cada
+    servicio. Sus fichas por serie (data.renfe.com, de 2019-2020) solo servirían si se supiera qué
+    serie hace cada tren.
+  - Pedir el tiempo real a ALSA, Iryo, Ouigo, Adif y al Consorcio de Transportes de Madrid, con la
+    normativa europea como base (ver *Pendiente y conocido*).
+- Barcos, con una fuente de posiciones AIS que tenga licencia de reutilización (por investigar).
 - Trenes sin datos también en Cercanías y Rodalies.
 - Pedir a Renfe que publique la posición de todos sus trenes de Alta Velocidad, Larga y Media
   Distancia: la tarde del 5-nov-2026 faltaba la de unos 80 de 200, casi la mitad en el eje de Andalucía.
