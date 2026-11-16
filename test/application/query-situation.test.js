@@ -69,7 +69,7 @@ test('Cercanías: lo que le queda y la flecha salen de sus paradas, no sólo del
   assert.equal(query.ahead('renfe-c:B'), null);
   const live = Object.fromEntries(query.live().vehicles.map((x) => [x.id, x]));
   assert.equal(live['renfe-c:A'].heading, 0, 'hacia el norte, por su vía');
-  assert.equal(live['renfe-c:B'].heading, undefined, 'sin camino ni rastro, sin flecha');
+  assert.equal(live['renfe-c:B'].heading, 90, 'sin camino ni rastro: hacia su próxima parada, en recta (al este)');
 });
 
 // Recorrido de los trenes de Larga Distancia por la vía (red de Adif). Red en L cerca de Oviedo:
@@ -220,4 +220,30 @@ test('following: el estado de una clave de cualquier vehículo (también autobus
   now += 5_000;
   assert.equal(query.following(key).vehicles.total, 2);
   assert.equal(query.following('no vale'), null);
+});
+
+test('un tren de la red general recién aparecido (una sola posición): su flecha, hacia su próxima parada', () => {
+  const tracks = new Map([['renfe-ld:00777', [{ t: T0, lat: 43.36, lon: -5.825 }]]]);
+  const trips = { 'renfe-ld:00777': { gauge: 'iberian', stops: [[-5.825, 43.3601], [-5.80, 43.36]] } }; // la 1.ª, a 11 m: es donde está
+  const source = { ...LD, railTrip: (id) => trips[id] ?? (id.startsWith('renfe-ld:') ? null : undefined) };
+  const situation = fakeSituation({ vehicles: [{ id: 'renfe-ld:00777', source: 'renfe-ld', mode: 'md', lat: 43.36, lon: -5.825 }], tracks });
+  const query = makeQuerySituation({ situation, stations: {}, network: {}, clock: { now: () => T0 }, sources: [source] });
+  const [v] = query.live().vehicles;
+  assert.ok(Math.abs(v.heading - 90) < 1, `hacia el este, donde está la siguiente (${v.heading})`);
+});
+
+test('lo que le queda a un tren que ya pasó la parada que Renfe le da por próxima: desde él, sin volver a ella', () => {
+  // Una L con 5,5 km hacia el norte. El tren va hacia el norte, a 2,8 km de la esquina; Renfe aún le da por próxima la
+  // esquina (ya pasada).
+  const net = buildRailNetwork([[[-5.825, 43.36], ESQUINA], [ESQUINA, [-5.80, 43.41]]]);
+  const track = [{ t: T0 - 4 * MIN, lat: 43.372, lon: -5.80 }, { t: T0 - 2 * MIN, lat: 43.378, lon: -5.80 }, { t: T0, lat: 43.385, lon: -5.80 }];
+  const tracks = new Map([['renfe-ld:00606', track]]);
+  const destino = [-5.80, 43.41];
+  const trips = { 'renfe-ld:00606': { gauge: 'iberian', stops: [ESQUINA, destino] } };
+  const source = { ...LD, railTrip: (id) => trips[id] ?? (id.startsWith('renfe-ld:') ? null : undefined) };
+  const query = makeQuerySituation({ situation: fakeSituation({ tracks }), stations: {}, network: {}, clock: { now: () => T0 }, sources: [source], railNetwork: { network: () => net } });
+  const ahead = query.ahead('renfe-ld:00606');
+  assert.ok(ahead, 'se dibuja');
+  assert.ok(ahead.every(([, lat]) => lat >= 43.384), `no vuelve a la esquina (${JSON.stringify(ahead)})`);
+  assert.deepEqual(ahead.at(-1), destino);
 });

@@ -12,13 +12,14 @@ import {
 } from '../../../domain/schedule.js';
 import { refineToRail } from '../../../domain/rail-match.js';
 import { shapeFromLegs } from '../../../domain/trazado-por-tramos.js';
+import { nearestAlong } from '../../../domain/recorrido-trazado.js';
 import { estimatePosition } from '../../../domain/estimated-position.js';
 import { nextStopIndex, tripStopList } from '../../../domain/trip-stops.js';
 import { cancellationEvent, tripChanges } from '../../../domain/cancelaciones.js';
 import { followOf, lineKey, numberedServiceKey, scheduledServiceKey } from '../../../domain/seguir.js';
 import { createSeenStore } from '../persistence/seen-store.js';
 import { M_PER_DEG_LAT, mPerDegLon, round5 } from '../../../domain/geo.js';
-import { madridClock, madridLocalToMs, madridServiceDay } from './parse.js';
+import { madridClock, madridDateTime, madridLocalToMs, madridServiceDay } from './parse.js';
 import { napDatasetPage } from '../nap/nap-client.js';
 import { createCpuPool } from '../workers/cpu-pool.js';
 import { packSchedule, unpackSchedule } from '../gtfs/gtfs-schedule.js';
@@ -90,7 +91,6 @@ function tripFollow(trip, stops, { operator, line, label, numbered, realtime, of
   return follow;
 }
 
-const hhmmss = (secs) => [Math.floor(secs / 3600) % 24, Math.floor(secs / 60) % 60, Math.floor(secs % 60)].map((n) => String(n).padStart(2, '0')).join(':');
 
 /** Retraso (s) de cada viaje en curso según los trip updates: hora prevista menos hora programada. */
 function delaysFromTripUpdates(feed, schedule) {
@@ -121,6 +121,18 @@ function delaysFromTripUpdates(feed, schedule) {
 }
 
 /** Trozo de un trazado entre dos distancias (m), como [lon, lat] redondeados. */
+// Dónde pinta la web el vehículo (`at`, [lon, lat], la posición de la lista que tiene): sobre su trazado y cerca de
+// donde está ahora (una lectura antes o después, como mucho unos km), su recorrido acaba ahí y lo que le queda empieza
+// ahí. Cada minuto, durante unos segundos, la lista y lo que le queda salían de lecturas distintas y la línea empezaba a
+// más de 1 km del autobús. Si no está sobre el trazado (no es de esta lectura ni de la anterior), donde está ahora.
+const SHOWN_WINDOW_M = 5000;
+const SHOWN_MAX_OFF_M = 30;
+function shownAlong(p, at) {
+  if (!at) return p.to;
+  const near = nearestAlong(p.shape, at[0], at[1], Math.max(0, p.to - SHOWN_WINDOW_M), Math.min(p.end, p.to + SHOWN_WINDOW_M));
+  return near && near.off <= SHOWN_MAX_OFF_M ? near.along : p.to;
+}
+
 function stretch(shape, from, to) {
   const { coords, dist } = shape;
   const at = (d) => { const q = pointAlong(shape, d); return [round5(q.lon), round5(q.lat)]; };
@@ -356,7 +368,9 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
       destination: stops.at(-1).name,
       current: est.current,
       next: est.next,
-      nextEta: est.nextArr !== null ? `${day.iso}T${hhmmss(est.nextArr + offset + (delaySec ?? 0))}` : null,
+      // Desde la medianoche de su día de servicio: un viaje que salió ayer y llega hoy (horas de más de 24 h en su
+      // GTFS, como el Algeciras 23:00 → Barcelona 17:55 de ALSA) lleva la fecha de hoy, no la de ayer.
+      nextEta: est.nextArr !== null ? madridDateTime(day.midnight + (est.nextArr + offset + (delaySec ?? 0)) * 1000) : null,
     };
   }
 
@@ -477,17 +491,17 @@ export function createGtfsScheduleSource({ nap, http, log, cache, pool = inlineP
      * y no uniendo con rectas las posiciones de cada lectura. null: autobús sin trazado (se queda en la
      * última parada); undefined: no es un vehículo de esta fuente o su ruta no tiene trazado.
      */
-    path(vehicleId) {
+    path(vehicleId, at = null) {
       const p = paths.get(vehicleId);
       if (p?.stops) return undefined; // sin trazado: sus posiciones ya van en línea recta entre paradas
-      return p ? stretch(p.shape, p.from, p.to) : p;
+      return p ? stretch(p.shape, p.from, Math.max(p.from, shownAlong(p, at))) : p;
     },
     /** Lo que le queda hasta la última parada de su viaje, por su trazado o, si no tiene, uniendo sus
      * paradas (null o undefined como en path). */
-    ahead(vehicleId) {
+    ahead(vehicleId, at = null) {
       const p = paths.get(vehicleId);
       if (p?.stops) return [p.at, ...p.stops].map(([lon, lat]) => [round5(lon), round5(lat)]);
-      return p ? stretch(p.shape, p.to, p.end) : p;
+      return p ? stretch(p.shape, shownAlong(p, at), p.end) : p;
     },
     /**
      * Paradas de su viaje según el horario, con su hora (la de salida en la primera) y, con el retraso

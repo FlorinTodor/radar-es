@@ -63,3 +63,15 @@ test('la flecha de un autobús con GPS sale del trazado de su viaje', () => {
   const [bus] = query.liveBuses().vehicles;
   assert.ok(Math.abs(bus.heading - 90) < 5, `hacia el este por la calle de arriba (${bus.heading})`);
 });
+
+test('desde la posición que pinta la web (la de la lectura anterior): lo que le queda empieza y el recorrido acaba ahí', () => {
+  const query = setup();
+  const shown = [-3.6905, 40.4]; // la posición de la lectura anterior, que es la que aún tiene la lista de la web
+  const ahead = query.ahead('bus-prueba:1', shown);
+  assert.ok(Math.abs(ahead[0][0] - -3.6905) < 2e-4, `desde donde se ve (${ahead[0]})`);
+  assert.deepEqual(ahead.at(-1), [-3.6764, 40.401]);
+  const path = query.track('bus-prueba:1', shown);
+  assert.ok(Math.abs(path.at(-1).lon - -3.6905) < 2e-4, `hasta donde se ve (${JSON.stringify(path.at(-1))})`);
+  assert.ok(path[0].lon > -3.697, 'desde que hace este viaje');
+  assert.ok(Math.abs(query.ahead('bus-prueba:1', [-3.6764, 40.43])[0][0] - -3.6866) < 2e-4, 'lejos de su trazado: desde donde va ahora');
+});

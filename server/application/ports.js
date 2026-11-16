@@ -26,12 +26,14 @@
  *                                              general y sus posiciones caen sobre ella: su recorrido reciente se
  *                                              dibuja por la vía (RailNetworkPort) y no con rectas.
  * @property {() => Promise<import('../domain/model.js').SourceResult>} fetch
- * @property {(vehicleId: string) => number[][]|null|undefined} [path]  Sólo fuentes de posiciones
+ * @property {(vehicleId: string, at?: number[]|null) => number[][]|null|undefined} [path]  Sólo fuentes de posiciones
  *   estimadas: tramo de trazado ([lon, lat]) que el vehículo ha recorrido según su horario, para
- *   dibujarlo por la calle. null = sin trazado; undefined = vehículo desconocido para la fuente.
- * @property {(vehicleId: string) => number[][]|null|undefined} [ahead]  Sólo fuentes de posiciones estimadas:
+ *   dibujarlo por la calle. null = sin trazado; undefined = vehículo desconocido para la fuente. Con `at` ([lon, lat],
+ *   donde lo pinta la web), acaba ahí si está sobre su trazado y cerca de donde va ahora.
+ * @property {(vehicleId: string, at?: number[]|null) => number[][]|null|undefined} [ahead]  Sólo fuentes de posiciones estimadas:
  *   lo que le queda al vehículo hasta su última parada ([lon, lat]), por su trazado o, sin él, uniendo sus
- *   paradas. null = no se sabe; undefined = vehículo desconocido para la fuente (como en `path`).
+ *   paradas. null = no se sabe; undefined = vehículo desconocido para la fuente (como en `path`). Con `at`, empieza
+ *   ahí (como en `path`).
  * @property {string} [shapeNetwork]           Red de NetworkCatalogPort.lines() cuyos trazados (`shape` de cada
  *                                              vehículo, el shape_id de su GTFS) usan sus viajes.
  * @property {(vehicleId: string) => number[][]|null} [stopsAhead]  Con shapeNetwork: paradas que le quedan al
