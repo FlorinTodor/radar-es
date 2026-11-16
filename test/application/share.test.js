@@ -129,3 +129,23 @@ test('card: el memo de tarjetas tiene tope', async () => {
   for (const e of events) await share.card('incidencia', e.id);
   assert.equal(share.sizes().cards, 200);
 });
+
+test('cuenta las visitas por tipo y estado y las tarjetas, y los totales sobreviven a un reinicio', async () => {
+  const { share, state } = setup();
+  share.page('incidencia', 'dgt:1');
+  share.page('incidencia', 'no-existe');
+  share.page('estacion', '71801');
+  await share.card('incidencia', 'dgt:1');
+  await share.card('incidencia', 'dgt:1');
+  await assert.rejects(share.card('vehiculo', 'bus-x:1', 'es', { allow: () => false }), ShareBusy);
+  const { totals } = share.usage();
+  assert.equal(totals.pages.incidencia.activa, 1);
+  assert.equal(totals.pages.incidencia.desconocida, 1);
+  assert.equal(totals.pages.estacion.activa, 1);
+  assert.deepEqual(totals.cards, { dibujada: 1, servida: 2, rechazada: 1 });
+  await share.save();
+  const next = setup();
+  next.state.loaded = JSON.parse(JSON.stringify(state.saved.at(-1)));
+  await next.share.restore();
+  assert.deepEqual(next.share.usage().totals, totals);
+});

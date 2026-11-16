@@ -180,8 +180,31 @@ export function restoreEnded(raw, { now, keepMs, max }) {
   return out;
 }
 
-/** Lo que se guarda en el disco de las terminadas. */
-export const endedRecord = (ended) => ({ version: 1, ended: [...ended.values()] });
+/** Lo que se guarda en el disco: las terminadas y los totales de uso (shareTotals). */
+export const endedRecord = (ended, totals = null) => ({ version: 1, ended: [...ended.values()], ...(totals && { totals }) });
+
+// ---------- Cuánto se usa ----------
+// Visitas a cada tipo de enlace (y si lo que enseñaba seguía en el directo) y tarjetas: las dibujadas, las servidas
+// (también las ya dibujadas) y las rechazadas por la cola o el presupuesto. Las que sirve Cloudflare de su caché no
+// llegan al servidor y no cuentan. Se guardan con las terminadas: no vuelven a 0 al arrancar.
+export const SHARE_PAGE_STATES = Object.freeze(['activa', 'terminada', 'desconocida']);
+export const SHARE_CARD_RESULTS = Object.freeze(['dibujada', 'servida', 'rechazada']);
+/** Totales a cero, desde `now`. */
+export function emptyShareTotals(now) {
+  return {
+    since: now,
+    pages: Object.fromEntries(SHARE_KINDS.map((k) => [k, Object.fromEntries(SHARE_PAGE_STATES.map((s) => [s, 0]))])),
+    cards: Object.fromEntries(SHARE_CARD_RESULTS.map((r) => [r, 0])),
+  };
+}
+/** Los totales guardados, de vuelta (lo que no sea un número entero y positivo, a 0); sin ellos, a cero desde `now`. */
+export function restoreShareTotals(raw, now) {
+  const out = emptyShareTotals(Number.isFinite(raw?.since) && raw.since <= now ? raw.since : now);
+  const count = (x) => (Number.isSafeInteger(x) && x > 0 ? x : 0);
+  for (const k of SHARE_KINDS) for (const s of SHARE_PAGE_STATES) out.pages[k][s] = count(raw?.pages?.[k]?.[s]);
+  for (const r of SHARE_CARD_RESULTS) out.cards[r] = count(raw?.cards?.[r]);
+  return out;
+}
 
 /**
  * La vista previa de una incidencia, en curso o que ya no sale en su fuente.

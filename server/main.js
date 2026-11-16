@@ -196,7 +196,7 @@ server.listen(config.port, config.host, () => {
 
 // Métricas en un puerto aparte, que no pasa por nginx ni por el túnel (sólo si METRICS_PORT lo dice).
 const metricsServer = config.metricsPort
-  ? createMetricsServer({ render: () => metrics.render({ sources: query.health(), bot: botUsage(), now: clock.now() }), log })
+  ? createMetricsServer({ render: () => metrics.render({ sources: query.health(), bot: botUsage(), share: share.usage(), now: clock.now() }), log })
   : null;
 metricsServer?.listen(config.metricsPort, config.metricsHost, () => {
   log.info(`Métricas en http://${config.metricsHost}:${config.metricsPort}/metrics`);

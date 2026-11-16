@@ -32,9 +32,10 @@ const DEFINITIONS = {
  * @param {{ version?: string, now?: () => number, startedAt?: number, cgroupDir?: string }} [options]
  *   cgroupDir: carpeta del cgroup del contenedor, de donde sale su memoria (la que cuenta para su límite).
  * @returns {import('../../../application/ports.js').MetricsPort & {
- *   render(snapshot?: { sources?: object[], bot?: object|null, now?: number }): string, close(): void }}
+ *   render(snapshot?: { sources?: object[], bot?: object|null, share?: object|null, now?: number }): string, close(): void }}
  *   render: el texto para /metrics, con el estado de las fuentes (`sources`, lo que da /api/health),
- *   el uso del bot de Telegram (`bot`, si este servidor lo atiende) y el del proceso en este momento.
+ *   el uso del bot de Telegram (`bot`, si este servidor lo atiende), el de los enlaces compartidos (`share`) y el del
+ *   proceso en este momento.
  *   close: deja de medir el retraso del bucle de eventos.
  */
 export function createPrometheusMetrics({ version = '0.0.0', now = Date.now, startedAt = now(), cgroupDir = '/sys/fs/cgroup' } = {}) {
@@ -89,7 +90,7 @@ export function createPrometheusMetrics({ version = '0.0.0', now = Date.now, sta
     logged(level) {
       add('radar_log_messages_total', { level });
     },
-    render({ sources = [], bot = null, now: at = now() } = {}) {
+    render({ sources = [], bot = null, share = null, now: at = now() } = {}) {
       const out = [];
       const gauge = (name, help, rows) => writeRows(out, name, 'gauge', help, rows);
       gauge('radar_info', 'Versión del servidor.', [[{ version }, 1]]);
@@ -111,6 +112,7 @@ export function createPrometheusMetrics({ version = '0.0.0', now = Date.now, sta
       gauge('radar_source_seconds_since_ok', 'Segundos desde la última lectura buena (o desde el arranque, si no ha habido ninguna).',
         enabled.map((s) => [{ source: s.id }, Math.max(0, (at - (Number.isFinite(s.lastOk) ? s.lastOk : startedAt)) / 1000)]));
       if (bot) botMetrics(out, bot);
+      if (share) shareMetrics(out, share);
 
       for (const [name, all] of series) {
         const { type, help, buckets } = DEFINITIONS[name];
@@ -146,6 +148,23 @@ function writeRows(out, name, type, help, rows) {
  * que el bot guarda en su disco con lo demás: no vuelven a 0 al arrancar ni al pasar a otro contenedor, así que en
  * Prometheus son la misma cifra antes y después de un despliegue (en los paneles, max y no increase).
  */
+/**
+ * Cuánto se usan los enlaces compartidos (caso de uso share, usage()). Los totales se guardan con las incidencias
+ * terminadas: no vuelven a 0 al arrancar. En un relevo, los dos servidores parten de los mismos (en Grafana, max y no sum).
+ */
+function shareMetrics(out, { totals, ended = 0, cards = 0 }) {
+  const g = (name, help, rows) => writeRows(out, name, 'gauge', help, rows);
+  const c = (name, help, rows) => writeRows(out, name, 'counter', help, rows);
+  g('radar_compartir_terminadas', 'Incidencias que ya no están en el directo y cuyo enlace compartido sigue diciendo qué eran.', [[{}, ended]]);
+  g('radar_compartir_tarjetas_guardadas', 'Tarjetas de compartir ya dibujadas que guarda el servidor.', [[{}, cards]]);
+  if (!totals) return;
+  g('radar_compartir_totales_since_seconds', 'Desde cuándo cuentan los totales de los enlaces compartidos (segundos desde 1970).', [[{}, Math.round(totals.since / 1000)]]);
+  c('radar_compartir_paginas_total', 'Visitas a enlaces compartidos, por tipo y por si lo que enseñaban seguía en el directo.',
+    Object.entries(totals.pages).flatMap(([tipo, states]) => Object.entries(states).map(([estado, n]) => [{ tipo, estado }, n])));
+  c('radar_compartir_tarjetas_total', 'Tarjetas de compartir que han llegado al servidor: dibujadas, servidas (también las ya dibujadas) y rechazadas por la cola o el presupuesto.',
+    Object.entries(totals.cards).map(([resultado, n]) => [{ resultado }, n]));
+}
+
 function botMetrics(out, { chats = 0, digest = 0, follows = {}, distinct = {}, top = [], totals = null }) {
   const g = (name, help, rows) => writeRows(out, name, 'gauge', help, rows);
   const c = (name, help, rows) => writeRows(out, name, 'counter', help, rows);

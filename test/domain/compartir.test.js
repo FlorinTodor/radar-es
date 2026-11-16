@@ -168,3 +168,14 @@ test('lo guardado vuelve tal cual; lo caducado, lo del futuro y lo que no tiene 
   assert.deepEqual([...restoreEnded(record, { now: NOW + 3600_000, keepMs: 3600_000, max: 10 }).keys()], ['z']);
   assert.equal(restoreEnded(null, { now: NOW, keepMs: 1, max: 1 }).size, 0);
 });
+
+test('totales de uso: lo guardado vuelve; lo que no es un entero positivo, a 0; sin nada, desde ahora', async () => {
+  const { emptyShareTotals, restoreShareTotals } = await import('../../server/domain/compartir.js');
+  const raw = { since: NOW - 1000, pages: { incidencia: { activa: 5, terminada: -1, desconocida: 'x' } }, cards: { dibujada: 2.5, servida: 7 } };
+  const back = restoreShareTotals(raw, NOW);
+  assert.equal(back.since, NOW - 1000);
+  assert.deepEqual(back.pages.incidencia, { activa: 5, terminada: 0, desconocida: 0 });
+  assert.deepEqual(back.cards, { dibujada: 0, servida: 7, rechazada: 0 });
+  assert.deepEqual(restoreShareTotals(null, NOW), emptyShareTotals(NOW));
+  assert.equal(restoreShareTotals({ since: NOW + 1 }, NOW).since, NOW); // del futuro no
+});

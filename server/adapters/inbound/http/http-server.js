@@ -461,7 +461,7 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
   /** /incidencia/<id>, /estacion/<código> y /vehiculo/<id>: el mapa, que abre la ficha de eso al cargar. */
   async function sendSharePage(req, res, { kind, id }, url) {
     const lang = langOf(url);
-    const found = share.lookup(kind, id, lang);
+    const found = share.page(kind, id, lang);
     const page = Buffer.from(sharedHead(await readIndex(), { origin: originOf(req), kind, id, lang, card: found?.card ?? null, cards: share.cardsAvailable() }));
     // Sin ETag: lo que dice cambia con lo que pasa (y se comprueba cada minuto).
     res.writeHead(found ? 200 : 404, { 'Content-Type': MIME['.html'], 'Cache-Control': OWN_CACHE, 'Content-Length': page.length });

@@ -30,7 +30,7 @@ const ICON = '<svg class="share-icon" viewBox="0 0 24 24" aria-hidden="true"><g 
 export function shareButton(kind, id, title) {
   const url = shareUrl(kind, id);
   if (!url) return '';
-  return `<div class="share"><button type="button" class="share-btn" data-share-url="${esc(url)}" data-share-title="${esc(title ?? '')}">${ICON}`
+  return `<div class="share"><button type="button" class="share-btn" data-share-url="${esc(url)}" data-share-kind="${esc(kind)}" data-share-title="${esc(title ?? '')}">${ICON}`
     + `<span>${t('Compartir')}</span></button></div>`;
 }
 
@@ -48,8 +48,18 @@ async function copy(text) {
   }
 }
 
+/**
+ * Cuenta en GoatCounter (sin cookies ni IP) que se ha compartido algo, por tipo y por cómo (menú o copiado), nunca
+ * qué: así se sabe cuánto se usa el botón. Sin GoatCounter (en local), nada.
+ */
+function countShare(kind, how) {
+  try {
+    window.goatcounter?.count?.({ path: `compartir-${kind}-${how}`, title: 'Compartir', event: true });
+  } catch { /* el contador no está: no pasa nada */ }
+}
+
 /** Escucha los botones de compartir de toda la página (las fichas se repintan: se escucha en el documento). */
-export function listenShareButtons({ onShared = () => {} } = {}) {
+export function listenShareButtons({ onShared = countShare } = {}) {
   document.addEventListener('click', async (ev) => {
     const btn = ev.target.closest('[data-share-url]');
     if (!btn) return;
@@ -58,14 +68,14 @@ export function listenShareButtons({ onShared = () => {} } = {}) {
     if (touch() && typeof navigator.share === 'function') {
       try {
         await navigator.share({ title, text: title, url });
-        onShared('menu');
+        onShared(btn.dataset.shareKind, 'menu');
         return;
       } catch (err) {
         if (err?.name === 'AbortError') return; // lo ha cerrado sin compartir
       }
     }
     if (!(await copy(url))) return;
-    onShared('copiado');
+    onShared(btn.dataset.shareKind, 'copiado');
     const label = btn.querySelector('span');
     if (!label) return;
     label.textContent = t('Enlace copiado');

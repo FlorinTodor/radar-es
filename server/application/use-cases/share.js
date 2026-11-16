@@ -5,7 +5,9 @@
 // La tarjeta cuesta un dibujo en un hilo de cálculo: se dibuja una vez por cosa, idioma y estado (`version`), y la
 // guardan este memo, Cloudflare y cada red social. Como mucho unas pocas a la vez: las demás esperan su turno o, si la
 // cola está llena, se rechazan (ShareBusy → 503, y quien pide lo vuelve a intentar).
-import { endedRecord, eventShare, isShareId, noteEnded, restoreEnded, stationShare, vehicleShare } from '../../domain/compartir.js';
+import {
+  emptyShareTotals, endedRecord, eventShare, isShareId, noteEnded, restoreEnded, restoreShareTotals, SHARE_KINDS, stationShare, vehicleShare,
+} from '../../domain/compartir.js';
 
 const KEEP_MS = 3 * 24 * 3600_000; // lo que dura el enlace de una incidencia que ya no sale en el directo
 const MAX_ENDED = 10_000;
@@ -27,6 +29,11 @@ export function makeShare({ query, store, renderer, clock, log, keepMs = KEEP_MS
   let ended = new Map(); // id → { event, endedAt }
   let before = []; // las incidencias de la última vuelta
   let dirty = false;
+  let totals = emptyShareTotals(clock.now());
+  const countCard = (result) => {
+    totals.cards[result]++;
+    dirty = true;
+  };
 
   // La atribución de una fuente: la de su operador si agrupa a varios, como en las fichas de la web.
   const creditOf = (sourceId, operator) => {
@@ -92,6 +99,15 @@ export function makeShare({ query, store, renderer, clock, log, keepMs = KEEP_MS
 
   return {
     lookup,
+    /** Lo de una página de enlace (lookup), contando la visita por tipo y por si seguía en el directo. */
+    page(kind, id, lang = 'es') {
+      const found = lookup(kind, id, lang);
+      if (SHARE_KINDS.includes(kind)) {
+        totals.pages[kind][found?.status ?? 'desconocida']++;
+        dirty = true;
+      }
+      return found;
+    },
     /** ¿Hay tarjetas propias? (sin la letra, no: las páginas enseñan la imagen general) */
     cardsAvailable: () => renderer.available(),
 
@@ -109,15 +125,20 @@ export function makeShare({ query, store, renderer, clock, log, keepMs = KEEP_MS
       if (hit) {
         cards.delete(key); // la más reciente, al final
         cards.set(key, hit);
+        countCard('servida');
         return { png: hit, version };
       }
       let job = drawing.get(key);
       if (!job) {
-        if (queued >= QUEUE_MAX || !allow()) throw new ShareBusy();
+        if (queued >= QUEUE_MAX || !allow()) {
+          countCard('rechazada');
+          throw new ShareBusy();
+        }
         queued++;
         job = renderer.render(found.card)
           .then((png) => {
             keepCard(key, png);
+            countCard('dibujada');
             return png;
           })
           .finally(() => {
@@ -127,7 +148,9 @@ export function makeShare({ query, store, renderer, clock, log, keepMs = KEEP_MS
         drawing.set(key, job);
       }
       try {
-        return { png: await job, version };
+        const png = await job;
+        countCard('servida');
+        return { png, version };
       } catch (err) {
         log.warn(`[compartir] no se pudo dibujar la tarjeta de ${kind} ${id}: ${err.message}`);
         return null;
@@ -147,7 +170,9 @@ export function makeShare({ query, store, renderer, clock, log, keepMs = KEEP_MS
 
     /** Al arrancar: las terminadas que guardó el servidor anterior. */
     async restore() {
-      ended = restoreEnded(await store.load(), { now: clock.now(), keepMs, max: maxEnded });
+      const raw = await store.load();
+      ended = restoreEnded(raw, { now: clock.now(), keepMs, max: maxEnded });
+      totals = restoreShareTotals(raw?.totals, clock.now());
       if (ended.size) log.info(`[compartir] ${ended.size} incidencias terminadas recuperadas`);
     },
 
@@ -155,10 +180,12 @@ export function makeShare({ query, store, renderer, clock, log, keepMs = KEEP_MS
     async save() {
       if (!dirty) return;
       dirty = false;
-      await store.save(endedRecord(ended));
+      await store.save(endedRecord(ended, totals));
     },
 
     /** Para las pruebas y las métricas: cuántas terminadas y tarjetas guarda. */
     sizes: () => ({ ended: ended.size, cards: cards.size, cardBytes }),
+    /** Para las métricas (/metrics): los totales de uso (guardados: no vuelven a 0 al arrancar) y lo que guarda ahora. */
+    usage: () => ({ totals: structuredClone(totals), ended: ended.size, cards: cards.size }),
   };
 }
