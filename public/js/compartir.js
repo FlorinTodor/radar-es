@@ -5,7 +5,7 @@ import { parseSharePath, sharePath } from '../../server/domain/compartir.js';
 import { esc } from './format.js';
 import { lang, t } from './i18n.js';
 
-export { parseSharePath };
+export { parseSharePath, sharePath };
 
 // La dirección que se comparte: la de la web sin ñ (radarespana.es), que cualquier aplicación reconoce como enlace
 // y lleva a la de siempre (redirección 308 de Cloudflare). En local o en pruebas, la de la propia página.

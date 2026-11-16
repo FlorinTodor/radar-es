@@ -122,3 +122,18 @@ test('index.html tiene todas las etiquetas que cambia cada enlace (si alguien la
   assert.match(out, /<link rel="canonical" href="https:\/\/xn--radarespaa-19a\.es\/incidencia\/x">/);
   assert.equal((out.match(/name="robots"/g) ?? []).length, 1);
 });
+
+test('/api/compartido de una que su fuente publicó de nuevo con otro identificador: dice cuál es la de ahora', async () => {
+  state.share.remember();
+  state.events = [{ ...accident, id: 'dgt:nuevo' }];
+  state.now += 60_000;
+  state.share.remember();
+  state.now += 5_000;
+  const body = await (await fetch(`${base}/api/compartido/incidencia/dgt:1`)).json();
+  assert.equal(body.status, 'activa');
+  assert.equal(body.current, 'dgt:nuevo');
+  const html = await (await fetch(`${base}/incidencia/dgt:1`)).text();
+  assert.match(html, /<meta property="og:url" content="https:\/\/xn--radarespaa-19a\.es\/incidencia\/dgt:nuevo">/);
+  state.events = [accident];
+  state.now += 5_000;
+});

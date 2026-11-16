@@ -512,6 +512,8 @@ export function createHttpServer({ query, serveTiles, log, publicDir, vendorDirs
     const body = {
       kind: shared.kind, id: shared.id, status: found.status,
       ...(found.ended && { endedAt: found.ended.endedAt, event: found.ended.event }),
+      // La misma incidencia, publicada de nuevo con otro identificador: el navegador abre esa.
+      ...(found.movedTo && { current: found.movedTo }),
       ...(found.vehicle && { mode: found.vehicle.mode }),
     };
     return sendJson(req, res, 200, body, 'public, max-age=15, s-maxage=30');

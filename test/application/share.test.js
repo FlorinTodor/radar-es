@@ -149,3 +149,16 @@ test('cuenta las visitas por tipo y estado y las tarjetas, y los totales sobrevi
   await next.share.restore();
   assert.deepEqual(next.share.usage().totals, totals);
 });
+
+test('el enlace de una incidencia que su fuente ha vuelto a publicar con otro identificador enseña la nueva', async () => {
+  const { share, state } = setup();
+  share.remember();
+  state.events = [{ ...accident, id: 'dgt:2' }];
+  state.now += 60_000;
+  share.remember();
+  state.now += 5_000;
+  const found = share.lookup('incidencia', 'dgt:1');
+  assert.equal(found.status, 'activa');
+  assert.equal(found.movedTo, 'dgt:2');
+  assert.equal(found.card.path, '/incidencia/dgt:2');
+});

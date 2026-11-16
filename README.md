@@ -875,7 +875,9 @@ Lo que ya está en marcha en [radarespaña.es](https://radarespaña.es), por tem
   el enlace ve el mapa con eso abierto y encuadrado. Cada ficha lleva el botón «Compartir» (en el móvil, el
   menú de compartir del sistema; en el ordenador, copia el enlace). Si la incidencia ya no está en el
   directo, su enlace dice lo último que se supo de ella durante tres días (seis horas los vehículos detenidos
-  de la DGT); nunca que «ha terminado».
+  de la DGT); nunca que «ha terminado». Si su fuente la vuelve a publicar con otro identificador (la DGT lo
+  hace a veces al actualizar una), el enlace enseña la nueva: misma fuente, tipo y título, en el mismo sitio y
+  sin otra igual con la que confundirla.
 - La incidencia elegida se marca en el mapa: su zona resaltada si la trae (los avisos de AEMET), un anillo
   alrededor de su icono o, si su sitio es aproximado (el centro de una isla o de una provincia), un anillo
   discontinuo.
@@ -1126,9 +1128,6 @@ Ninguna por ahora.
 
 ## Posibles mejoras
 
-- Enlaces compartidos de la DGT: a veces cambia el identificador de una incidencia al actualizarla (16 de 676 en
-  una prueba de 46 minutos, entre ellas un accidente), y el enlace viejo dice que ya no está en el directo
-  aunque siga. Si aparece otra igual en el mismo sitio justo después, que el enlace enseñe la nueva.
 - El enlace de cada aviso en los mensajes del bot de Telegram: al reenviarlo por WhatsApp saldría con su tarjeta.
 - Paradas de los autobuses con GPS (hoy sólo su recorrido y lo que les queda): de su horario, como las de los
   que van por horario.

@@ -6,7 +6,8 @@
 // guardan este memo, Cloudflare y cada red social. Como mucho unas pocas a la vez: las demás esperan su turno o, si la
 // cola está llena, se rechazan (ShareBusy → 503, y quien pide lo vuelve a intentar).
 import {
-  emptyShareTotals, endedRecord, eventShare, isShareId, noteEnded, restoreEnded, restoreShareTotals, SHARE_KINDS, stationShare, vehicleShare,
+  emptyShareTotals, endedRecord, eventShare, isShareId, noteEnded, restoreEnded, restoreShareTotals, SHARE_KINDS, stationShare,
+  successorOf, vehicleShare,
 } from '../../domain/compartir.js';
 
 const KEEP_MS = 3 * 24 * 3600_000; // lo que dura el enlace de una incidencia que ya no sale en el directo
@@ -68,6 +69,9 @@ export function makeShare({ query, store, renderer, clock, log, keepMs = keepOf,
       const e = eventsById().get(id);
       if (e) return { card: eventShare(e, { now, lang, credit: creditOf(e.source) }), status: 'activa' };
       const gone = ended.get(id);
+      // Su fuente la ha vuelto a publicar con otro identificador (la DGT, a veces): el enlace enseña esa, que sigue.
+      const again = gone ? successorOf(gone.event, gone.endedAt, eventsById().values(), { now }) : null;
+      if (again) return { card: eventShare(again, { now, lang, credit: creditOf(again.source) }), status: 'activa', movedTo: again.id };
       if (gone) {
         return { card: eventShare(gone.event, { now, lang, credit: creditOf(gone.event.source), endedAt: gone.endedAt }), status: 'terminada', ended: gone };
       }

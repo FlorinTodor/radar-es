@@ -194,3 +194,16 @@ test('terminadas: lo que se guarda cada una puede depender de ella (un vehículo
   const back = restoreEnded(endedRecord(new Map([...ended, ['dgt:v16', { event: { ...accident, id: 'dgt:v16', type: 'vehicleObstruction' }, endedAt: NOW }]])), { now: NOW + 2 * 3600_000, keepMs, max: 10 });
   assert.deepEqual([...back.keys()], ['dgt:23477355']);
 });
+
+test('la misma incidencia publicada de nuevo con otro identificador: sólo si no hay duda', async () => {
+  const { successorOf } = await import('../../server/domain/compartir.js');
+  const renamed = { ...accident, id: 'dgt:99', lat: accident.lat + 0.001 }; // ~110 m
+  const o = { now: NOW };
+  assert.equal(successorOf(accident, NOW - 10 * MIN, [renamed], o)?.id, 'dgt:99');
+  assert.equal(successorOf(accident, NOW - 7 * 3600_000, [renamed], o), null, 'hace demasiado que dejó de salir');
+  assert.equal(successorOf(accident, NOW, [{ ...renamed, lat: accident.lat + 0.01 }], o), null, 'a más de 300 m');
+  assert.equal(successorOf(accident, NOW, [{ ...renamed, title: 'Accidente · A-7 km 215.0' }], o), null, 'otro título');
+  assert.equal(successorOf(accident, NOW, [{ ...renamed, source: 'sct' }], o), null, 'otra fuente');
+  assert.equal(successorOf(accident, NOW, [renamed, { ...renamed, id: 'dgt:100' }], o), null, 'dos candidatas: ninguna');
+  assert.equal(successorOf(accident, NOW, [accident], o), null, 'ella misma no cuenta');
+});

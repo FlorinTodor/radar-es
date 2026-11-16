@@ -167,6 +167,31 @@ export function noteEnded(ended, before, current, { now, keepMs, max }) {
 }
 
 /**
+ * La misma incidencia, publicada de nuevo por su fuente con otro identificador: la DGT a veces cambia el de una al
+ * actualizarla (16 de 676 que dejaron de salir en 46 minutos de una prueba, el 16-11-2026, entre ellas un accidente de
+ * la M-40), y su enlace diría que ya no está en el directo aunque siga. Sólo si no hay duda: la misma fuente, categoría,
+ * tipo y título, a menos de `maxMeters`, que la vieja dejara de salir hace poco y que no haya dos así (dos obras iguales
+ * en el mismo kilómetro no se sabe cuál es). null si no hay ninguna (o hay varias).
+ * @param {object} old  lo guardado de la que dejó de salir  @param {number} endedAt  cuándo lo vio el radar
+ * @param {Iterable<object>} events  las del directo
+ */
+// Metros entre dos puntos cercanos (equirectangular: para unos cientos de metros sobra). Aquí y no en geo.js: este módulo
+// lo usa también el navegador, que sólo tiene los módulos del dominio que comparte (ver http-server.js).
+const metersBetween = (lat1, lon1, lat2, lon2) => Math.hypot((lon2 - lon1) * 111_320 * Math.cos(((lat1 + lat2) / 2) * Math.PI / 180), (lat2 - lat1) * 110_540);
+
+export function successorOf(old, endedAt, events, { now, maxAgeMs = 6 * 3600_000, maxMeters = 300 }) {
+  if (!old?.title || !(now - endedAt <= maxAgeMs) || !Number.isFinite(old.lat) || !Number.isFinite(old.lon)) return null;
+  let found = null;
+  for (const e of events) {
+    if (e.id === old.id || e.source !== old.source || e.category !== old.category || e.type !== old.type || e.title !== old.title) continue;
+    if (!Number.isFinite(e.lat) || !Number.isFinite(e.lon) || metersBetween(e.lat, e.lon, old.lat, old.lon) > maxMeters) continue;
+    if (found) return null; // dos que podrían ser ella: ninguna
+    found = e;
+  }
+  return found;
+}
+
+/**
  * Lo guardado de las terminadas, de vuelta (lo que no tenga la forma de lo que se guarda, fuera).
  * @returns {Map<string, { event: object, endedAt: number }>}
  */

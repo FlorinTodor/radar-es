@@ -6,7 +6,7 @@ import { stationBoard } from './station-board.js';
 import * as S from './siguiendo.js';
 import { loadTelegram, telegramLink } from './avisar.js';
 import { mountLangSwitch, t, tn } from './i18n.js';
-import { listenShareButtons, parseSharePath } from './compartir.js';
+import { listenShareButtons, parseSharePath, sharePath } from './compartir.js';
 
 // ---------- Estado ----------
 const state = {
@@ -897,6 +897,14 @@ async function askShared() {
   } catch { /* sin respuesta: como si ya no estuviera */ }
   if (!shared) return;
   if (!body) return sharedGone();
+  // Su fuente la ha vuelto a publicar con otro identificador: se abre esa, y la dirección pasa a ser la suya (así, quien
+  // la comparta otra vez comparte la que sigue). Se busca en las incidencias de la próxima consulta si aún no ha llegado.
+  if (body.current && body.current !== shared.id) {
+    shared = { kind: shared.kind, id: body.current };
+    const path = sharePath(shared.kind, shared.id);
+    if (path) history.replaceState(null, '', `${path}${location.search}`);
+    return openShared('events');
+  }
   if (body.status === 'terminada' && body.event) {
     // Sin su viaje (sólo se guardan las posiciones de las paradas): la ficha general, con lo que publicó su fuente.
     const e = { ...body.event, trip: undefined, endedAt: body.endedAt };
