@@ -94,6 +94,11 @@ test('una carretera cortada lo dice, salvo que ya lo diga su descripción', () =
   assert.notEqual(eventShare({ ...closed, description: 'Málaga · Carretera cortada' }, { now: NOW }).details[0], 'Carretera cortada');
 });
 
+test('un tren sin datos: desde cuándo lo echa en falta el radar, como en su ficha', () => {
+  const missing = { id: 'renfe-sin-datos:02091', source: 'renfe-avisos', category: 'sin-datos', type: 'sin-datos', severity: 'baja', title: 'AVE 02091 sin datos', seen: NOW - 60 * MIN };
+  assert.deepEqual(eventShare(missing, { now: NOW }).details, ['El radar lo echa en falta desde: 16/11, 10:42']);
+});
+
 test('cancelación: su viaje en el mapa y desde cuándo la ve el radar', () => {
   const cancel = { id: 'renfe-cancelado:1', source: 'renfe-avisos', category: 'cancelacion', type: 'cancelado', severity: 'alta',
     title: 'Cercanías C4 20257 cancelado', seen: NOW - 20 * MIN, lat: 40.24, lon: -3.77,

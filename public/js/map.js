@@ -1491,7 +1491,7 @@ function eventDetail(e, others = []) {
   const road = e.category === 'carretera' && e.type !== 'aviso' ? telegramRoad(e.road) : '';
   // Lo que enseña un enlace compartido de una incidencia que ya no está en el directo: lo último que se supo de ella.
   const gone = Number.isFinite(e.endedAt)
-    ? `<p class="share-gone" role="status">${esc(t('Ya no está en el directo del radar desde el {when}: esto es lo último que publicó su fuente.', { when: fmtDateTime(e.endedAt) }))}</p>` : '';
+    ? `<p class="share-gone" role="status">${esc(t('Ya no está en el directo del radar desde el {when}. Esto es lo último que se supo.', { when: fmtDateTime(e.endedAt) }))}</p>` : '';
   // El título y la descripción: los de la fuente tal cual; los que escribe el radar, traducidos (tx).
   return `<div class="pop"><h3>${esc(tx(e.title, e.source))}</h3>${gone}${shareButton('incidencia', e.id, tx(e.title, e.source))}${gone ? '' : road}${e.description ? `<p>${esc(tx(e.description, e.source))}</p>` : ''}
     <dl>${rows.map(([k, val]) => `<dt>${esc(k)}</dt><dd>${val?.html ?? esc(val)}</dd>`).join('')}</dl>${link}${more}</div>`;

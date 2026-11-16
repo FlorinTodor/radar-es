@@ -147,8 +147,8 @@ export default {
   Compartir: 'Share',
   'Enlace copiado': 'Link copied',
   'Copia el enlace:': 'Copy the link:',
-  'Ya no está en el directo del radar desde el {when}: esto es lo último que publicó su fuente.':
-    'No longer in the radar\'s live data since {when}: this is the last thing its source published.',
+  'Ya no está en el directo del radar desde el {when}. Esto es lo último que se supo.':
+    'No longer in the radar\'s live data since {when}. This is the last that was known.',
   'Esta incidencia ya no está en el directo': 'This incident is no longer in the live data',
   'Este vehículo ya no está en el directo': 'This vehicle is no longer in the live data',
   'No encontramos esta estación': 'We could not find this station',

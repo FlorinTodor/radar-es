@@ -57,6 +57,7 @@ const EN = {
   'Carretera cortada': 'Road closed',
   'Emitido: {when}': 'Issued: {when}', 'Inicio: {when}': 'Start: {when}', 'Fin previsto: {when}': 'Expected end: {when}',
   'Última revisión en su fuente: {when}': 'Last reviewed by its source: {when}', 'Visto por el radar: {when}': 'Seen by the radar: {when}',
+  'El radar lo echa en falta desde: {when}': 'Missing in the radar since: {when}',
   'Sigue en el directo del radar · comprobado: {when}': 'Still in the radar\'s live data · checked: {when}',
   'Ya no está en el directo del radar · comprobado: {when}': 'No longer in the radar\'s live data · checked: {when}',
   'Su fuente lo retiró: {when}': 'Withdrawn by its source: {when}',
@@ -228,7 +229,10 @@ export function eventShare(e, { now, lang = 'es', credit = null, endedAt = null 
     e.start && say(lang, 'Inicio: {when}', { when: when(e.start) }),
     e.end && say(lang, 'Fin previsto: {when}', { when: when(e.end) }),
     e.updated && e.updated !== e.start && say(lang, 'Última revisión en su fuente: {when}', { when: when(e.updated) }),
-    (e.category === 'cancelacion' || e.category === 'sin-datos') && e.seen && say(lang, 'Visto por el radar: {when}', { when: when(e.seen) }),
+    // Las cancelaciones: desde cuándo la ve el radar (su fuente no dice cuándo la publicó); los trenes sin datos, desde
+    // cuándo los echa en falta (como en su ficha).
+    e.category === 'cancelacion' && e.seen && say(lang, 'Visto por el radar: {when}', { when: when(e.seen) }),
+    e.category === 'sin-datos' && e.seen && say(lang, 'El radar lo echa en falta desde: {when}', { when: when(e.seen) }),
   ].filter(Boolean);
   const status = endedAt
     ? { active: false, text: say(lang, 'Ya no está en el directo del radar · comprobado: {when}', { when: when(endedAt) }) }

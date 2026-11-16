@@ -291,6 +291,7 @@ const stream = connect({
     state.health = h;
     map.setSources(h);
     render('health');
+    openShared('health');
   },
 }, { buses: P.modeOn(prefs, 'bus') });
 
@@ -855,8 +856,10 @@ function openFollowed(key) {
 // en una lista. Si ya no está en el directo: lo último que se supo de ella (una incidencia) o un aviso.
 listenShareButtons();
 let shared = parseSharePath(location.pathname);
-const sharedUntil = Date.now() + 90_000; // lo que se espera a que lleguen sus datos (un autobús, con su capa)
+const sharedFrom = Date.now();
+const sharedUntil = sharedFrom + 90_000; // lo que se espera a que lleguen sus datos (un autobús, con su capa)
 let sharedAsked = false;
+const arrived = new Set(); // lo que ya ha llegado: 'stations', 'events', 'vehicles', 'health'
 
 function sharedGone() {
   const title = { incidencia: t('Esta incidencia ya no está en el directo'), vehiculo: t('Este vehículo ya no está en el directo'),
@@ -889,20 +892,25 @@ async function askShared() {
   if (body.mode && !P.modeOn(prefs, body.mode)) turnOnLayer(body.mode);
 }
 
-/** Abre lo del enlace cuando llega lo que hace falta: las estaciones, las incidencias o los vehículos. */
-function openShared(arrived) {
+/**
+ * Abre lo del enlace cuando ha llegado lo que hace falta: las estaciones, las incidencias o los vehículos y, para que
+ * su ficha salga ya con la atribución de su fuente, el estado de las fuentes (como mucho se le esperan 10 s).
+ */
+function openShared(what) {
+  arrived.add(what);
   if (!shared) return;
   if (Date.now() > sharedUntil) return sharedGone();
+  if (!arrived.has('health') && Date.now() - sharedFrom < 10_000) return;
   const { kind, id } = shared;
-  if (kind === 'estacion' && arrived === 'stations') {
+  if (kind === 'estacion' && arrived.has('stations')) {
     if (!state.stations.has(id)) return sharedGone();
     shared = null;
     openStation(id, true);
-  } else if (kind === 'incidencia' && arrived === 'events') {
+  } else if (kind === 'incidencia' && arrived.has('events')) {
     if (!findEvent(id)) return void askShared();
     shared = null;
     focusOn([{ kind: 'event', id }]);
-  } else if (kind === 'vehiculo' && arrived === 'vehicles') {
+  } else if (kind === 'vehiculo' && arrived.has('vehicles')) {
     if (!findVehicle(id)) return void askShared();
     shared = null;
     focusOn([{ kind: 'vehicle', id }]);
